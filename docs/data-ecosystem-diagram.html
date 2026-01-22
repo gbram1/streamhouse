@@ -1,0 +1,769 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Data Ecosystem - Where We Fit</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg: #fafafa;
+            --card-bg: #ffffff;
+            --border: #e5e7eb;
+            --text-primary: #111827;
+            --text-secondary: #6b7280;
+            --text-muted: #9ca3af;
+            
+            /* Category colors */
+            --sources: #3b82f6;
+            --sources-bg: #eff6ff;
+            --streaming: #8b5cf6;
+            --streaming-bg: #f5f3ff;
+            --processing: #ec4899;
+            --processing-bg: #fdf2f8;
+            --databases: #10b981;
+            --databases-bg: #ecfdf5;
+            --analytics: #f59e0b;
+            --analytics-bg: #fffbeb;
+            --observability: #ef4444;
+            --observability-bg: #fef2f2;
+            --you: #06b6d4;
+            --you-bg: linear-gradient(135deg, #ecfeff 0%, #f0fdfa 100%);
+            --you-border: #06b6d4;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+            background: var(--bg);
+            color: var(--text-primary);
+            min-height: 100vh;
+            padding: 2rem;
+        }
+
+        .container {
+            max-width: 1600px;
+            margin: 0 auto;
+        }
+
+        /* Header */
+        .header {
+            text-align: center;
+            margin-bottom: 3rem;
+        }
+
+        .header h1 {
+            font-size: 2.5rem;
+            font-weight: 700;
+            color: var(--text-primary);
+            margin-bottom: 0.5rem;
+        }
+
+        .header p {
+            font-size: 1.1rem;
+            color: var(--text-secondary);
+        }
+
+        /* Main Diagram */
+        .diagram {
+            position: relative;
+            display: grid;
+            grid-template-columns: 200px 1fr 1fr 1fr 200px;
+            gap: 2rem;
+            align-items: start;
+            padding: 2rem;
+            background: white;
+            border-radius: 1.5rem;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+        }
+
+        /* Column Styles */
+        .column {
+            display: flex;
+            flex-direction: column;
+            gap: 1rem;
+        }
+
+        .column-header {
+            text-align: center;
+            padding: 0.75rem 1rem;
+            border-radius: 0.75rem;
+            font-weight: 600;
+            font-size: 0.85rem;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            margin-bottom: 0.5rem;
+        }
+
+        /* Category Sections */
+        .section {
+            background: var(--card-bg);
+            border: 2px solid var(--border);
+            border-radius: 1rem;
+            padding: 1rem;
+            position: relative;
+        }
+
+        .section-title {
+            font-size: 0.7rem;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.1em;
+            margin-bottom: 0.75rem;
+            padding-bottom: 0.5rem;
+            border-bottom: 1px solid var(--border);
+        }
+
+        /* Node Styles */
+        .node {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            padding: 0.6rem 0.8rem;
+            background: var(--bg);
+            border: 1px solid var(--border);
+            border-radius: 0.5rem;
+            font-size: 0.85rem;
+            font-weight: 500;
+            transition: all 0.2s ease;
+            cursor: default;
+        }
+
+        .node:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+        }
+
+        .node-icon {
+            width: 24px;
+            height: 24px;
+            border-radius: 0.25rem;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 0.75rem;
+            flex-shrink: 0;
+        }
+
+        /* Source nodes */
+        .sources .section { border-color: var(--sources); background: var(--sources-bg); }
+        .sources .section-title { color: var(--sources); }
+        .sources .node-icon { background: var(--sources); color: white; }
+
+        /* Streaming nodes */
+        .streaming .section { border-color: var(--streaming); background: var(--streaming-bg); }
+        .streaming .section-title { color: var(--streaming); }
+        .streaming .node-icon { background: var(--streaming); color: white; }
+
+        /* Processing nodes */
+        .processing .section { border-color: var(--processing); background: var(--processing-bg); }
+        .processing .section-title { color: var(--processing); }
+        .processing .node-icon { background: var(--processing); color: white; }
+
+        /* Database nodes */
+        .databases .section { border-color: var(--databases); background: var(--databases-bg); }
+        .databases .section-title { color: var(--databases); }
+        .databases .node-icon { background: var(--databases); color: white; }
+
+        /* Analytics nodes */
+        .analytics .section { border-color: var(--analytics); background: var(--analytics-bg); }
+        .analytics .section-title { color: var(--analytics); }
+        .analytics .node-icon { background: var(--analytics); color: white; }
+
+        /* Observability nodes */
+        .observability .section { border-color: var(--observability); background: var(--observability-bg); }
+        .observability .section-title { color: var(--observability); }
+        .observability .node-icon { background: var(--observability); color: white; }
+
+        /* YOUR PLATFORM - Special Styling */
+        .you-platform {
+            grid-column: 2 / 4;
+            background: var(--you-bg);
+            border: 3px solid var(--you-border);
+            border-radius: 1.25rem;
+            padding: 1.5rem;
+            position: relative;
+            box-shadow: 0 0 0 4px rgba(6, 182, 212, 0.1), 0 8px 24px rgba(6, 182, 212, 0.15);
+        }
+
+        .you-platform::before {
+            content: '⭐ YOUR PLATFORM';
+            position: absolute;
+            top: -12px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: var(--you-border);
+            color: white;
+            padding: 0.25rem 1rem;
+            border-radius: 9999px;
+            font-size: 0.7rem;
+            font-weight: 700;
+            letter-spacing: 0.05em;
+        }
+
+        .you-inner {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 1rem;
+        }
+
+        .you-component {
+            background: white;
+            border: 2px solid var(--you-border);
+            border-radius: 0.75rem;
+            padding: 1rem;
+            text-align: center;
+        }
+
+        .you-component-title {
+            font-weight: 700;
+            font-size: 0.9rem;
+            color: var(--you-border);
+            margin-bottom: 0.25rem;
+        }
+
+        .you-component-subtitle {
+            font-size: 0.75rem;
+            color: var(--text-secondary);
+        }
+
+        .you-benefits {
+            grid-column: 1 / -1;
+            display: flex;
+            justify-content: center;
+            gap: 1.5rem;
+            margin-top: 0.5rem;
+            padding-top: 1rem;
+            border-top: 1px dashed var(--you-border);
+        }
+
+        .you-benefit {
+            display: flex;
+            align-items: center;
+            gap: 0.4rem;
+            font-size: 0.8rem;
+            color: var(--text-secondary);
+        }
+
+        .you-benefit-icon {
+            color: var(--you-border);
+            font-weight: bold;
+        }
+
+        /* Flow Arrows */
+        .flow-arrow {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: var(--text-muted);
+            font-size: 1.5rem;
+            padding: 1rem 0;
+        }
+
+        /* Connections SVG */
+        .connections {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            z-index: 0;
+        }
+
+        .connection {
+            stroke: var(--border);
+            stroke-width: 2;
+            fill: none;
+            stroke-dasharray: 8, 4;
+            opacity: 0.6;
+        }
+
+        .connection.active {
+            stroke: var(--you-border);
+            stroke-width: 2.5;
+            opacity: 1;
+            stroke-dasharray: none;
+        }
+
+        /* Arrow marker */
+        .arrow-marker {
+            fill: var(--text-muted);
+        }
+
+        /* Legend */
+        .legend {
+            display: flex;
+            justify-content: center;
+            flex-wrap: wrap;
+            gap: 1.5rem;
+            margin-top: 2rem;
+            padding: 1rem;
+            background: white;
+            border-radius: 1rem;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+        }
+
+        .legend-item {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            font-size: 0.85rem;
+            color: var(--text-secondary);
+        }
+
+        .legend-dot {
+            width: 12px;
+            height: 12px;
+            border-radius: 3px;
+        }
+
+        /* Flow Labels */
+        .flow-label {
+            position: absolute;
+            font-size: 0.65rem;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            color: var(--text-muted);
+            background: var(--bg);
+            padding: 0.2rem 0.5rem;
+            border-radius: 0.25rem;
+        }
+
+        /* Responsive Grid for mobile */
+        @media (max-width: 1200px) {
+            .diagram {
+                grid-template-columns: 1fr;
+                gap: 1rem;
+            }
+            
+            .you-platform {
+                grid-column: 1;
+            }
+        }
+
+        /* Second Diagram - Simplified View */
+        .simple-diagram {
+            margin-top: 3rem;
+            background: white;
+            border-radius: 1.5rem;
+            padding: 2rem;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+        }
+
+        .simple-diagram h2 {
+            text-align: center;
+            font-size: 1.5rem;
+            margin-bottom: 2rem;
+            color: var(--text-primary);
+        }
+
+        .simple-flow {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 0.5rem;
+            flex-wrap: wrap;
+        }
+
+        .simple-box {
+            padding: 1rem 1.5rem;
+            border-radius: 0.75rem;
+            font-weight: 600;
+            font-size: 0.9rem;
+            border: 2px solid;
+            min-width: 120px;
+            text-align: center;
+        }
+
+        .simple-box.source {
+            background: var(--sources-bg);
+            border-color: var(--sources);
+            color: var(--sources);
+        }
+
+        .simple-box.old-streaming {
+            background: var(--streaming-bg);
+            border-color: var(--streaming);
+            color: var(--streaming);
+        }
+
+        .simple-box.old-processing {
+            background: var(--processing-bg);
+            border-color: var(--processing);
+            color: var(--processing);
+        }
+
+        .simple-box.database {
+            background: var(--databases-bg);
+            border-color: var(--databases);
+            color: var(--databases);
+        }
+
+        .simple-box.you {
+            background: var(--you-bg);
+            border-color: var(--you-border);
+            color: var(--you-border);
+            position: relative;
+            padding: 1.25rem 2rem;
+        }
+
+        .simple-box.you::after {
+            content: 'REPLACES BOTH';
+            position: absolute;
+            bottom: -20px;
+            left: 50%;
+            transform: translateX(-50%);
+            font-size: 0.6rem;
+            background: var(--you-border);
+            color: white;
+            padding: 0.15rem 0.5rem;
+            border-radius: 9999px;
+            white-space: nowrap;
+        }
+
+        .simple-arrow {
+            font-size: 1.5rem;
+            color: var(--text-muted);
+        }
+
+        .versus {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 2rem;
+            padding: 1rem;
+        }
+
+        .versus-label {
+            font-size: 0.85rem;
+            color: var(--text-muted);
+            font-weight: 500;
+            padding: 0.5rem 1rem;
+            background: var(--bg);
+            border-radius: 0.5rem;
+        }
+
+        .strike {
+            text-decoration: line-through;
+            opacity: 0.5;
+        }
+
+        /* Cost comparison inline */
+        .cost-row {
+            display: flex;
+            justify-content: center;
+            gap: 3rem;
+            margin-top: 2rem;
+            padding-top: 1.5rem;
+            border-top: 1px solid var(--border);
+        }
+
+        .cost-item {
+            text-align: center;
+        }
+
+        .cost-label {
+            font-size: 0.75rem;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            margin-bottom: 0.25rem;
+        }
+
+        .cost-value {
+            font-size: 1.5rem;
+            font-weight: 700;
+        }
+
+        .cost-value.old {
+            color: var(--observability);
+            text-decoration: line-through;
+        }
+
+        .cost-value.new {
+            color: var(--you-border);
+        }
+
+        .cost-savings {
+            background: #dcfce7;
+            color: #15803d;
+            padding: 0.25rem 0.75rem;
+            border-radius: 9999px;
+            font-size: 0.75rem;
+            font-weight: 600;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <!-- Header -->
+        <div class="header">
+            <h1>The Modern Data Ecosystem</h1>
+            <p>Where our unified streaming platform fits in the data landscape</p>
+        </div>
+
+        <!-- Main Architecture Diagram -->
+        <div class="diagram">
+            <!-- Column 1: Data Sources -->
+            <div class="column sources">
+                <div class="column-header" style="background: var(--sources-bg); color: var(--sources);">
+                    Data Sources
+                </div>
+                
+                <div class="section">
+                    <div class="section-title">Applications</div>
+                    <div class="node"><div class="node-icon">🛒</div> E-commerce</div>
+                    <div class="node"><div class="node-icon">📱</div> Mobile Apps</div>
+                    <div class="node"><div class="node-icon">🌐</div> Web Apps</div>
+                    <div class="node"><div class="node-icon">🎮</div> Gaming</div>
+                </div>
+
+                <div class="section">
+                    <div class="section-title">Infrastructure</div>
+                    <div class="node"><div class="node-icon">📝</div> Logs</div>
+                    <div class="node"><div class="node-icon">📊</div> Metrics</div>
+                    <div class="node"><div class="node-icon">🔌</div> IoT Devices</div>
+                </div>
+
+                <div class="section">
+                    <div class="section-title">Databases</div>
+                    <div class="node"><div class="node-icon">🐘</div> PostgreSQL</div>
+                    <div class="node"><div class="node-icon">🐬</div> MySQL</div>
+                    <div class="node"><div class="node-icon">🍃</div> MongoDB</div>
+                </div>
+            </div>
+
+            <!-- Column 2-3: YOUR PLATFORM (spans 2 columns) -->
+            <div class="you-platform">
+                <div class="you-inner">
+                    <div class="you-component">
+                        <div class="you-component-title">🚀 Kafka-Compatible API</div>
+                        <div class="you-component-subtitle">Drop-in replacement</div>
+                    </div>
+                    <div class="you-component">
+                        <div class="you-component-title">💾 S3 Storage Layer</div>
+                        <div class="you-component-subtitle">80% cheaper than Kafka</div>
+                    </div>
+                    <div class="you-component">
+                        <div class="you-component-title">⚡ SQL Processing Engine</div>
+                        <div class="you-component-subtitle">No separate Flink needed</div>
+                    </div>
+                    <div class="you-component">
+                        <div class="you-component-title">🪟 Window Functions</div>
+                        <div class="you-component-subtitle">TUMBLE, HOP, aggregations</div>
+                    </div>
+                    <div class="you-benefits">
+                        <div class="you-benefit"><span class="you-benefit-icon">✓</span> One system</div>
+                        <div class="you-benefit"><span class="you-benefit-icon">✓</span> One bill</div>
+                        <div class="you-benefit"><span class="you-benefit-icon">✓</span> SQL interface</div>
+                        <div class="you-benefit"><span class="you-benefit-icon">✓</span> Kafka compatible</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Column 4: What You Replace -->
+            <div class="column">
+                <div class="column-header" style="background: #fef2f2; color: #dc2626;">
+                    What You Replace
+                </div>
+                
+                <div class="section streaming" style="opacity: 0.6;">
+                    <div class="section-title" style="text-decoration: line-through;">Streaming (Replaced)</div>
+                    <div class="node" style="text-decoration: line-through;"><div class="node-icon">🔴</div> Kafka</div>
+                    <div class="node" style="text-decoration: line-through;"><div class="node-icon">🔴</div> Redpanda</div>
+                    <div class="node" style="text-decoration: line-through;"><div class="node-icon">🔴</div> Pulsar</div>
+                    <div class="node" style="text-decoration: line-through;"><div class="node-icon">🔴</div> Kinesis</div>
+                </div>
+
+                <div class="section processing" style="opacity: 0.6;">
+                    <div class="section-title" style="text-decoration: line-through;">Processing (Replaced)</div>
+                    <div class="node" style="text-decoration: line-through;"><div class="node-icon">🔴</div> Apache Flink</div>
+                    <div class="node" style="text-decoration: line-through;"><div class="node-icon">🔴</div> Spark Streaming</div>
+                    <div class="node" style="text-decoration: line-through;"><div class="node-icon">🔴</div> ksqlDB</div>
+                </div>
+            </div>
+
+            <!-- Column 5: Downstream -->
+            <div class="column">
+                <div class="column-header" style="background: var(--databases-bg); color: var(--databases);">
+                    Downstream
+                </div>
+                
+                <div class="section databases">
+                    <div class="section-title">OLAP / Analytics</div>
+                    <div class="node"><div class="node-icon">⚡</div> ClickHouse</div>
+                    <div class="node"><div class="node-icon">❄️</div> Snowflake</div>
+                    <div class="node"><div class="node-icon">🧱</div> Databricks</div>
+                    <div class="node"><div class="node-icon">🔍</div> BigQuery</div>
+                </div>
+
+                <div class="section analytics">
+                    <div class="section-title">Real-time Analytics</div>
+                    <div class="node"><div class="node-icon">🐦</div> Tinybird</div>
+                    <div class="node"><div class="node-icon">🪨</div> Rockset</div>
+                    <div class="node"><div class="node-icon">📊</div> Druid</div>
+                </div>
+
+                <div class="section observability">
+                    <div class="section-title">Observability</div>
+                    <div class="node"><div class="node-icon">🐕</div> Datadog</div>
+                    <div class="node"><div class="node-icon">📈</div> Grafana</div>
+                    <div class="node"><div class="node-icon">🔎</div> Elastic</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Legend -->
+        <div class="legend">
+            <div class="legend-item">
+                <div class="legend-dot" style="background: var(--sources);"></div>
+                Data Sources
+            </div>
+            <div class="legend-item">
+                <div class="legend-dot" style="background: var(--you-border);"></div>
+                Your Platform (Transport + Processing)
+            </div>
+            <div class="legend-item">
+                <div class="legend-dot" style="background: var(--streaming); opacity: 0.5;"></div>
+                <span style="text-decoration: line-through;">Legacy Streaming (Replaced)</span>
+            </div>
+            <div class="legend-item">
+                <div class="legend-dot" style="background: var(--processing); opacity: 0.5;"></div>
+                <span style="text-decoration: line-through;">Legacy Processing (Replaced)</span>
+            </div>
+            <div class="legend-item">
+                <div class="legend-dot" style="background: var(--databases);"></div>
+                Downstream Systems
+            </div>
+        </div>
+
+        <!-- Simplified Before/After -->
+        <div class="simple-diagram">
+            <h2>Before vs After</h2>
+            
+            <div class="versus">
+                <!-- Before -->
+                <div class="versus-label">❌ BEFORE: 3 Systems to Manage</div>
+                <div class="simple-flow">
+                    <div class="simple-box source">Apps</div>
+                    <div class="simple-arrow">→</div>
+                    <div class="simple-box old-streaming">Kafka<br><small style="font-weight: 400; font-size: 0.7rem;">$25K/mo</small></div>
+                    <div class="simple-arrow">→</div>
+                    <div class="simple-box old-processing">Flink<br><small style="font-weight: 400; font-size: 0.7rem;">$15K/mo</small></div>
+                    <div class="simple-arrow">→</div>
+                    <div class="simple-box database">ClickHouse</div>
+                    <div class="simple-arrow">→</div>
+                    <div class="simple-box" style="background: #fef3c7; border-color: #f59e0b; color: #f59e0b;">Dashboard</div>
+                </div>
+
+                <!-- After -->
+                <div class="versus-label">✅ AFTER: 1 System</div>
+                <div class="simple-flow">
+                    <div class="simple-box source">Apps</div>
+                    <div class="simple-arrow">→</div>
+                    <div class="simple-box you" style="min-width: 200px;">
+                        Your Platform<br>
+                        <small style="font-weight: 400; font-size: 0.7rem;">$8K/mo</small>
+                    </div>
+                    <div class="simple-arrow">→</div>
+                    <div class="simple-box database">ClickHouse</div>
+                    <div class="simple-arrow">→</div>
+                    <div class="simple-box" style="background: #fef3c7; border-color: #f59e0b; color: #f59e0b;">Dashboard</div>
+                </div>
+            </div>
+
+            <!-- Cost comparison -->
+            <div class="cost-row">
+                <div class="cost-item">
+                    <div class="cost-label">Before (Monthly)</div>
+                    <div class="cost-value old">$45,000</div>
+                </div>
+                <div class="cost-item">
+                    <div class="cost-label">After (Monthly)</div>
+                    <div class="cost-value new">$8,000</div>
+                </div>
+                <div class="cost-item">
+                    <div class="cost-label">You Save</div>
+                    <div class="cost-savings">82% / $37K per month</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Data Flow Detail -->
+        <div class="simple-diagram">
+            <h2>Typical Data Flows</h2>
+            
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(400px, 1fr)); gap: 2rem; margin-top: 1rem;">
+                <!-- Flow 1: Real-time Analytics -->
+                <div style="padding: 1.5rem; background: var(--bg); border-radius: 1rem;">
+                    <div style="font-weight: 600; margin-bottom: 1rem; color: var(--you-border);">📊 Real-time Analytics Pipeline</div>
+                    <div style="font-size: 0.85rem; color: var(--text-secondary); line-height: 1.8;">
+                        <div><strong>E-commerce App</strong> → sends order events</div>
+                        <div style="padding-left: 1rem;">↓</div>
+                        <div style="background: #ecfeff; padding: 0.5rem; border-radius: 0.5rem; border-left: 3px solid var(--you-border);">
+                            <strong style="color: var(--you-border);">Your Platform</strong><br>
+                            <code style="font-size: 0.75rem;">SELECT region, SUM(amount) FROM orders<br>GROUP BY TUMBLE(time, '1 min'), region</code>
+                        </div>
+                        <div style="padding-left: 1rem;">↓</div>
+                        <div><strong>ClickHouse</strong> → stores aggregated results</div>
+                        <div style="padding-left: 1rem;">↓</div>
+                        <div><strong>Grafana Dashboard</strong> → live revenue by region</div>
+                    </div>
+                </div>
+
+                <!-- Flow 2: Log Aggregation -->
+                <div style="padding: 1.5rem; background: var(--bg); border-radius: 1rem;">
+                    <div style="font-weight: 600; margin-bottom: 1rem; color: var(--you-border);">📝 Log Aggregation Pipeline</div>
+                    <div style="font-size: 0.85rem; color: var(--text-secondary); line-height: 1.8;">
+                        <div><strong>Application Servers</strong> → emit logs</div>
+                        <div style="padding-left: 1rem;">↓</div>
+                        <div style="background: #ecfeff; padding: 0.5rem; border-radius: 0.5rem; border-left: 3px solid var(--you-border);">
+                            <strong style="color: var(--you-border);">Your Platform</strong><br>
+                            <code style="font-size: 0.75rem;">SELECT level, COUNT(*) FROM logs<br>WHERE level = 'ERROR'<br>GROUP BY TUMBLE(time, '5 min')</code>
+                        </div>
+                        <div style="padding-left: 1rem;">↓</div>
+                        <div><strong>Datadog/PagerDuty</strong> → alerts on thresholds</div>
+                    </div>
+                </div>
+
+                <!-- Flow 3: CDC -->
+                <div style="padding: 1.5rem; background: var(--bg); border-radius: 1rem;">
+                    <div style="font-weight: 600; margin-bottom: 1rem; color: var(--you-border);">🔄 CDC & Data Sync</div>
+                    <div style="font-size: 0.85rem; color: var(--text-secondary); line-height: 1.8;">
+                        <div><strong>PostgreSQL</strong> → Debezium captures changes</div>
+                        <div style="padding-left: 1rem;">↓</div>
+                        <div style="background: #ecfeff; padding: 0.5rem; border-radius: 0.5rem; border-left: 3px solid var(--you-border);">
+                            <strong style="color: var(--you-border);">Your Platform</strong><br>
+                            <code style="font-size: 0.75rem;">-- Transform and enrich<br>SELECT *, category_name FROM changes<br>JOIN categories USING (category_id)</code>
+                        </div>
+                        <div style="padding-left: 1rem;">↓</div>
+                        <div><strong>Snowflake/BigQuery</strong> → data warehouse</div>
+                    </div>
+                </div>
+
+                <!-- Flow 4: ML Features -->
+                <div style="padding: 1.5rem; background: var(--bg); border-radius: 1rem;">
+                    <div style="font-weight: 600; margin-bottom: 1rem; color: var(--you-border);">🤖 ML Feature Pipeline</div>
+                    <div style="font-size: 0.85rem; color: var(--text-secondary); line-height: 1.8;">
+                        <div><strong>User Events</strong> → clicks, views, purchases</div>
+                        <div style="padding-left: 1rem;">↓</div>
+                        <div style="background: #ecfeff; padding: 0.5rem; border-radius: 0.5rem; border-left: 3px solid var(--you-border);">
+                            <strong style="color: var(--you-border);">Your Platform</strong><br>
+                            <code style="font-size: 0.75rem;">SELECT user_id,<br>  AVG(price) OVER (PARTITION BY user_id<br>    ORDER BY time ROWS 100 PRECEDING)<br>FROM events</code>
+                        </div>
+                        <div style="padding-left: 1rem;">↓</div>
+                        <div><strong>Feature Store</strong> → real-time ML features</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</body>
+</html>

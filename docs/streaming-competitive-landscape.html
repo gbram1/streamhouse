@@ -1,0 +1,928 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Streaming Platform Competitive Landscape</title>
+    <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg-dark: #0a0a0f;
+            --bg-card: #12121a;
+            --bg-card-hover: #1a1a25;
+            --accent-blue: #3b82f6;
+            --accent-purple: #8b5cf6;
+            --accent-green: #10b981;
+            --accent-orange: #f59e0b;
+            --accent-red: #ef4444;
+            --accent-pink: #ec4899;
+            --text-primary: #f8fafc;
+            --text-secondary: #94a3b8;
+            --text-muted: #64748b;
+            --border: #1e293b;
+            --glow-blue: rgba(59, 130, 246, 0.3);
+            --glow-green: rgba(16, 185, 129, 0.3);
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Space Grotesk', sans-serif;
+            background: var(--bg-dark);
+            color: var(--text-primary);
+            line-height: 1.6;
+            overflow-x: hidden;
+        }
+
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 2rem;
+        }
+
+        /* Hero Section */
+        .hero {
+            text-align: center;
+            padding: 4rem 2rem;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .hero::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 800px;
+            height: 800px;
+            background: radial-gradient(circle, var(--glow-blue) 0%, transparent 70%);
+            opacity: 0.3;
+            pointer-events: none;
+        }
+
+        .hero h1 {
+            font-size: 3.5rem;
+            font-weight: 700;
+            margin-bottom: 1rem;
+            background: linear-gradient(135deg, var(--text-primary) 0%, var(--accent-blue) 50%, var(--accent-purple) 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+            position: relative;
+        }
+
+        .hero p {
+            font-size: 1.25rem;
+            color: var(--text-secondary);
+            max-width: 700px;
+            margin: 0 auto;
+        }
+
+        /* Section Titles */
+        .section-title {
+            font-size: 2rem;
+            font-weight: 600;
+            margin: 3rem 0 2rem;
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+        }
+
+        .section-title::before {
+            content: '';
+            width: 4px;
+            height: 2rem;
+            background: linear-gradient(180deg, var(--accent-blue), var(--accent-purple));
+            border-radius: 2px;
+        }
+
+        /* Data Flow Diagram */
+        .flow-diagram {
+            background: var(--bg-card);
+            border-radius: 1.5rem;
+            padding: 3rem;
+            margin: 2rem 0;
+            border: 1px solid var(--border);
+            position: relative;
+            overflow: hidden;
+        }
+
+        .flow-diagram::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 4px;
+            background: linear-gradient(90deg, var(--accent-blue), var(--accent-purple), var(--accent-pink));
+        }
+
+        .flow-container {
+            display: flex;
+            justify-content: space-between;
+            align-items: stretch;
+            gap: 1rem;
+            position: relative;
+        }
+
+        .flow-stage {
+            flex: 1;
+            text-align: center;
+            position: relative;
+        }
+
+        .flow-box {
+            background: linear-gradient(135deg, rgba(59, 130, 246, 0.1) 0%, rgba(139, 92, 246, 0.1) 100%);
+            border: 1px solid var(--border);
+            border-radius: 1rem;
+            padding: 1.5rem;
+            height: 100%;
+            transition: all 0.3s ease;
+        }
+
+        .flow-box:hover {
+            transform: translateY(-4px);
+            border-color: var(--accent-blue);
+            box-shadow: 0 8px 32px var(--glow-blue);
+        }
+
+        .flow-box.highlight {
+            background: linear-gradient(135deg, rgba(16, 185, 129, 0.15) 0%, rgba(59, 130, 246, 0.15) 100%);
+            border-color: var(--accent-green);
+        }
+
+        .flow-box.highlight:hover {
+            box-shadow: 0 8px 32px var(--glow-green);
+        }
+
+        .flow-icon {
+            font-size: 2.5rem;
+            margin-bottom: 0.5rem;
+        }
+
+        .flow-title {
+            font-size: 1.1rem;
+            font-weight: 600;
+            margin-bottom: 0.5rem;
+            color: var(--text-primary);
+        }
+
+        .flow-subtitle {
+            font-size: 0.85rem;
+            color: var(--text-muted);
+            margin-bottom: 1rem;
+        }
+
+        .flow-players {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.5rem;
+            justify-content: center;
+        }
+
+        .player-tag {
+            font-size: 0.75rem;
+            padding: 0.25rem 0.75rem;
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 9999px;
+            color: var(--text-secondary);
+            border: 1px solid var(--border);
+        }
+
+        .player-tag.you {
+            background: linear-gradient(135deg, var(--accent-green), var(--accent-blue));
+            color: white;
+            font-weight: 600;
+            border: none;
+        }
+
+        .flow-arrow {
+            display: flex;
+            align-items: center;
+            color: var(--text-muted);
+            font-size: 1.5rem;
+        }
+
+        /* Positioning Matrix */
+        .matrix-container {
+            background: var(--bg-card);
+            border-radius: 1.5rem;
+            padding: 2rem;
+            margin: 2rem 0;
+            border: 1px solid var(--border);
+        }
+
+        .matrix {
+            display: grid;
+            grid-template-columns: auto 1fr 1fr;
+            grid-template-rows: auto 1fr 1fr;
+            gap: 1rem;
+            min-height: 500px;
+        }
+
+        .matrix-header {
+            font-weight: 600;
+            color: var(--text-secondary);
+            text-align: center;
+            padding: 1rem;
+            font-size: 0.9rem;
+        }
+
+        .matrix-header.col {
+            border-bottom: 1px solid var(--border);
+        }
+
+        .matrix-header.row {
+            writing-mode: vertical-rl;
+            transform: rotate(180deg);
+            border-right: 1px solid var(--border);
+        }
+
+        .matrix-cell {
+            background: rgba(255, 255, 255, 0.02);
+            border-radius: 1rem;
+            padding: 1.5rem;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            gap: 0.75rem;
+            border: 1px solid var(--border);
+            transition: all 0.3s ease;
+        }
+
+        .matrix-cell.you-cell {
+            background: linear-gradient(135deg, rgba(16, 185, 129, 0.1) 0%, rgba(59, 130, 246, 0.1) 100%);
+            border: 2px solid var(--accent-green);
+            position: relative;
+            overflow: hidden;
+        }
+
+        .matrix-cell.you-cell::before {
+            content: '⭐ YOUR POSITION';
+            position: absolute;
+            top: 0.75rem;
+            right: 0.75rem;
+            font-size: 0.65rem;
+            font-weight: 700;
+            color: var(--accent-green);
+            letter-spacing: 0.05em;
+        }
+
+        .matrix-cell.empty-cell {
+            background: repeating-linear-gradient(
+                45deg,
+                transparent,
+                transparent 10px,
+                rgba(255, 255, 255, 0.01) 10px,
+                rgba(255, 255, 255, 0.01) 20px
+            );
+            opacity: 0.5;
+        }
+
+        .matrix-competitor {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            padding: 0.5rem 1rem;
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 0.5rem;
+            font-size: 0.85rem;
+        }
+
+        .matrix-competitor.highlight {
+            background: linear-gradient(135deg, var(--accent-green), var(--accent-blue));
+            font-weight: 600;
+        }
+
+        .competitor-status {
+            font-size: 0.7rem;
+            color: var(--text-muted);
+        }
+
+        /* Comparison Table */
+        .comparison-table {
+            width: 100%;
+            border-collapse: separate;
+            border-spacing: 0;
+            margin: 2rem 0;
+            background: var(--bg-card);
+            border-radius: 1rem;
+            overflow: hidden;
+            border: 1px solid var(--border);
+        }
+
+        .comparison-table th {
+            background: rgba(255, 255, 255, 0.03);
+            padding: 1.25rem 1rem;
+            text-align: left;
+            font-weight: 600;
+            font-size: 0.85rem;
+            color: var(--text-secondary);
+            border-bottom: 1px solid var(--border);
+        }
+
+        .comparison-table th.you-col {
+            background: linear-gradient(135deg, rgba(16, 185, 129, 0.2) 0%, rgba(59, 130, 246, 0.2) 100%);
+            color: var(--accent-green);
+        }
+
+        .comparison-table td {
+            padding: 1rem;
+            border-bottom: 1px solid var(--border);
+            font-size: 0.9rem;
+            vertical-align: middle;
+        }
+
+        .comparison-table tr:last-child td {
+            border-bottom: none;
+        }
+
+        .comparison-table tr:hover td {
+            background: rgba(255, 255, 255, 0.02);
+        }
+
+        .comparison-table .feature-name {
+            font-weight: 500;
+            color: var(--text-primary);
+        }
+
+        .check {
+            color: var(--accent-green);
+            font-weight: bold;
+        }
+
+        .cross {
+            color: var(--accent-red);
+        }
+
+        .warning {
+            color: var(--accent-orange);
+        }
+
+        .cost-indicator {
+            display: flex;
+            gap: 2px;
+        }
+
+        .cost-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: var(--accent-orange);
+        }
+
+        .cost-dot.empty {
+            background: var(--border);
+        }
+
+        /* Cost Savings */
+        .savings-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 1.5rem;
+            margin: 2rem 0;
+        }
+
+        .savings-card {
+            background: var(--bg-card);
+            border-radius: 1rem;
+            padding: 2rem;
+            border: 1px solid var(--border);
+            position: relative;
+            overflow: hidden;
+        }
+
+        .savings-card::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 3px;
+            background: linear-gradient(90deg, var(--accent-orange), var(--accent-red));
+        }
+
+        .savings-card.you::before {
+            background: linear-gradient(90deg, var(--accent-green), var(--accent-blue));
+        }
+
+        .savings-label {
+            font-size: 0.85rem;
+            color: var(--text-muted);
+            margin-bottom: 0.5rem;
+        }
+
+        .savings-amount {
+            font-size: 2.5rem;
+            font-weight: 700;
+            font-family: 'JetBrains Mono', monospace;
+        }
+
+        .savings-card:not(.you) .savings-amount {
+            color: var(--accent-orange);
+        }
+
+        .savings-card.you .savings-amount {
+            background: linear-gradient(135deg, var(--accent-green), var(--accent-blue));
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+
+        .savings-detail {
+            font-size: 0.85rem;
+            color: var(--text-secondary);
+            margin-top: 0.5rem;
+        }
+
+        .savings-badge {
+            position: absolute;
+            top: 1rem;
+            right: 1rem;
+            background: var(--accent-green);
+            color: white;
+            padding: 0.25rem 0.75rem;
+            border-radius: 9999px;
+            font-size: 0.75rem;
+            font-weight: 600;
+        }
+
+        /* Value Proposition */
+        .value-prop {
+            background: linear-gradient(135deg, rgba(16, 185, 129, 0.1) 0%, rgba(59, 130, 246, 0.1) 100%);
+            border: 2px solid var(--accent-green);
+            border-radius: 1.5rem;
+            padding: 3rem;
+            margin: 3rem 0;
+            text-align: center;
+            position: relative;
+        }
+
+        .value-prop h2 {
+            font-size: 2rem;
+            margin-bottom: 1rem;
+        }
+
+        .value-prop p {
+            font-size: 1.5rem;
+            color: var(--text-secondary);
+            max-width: 800px;
+            margin: 0 auto;
+        }
+
+        .value-prop .highlight-text {
+            color: var(--accent-green);
+            font-weight: 600;
+        }
+
+        /* Acquisitions Timeline */
+        .timeline {
+            position: relative;
+            padding: 2rem 0;
+        }
+
+        .timeline::before {
+            content: '';
+            position: absolute;
+            left: 50%;
+            top: 0;
+            bottom: 0;
+            width: 2px;
+            background: linear-gradient(180deg, var(--accent-blue), var(--accent-purple), var(--accent-pink));
+        }
+
+        .timeline-item {
+            display: flex;
+            justify-content: flex-end;
+            padding-right: calc(50% + 2rem);
+            margin-bottom: 2rem;
+            position: relative;
+        }
+
+        .timeline-item:nth-child(even) {
+            justify-content: flex-start;
+            padding-right: 0;
+            padding-left: calc(50% + 2rem);
+        }
+
+        .timeline-item::before {
+            content: '';
+            position: absolute;
+            left: calc(50% - 6px);
+            top: 1.5rem;
+            width: 14px;
+            height: 14px;
+            background: var(--bg-dark);
+            border: 3px solid var(--accent-blue);
+            border-radius: 50%;
+        }
+
+        .timeline-content {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 1rem;
+            padding: 1.5rem;
+            max-width: 400px;
+        }
+
+        .timeline-year {
+            font-size: 0.85rem;
+            color: var(--accent-blue);
+            font-weight: 600;
+            margin-bottom: 0.5rem;
+        }
+
+        .timeline-title {
+            font-size: 1.1rem;
+            font-weight: 600;
+            margin-bottom: 0.5rem;
+        }
+
+        .timeline-desc {
+            font-size: 0.9rem;
+            color: var(--text-secondary);
+        }
+
+        /* Responsive */
+        @media (max-width: 768px) {
+            .hero h1 {
+                font-size: 2rem;
+            }
+
+            .flow-container {
+                flex-direction: column;
+            }
+
+            .flow-arrow {
+                transform: rotate(90deg);
+                justify-content: center;
+                padding: 0.5rem;
+            }
+
+            .matrix {
+                grid-template-columns: 1fr;
+                grid-template-rows: auto;
+            }
+
+            .matrix-header.row {
+                writing-mode: horizontal-tb;
+                transform: none;
+                border-right: none;
+                border-bottom: 1px solid var(--border);
+            }
+
+            .timeline::before {
+                left: 1rem;
+            }
+
+            .timeline-item,
+            .timeline-item:nth-child(even) {
+                padding-left: 3rem;
+                padding-right: 0;
+                justify-content: flex-start;
+            }
+
+            .timeline-item::before {
+                left: calc(1rem - 6px);
+            }
+        }
+
+        /* Animations */
+        @keyframes fadeInUp {
+            from {
+                opacity: 0;
+                transform: translateY(20px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        .animate {
+            animation: fadeInUp 0.6s ease forwards;
+        }
+
+        .delay-1 { animation-delay: 0.1s; }
+        .delay-2 { animation-delay: 0.2s; }
+        .delay-3 { animation-delay: 0.3s; }
+        .delay-4 { animation-delay: 0.4s; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <!-- Hero -->
+        <div class="hero animate">
+            <h1>Streaming Platform Competitive Landscape</h1>
+            <p>Understanding where the opportunity lies in the modern real-time data stack</p>
+        </div>
+
+        <!-- Data Flow -->
+        <h2 class="section-title animate delay-1">The Modern Data Flow</h2>
+        <div class="flow-diagram animate delay-2">
+            <div class="flow-container">
+                <div class="flow-stage">
+                    <div class="flow-box">
+                        <div class="flow-icon">📱</div>
+                        <div class="flow-title">Sources</div>
+                        <div class="flow-subtitle">Where data originates</div>
+                        <div class="flow-players">
+                            <span class="player-tag">Apps</span>
+                            <span class="player-tag">Databases</span>
+                            <span class="player-tag">IoT</span>
+                            <span class="player-tag">Logs</span>
+                        </div>
+                    </div>
+                </div>
+                <div class="flow-arrow">→</div>
+                <div class="flow-stage">
+                    <div class="flow-box">
+                        <div class="flow-icon">🚀</div>
+                        <div class="flow-title">Transport</div>
+                        <div class="flow-subtitle">Message bus layer</div>
+                        <div class="flow-players">
+                            <span class="player-tag">Kafka</span>
+                            <span class="player-tag">Redpanda</span>
+                            <span class="player-tag">WarpStream</span>
+                            <span class="player-tag">Pulsar</span>
+                        </div>
+                    </div>
+                </div>
+                <div class="flow-arrow">→</div>
+                <div class="flow-stage">
+                    <div class="flow-box">
+                        <div class="flow-icon">⚡</div>
+                        <div class="flow-title">Processing</div>
+                        <div class="flow-subtitle">Stream compute</div>
+                        <div class="flow-players">
+                            <span class="player-tag">Flink</span>
+                            <span class="player-tag">RisingWave</span>
+                            <span class="player-tag">Materialize</span>
+                            <span class="player-tag">Arroyo</span>
+                        </div>
+                    </div>
+                </div>
+                <div class="flow-arrow">→</div>
+                <div class="flow-stage">
+                    <div class="flow-box">
+                        <div class="flow-icon">📊</div>
+                        <div class="flow-title">Serving</div>
+                        <div class="flow-subtitle">Analytics & queries</div>
+                        <div class="flow-players">
+                            <span class="player-tag">ClickHouse</span>
+                            <span class="player-tag">Druid</span>
+                            <span class="player-tag">Tinybird</span>
+                            <span class="player-tag">Pinot</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Your Position -->
+        <h2 class="section-title animate delay-1">Your Unified Position</h2>
+        <div class="flow-diagram animate delay-2">
+            <div class="flow-container">
+                <div class="flow-stage">
+                    <div class="flow-box">
+                        <div class="flow-icon">📱</div>
+                        <div class="flow-title">Sources</div>
+                        <div class="flow-subtitle">Same as before</div>
+                    </div>
+                </div>
+                <div class="flow-arrow">→</div>
+                <div class="flow-stage" style="flex: 2;">
+                    <div class="flow-box highlight">
+                        <div class="flow-icon">✨</div>
+                        <div class="flow-title">YOUR PLATFORM</div>
+                        <div class="flow-subtitle">Transport + Processing unified</div>
+                        <div class="flow-players">
+                            <span class="player-tag you">S3 Storage</span>
+                            <span class="player-tag you">SQL Engine</span>
+                            <span class="player-tag you">Kafka API</span>
+                        </div>
+                    </div>
+                </div>
+                <div class="flow-arrow">→</div>
+                <div class="flow-stage">
+                    <div class="flow-box">
+                        <div class="flow-icon">📊</div>
+                        <div class="flow-title">Serving</div>
+                        <div class="flow-subtitle">Optional downstream</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Positioning Matrix -->
+        <h2 class="section-title animate delay-1">Competitive Positioning Matrix</h2>
+        <div class="matrix-container animate delay-2">
+            <div class="matrix">
+                <div></div>
+                <div class="matrix-header col">✅ Has Built-in Transport<br><small style="font-weight: normal; color: var(--text-muted);">No external Kafka needed</small></div>
+                <div class="matrix-header col">❌ Needs External Kafka<br><small style="font-weight: normal; color: var(--text-muted);">Still paying Kafka bill</small></div>
+                
+                <div class="matrix-header row">✅ Has SQL Processing</div>
+                <div class="matrix-cell you-cell">
+                    <div class="matrix-competitor highlight">🌟 YOUR PLATFORM</div>
+                    <div class="competitor-status">Only player here!</div>
+                    <div style="font-size: 0.8rem; color: var(--text-secondary); text-align: center; margin-top: 0.5rem;">
+                        S3 storage + SQL engine + Kafka API<br>
+                        <strong style="color: var(--accent-green);">One system, one bill</strong>
+                    </div>
+                </div>
+                <div class="matrix-cell">
+                    <div class="matrix-competitor">RisingWave</div>
+                    <div class="competitor-status">$36M raised, growing</div>
+                    <div class="matrix-competitor">Materialize</div>
+                    <div class="competitor-status">$108M raised, struggling</div>
+                    <div class="matrix-competitor">Arroyo → Cloudflare</div>
+                    <div class="competitor-status">Acquired 2025</div>
+                    <div class="matrix-competitor">ksqlDB</div>
+                    <div class="competitor-status">Confluent product</div>
+                </div>
+                
+                <div class="matrix-header row">❌ Transport Only</div>
+                <div class="matrix-cell">
+                    <div class="matrix-competitor">WarpStream → Confluent</div>
+                    <div class="competitor-status">$220M acquisition</div>
+                    <div class="matrix-competitor">Redpanda</div>
+                    <div class="competitor-status">$100M+ raised</div>
+                    <div class="matrix-competitor">Apache Kafka</div>
+                    <div class="competitor-status">The incumbent</div>
+                </div>
+                <div class="matrix-cell empty-cell">
+                    <div style="color: var(--text-muted); font-size: 0.85rem;">N/A</div>
+                    <div style="color: var(--text-muted); font-size: 0.75rem;">(doesn't make sense)</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Cost Comparison -->
+        <h2 class="section-title animate delay-1">Cost Comparison (50 TB/month)</h2>
+        <div class="savings-grid animate delay-2">
+            <div class="savings-card">
+                <div class="savings-label">Kafka + Flink Stack</div>
+                <div class="savings-amount">$45,000</div>
+                <div class="savings-detail">
+                    Kafka: $25K • Flink: $15K • DevOps: $5K
+                </div>
+            </div>
+            <div class="savings-card you">
+                <div class="savings-badge">80% SAVINGS</div>
+                <div class="savings-label">Your Platform</div>
+                <div class="savings-amount">$8,000</div>
+                <div class="savings-detail">
+                    S3 storage + processing unified
+                </div>
+            </div>
+        </div>
+
+        <!-- Feature Comparison Table -->
+        <h2 class="section-title animate delay-1">Feature Comparison</h2>
+        <table class="comparison-table animate delay-2">
+            <thead>
+                <tr>
+                    <th>Feature</th>
+                    <th>Kafka + Flink</th>
+                    <th>WarpStream</th>
+                    <th>RisingWave</th>
+                    <th class="you-col">Your Platform</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td class="feature-name">Built-in Transport</td>
+                    <td><span class="check">✓</span> Kafka</td>
+                    <td><span class="check">✓</span> S3-native</td>
+                    <td><span class="cross">✗</span> Needs Kafka</td>
+                    <td><span class="check">✓</span> S3-native</td>
+                </tr>
+                <tr>
+                    <td class="feature-name">SQL Processing</td>
+                    <td><span class="warning">~</span> Flink SQL</td>
+                    <td><span class="cross">✗</span> None</td>
+                    <td><span class="check">✓</span> Postgres SQL</td>
+                    <td><span class="check">✓</span> DataFusion</td>
+                </tr>
+                <tr>
+                    <td class="feature-name">Kafka Compatible</td>
+                    <td><span class="check">✓</span> Native</td>
+                    <td><span class="check">✓</span> Full API</td>
+                    <td><span class="warning">~</span> Source only</td>
+                    <td><span class="check">✓</span> Full API</td>
+                </tr>
+                <tr>
+                    <td class="feature-name">Storage Cost</td>
+                    <td>
+                        <div class="cost-indicator">
+                            <div class="cost-dot"></div>
+                            <div class="cost-dot"></div>
+                            <div class="cost-dot"></div>
+                            <div class="cost-dot"></div>
+                            <div class="cost-dot"></div>
+                        </div>
+                    </td>
+                    <td>
+                        <div class="cost-indicator">
+                            <div class="cost-dot"></div>
+                            <div class="cost-dot empty"></div>
+                            <div class="cost-dot empty"></div>
+                            <div class="cost-dot empty"></div>
+                            <div class="cost-dot empty"></div>
+                        </div>
+                    </td>
+                    <td>
+                        <div class="cost-indicator">
+                            <div class="cost-dot"></div>
+                            <div class="cost-dot"></div>
+                            <div class="cost-dot"></div>
+                            <div class="cost-dot empty"></div>
+                            <div class="cost-dot empty"></div>
+                        </div>
+                    </td>
+                    <td>
+                        <div class="cost-indicator">
+                            <div class="cost-dot"></div>
+                            <div class="cost-dot empty"></div>
+                            <div class="cost-dot empty"></div>
+                            <div class="cost-dot empty"></div>
+                            <div class="cost-dot empty"></div>
+                        </div>
+                    </td>
+                </tr>
+                <tr>
+                    <td class="feature-name">Operational Complexity</td>
+                    <td><span class="cross" style="color: var(--accent-red);">High</span> (2 systems)</td>
+                    <td><span class="check" style="color: var(--accent-green);">Low</span></td>
+                    <td><span class="warning" style="color: var(--accent-orange);">Medium</span> (+Kafka)</td>
+                    <td><span class="check" style="color: var(--accent-green);">Low</span></td>
+                </tr>
+                <tr>
+                    <td class="feature-name">Systems to Operate</td>
+                    <td>2 (Kafka + Flink)</td>
+                    <td>1 (+need Flink)</td>
+                    <td>2 (Kafka + RW)</td>
+                    <td><strong style="color: var(--accent-green);">1</strong></td>
+                </tr>
+            </tbody>
+        </table>
+
+        <!-- Market Movements Timeline -->
+        <h2 class="section-title animate delay-1">Market Movements (2023-2025)</h2>
+        <div class="timeline animate delay-2">
+            <div class="timeline-item">
+                <div class="timeline-content">
+                    <div class="timeline-year">Jan 2023</div>
+                    <div class="timeline-title">Confluent acquires Immerok</div>
+                    <div class="timeline-desc">Signal: Confluent knows Flink matters, trying to own processing too</div>
+                </div>
+            </div>
+            <div class="timeline-item">
+                <div class="timeline-content">
+                    <div class="timeline-year">2024</div>
+                    <div class="timeline-title">WarpStream raises $20M</div>
+                    <div class="timeline-desc">Signal: S3-native Kafka has product-market fit</div>
+                </div>
+            </div>
+            <div class="timeline-item">
+                <div class="timeline-content">
+                    <div class="timeline-year">Sept 2025</div>
+                    <div class="timeline-title">Decodable acquired by Redis</div>
+                    <div class="timeline-desc">Signal: Streaming SQL companies are acquisition targets</div>
+                </div>
+            </div>
+            <div class="timeline-item">
+                <div class="timeline-content">
+                    <div class="timeline-year">2025</div>
+                    <div class="timeline-title">Arroyo acquired by Cloudflare</div>
+                    <div class="timeline-desc">Signal: Cloud providers want streaming capabilities</div>
+                </div>
+            </div>
+            <div class="timeline-item">
+                <div class="timeline-content">
+                    <div class="timeline-year">2025</div>
+                    <div class="timeline-title">Confluent acquires WarpStream (~$220M)</div>
+                    <div class="timeline-desc">Signal: S3-native is the future. Even Confluent agrees.</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Value Proposition -->
+        <div class="value-prop animate delay-3">
+            <h2>Your One-Line Pitch</h2>
+            <p>
+                "Replace your <span class="highlight-text">$50K/month</span> Kafka + Flink stack with 
+                <span class="highlight-text">one system</span> that costs <span class="highlight-text">$10K/month</span> 
+                and you can operate yourself."
+            </p>
+        </div>
+    </div>
+</body>
+</html>
