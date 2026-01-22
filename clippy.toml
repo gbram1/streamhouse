@@ -1,0 +1,2 @@
+# Clippy configuration
+# Run with: cargo clippy --workspace --all-features
