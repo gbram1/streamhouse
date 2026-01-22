@@ -69,12 +69,16 @@
 //! }
 //! ```
 
-use crate::{cache::SegmentCache, error::{Error, Result}, segment::SegmentReader};
+use crate::{
+    cache::SegmentCache,
+    error::{Error, Result},
+    segment::SegmentReader,
+};
 use bytes::Bytes;
+use object_store::ObjectStore;
 use std::sync::Arc;
 use streamhouse_core::record::Record;
 use streamhouse_metadata::{MetadataStore, SegmentInfo};
-use object_store::ObjectStore;
 
 /// Reads records from a single partition with caching
 pub struct PartitionReader {
@@ -119,8 +123,8 @@ impl PartitionReader {
         let segment_data = self.get_segment(&segment_info).await?;
 
         // Open segment reader
-        let reader = SegmentReader::new(segment_data)
-            .map_err(|e| Error::SegmentError(e.to_string()))?;
+        let reader =
+            SegmentReader::new(segment_data).map_err(|e| Error::SegmentError(e.to_string()))?;
 
         // Read records from offset
         let mut records = reader

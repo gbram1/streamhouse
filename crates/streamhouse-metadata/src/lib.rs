@@ -127,7 +127,12 @@ pub trait MetadataStore: Send + Sync {
 
     // PARTITION OPERATIONS
     async fn get_partition(&self, topic: &str, partition_id: u32) -> Result<Option<Partition>>;
-    async fn update_high_watermark(&self, topic: &str, partition_id: u32, offset: u64) -> Result<()>;
+    async fn update_high_watermark(
+        &self,
+        topic: &str,
+        partition_id: u32,
+        offset: u64,
+    ) -> Result<()>;
     async fn list_partitions(&self, topic: &str) -> Result<Vec<Partition>>;
 
     // SEGMENT OPERATIONS

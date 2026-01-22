@@ -182,14 +182,17 @@ impl PartitionWriter {
     /// Finish current segment and start a new one
     async fn roll_segment(&mut self) -> Result<()> {
         // Take ownership of current segment
-        let segment = std::mem::replace(&mut self.current_segment, SegmentWriter::new(Compression::Lz4));
+        let segment = std::mem::replace(
+            &mut self.current_segment,
+            SegmentWriter::new(Compression::Lz4),
+        );
 
-        let base_offset = segment.base_offset().ok_or_else(|| {
-            Error::SegmentError("Cannot roll empty segment".to_string())
-        })?;
-        let end_offset = segment.last_offset().ok_or_else(|| {
-            Error::SegmentError("Cannot roll empty segment".to_string())
-        })?;
+        let base_offset = segment
+            .base_offset()
+            .ok_or_else(|| Error::SegmentError("Cannot roll empty segment".to_string()))?;
+        let end_offset = segment
+            .last_offset()
+            .ok_or_else(|| Error::SegmentError("Cannot roll empty segment".to_string()))?;
         let record_count = segment.record_count();
 
         // Finish the segment (compress, add index, footer)
@@ -205,7 +208,8 @@ impl PartitionWriter {
         );
 
         // Upload to S3 with retries
-        self.upload_to_s3(&s3_key, Bytes::from(segment_bytes)).await?;
+        self.upload_to_s3(&s3_key, Bytes::from(segment_bytes))
+            .await?;
 
         // Record segment in metadata
         let segment_info = SegmentInfo {
@@ -250,7 +254,7 @@ impl PartitionWriter {
         let path = object_store::path::Path::from(key);
 
         for attempt in 0..self.config.s3_upload_retries {
-            match self.object_store.put(&path, data.clone().into()).await {
+            match self.object_store.put(&path, data.clone()).await {
                 Ok(_) => {
                     tracing::debug!(
                         key = %key,
@@ -296,6 +300,7 @@ impl PartitionWriter {
 
 /// Manages writes across multiple partitions for a single topic
 pub struct TopicWriter {
+    #[allow(dead_code)]
     topic: String,
     partitions: Vec<Arc<Mutex<PartitionWriter>>>,
     round_robin_counter: Arc<std::sync::atomic::AtomicU32>,

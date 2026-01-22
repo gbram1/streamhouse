@@ -87,10 +87,10 @@
 //! write path. For concurrent writes to different partitions, use separate writers.
 
 use bytes::{BufMut, BytesMut};
-use streamhouse_core::{varint, Error, Record, Result};
 use streamhouse_core::segment::Compression;
+use streamhouse_core::{varint, Error, Record, Result};
 
-use super::{BLOCK_SIZE_TARGET, FOOTER_SIZE, HEADER_SIZE, SEGMENT_MAGIC, SEGMENT_VERSION};
+use super::{BLOCK_SIZE_TARGET, HEADER_SIZE, SEGMENT_MAGIC, SEGMENT_VERSION};
 
 /// Builds a segment file with compression and indexing
 pub struct SegmentWriter {
@@ -213,17 +213,17 @@ impl SegmentWriter {
         // Compress the block
         let compressed = match self.compression {
             Compression::None => self.current_block.to_vec(),
-            Compression::Lz4 => {
-                lz4_flex::compress_prepend_size(&self.current_block)
-            }
+            Compression::Lz4 => lz4_flex::compress_prepend_size(&self.current_block),
             Compression::Zstd => {
-                return Err(Error::Unsupported("Zstd compression not yet implemented".to_string()));
+                return Err(Error::Unsupported(
+                    "Zstd compression not yet implemented".to_string(),
+                ));
             }
         };
 
         // Calculate file position for next block's index entry
-        let current_position = HEADER_SIZE as u64
-            + self.blocks.iter().map(|b| b.len() as u64).sum::<u64>();
+        let current_position =
+            HEADER_SIZE as u64 + self.blocks.iter().map(|b| b.len() as u64).sum::<u64>();
 
         self.blocks.push(compressed);
 
@@ -252,8 +252,12 @@ impl SegmentWriter {
             self.index.pop();
         }
 
-        let base_offset = self.base_offset.ok_or(Error::InvalidSegment("No records written".to_string()))?;
-        let end_offset = self.last_offset.ok_or(Error::InvalidSegment("No records written".to_string()))?;
+        let base_offset = self
+            .base_offset
+            .ok_or(Error::InvalidSegment("No records written".to_string()))?;
+        let end_offset = self
+            .last_offset
+            .ok_or(Error::InvalidSegment("No records written".to_string()))?;
 
         // Build the complete segment file
         let mut output = BytesMut::new();
@@ -338,6 +342,7 @@ impl SegmentWriter {
 mod tests {
     use super::*;
     use bytes::Bytes;
+    use crate::segment::FOOTER_SIZE;
 
     #[test]
     fn test_writer_single_record() {
@@ -398,7 +403,10 @@ mod tests {
 
         // Check magic bytes at end (in footer)
         let footer_start = segment_bytes.len() - FOOTER_SIZE;
-        assert_eq!(&segment_bytes[footer_start + 12..footer_start + 16], &SEGMENT_MAGIC);
+        assert_eq!(
+            &segment_bytes[footer_start + 12..footer_start + 16],
+            &SEGMENT_MAGIC
+        );
     }
 
     #[test]

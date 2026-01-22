@@ -29,11 +29,7 @@ impl StreamHouseService {
     }
 
     /// Get or create a partition writer
-    async fn get_writer(
-        &self,
-        topic: &str,
-        partition_id: u32,
-    ) -> Result<PartitionWriter, Status> {
+    async fn get_writer(&self, topic: &str, partition_id: u32) -> Result<PartitionWriter, Status> {
         // Verify topic exists
         let topic_info = self
             .metadata
@@ -65,11 +61,7 @@ impl StreamHouseService {
     }
 
     /// Get a partition reader
-    async fn get_reader(
-        &self,
-        topic: &str,
-        partition_id: u32,
-    ) -> Result<PartitionReader, Status> {
+    async fn get_reader(&self, topic: &str, partition_id: u32) -> Result<PartitionReader, Status> {
         // Verify topic exists
         let topic_info = self
             .metadata
@@ -180,9 +172,7 @@ impl StreamHouse for StreamHouseService {
             })
             .collect();
 
-        Ok(Response::new(ListTopicsResponse {
-            topics: topic_list,
-        }))
+        Ok(Response::new(ListTopicsResponse { topics: topic_list }))
     }
 
     async fn delete_topic(
@@ -225,10 +215,7 @@ impl StreamHouse for StreamHouseService {
             .await
             .map_err(|e| Status::internal(format!("Write failed: {}", e)))?;
 
-        Ok(Response::new(ProduceResponse {
-            offset,
-            timestamp,
-        }))
+        Ok(Response::new(ProduceResponse { offset, timestamp }))
     }
 
     async fn produce_batch(
@@ -303,7 +290,8 @@ impl StreamHouse for StreamHouseService {
             })
             .collect::<Vec<_>>();
 
-        let has_more = !records.is_empty() && records.last().unwrap().offset + 1 < result.high_watermark;
+        let has_more =
+            !records.is_empty() && records.last().unwrap().offset + 1 < result.high_watermark;
 
         Ok(Response::new(ConsumeResponse {
             records,

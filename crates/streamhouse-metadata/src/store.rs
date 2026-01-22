@@ -96,11 +96,9 @@ pub struct SqliteMetadataStore {
 impl SqliteMetadataStore {
     /// Create a new SQLite metadata store
     pub async fn new<P: AsRef<Path>>(path: P) -> Result<Self> {
-        let options = SqliteConnectOptions::from_str(&format!(
-            "sqlite://{}",
-            path.as_ref().display()
-        ))?
-        .create_if_missing(true);
+        let options =
+            SqliteConnectOptions::from_str(&format!("sqlite://{}", path.as_ref().display()))?
+                .create_if_missing(true);
 
         let pool = SqlitePoolOptions::new()
             .max_connections(10)
@@ -182,13 +180,10 @@ impl MetadataStore for SqliteMetadataStore {
     }
 
     async fn delete_topic(&self, name: &str) -> Result<()> {
-        let rows_affected = sqlx::query!(
-            "DELETE FROM topics WHERE name = ?",
-            name
-        )
-        .execute(&self.pool)
-        .await?
-        .rows_affected();
+        let rows_affected = sqlx::query!("DELETE FROM topics WHERE name = ?", name)
+            .execute(&self.pool)
+            .await?
+            .rows_affected();
 
         if rows_affected == 0 {
             return Err(MetadataError::TopicNotFound(name.to_string()));
@@ -261,7 +256,12 @@ impl MetadataStore for SqliteMetadataStore {
         }))
     }
 
-    async fn update_high_watermark(&self, topic: &str, partition_id: u32, offset: u64) -> Result<()> {
+    async fn update_high_watermark(
+        &self,
+        topic: &str,
+        partition_id: u32,
+        offset: u64,
+    ) -> Result<()> {
         let offset_i64 = offset as i64;
         let now = Self::now_ms();
 
@@ -553,12 +553,9 @@ impl MetadataStore for SqliteMetadataStore {
     }
 
     async fn delete_consumer_group(&self, group_id: &str) -> Result<()> {
-        sqlx::query!(
-            "DELETE FROM consumer_groups WHERE group_id = ?",
-            group_id
-        )
-        .execute(&self.pool)
-        .await?;
+        sqlx::query!("DELETE FROM consumer_groups WHERE group_id = ?", group_id)
+            .execute(&self.pool)
+            .await?;
 
         Ok(())
     }
@@ -678,7 +675,10 @@ mod tests {
         assert_eq!(seg.id, "seg2");
 
         // Offset doesn't exist yet
-        let seg = store.find_segment_for_offset("test", 0, 5000).await.unwrap();
+        let seg = store
+            .find_segment_for_offset("test", 0, 5000)
+            .await
+            .unwrap();
         assert!(seg.is_none());
     }
 
@@ -698,7 +698,10 @@ mod tests {
             .unwrap();
 
         // Initially no offset
-        let offset = store.get_committed_offset("group1", "test", 0).await.unwrap();
+        let offset = store
+            .get_committed_offset("group1", "test", 0)
+            .await
+            .unwrap();
         assert!(offset.is_none());
 
         // Commit offset
@@ -708,7 +711,10 @@ mod tests {
             .unwrap();
 
         // Should be retrievable
-        let offset = store.get_committed_offset("group1", "test", 0).await.unwrap();
+        let offset = store
+            .get_committed_offset("group1", "test", 0)
+            .await
+            .unwrap();
         assert_eq!(offset, Some(100));
 
         // Update offset
@@ -716,7 +722,10 @@ mod tests {
             .commit_offset("group1", "test", 0, 200, None)
             .await
             .unwrap();
-        let offset = store.get_committed_offset("group1", "test", 0).await.unwrap();
+        let offset = store
+            .get_committed_offset("group1", "test", 0)
+            .await
+            .unwrap();
         assert_eq!(offset, Some(200));
     }
 }
