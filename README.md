@@ -12,30 +12,39 @@ StreamHouse is a next-generation streaming data platform built in Rust that stor
 
 ## Status
 
-🚧 **Early Development** - Phase 1: Core Storage Layer (Weeks 1-8)
+✅ **Phase 1 Complete** - Core Storage & API (Initiatives 1.1-1.6)
 
-Current progress: Week 1 - Project Setup Complete ✅
+**Completed:**
+- ✅ Binary segment format with LZ4 compression
+- ✅ SQLite metadata store (topics, partitions, segments, offsets)
+- ✅ Write path with automatic segment rolling and S3 upload
+- ✅ Read path with LRU caching and prefetching
+- ✅ gRPC API server with 9 endpoints
+- ✅ Consumer group offset management
+- ✅ 29 automated tests (all passing)
+- ✅ Integration tests and manual testing scripts
+
+**Next:** Phase 1.7 (CLI Tool), Phase 1.8 (Performance Testing & Documentation)
 
 ## Quick Start
 
 ### Prerequisites
 
 - Rust 1.75+ (`rustup install stable`)
-- Docker & Docker Compose
-- MinIO client (optional, for manual testing)
+- Protocol Buffers compiler (`brew install protobuf`)
+- grpcurl for testing (`brew install grpcurl`)
 
 ### Development Setup
 
 ```bash
-# Clone repository
-git clone https://github.com/yourusername/streamhouse
-cd streamhouse
+# Start server with local storage
+./start-dev.sh
 
-# Start local S3 (MinIO)
-./scripts/dev-env.sh
+# In another terminal, run tests
+./test-server.sh
 
-# Build all crates
-cargo build --workspace
+# Or run automated tests
+cargo test --workspace
 
 # Run tests
 cargo test --workspace

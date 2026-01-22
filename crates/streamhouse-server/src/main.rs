@@ -1,12 +1,85 @@
 //! StreamHouse gRPC Server
 //!
-//! Starts the gRPC server on port 9090 by default.
+//! Main entry point for the StreamHouse streaming platform server.
+//!
+//! ## Overview
+//! This server provides a gRPC API for producing and consuming records,
+//! managing topics and partitions, and coordinating consumer groups.
+//! It implements a Kafka-like streaming platform with S3-native storage.
+//!
+//! ## Architecture
+//! The server integrates three main components:
+//! - **Metadata Store**: SQLite database for topics, partitions, segments, and offsets
+//! - **Object Store**: S3 (or local filesystem) for durable segment storage
+//! - **Segment Cache**: LRU cache for frequently accessed segments
+//!
+//! ## Configuration
+//! All configuration is done via environment variables:
+//!
+//! ### Server Settings
+//! - `STREAMHOUSE_ADDR`: Server bind address (default: 0.0.0.0:9090)
+//!
+//! ### Storage Settings
+//! - `STREAMHOUSE_METADATA`: SQLite database path (default: ./data/metadata.db)
+//! - `STREAMHOUSE_BUCKET`: S3 bucket name (default: streamhouse)
+//! - `STREAMHOUSE_PREFIX`: S3 key prefix (default: data)
+//! - `AWS_REGION`: AWS region (default: us-east-1)
+//! - `S3_ENDPOINT`: Custom S3 endpoint URL (optional)
+//!
+//! ### Local Development
+//! - `USE_LOCAL_STORAGE`: Use local filesystem instead of S3 (any value)
+//! - `LOCAL_STORAGE_PATH`: Path for local storage (default: ./data/storage)
+//!
+//! ### Cache Settings
+//! - `STREAMHOUSE_CACHE`: Cache directory (default: ./data/cache)
+//! - `STREAMHOUSE_CACHE_SIZE`: Cache size in bytes (default: 1073741824 = 1GB)
+//!
+//! ## gRPC API
+//! The server exposes 9 RPC methods:
+//! - `CreateTopic`: Create a new topic with specified partitions
+//! - `GetTopic`: Get information about a topic
+//! - `ListTopics`: List all topics
+//! - `DeleteTopic`: Delete a topic and all its data
+//! - `Produce`: Produce a single record to a partition
+//! - `ProduceBatch`: Produce multiple records atomically
+//! - `Consume`: Consume records from a partition (streaming)
+//! - `CommitOffset`: Commit consumer group offset
+//! - `GetOffset`: Get committed offset for a consumer group
+//!
+//! ## gRPC Reflection
+//! The server includes gRPC reflection support, which allows tools like
+//! `grpcurl` to discover and call services without needing proto files:
+//! ```bash
+//! grpcurl -plaintext localhost:9090 list
+//! grpcurl -plaintext localhost:9090 streamhouse.StreamHouse/ListTopics
+//! ```
+//!
+//! ## Example Usage
+//! ```bash
+//! # Start with local storage (development)
+//! export USE_LOCAL_STORAGE=1
+//! cargo run -p streamhouse-server
+//!
+//! # Start with S3 (production)
+//! export STREAMHOUSE_BUCKET=my-bucket
+//! export AWS_REGION=us-west-2
+//! cargo run -p streamhouse-server --release
+//! ```
+//!
+//! ## Logging
+//! Logging is controlled via the `RUST_LOG` environment variable:
+//! ```bash
+//! RUST_LOG=debug cargo run -p streamhouse-server    # Detailed logs
+//! RUST_LOG=info cargo run -p streamhouse-server     # Standard logs (default)
+//! RUST_LOG=warn cargo run -p streamhouse-server     # Warnings only
+//! ```
 
 use std::sync::Arc;
 use streamhouse_metadata::SqliteMetadataStore;
 use streamhouse_server::{pb::stream_house_server::StreamHouseServer, StreamHouseService};
 use streamhouse_storage::{SegmentCache, WriteConfig};
 use tonic::transport::Server;
+use tonic_reflection::server::Builder as ReflectionBuilder;
 use tracing_subscriber;
 
 #[tokio::main]
@@ -83,9 +156,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     tracing::info!("  Bucket: {}", s3_bucket);
     tracing::info!("  Cache: {} ({} bytes)", cache_dir, cache_size);
 
-    // Start server
+    // Set up reflection service
+    let descriptor_bytes = include_bytes!("../proto/streamhouse_descriptor.bin");
+    let reflection_service = ReflectionBuilder::configure()
+        .register_encoded_file_descriptor_set(descriptor_bytes)
+        .build()?;
+
+    // Start server with reflection
     Server::builder()
         .add_service(StreamHouseServer::new(service))
+        .add_service(reflection_service)
         .serve(bind_addr)
         .await?;
 

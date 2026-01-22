@@ -13,6 +13,7 @@ streamhouse-metadata = { path = "../streamhouse-metadata" }
 
 # gRPC
 tonic = { workspace = true }
+tonic-reflection = { workspace = true }
 prost = { workspace = true }
 
 # Async
@@ -29,6 +30,9 @@ tracing-subscriber = { workspace = true }
 anyhow = { workspace = true }
 thiserror = { workspace = true }
 chrono = { workspace = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }
 
 [build-dependencies]
 tonic-build = { workspace = true }
