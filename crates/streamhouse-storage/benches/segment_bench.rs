@@ -67,8 +67,8 @@
 
 use bytes::Bytes;
 use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
-use streamhouse_core::Record;
 use streamhouse_core::segment::Compression;
+use streamhouse_core::Record;
 use streamhouse_storage::{SegmentReader, SegmentWriter};
 
 fn create_test_record(offset: u64, timestamp: u64, value_size: usize) -> Record {
@@ -94,10 +94,7 @@ fn bench_segment_write(c: &mut Criterion) {
 
             group.throughput(Throughput::Elements(record_count as u64));
             group.bench_with_input(
-                BenchmarkId::new(
-                    format!("{}_compression", compression_name),
-                    record_count,
-                ),
+                BenchmarkId::new(format!("{}_compression", compression_name), record_count),
                 &record_count,
                 |b, &count| {
                     b.iter(|| {
@@ -138,10 +135,7 @@ fn bench_segment_read(c: &mut Criterion) {
 
             group.throughput(Throughput::Elements(record_count as u64));
             group.bench_with_input(
-                BenchmarkId::new(
-                    format!("{}_compression", compression_name),
-                    record_count,
-                ),
+                BenchmarkId::new(format!("{}_compression", compression_name), record_count),
                 &segment_bytes,
                 |b, data| {
                     b.iter(|| {

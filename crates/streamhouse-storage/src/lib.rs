@@ -150,20 +150,20 @@
 //! 4. **gRPC API** - Expose Kafka-compatible API
 //! 5. **CLI tool** - Admin and testing interface
 
-pub mod segment;
-pub mod error;
-pub mod config;
-pub mod writer;
-pub mod manager;
 pub mod cache;
-pub mod reader;
+pub mod config;
 pub mod consumer;
+pub mod error;
+pub mod manager;
+pub mod reader;
+pub mod segment;
+pub mod writer;
 
-pub use segment::{SegmentReader, SegmentWriter};
-pub use error::{Error, Result};
+pub use cache::{CacheStats, SegmentCache};
 pub use config::WriteConfig;
-pub use writer::{PartitionWriter, TopicWriter};
-pub use manager::{StorageManager, AppendResult};
-pub use cache::{SegmentCache, CacheStats};
-pub use reader::{PartitionReader, ReadResult};
 pub use consumer::Consumer;
+pub use error::{Error, Result};
+pub use manager::{AppendResult, StorageManager};
+pub use reader::{PartitionReader, ReadResult};
+pub use segment::{SegmentReader, SegmentWriter};
+pub use writer::{PartitionWriter, TopicWriter};

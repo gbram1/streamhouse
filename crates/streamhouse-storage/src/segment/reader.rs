@@ -105,8 +105,8 @@
 //! For concurrent reads, create multiple readers (the segment bytes can be shared via Bytes::clone()).
 
 use bytes::{Buf, Bytes};
-use streamhouse_core::{varint, Error, Record, Result};
 use streamhouse_core::segment::Compression;
+use streamhouse_core::{varint, Error, Record, Result};
 
 use super::{FOOTER_SIZE, HEADER_SIZE, SEGMENT_MAGIC, SEGMENT_VERSION};
 
@@ -127,11 +127,13 @@ pub struct SegmentReader {
 
 #[derive(Debug, Clone)]
 struct SegmentHeader {
+    #[allow(dead_code)]
     version: u16,
     compression: Compression,
     base_offset: u64,
     end_offset: u64,
     record_count: u32,
+    #[allow(dead_code)]
     block_count: u32,
 }
 
@@ -259,7 +261,10 @@ impl SegmentReader {
     /// Read a specific block by index
     fn read_block(&self, block_index: usize) -> Result<Vec<Record>> {
         if block_index >= self.index.len() {
-            return Err(Error::InvalidSegment(format!("Block index {} out of range", block_index)));
+            return Err(Error::InvalidSegment(format!(
+                "Block index {} out of range",
+                block_index
+            )));
         }
 
         let entry = &self.index[block_index];
@@ -289,14 +294,19 @@ impl SegmentReader {
                     .map_err(|e| Error::Decompression(e.to_string()))?;
                 Ok(Bytes::from(decompressed))
             }
-            Compression::Zstd => {
-                Err(Error::Unsupported("Zstd compression not yet implemented".to_string()))
-            }
+            Compression::Zstd => Err(Error::Unsupported(
+                "Zstd compression not yet implemented".to_string(),
+            )),
         }
     }
 
     /// Decode all records from a decompressed block
-    fn decode_block(&self, data: &Bytes, base_offset: u64, base_timestamp: u64) -> Result<Vec<Record>> {
+    fn decode_block(
+        &self,
+        data: &Bytes,
+        base_offset: u64,
+        base_timestamp: u64,
+    ) -> Result<Vec<Record>> {
         let mut records = Vec::new();
         let mut cursor = data.as_ref();
 
@@ -316,7 +326,9 @@ impl SegmentReader {
             let key_len = varint::decode_varint_u64(&mut cursor) as usize;
             let key = if key_len > 0 {
                 if cursor.remaining() < key_len {
-                    return Err(Error::InvalidSegment("Unexpected end of block reading key".to_string()));
+                    return Err(Error::InvalidSegment(
+                        "Unexpected end of block reading key".to_string(),
+                    ));
                 }
                 let key_data = Bytes::copy_from_slice(&cursor[..key_len]);
                 cursor.advance(key_len);
@@ -328,7 +340,9 @@ impl SegmentReader {
             // Decode value
             let value_len = varint::decode_varint_u64(&mut cursor) as usize;
             if cursor.remaining() < value_len {
-                return Err(Error::InvalidSegment("Unexpected end of block reading value".to_string()));
+                return Err(Error::InvalidSegment(
+                    "Unexpected end of block reading value".to_string(),
+                ));
             }
             let value = Bytes::copy_from_slice(&cursor[..value_len]);
             cursor.advance(value_len);

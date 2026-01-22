@@ -111,11 +111,11 @@
 //! let records = reader.read_from_offset(5000)?;
 //! ```
 
-mod writer;
 mod reader;
+mod writer;
 
-pub use writer::SegmentWriter;
 pub use reader::SegmentReader;
+pub use writer::SegmentWriter;
 
 /// Magic bytes for segment files: "STRM"
 pub const SEGMENT_MAGIC: [u8; 4] = [0x53, 0x54, 0x52, 0x4D];

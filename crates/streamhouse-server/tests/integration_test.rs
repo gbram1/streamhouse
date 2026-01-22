@@ -30,16 +30,15 @@ async fn setup_test_service() -> (StreamHouseService, tempfile::TempDir) {
     );
 
     // Use local filesystem for testing
-    let object_store = Arc::new(
-        object_store::local::LocalFileSystem::new_with_prefix(&storage_dir).unwrap(),
-    );
+    let object_store =
+        Arc::new(object_store::local::LocalFileSystem::new_with_prefix(&storage_dir).unwrap());
 
     // Initialize cache
     let cache = Arc::new(SegmentCache::new(&cache_dir, 10 * 1024 * 1024).unwrap());
 
     // Create config with tiny segments so they auto-flush
     let config = WriteConfig {
-        segment_max_size: 100, // Very small so it rolls immediately
+        segment_max_size: 100,         // Very small so it rolls immediately
         segment_max_age_ms: 60 * 1000, // 1 minute
         s3_bucket: "test-bucket".to_string(),
         s3_region: "us-east-1".to_string(),
@@ -252,10 +251,7 @@ async fn test_invalid_partition() {
 
     let result = service.produce(produce_req).await;
     assert!(result.is_err());
-    assert!(result
-        .unwrap_err()
-        .message()
-        .contains("Invalid partition"));
+    assert!(result.unwrap_err().message().contains("Invalid partition"));
 }
 
 #[tokio::test]

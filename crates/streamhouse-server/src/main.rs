@@ -80,7 +80,6 @@ use streamhouse_server::{pb::stream_house_server::StreamHouseServer, StreamHouse
 use streamhouse_storage::{SegmentCache, WriteConfig};
 use tonic::transport::Server;
 use tonic_reflection::server::Builder as ReflectionBuilder;
-use tracing_subscriber;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -110,8 +109,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let s3_bucket =
         std::env::var("STREAMHOUSE_BUCKET").unwrap_or_else(|_| "streamhouse".to_string());
 
-    let _s3_prefix =
-        std::env::var("STREAMHOUSE_PREFIX").unwrap_or_else(|_| "data".to_string());
+    let _s3_prefix = std::env::var("STREAMHOUSE_PREFIX").unwrap_or_else(|_| "data".to_string());
 
     // Initialize metadata store
     tracing::info!("Initializing metadata store at {}", metadata_path);
@@ -119,22 +117,29 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Initialize object store (S3)
     tracing::info!("Initializing object store (bucket: {})", s3_bucket);
-    let object_store: Arc<dyn object_store::ObjectStore> = if std::env::var("USE_LOCAL_STORAGE").is_ok() {
-        // Use local filesystem for development
-        let local_path = std::env::var("LOCAL_STORAGE_PATH")
-            .unwrap_or_else(|_| "./data/storage".to_string());
-        tracing::info!("Using local storage at {}", local_path);
-        Arc::new(object_store::local::LocalFileSystem::new_with_prefix(local_path)?)
-    } else {
-        // Use S3
-        let s3 = object_store::aws::AmazonS3Builder::from_env()
-            .with_bucket_name(&s3_bucket)
-            .build()?;
-        Arc::new(s3)
-    };
+    let object_store: Arc<dyn object_store::ObjectStore> =
+        if std::env::var("USE_LOCAL_STORAGE").is_ok() {
+            // Use local filesystem for development
+            let local_path = std::env::var("LOCAL_STORAGE_PATH")
+                .unwrap_or_else(|_| "./data/storage".to_string());
+            tracing::info!("Using local storage at {}", local_path);
+            Arc::new(object_store::local::LocalFileSystem::new_with_prefix(
+                local_path,
+            )?)
+        } else {
+            // Use S3
+            let s3 = object_store::aws::AmazonS3Builder::from_env()
+                .with_bucket_name(&s3_bucket)
+                .build()?;
+            Arc::new(s3)
+        };
 
     // Initialize cache
-    tracing::info!("Initializing cache at {} (max size: {} bytes)", cache_dir, cache_size);
+    tracing::info!(
+        "Initializing cache at {} (max size: {} bytes)",
+        cache_dir,
+        cache_size
+    );
     let cache = Arc::new(SegmentCache::new(&cache_dir, cache_size)?);
 
     // Create storage config

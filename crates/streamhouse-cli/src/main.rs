@@ -76,7 +76,12 @@ use pb::stream_house_client::StreamHouseClient;
 #[command(about = "StreamHouse command-line tool", long_about = None)]
 struct Cli {
     /// Server address
-    #[arg(short, long, env = "STREAMHOUSE_ADDR", default_value = "http://localhost:9090")]
+    #[arg(
+        short,
+        long,
+        env = "STREAMHOUSE_ADDR",
+        default_value = "http://localhost:9090"
+    )]
     server: String,
 
     #[command(subcommand)]
@@ -403,14 +408,22 @@ async fn handle_consume(
 
     let data = response.into_inner();
 
-    println!("📥 Consuming from {}:{} starting at offset {}", topic, partition, offset);
+    println!(
+        "📥 Consuming from {}:{} starting at offset {}",
+        topic, partition, offset
+    );
     println!();
 
     if data.records.is_empty() {
         println!("No records found");
     } else {
         for (idx, record) in data.records.iter().enumerate() {
-            println!("Record {} (offset: {}, timestamp: {})", idx + 1, record.offset, record.timestamp);
+            println!(
+                "Record {} (offset: {}, timestamp: {})",
+                idx + 1,
+                record.offset,
+                record.timestamp
+            );
 
             if !record.key.is_empty() {
                 match String::from_utf8(record.key.clone()) {
