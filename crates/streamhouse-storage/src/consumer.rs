@@ -44,7 +44,7 @@
 //! }
 //! ```
 
-use crate::{error::Result, reader::{PartitionReader, ReadResult}};
+use crate::{error::Result, reader::PartitionReader};
 use std::sync::Arc;
 use streamhouse_core::record::Record;
 use streamhouse_metadata::MetadataStore;
