@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "DELETE FROM consumer_groups WHERE group_id = ?",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": []
+  },
+  "hash": "a42e74200a3ddaa033c87ecba0a9024b2637831fe97dd5ed5fab6f8241ba791e"
+}

@@ -1,0 +1,44 @@
+{
+  "db_name": "SQLite",
+  "query": "\n            SELECT group_id, topic, partition_id, committed_offset, metadata\n            FROM consumer_offsets\n            WHERE group_id = ?\n            ORDER BY topic, partition_id\n            ",
+  "describe": {
+    "columns": [
+      {
+        "name": "group_id",
+        "ordinal": 0,
+        "type_info": "Text"
+      },
+      {
+        "name": "topic",
+        "ordinal": 1,
+        "type_info": "Text"
+      },
+      {
+        "name": "partition_id",
+        "ordinal": 2,
+        "type_info": "Int64"
+      },
+      {
+        "name": "committed_offset",
+        "ordinal": 3,
+        "type_info": "Int64"
+      },
+      {
+        "name": "metadata",
+        "ordinal": 4,
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      true
+    ]
+  },
+  "hash": "aaa53169d0d620fafcab2dc0d21990e9e4a290d4c8311ec6a7544a2c4ac53d9e"
+}

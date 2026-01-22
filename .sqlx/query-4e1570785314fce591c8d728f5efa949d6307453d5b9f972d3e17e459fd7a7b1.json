@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "\n            UPDATE partitions\n            SET high_watermark = ?, updated_at = ?\n            WHERE topic = ? AND partition_id = ?\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 4
+    },
+    "nullable": []
+  },
+  "hash": "4e1570785314fce591c8d728f5efa949d6307453d5b9f972d3e17e459fd7a7b1"
+}

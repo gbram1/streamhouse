@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "\n            DELETE FROM segments\n            WHERE topic = ? AND partition_id = ? AND end_offset < ?\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 3
+    },
+    "nullable": []
+  },
+  "hash": "350192eacaa917b3ea24dee8c76564ae3b913058da0b61d5c9d8ad45cf0139e0"
+}

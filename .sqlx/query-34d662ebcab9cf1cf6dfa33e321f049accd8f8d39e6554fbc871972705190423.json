@@ -1,0 +1,20 @@
+{
+  "db_name": "SQLite",
+  "query": "\n            SELECT committed_offset\n            FROM consumer_offsets\n            WHERE group_id = ? AND topic = ? AND partition_id = ?\n            ",
+  "describe": {
+    "columns": [
+      {
+        "name": "committed_offset",
+        "ordinal": 0,
+        "type_info": "Int64"
+      }
+    ],
+    "parameters": {
+      "Right": 3
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "34d662ebcab9cf1cf6dfa33e321f049accd8f8d39e6554fbc871972705190423"
+}

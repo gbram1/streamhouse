@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "INSERT OR IGNORE INTO consumer_groups (group_id, created_at, updated_at) VALUES (?, ?, ?)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 3
+    },
+    "nullable": []
+  },
+  "hash": "8d894b8b3045149ba3ed863cbed18ad15e9bc54dda84bb96301f9c9b40fdef83"
+}
