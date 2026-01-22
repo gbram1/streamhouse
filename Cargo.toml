@@ -34,7 +34,7 @@ aws-sdk-s3 = "1.13"
 aws-config = "1.1"
 
 # Database
-sqlx = { version = "0.7", features = ["runtime-tokio", "sqlite", "migrate"] }
+sqlx = { version = "0.7", default-features = false, features = ["runtime-tokio", "sqlite", "migrate", "macros"] }
 rocksdb = "0.21"
 
 # Networking
