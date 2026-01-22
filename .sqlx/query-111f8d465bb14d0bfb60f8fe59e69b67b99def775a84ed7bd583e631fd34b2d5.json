@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "\n            INSERT INTO consumer_offsets (group_id, topic, partition_id, committed_offset, metadata, committed_at)\n            VALUES (?, ?, ?, ?, ?, ?)\n            ON CONFLICT(group_id, topic, partition_id)\n            DO UPDATE SET\n                committed_offset = excluded.committed_offset,\n                metadata = excluded.metadata,\n                committed_at = excluded.committed_at\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 6
+    },
+    "nullable": []
+  },
+  "hash": "111f8d465bb14d0bfb60f8fe59e69b67b99def775a84ed7bd583e631fd34b2d5"
+}

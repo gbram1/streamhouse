@@ -1,0 +1,32 @@
+{
+  "db_name": "SQLite",
+  "query": "\n            SELECT topic, partition_id, high_watermark\n            FROM partitions\n            WHERE topic = ?\n            ORDER BY partition_id\n            ",
+  "describe": {
+    "columns": [
+      {
+        "name": "topic",
+        "ordinal": 0,
+        "type_info": "Text"
+      },
+      {
+        "name": "partition_id",
+        "ordinal": 1,
+        "type_info": "Int64"
+      },
+      {
+        "name": "high_watermark",
+        "ordinal": 2,
+        "type_info": "Int64"
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "f64d900d2c82cb860125256f1389482544c07b3b3964ab5260f176bade9a0476"
+}

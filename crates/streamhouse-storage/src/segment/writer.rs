@@ -341,8 +341,8 @@ impl SegmentWriter {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use bytes::Bytes;
     use crate::segment::FOOTER_SIZE;
+    use bytes::Bytes;
 
     #[test]
     fn test_writer_single_record() {

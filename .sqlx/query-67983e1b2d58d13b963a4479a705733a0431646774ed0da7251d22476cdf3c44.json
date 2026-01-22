@@ -1,0 +1,74 @@
+{
+  "db_name": "SQLite",
+  "query": "\n            SELECT\n                id as \"id!\",\n                topic as \"topic!\",\n                partition_id as \"partition_id!\",\n                base_offset as \"base_offset!\",\n                end_offset as \"end_offset!\",\n                record_count as \"record_count!\",\n                size_bytes as \"size_bytes!\",\n                s3_bucket as \"s3_bucket!\",\n                s3_key as \"s3_key!\",\n                created_at as \"created_at!\"\n            FROM segments\n            WHERE topic = ? AND partition_id = ? AND base_offset <= ? AND end_offset >= ?\n            ORDER BY base_offset DESC\n            LIMIT 1\n            ",
+  "describe": {
+    "columns": [
+      {
+        "name": "id!",
+        "ordinal": 0,
+        "type_info": "Text"
+      },
+      {
+        "name": "topic!",
+        "ordinal": 1,
+        "type_info": "Text"
+      },
+      {
+        "name": "partition_id!",
+        "ordinal": 2,
+        "type_info": "Int64"
+      },
+      {
+        "name": "base_offset!",
+        "ordinal": 3,
+        "type_info": "Int64"
+      },
+      {
+        "name": "end_offset!",
+        "ordinal": 4,
+        "type_info": "Int64"
+      },
+      {
+        "name": "record_count!",
+        "ordinal": 5,
+        "type_info": "Int64"
+      },
+      {
+        "name": "size_bytes!",
+        "ordinal": 6,
+        "type_info": "Int64"
+      },
+      {
+        "name": "s3_bucket!",
+        "ordinal": 7,
+        "type_info": "Text"
+      },
+      {
+        "name": "s3_key!",
+        "ordinal": 8,
+        "type_info": "Text"
+      },
+      {
+        "name": "created_at!",
+        "ordinal": 9,
+        "type_info": "Int64"
+      }
+    ],
+    "parameters": {
+      "Right": 4
+    },
+    "nullable": [
+      true,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "67983e1b2d58d13b963a4479a705733a0431646774ed0da7251d22476cdf3c44"
+}
