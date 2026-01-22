@@ -86,12 +86,24 @@ cargo build --release -p streamhouse-cli
 ┌─────────────────────────────────────────────────────┐
 │                  StreamHouse                        │
 ├─────────────────────────────────────────────────────┤
-│  Phase 1: Storage Layer (S3-native log)            │
-│  Phase 2: Kafka Protocol (drop-in compatibility)   │
-│  Phase 3: SQL Processing (streaming queries)       │
-│  Phase 4: Distributed (multi-node fault-tolerant)  │
+│  Phase 1: Storage Layer (S3-native log) ✅          │
+│  Phase 2: Kafka Protocol (compatibility) 🚧         │
+│  Phase 3: Scalable Metadata (WarpStream-style) 🎯  │
+│  Phase 4: Multi-Agent Architecture (stateless)      │
+│  Phase 5: SQL Processing (streaming queries)       │
 └─────────────────────────────────────────────────────┘
 ```
+
+### Key Architectural Insights
+
+After studying WarpStream's $220M acquisition, we learned their success came from **two critical innovations**:
+
+1. **S3-native storage** (we have this ✅)
+2. **Hyper-scalable metadata service** (Phase 3 priority 🎯)
+
+See [docs/phases/WARPSTREAM-LEARNINGS.md](docs/phases/WARPSTREAM-LEARNINGS.md) for detailed analysis of how we'll match and exceed WarpStream's architecture while adding built-in SQL processing.
+
+**Our Differentiation**: WarpStream is transport-only (still need Flink for processing). We're building transport + processing in one system.
 
 See [docs/phases/](docs/phases/) for detailed phase documentation.
 
