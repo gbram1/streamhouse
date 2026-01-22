@@ -7,3 +7,28 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
+streamhouse-core = { path = "../streamhouse-core" }
+streamhouse-storage = { path = "../streamhouse-storage" }
+streamhouse-metadata = { path = "../streamhouse-metadata" }
+
+# gRPC
+tonic = { workspace = true }
+prost = { workspace = true }
+
+# Async
+tokio = { workspace = true }
+async-trait = { workspace = true }
+
+# Storage
+object_store = { workspace = true }
+
+# Utilities
+bytes = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+anyhow = { workspace = true }
+thiserror = { workspace = true }
+chrono = { workspace = true }
+
+[build-dependencies]
+tonic-build = { workspace = true }
