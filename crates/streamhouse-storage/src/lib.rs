@@ -151,5 +151,13 @@
 //! 5. **CLI tool** - Admin and testing interface
 
 pub mod segment;
+pub mod error;
+pub mod config;
+pub mod writer;
+pub mod manager;
 
 pub use segment::{SegmentReader, SegmentWriter};
+pub use error::{Error, Result};
+pub use config::WriteConfig;
+pub use writer::{PartitionWriter, TopicWriter};
+pub use manager::{StorageManager, AppendResult};
