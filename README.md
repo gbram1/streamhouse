@@ -12,19 +12,21 @@ StreamHouse is a next-generation streaming data platform built in Rust that stor
 
 ## Status
 
-✅ **Phase 1 Complete** - Core Storage & API (Initiatives 1.1-1.6)
+✅ **Phase 1 Complete** - Full Storage Layer & Tooling
 
 **Completed:**
 - ✅ Binary segment format with LZ4 compression
 - ✅ SQLite metadata store (topics, partitions, segments, offsets)
 - ✅ Write path with automatic segment rolling and S3 upload
 - ✅ Read path with LRU caching and prefetching
-- ✅ gRPC API server with 9 endpoints
+- ✅ gRPC API server with 9 endpoints and reflection
 - ✅ Consumer group offset management
+- ✅ CLI tool (streamctl) for all operations
 - ✅ 29 automated tests (all passing)
 - ✅ Integration tests and manual testing scripts
+- ✅ Performance benchmarking suite
 
-**Next:** Phase 1.7 (CLI Tool), Phase 1.8 (Performance Testing & Documentation)
+**Next:** Phase 2 - Kafka Protocol Compatibility
 
 ## Quick Start
 
@@ -43,10 +45,10 @@ StreamHouse is a next-generation streaming data platform built in Rust that stor
 # In another terminal, run tests
 ./test-server.sh
 
-# Or run automated tests
-cargo test --workspace
+# Run performance benchmarks
+./bench-server.sh
 
-# Run tests
+# Or run automated tests
 cargo test --workspace
 
 # Run formatting check
@@ -56,17 +58,26 @@ cargo fmt --all -- --check
 cargo clippy --workspace --all-features
 ```
 
-### Running the Server (when available)
+### Using the CLI
 
 ```bash
-# Build release version
-cargo build --release
+# Build CLI tool
+cargo build --release -p streamhouse-cli
 
-# Start server
-./target/release/streamhouse-server
-
-# In another terminal, use CLI
+# Create a topic
 ./target/release/streamctl topic create orders --partitions 3
+
+# Produce a record
+./target/release/streamctl produce orders --partition 0 --value '{"amount": 99.99}'
+
+# Consume records
+./target/release/streamctl consume orders --partition 0 --offset 0
+
+# Commit consumer offset
+./target/release/streamctl offset commit --group my-app --topic orders --partition 0 --offset 10
+
+# See CLI documentation
+./target/release/streamctl --help
 ```
 
 ## Architecture
