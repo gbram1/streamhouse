@@ -46,4 +46,10 @@ pub enum Error {
 
     #[error("Segment write error: {0}")]
     SegmentError(String),
+
+    #[error("Offset not found: {0}")]
+    OffsetNotFound(u64),
+
+    #[error("IO error: {0}")]
+    IoError(#[from] std::io::Error),
 }
