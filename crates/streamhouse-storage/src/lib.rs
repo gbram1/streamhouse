@@ -155,9 +155,15 @@ pub mod error;
 pub mod config;
 pub mod writer;
 pub mod manager;
+pub mod cache;
+pub mod reader;
+pub mod consumer;
 
 pub use segment::{SegmentReader, SegmentWriter};
 pub use error::{Error, Result};
 pub use config::WriteConfig;
 pub use writer::{PartitionWriter, TopicWriter};
 pub use manager::{StorageManager, AppendResult};
+pub use cache::{SegmentCache, CacheStats};
+pub use reader::{PartitionReader, ReadResult};
+pub use consumer::Consumer;
