@@ -22,7 +22,7 @@ pub enum AgentError {
     StaleEpoch { expected: i64, actual: i64 },
 
     #[error("Metadata error: {0}")]
-    Metadata(#[from] streamhouse_metadata::Error),
+    Metadata(#[from] streamhouse_metadata::MetadataError),
 
     #[error("Storage error: {0}")]
     Storage(String),

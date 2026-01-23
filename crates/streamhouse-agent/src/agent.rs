@@ -1,0 +1,487 @@
+//! Agent - Core Lifecycle and Configuration
+//!
+//! The Agent is the main coordinator for a StreamHouse instance. It manages:
+//! - Agent registration and heartbeat
+//! - Partition lease management
+//! - Graceful start/stop
+//!
+//! ## Lifecycle
+//!
+//! 1. **Build**: Configure agent (id, address, AZ, group)
+//! 2. **Start**: Register with metadata store, start heartbeat
+//! 3. **Run**: Serve traffic, renew leases
+//! 4. **Stop**: Flush data, release leases, deregister
+//!
+//! ## Example
+//!
+//! ```rust,no_run
+//! use streamhouse_agent::Agent;
+//!
+//! # async fn example() -> Result<(), Box<dyn std::error::Error>> {
+//! let agent = Agent::builder()
+//!     .agent_id("agent-us-east-1a-001")
+//!     .address("10.0.1.5:9090")
+//!     .availability_zone("us-east-1a")
+//!     .agent_group("prod")
+//!     .build()
+//!     .await?;
+//!
+//! agent.start().await?;
+//! // ... serve traffic ...
+//! agent.stop().await?;
+//! # Ok(())
+//! # }
+//! ```
+
+use crate::error::{AgentError, Result};
+use crate::heartbeat::HeartbeatTask;
+use std::collections::HashMap;
+use std::sync::Arc;
+use std::time::Duration;
+use streamhouse_metadata::{AgentInfo, MetadataStore};
+use tokio::sync::RwLock;
+use tokio::task::JoinHandle;
+use tracing::{info, warn};
+
+/// Agent configuration
+#[derive(Debug, Clone)]
+pub struct AgentConfig {
+    /// Unique agent ID (e.g., "agent-us-east-1a-001")
+    pub agent_id: String,
+
+    /// Agent address (e.g., "10.0.1.5:9090")
+    pub address: String,
+
+    /// Availability zone (e.g., "us-east-1a")
+    pub availability_zone: String,
+
+    /// Agent group for multi-tenancy (e.g., "prod", "staging")
+    pub agent_group: String,
+
+    /// Heartbeat interval (default: 20s)
+    pub heartbeat_interval: Duration,
+
+    /// Heartbeat timeout (default: 60s)
+    pub heartbeat_timeout: Duration,
+
+    /// Optional metadata (JSON string)
+    pub metadata: Option<String>,
+}
+
+impl Default for AgentConfig {
+    fn default() -> Self {
+        Self {
+            agent_id: String::new(),
+            address: String::new(),
+            availability_zone: "default".to_string(),
+            agent_group: "default".to_string(),
+            heartbeat_interval: Duration::from_secs(20),
+            heartbeat_timeout: Duration::from_secs(60),
+            metadata: None,
+        }
+    }
+}
+
+/// Main agent struct - manages lifecycle and coordination
+pub struct Agent {
+    /// Agent configuration
+    config: AgentConfig,
+
+    /// Metadata store for coordination
+    metadata_store: Arc<dyn MetadataStore>,
+
+    /// Agent start timestamp (ms since epoch)
+    started_at: i64,
+
+    /// Agent state (started/stopped)
+    state: Arc<RwLock<AgentState>>,
+
+    /// Heartbeat task handle
+    heartbeat_handle: Arc<RwLock<Option<JoinHandle<()>>>>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum AgentState {
+    Created,
+    Started,
+    Stopped,
+}
+
+impl Agent {
+    /// Create a new agent builder
+    pub fn builder() -> AgentBuilder {
+        AgentBuilder::new()
+    }
+
+    /// Start the agent (register + begin heartbeat)
+    pub async fn start(&self) -> Result<()> {
+        let mut state = self.state.write().await;
+
+        if *state == AgentState::Started {
+            return Err(AgentError::AlreadyStarted);
+        }
+
+        info!(
+            agent_id = %self.config.agent_id,
+            address = %self.config.address,
+            availability_zone = %self.config.availability_zone,
+            agent_group = %self.config.agent_group,
+            "Starting StreamHouse agent"
+        );
+
+        // Register agent with metadata store
+        self.register().await?;
+
+        // Start heartbeat task
+        self.start_heartbeat().await?;
+
+        *state = AgentState::Started;
+
+        info!(
+            agent_id = %self.config.agent_id,
+            "Agent started successfully"
+        );
+
+        Ok(())
+    }
+
+    /// Stop the agent (flush + deregister)
+    pub async fn stop(&self) -> Result<()> {
+        let mut state = self.state.write().await;
+
+        if *state != AgentState::Started {
+            warn!(
+                agent_id = %self.config.agent_id,
+                "Agent not started, skipping stop"
+            );
+            return Ok(());
+        }
+
+        info!(
+            agent_id = %self.config.agent_id,
+            "Stopping agent gracefully"
+        );
+
+        // Stop heartbeat task
+        self.stop_heartbeat().await?;
+
+        // Deregister agent
+        self.deregister().await?;
+
+        *state = AgentState::Stopped;
+
+        info!(
+            agent_id = %self.config.agent_id,
+            "Agent stopped successfully"
+        );
+
+        Ok(())
+    }
+
+    /// Get agent ID
+    pub fn agent_id(&self) -> &str {
+        &self.config.agent_id
+    }
+
+    /// Get agent address
+    pub fn address(&self) -> &str {
+        &self.config.address
+    }
+
+    /// Get availability zone
+    pub fn availability_zone(&self) -> &str {
+        &self.config.availability_zone
+    }
+
+    /// Get agent group
+    pub fn agent_group(&self) -> &str {
+        &self.config.agent_group
+    }
+
+    /// Check if agent is started
+    pub async fn is_started(&self) -> bool {
+        *self.state.read().await == AgentState::Started
+    }
+
+    /// Register agent with metadata store
+    async fn register(&self) -> Result<()> {
+        let metadata = if let Some(json_str) = &self.config.metadata {
+            serde_json::from_str(json_str).unwrap_or_else(|_| HashMap::new())
+        } else {
+            HashMap::new()
+        };
+
+        let agent_info = AgentInfo {
+            agent_id: self.config.agent_id.clone(),
+            address: self.config.address.clone(),
+            availability_zone: self.config.availability_zone.clone(),
+            agent_group: self.config.agent_group.clone(),
+            last_heartbeat: current_timestamp_ms(),
+            started_at: self.started_at,
+            metadata,
+        };
+
+        self.metadata_store.register_agent(agent_info).await?;
+
+        info!(
+            agent_id = %self.config.agent_id,
+            "Agent registered with metadata store"
+        );
+
+        Ok(())
+    }
+
+    /// Deregister agent from metadata store
+    async fn deregister(&self) -> Result<()> {
+        self.metadata_store
+            .deregister_agent(&self.config.agent_id)
+            .await?;
+
+        info!(
+            agent_id = %self.config.agent_id,
+            "Agent deregistered from metadata store"
+        );
+
+        Ok(())
+    }
+
+    /// Start heartbeat background task
+    async fn start_heartbeat(&self) -> Result<()> {
+        let agent_id = self.config.agent_id.clone();
+        let address = self.config.address.clone();
+        let availability_zone = self.config.availability_zone.clone();
+        let agent_group = self.config.agent_group.clone();
+        let metadata = self.config.metadata.clone().unwrap_or_else(|| "{}".to_string());
+        let started_at = self.started_at;
+        let interval = self.config.heartbeat_interval;
+        let metadata_store = Arc::clone(&self.metadata_store);
+
+        let heartbeat_task = HeartbeatTask::new(
+            agent_id,
+            address,
+            availability_zone,
+            agent_group,
+            started_at,
+            metadata,
+            interval,
+            metadata_store,
+        );
+
+        let handle = tokio::spawn(async move {
+            heartbeat_task.run().await;
+        });
+
+        *self.heartbeat_handle.write().await = Some(handle);
+
+        info!(
+            agent_id = %self.config.agent_id,
+            interval_seconds = self.config.heartbeat_interval.as_secs(),
+            "Heartbeat task started"
+        );
+
+        Ok(())
+    }
+
+    /// Stop heartbeat background task
+    async fn stop_heartbeat(&self) -> Result<()> {
+        let mut handle_guard = self.heartbeat_handle.write().await;
+
+        if let Some(handle) = handle_guard.take() {
+            handle.abort();
+
+            // Wait for task to finish (ignore abort error)
+            let _ = handle.await;
+
+            info!(
+                agent_id = %self.config.agent_id,
+                "Heartbeat task stopped"
+            );
+        }
+
+        Ok(())
+    }
+}
+
+/// Builder for Agent
+pub struct AgentBuilder {
+    config: AgentConfig,
+    metadata_store: Option<Arc<dyn MetadataStore>>,
+}
+
+impl AgentBuilder {
+    /// Create a new builder
+    pub fn new() -> Self {
+        Self {
+            config: AgentConfig::default(),
+            metadata_store: None,
+        }
+    }
+
+    /// Set agent ID
+    pub fn agent_id(mut self, agent_id: impl Into<String>) -> Self {
+        self.config.agent_id = agent_id.into();
+        self
+    }
+
+    /// Set agent address
+    pub fn address(mut self, address: impl Into<String>) -> Self {
+        self.config.address = address.into();
+        self
+    }
+
+    /// Set availability zone
+    pub fn availability_zone(mut self, az: impl Into<String>) -> Self {
+        self.config.availability_zone = az.into();
+        self
+    }
+
+    /// Set agent group
+    pub fn agent_group(mut self, group: impl Into<String>) -> Self {
+        self.config.agent_group = group.into();
+        self
+    }
+
+    /// Set heartbeat interval
+    pub fn heartbeat_interval(mut self, interval: Duration) -> Self {
+        self.config.heartbeat_interval = interval;
+        self
+    }
+
+    /// Set heartbeat timeout
+    pub fn heartbeat_timeout(mut self, timeout: Duration) -> Self {
+        self.config.heartbeat_timeout = timeout;
+        self
+    }
+
+    /// Set metadata (JSON string)
+    pub fn metadata(mut self, metadata: impl Into<String>) -> Self {
+        self.config.metadata = Some(metadata.into());
+        self
+    }
+
+    /// Set metadata store
+    pub fn metadata_store(mut self, store: Arc<dyn MetadataStore>) -> Self {
+        self.metadata_store = Some(store);
+        self
+    }
+
+    /// Build the agent
+    pub async fn build(self) -> Result<Agent> {
+        // Validate required fields
+        if self.config.agent_id.is_empty() {
+            return Err(AgentError::Storage(
+                "agent_id is required".to_string(),
+            ));
+        }
+
+        if self.config.address.is_empty() {
+            return Err(AgentError::Storage(
+                "address is required".to_string(),
+            ));
+        }
+
+        let metadata_store = self.metadata_store.ok_or_else(|| {
+            AgentError::Storage("metadata_store is required".to_string())
+        })?;
+
+        let started_at = current_timestamp_ms();
+
+        Ok(Agent {
+            config: self.config,
+            metadata_store,
+            started_at,
+            state: Arc::new(RwLock::new(AgentState::Created)),
+            heartbeat_handle: Arc::new(RwLock::new(None)),
+        })
+    }
+}
+
+impl Default for AgentBuilder {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// Get current timestamp in milliseconds since epoch
+fn current_timestamp_ms() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .expect("System time before UNIX epoch")
+        .as_millis() as i64
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use streamhouse_metadata::SqliteMetadataStore;
+
+    #[tokio::test]
+    async fn test_agent_lifecycle() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let db_path = temp_dir.path().join("test_agent.db");
+
+        let metadata = SqliteMetadataStore::new(db_path.to_str().unwrap())
+            .await
+            .unwrap();
+        let metadata = Arc::new(metadata) as Arc<dyn MetadataStore>;
+
+        let agent = Agent::builder()
+            .agent_id("test-agent-1")
+            .address("127.0.0.1:9090")
+            .availability_zone("test-az")
+            .agent_group("test")
+            .metadata_store(Arc::clone(&metadata))
+            .build()
+            .await
+            .unwrap();
+
+        // Agent should not be started initially
+        assert!(!agent.is_started().await);
+
+        // Start agent
+        agent.start().await.unwrap();
+        assert!(agent.is_started().await);
+
+        // Verify agent is registered
+        let agents = metadata.list_agents(None, None).await.unwrap();
+        assert_eq!(agents.len(), 1);
+        assert_eq!(agents[0].agent_id, "test-agent-1");
+
+        // Stop agent
+        agent.stop().await.unwrap();
+        assert!(!agent.is_started().await);
+
+        // Agent should be deregistered
+        let agents = metadata.list_agents(None, None).await.unwrap();
+        assert_eq!(agents.len(), 0);
+    }
+
+    #[tokio::test]
+    async fn test_agent_cannot_start_twice() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let db_path = temp_dir.path().join("test_agent_double_start.db");
+
+        let metadata = SqliteMetadataStore::new(db_path.to_str().unwrap())
+            .await
+            .unwrap();
+        let metadata = Arc::new(metadata) as Arc<dyn MetadataStore>;
+
+        let agent = Agent::builder()
+            .agent_id("test-agent-2")
+            .address("127.0.0.1:9090")
+            .availability_zone("test-az")
+            .agent_group("test")
+            .metadata_store(metadata)
+            .build()
+            .await
+            .unwrap();
+
+        agent.start().await.unwrap();
+
+        // Second start should fail
+        let result = agent.start().await;
+        assert!(matches!(result, Err(AgentError::AlreadyStarted)));
+
+        agent.stop().await.unwrap();
+    }
+}

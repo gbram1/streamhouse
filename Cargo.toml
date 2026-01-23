@@ -4,6 +4,7 @@ members = [
     "crates/streamhouse-core",
     "crates/streamhouse-storage",
     "crates/streamhouse-metadata",
+    "crates/streamhouse-agent",
     "crates/streamhouse-kafka",
     "crates/streamhouse-sql",
     "crates/streamhouse-server",

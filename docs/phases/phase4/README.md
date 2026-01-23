@@ -88,16 +88,17 @@ After (Multi-Agent):
 
 ### Phase 4.1: Agent Infrastructure (Weeks 1-2) - 🚧 CURRENT
 
-**Status**: In Progress
+**Status**: 70% Complete
 **Goal**: Build core Agent struct and lifecycle
 
 **Deliverables**:
 - ✅ Agent struct with configuration
 - ✅ Agent registration with metadata store
-- 🚧 Heartbeat mechanism (background task)
-- 🚧 Graceful start/stop
-- 🚧 Health check endpoint
-- 🚧 Agent discovery
+- ✅ Heartbeat mechanism (background task)
+- ✅ Graceful start/stop
+- ✅ Agent discovery
+- ✅ Example demonstrating agent lifecycle
+- 🚧 Health check HTTP endpoint
 
 **Files**:
 - `crates/streamhouse-agent/src/agent.rs`
@@ -169,16 +170,16 @@ After (Multi-Agent):
 
 | Component | Status | Progress |
 |-----------|--------|----------|
-| Agent struct | 🚧 In Progress | 20% |
-| Heartbeat mechanism | 📋 Next | 0% |
-| LeaseManager | 📋 Planned | 0% |
+| Agent struct | ✅ Complete | 100% |
+| Heartbeat mechanism | ✅ Complete | 100% |
+| LeaseManager (stub) | ✅ Complete | 20% |
 | Epoch fencing | 📋 Planned | 0% |
 | Multi-AZ support | 📋 Planned | 0% |
 | Agent groups | 📋 Planned | 0% |
 | Integration tests | 📋 Planned | 0% |
-| Documentation | 📋 Planned | 10% |
+| Documentation | 🚧 In Progress | 30% |
 
-**Overall Phase 4 Progress**: 5% (1/20 tasks complete)
+**Overall Phase 4 Progress**: 30% (6/20 Phase 4.1 tasks complete)
 
 ---
 
