@@ -73,6 +73,7 @@ use crate::{
     cache::SegmentCache,
     error::{Error, Result},
     segment::SegmentReader,
+    segment_index::{SegmentIndex, SegmentIndexConfig},
 };
 use bytes::Bytes;
 use object_store::ObjectStore;
@@ -87,6 +88,7 @@ pub struct PartitionReader {
     metadata: Arc<dyn MetadataStore>,
     object_store: Arc<dyn ObjectStore>,
     cache: Arc<SegmentCache>,
+    segment_index: SegmentIndex,
 }
 
 impl PartitionReader {
@@ -98,12 +100,42 @@ impl PartitionReader {
         object_store: Arc<dyn ObjectStore>,
         cache: Arc<SegmentCache>,
     ) -> Self {
+        let segment_index = SegmentIndex::new(
+            topic.clone(),
+            partition_id,
+            metadata.clone(),
+            SegmentIndexConfig::default(),
+        );
+
         Self {
             topic,
             partition_id,
             metadata,
             object_store,
             cache,
+            segment_index,
+        }
+    }
+
+    /// Create a new partition reader with custom segment index config
+    pub fn with_index_config(
+        topic: String,
+        partition_id: u32,
+        metadata: Arc<dyn MetadataStore>,
+        object_store: Arc<dyn ObjectStore>,
+        cache: Arc<SegmentCache>,
+        index_config: SegmentIndexConfig,
+    ) -> Self {
+        let segment_index =
+            SegmentIndex::new(topic.clone(), partition_id, metadata.clone(), index_config);
+
+        Self {
+            topic,
+            partition_id,
+            metadata,
+            object_store,
+            cache,
+            segment_index,
         }
     }
 
@@ -112,11 +144,12 @@ impl PartitionReader {
     /// Returns up to `max_records` records, or fewer if end of segment reached.
     /// Automatically caches segments and prefetches next segment for sequential reads.
     pub async fn read(&self, start_offset: u64, max_records: usize) -> Result<ReadResult> {
-        // Find segment containing start_offset
+        // Find segment containing start_offset using in-memory index
         let segment_info = self
-            .metadata
-            .find_segment_for_offset(&self.topic, self.partition_id, start_offset)
-            .await?
+            .segment_index
+            .find_segment_for_offset(start_offset)
+            .await
+            .map_err(|e| Error::MetadataError(e))?
             .ok_or_else(|| Error::OffsetNotFound(start_offset))?;
 
         // Get segment data (from cache or S3)
@@ -196,15 +229,13 @@ impl PartitionReader {
         let next_offset = current.end_offset + 1;
         let topic = self.topic.clone();
         let partition_id = self.partition_id;
-        let metadata = self.metadata.clone();
+        let segment_index = self.segment_index.clone();
         let object_store = self.object_store.clone();
         let cache = self.cache.clone();
 
         tokio::spawn(async move {
-            // Find next segment
-            if let Ok(Some(next_segment)) = metadata
-                .find_segment_for_offset(&topic, partition_id, next_offset)
-                .await
+            // Find next segment using index
+            if let Ok(Some(next_segment)) = segment_index.find_segment_for_offset(next_offset).await
             {
                 let cache_key = format!("{}-{}-{}", topic, partition_id, next_segment.base_offset);
 

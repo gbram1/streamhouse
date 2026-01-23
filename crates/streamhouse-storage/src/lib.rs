@@ -157,6 +157,7 @@ pub mod error;
 pub mod manager;
 pub mod reader;
 pub mod segment;
+pub mod segment_index;
 pub mod writer;
 pub mod writer_pool;
 
@@ -167,5 +168,6 @@ pub use error::{Error, Result};
 pub use manager::{AppendResult, StorageManager};
 pub use reader::{PartitionReader, ReadResult};
 pub use segment::{SegmentReader, SegmentWriter};
+pub use segment_index::{SegmentIndex, SegmentIndexConfig};
 pub use writer::{PartitionWriter, TopicWriter};
 pub use writer_pool::WriterPool;
