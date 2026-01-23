@@ -405,9 +405,7 @@ impl<S: MetadataStore + 'static> MetadataStore for CachedMetadataStore<S> {
             let mut cache = self.topic_list_cache.write().await;
             if let Some(entry) = cache.get(&()) {
                 if !entry.is_expired() {
-                    self.metrics
-                        .topic_list_hits
-                        .fetch_add(1, Ordering::Relaxed);
+                    self.metrics.topic_list_hits.fetch_add(1, Ordering::Relaxed);
                     return Ok(entry.value().clone());
                 } else {
                     // Expired - remove from cache
@@ -695,11 +693,19 @@ mod tests {
         cached.create_topic(config).await.unwrap();
 
         // First read - cache miss
-        let part1 = cached.get_partition("test_topic", 0).await.unwrap().unwrap();
+        let part1 = cached
+            .get_partition("test_topic", 0)
+            .await
+            .unwrap()
+            .unwrap();
         assert_eq!(part1.partition_id, 0);
 
         // Second read - cache hit
-        let part2 = cached.get_partition("test_topic", 0).await.unwrap().unwrap();
+        let part2 = cached
+            .get_partition("test_topic", 0)
+            .await
+            .unwrap()
+            .unwrap();
         assert_eq!(part2.partition_id, 0);
         assert_eq!(part1.high_watermark, part2.high_watermark);
     }
@@ -712,7 +718,11 @@ mod tests {
         // Create topic and cache partition
         let config = test_topic_config("test_topic");
         cached.create_topic(config).await.unwrap();
-        let part1 = cached.get_partition("test_topic", 0).await.unwrap().unwrap();
+        let part1 = cached
+            .get_partition("test_topic", 0)
+            .await
+            .unwrap()
+            .unwrap();
         assert_eq!(part1.high_watermark, 0);
 
         // Update watermark - should invalidate cache
@@ -722,7 +732,11 @@ mod tests {
             .unwrap();
 
         // Should read fresh data from database
-        let part2 = cached.get_partition("test_topic", 0).await.unwrap().unwrap();
+        let part2 = cached
+            .get_partition("test_topic", 0)
+            .await
+            .unwrap()
+            .unwrap();
         assert_eq!(part2.high_watermark, 100);
     }
 
@@ -866,10 +880,7 @@ mod tests {
         );
 
         let _topics2 = cached.list_topics().await.unwrap();
-        assert_eq!(
-            cached.metrics().topic_list_hits.load(Ordering::Relaxed),
-            1
-        );
+        assert_eq!(cached.metrics().topic_list_hits.load(Ordering::Relaxed), 1);
     }
 
     #[tokio::test]
@@ -894,9 +905,6 @@ mod tests {
         assert_eq!(cached.metrics().topic_hits.load(Ordering::Relaxed), 0);
         assert_eq!(cached.metrics().topic_misses.load(Ordering::Relaxed), 0);
         assert_eq!(cached.metrics().partition_hits.load(Ordering::Relaxed), 0);
-        assert_eq!(
-            cached.metrics().partition_misses.load(Ordering::Relaxed),
-            0
-        );
+        assert_eq!(cached.metrics().partition_misses.load(Ordering::Relaxed), 0);
     }
 }

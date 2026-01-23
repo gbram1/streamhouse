@@ -313,7 +313,7 @@ impl MetadataStore for PostgresMetadataStore {
     async fn get_topic(&self, name: &str) -> Result<Option<Topic>> {
         let row = sqlx::query(
             "SELECT name, partition_count, retention_ms, created_at, config
-             FROM topics WHERE name = $1"
+             FROM topics WHERE name = $1",
         )
         .bind(name)
         .fetch_optional(&self.pool)
@@ -336,7 +336,7 @@ impl MetadataStore for PostgresMetadataStore {
     async fn list_topics(&self) -> Result<Vec<Topic>> {
         let rows = sqlx::query(
             "SELECT name, partition_count, retention_ms, created_at, config
-             FROM topics ORDER BY created_at DESC"
+             FROM topics ORDER BY created_at DESC",
         )
         .fetch_all(&self.pool)
         .await?;
@@ -361,7 +361,7 @@ impl MetadataStore for PostgresMetadataStore {
     async fn get_partition(&self, topic: &str, partition_id: u32) -> Result<Option<Partition>> {
         let row = sqlx::query(
             "SELECT topic, partition_id, high_watermark
-             FROM partitions WHERE topic = $1 AND partition_id = $2"
+             FROM partitions WHERE topic = $1 AND partition_id = $2",
         )
         .bind(topic)
         .bind(partition_id as i32)
@@ -375,7 +375,12 @@ impl MetadataStore for PostgresMetadataStore {
         }))
     }
 
-    async fn update_high_watermark(&self, topic: &str, partition_id: u32, offset: u64) -> Result<()> {
+    async fn update_high_watermark(
+        &self,
+        topic: &str,
+        partition_id: u32,
+        offset: u64,
+    ) -> Result<()> {
         let now_ms = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap()
@@ -383,7 +388,7 @@ impl MetadataStore for PostgresMetadataStore {
 
         sqlx::query(
             "UPDATE partitions SET high_watermark = $3, updated_at = $4
-             WHERE topic = $1 AND partition_id = $2"
+             WHERE topic = $1 AND partition_id = $2",
         )
         .bind(topic)
         .bind(partition_id as i32)
@@ -398,7 +403,7 @@ impl MetadataStore for PostgresMetadataStore {
     async fn list_partitions(&self, topic: &str) -> Result<Vec<Partition>> {
         let rows = sqlx::query(
             "SELECT topic, partition_id, high_watermark
-             FROM partitions WHERE topic = $1 ORDER BY partition_id"
+             FROM partitions WHERE topic = $1 ORDER BY partition_id",
         )
         .bind(topic)
         .fetch_all(&self.pool)
@@ -418,7 +423,7 @@ impl MetadataStore for PostgresMetadataStore {
         sqlx::query(
             "INSERT INTO segments (id, topic, partition_id, base_offset, end_offset,
                                    record_count, size_bytes, s3_bucket, s3_key, created_at)
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)"
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)",
         )
         .bind(&segment.id)
         .bind(&segment.topic)
@@ -440,7 +445,7 @@ impl MetadataStore for PostgresMetadataStore {
         let rows = sqlx::query(
             "SELECT id, topic, partition_id, base_offset, end_offset, record_count,
                     size_bytes, s3_bucket, s3_key, created_at
-             FROM segments WHERE topic = $1 AND partition_id = $2 ORDER BY base_offset"
+             FROM segments WHERE topic = $1 AND partition_id = $2 ORDER BY base_offset",
         )
         .bind(topic)
         .bind(partition_id as i32)
@@ -464,14 +469,19 @@ impl MetadataStore for PostgresMetadataStore {
             .collect())
     }
 
-    async fn find_segment_for_offset(&self, topic: &str, partition_id: u32, offset: u64) -> Result<Option<SegmentInfo>> {
+    async fn find_segment_for_offset(
+        &self,
+        topic: &str,
+        partition_id: u32,
+        offset: u64,
+    ) -> Result<Option<SegmentInfo>> {
         let row = sqlx::query(
             "SELECT id, topic, partition_id, base_offset, end_offset, record_count,
                     size_bytes, s3_bucket, s3_key, created_at
              FROM segments
              WHERE topic = $1 AND partition_id = $2
                AND base_offset <= $3 AND end_offset >= $3
-             ORDER BY base_offset LIMIT 1"
+             ORDER BY base_offset LIMIT 1",
         )
         .bind(topic)
         .bind(partition_id as i32)
@@ -493,10 +503,15 @@ impl MetadataStore for PostgresMetadataStore {
         }))
     }
 
-    async fn delete_segments_before(&self, topic: &str, partition_id: u32, before_offset: u64) -> Result<u64> {
+    async fn delete_segments_before(
+        &self,
+        topic: &str,
+        partition_id: u32,
+        before_offset: u64,
+    ) -> Result<u64> {
         let result = sqlx::query(
             "DELETE FROM segments
-             WHERE topic = $1 AND partition_id = $2 AND end_offset < $3"
+             WHERE topic = $1 AND partition_id = $2 AND end_offset < $3",
         )
         .bind(topic)
         .bind(partition_id as i32)
@@ -515,7 +530,7 @@ impl MetadataStore for PostgresMetadataStore {
 
         sqlx::query(
             "INSERT INTO consumer_groups (group_id, created_at, updated_at)
-             VALUES ($1, $2, $3) ON CONFLICT (group_id) DO NOTHING"
+             VALUES ($1, $2, $3) ON CONFLICT (group_id) DO NOTHING",
         )
         .bind(group_id)
         .bind(now_ms)
@@ -526,7 +541,14 @@ impl MetadataStore for PostgresMetadataStore {
         Ok(())
     }
 
-    async fn commit_offset(&self, group_id: &str, topic: &str, partition_id: u32, offset: u64, metadata: Option<String>) -> Result<()> {
+    async fn commit_offset(
+        &self,
+        group_id: &str,
+        topic: &str,
+        partition_id: u32,
+        offset: u64,
+        metadata: Option<String>,
+    ) -> Result<()> {
         self.ensure_consumer_group(group_id).await?;
 
         let now_ms = std::time::SystemTime::now()
@@ -552,10 +574,15 @@ impl MetadataStore for PostgresMetadataStore {
         Ok(())
     }
 
-    async fn get_committed_offset(&self, group_id: &str, topic: &str, partition_id: u32) -> Result<Option<u64>> {
+    async fn get_committed_offset(
+        &self,
+        group_id: &str,
+        topic: &str,
+        partition_id: u32,
+    ) -> Result<Option<u64>> {
         let row = sqlx::query(
             "SELECT committed_offset FROM consumer_offsets
-             WHERE group_id = $1 AND topic = $2 AND partition_id = $3"
+             WHERE group_id = $1 AND topic = $2 AND partition_id = $3",
         )
         .bind(group_id)
         .bind(topic)
@@ -569,7 +596,7 @@ impl MetadataStore for PostgresMetadataStore {
     async fn get_consumer_offsets(&self, group_id: &str) -> Result<Vec<ConsumerOffset>> {
         let rows = sqlx::query(
             "SELECT group_id, topic, partition_id, committed_offset, metadata
-             FROM consumer_offsets WHERE group_id = $1 ORDER BY topic, partition_id"
+             FROM consumer_offsets WHERE group_id = $1 ORDER BY topic, partition_id",
         )
         .bind(group_id)
         .fetch_all(&self.pool)
@@ -604,7 +631,7 @@ impl MetadataStore for PostgresMetadataStore {
              VALUES ($1, $2, $3, $4, $5, $6, $7)
              ON CONFLICT(agent_id) DO UPDATE SET
                  address = $2, availability_zone = $3, agent_group = $4,
-                 last_heartbeat = $5, metadata = $7"
+                 last_heartbeat = $5, metadata = $7",
         )
         .bind(&agent.agent_id)
         .bind(&agent.address)
@@ -623,7 +650,7 @@ impl MetadataStore for PostgresMetadataStore {
         let row = sqlx::query(
             "SELECT agent_id, address, availability_zone, agent_group,
                     last_heartbeat, started_at, metadata
-             FROM agents WHERE agent_id = $1"
+             FROM agents WHERE agent_id = $1",
         )
         .bind(agent_id)
         .fetch_optional(&self.pool)
@@ -645,7 +672,11 @@ impl MetadataStore for PostgresMetadataStore {
         }))
     }
 
-    async fn list_agents(&self, agent_group: Option<&str>, availability_zone: Option<&str>) -> Result<Vec<AgentInfo>> {
+    async fn list_agents(
+        &self,
+        agent_group: Option<&str>,
+        availability_zone: Option<&str>,
+    ) -> Result<Vec<AgentInfo>> {
         let now_ms = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap()
@@ -659,7 +690,7 @@ impl MetadataStore for PostgresMetadataStore {
                             last_heartbeat, started_at, metadata
                      FROM agents
                      WHERE agent_group = $1 AND availability_zone = $2 AND last_heartbeat > $3
-                     ORDER BY agent_id"
+                     ORDER BY agent_id",
                 )
                 .bind(group)
                 .bind(az)
@@ -673,7 +704,7 @@ impl MetadataStore for PostgresMetadataStore {
                             last_heartbeat, started_at, metadata
                      FROM agents
                      WHERE agent_group = $1 AND last_heartbeat > $2
-                     ORDER BY agent_id"
+                     ORDER BY agent_id",
                 )
                 .bind(group)
                 .bind(stale_threshold)
@@ -686,7 +717,7 @@ impl MetadataStore for PostgresMetadataStore {
                             last_heartbeat, started_at, metadata
                      FROM agents
                      WHERE availability_zone = $1 AND last_heartbeat > $2
-                     ORDER BY agent_id"
+                     ORDER BY agent_id",
                 )
                 .bind(az)
                 .bind(stale_threshold)
@@ -699,7 +730,7 @@ impl MetadataStore for PostgresMetadataStore {
                             last_heartbeat, started_at, metadata
                      FROM agents
                      WHERE last_heartbeat > $1
-                     ORDER BY agent_id"
+                     ORDER BY agent_id",
                 )
                 .bind(stale_threshold)
                 .fetch_all(&self.pool)
@@ -734,7 +765,13 @@ impl MetadataStore for PostgresMetadataStore {
         Ok(())
     }
 
-    async fn acquire_partition_lease(&self, topic: &str, partition_id: u32, agent_id: &str, lease_duration_ms: i64) -> Result<PartitionLease> {
+    async fn acquire_partition_lease(
+        &self,
+        topic: &str,
+        partition_id: u32,
+        agent_id: &str,
+        lease_duration_ms: i64,
+    ) -> Result<PartitionLease> {
         let now_ms = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap()
@@ -785,7 +822,11 @@ impl MetadataStore for PostgresMetadataStore {
         }
     }
 
-    async fn get_partition_lease(&self, topic: &str, partition_id: u32) -> Result<Option<PartitionLease>> {
+    async fn get_partition_lease(
+        &self,
+        topic: &str,
+        partition_id: u32,
+    ) -> Result<Option<PartitionLease>> {
         let now_ms = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap()
@@ -794,7 +835,7 @@ impl MetadataStore for PostgresMetadataStore {
         let row = sqlx::query(
             "SELECT topic, partition_id, leader_agent_id, lease_expires_at, acquired_at, epoch
              FROM partition_leases
-             WHERE topic = $1 AND partition_id = $2 AND lease_expires_at > $3"
+             WHERE topic = $1 AND partition_id = $2 AND lease_expires_at > $3",
         )
         .bind(topic)
         .bind(partition_id as i32)
@@ -812,10 +853,15 @@ impl MetadataStore for PostgresMetadataStore {
         }))
     }
 
-    async fn release_partition_lease(&self, topic: &str, partition_id: u32, agent_id: &str) -> Result<()> {
+    async fn release_partition_lease(
+        &self,
+        topic: &str,
+        partition_id: u32,
+        agent_id: &str,
+    ) -> Result<()> {
         let result = sqlx::query(
             "DELETE FROM partition_leases
-             WHERE topic = $1 AND partition_id = $2 AND leader_agent_id = $3"
+             WHERE topic = $1 AND partition_id = $2 AND leader_agent_id = $3",
         )
         .bind(topic)
         .bind(partition_id as i32)
@@ -832,61 +878,57 @@ impl MetadataStore for PostgresMetadataStore {
         Ok(())
     }
 
-    async fn list_partition_leases(&self, topic: Option<&str>, agent_id: Option<&str>) -> Result<Vec<PartitionLease>> {
+    async fn list_partition_leases(
+        &self,
+        topic: Option<&str>,
+        agent_id: Option<&str>,
+    ) -> Result<Vec<PartitionLease>> {
         let now_ms = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap()
             .as_millis() as i64;
 
         let rows = match (topic, agent_id) {
-            (Some(t), Some(a)) => {
-                sqlx::query(
-                    "SELECT topic, partition_id, leader_agent_id, lease_expires_at, acquired_at, epoch
+            (Some(t), Some(a)) => sqlx::query(
+                "SELECT topic, partition_id, leader_agent_id, lease_expires_at, acquired_at, epoch
                      FROM partition_leases
                      WHERE topic = $1 AND leader_agent_id = $2 AND lease_expires_at > $3
-                     ORDER BY topic, partition_id"
-                )
-                .bind(t)
-                .bind(a)
-                .bind(now_ms)
-                .fetch_all(&self.pool)
-                .await?
-            }
-            (Some(t), None) => {
-                sqlx::query(
-                    "SELECT topic, partition_id, leader_agent_id, lease_expires_at, acquired_at, epoch
+                     ORDER BY topic, partition_id",
+            )
+            .bind(t)
+            .bind(a)
+            .bind(now_ms)
+            .fetch_all(&self.pool)
+            .await?,
+            (Some(t), None) => sqlx::query(
+                "SELECT topic, partition_id, leader_agent_id, lease_expires_at, acquired_at, epoch
                      FROM partition_leases
                      WHERE topic = $1 AND lease_expires_at > $2
-                     ORDER BY topic, partition_id"
-                )
-                .bind(t)
-                .bind(now_ms)
-                .fetch_all(&self.pool)
-                .await?
-            }
-            (None, Some(a)) => {
-                sqlx::query(
-                    "SELECT topic, partition_id, leader_agent_id, lease_expires_at, acquired_at, epoch
+                     ORDER BY topic, partition_id",
+            )
+            .bind(t)
+            .bind(now_ms)
+            .fetch_all(&self.pool)
+            .await?,
+            (None, Some(a)) => sqlx::query(
+                "SELECT topic, partition_id, leader_agent_id, lease_expires_at, acquired_at, epoch
                      FROM partition_leases
                      WHERE leader_agent_id = $1 AND lease_expires_at > $2
-                     ORDER BY topic, partition_id"
-                )
-                .bind(a)
-                .bind(now_ms)
-                .fetch_all(&self.pool)
-                .await?
-            }
-            (None, None) => {
-                sqlx::query(
-                    "SELECT topic, partition_id, leader_agent_id, lease_expires_at, acquired_at, epoch
+                     ORDER BY topic, partition_id",
+            )
+            .bind(a)
+            .bind(now_ms)
+            .fetch_all(&self.pool)
+            .await?,
+            (None, None) => sqlx::query(
+                "SELECT topic, partition_id, leader_agent_id, lease_expires_at, acquired_at, epoch
                      FROM partition_leases
                      WHERE lease_expires_at > $1
-                     ORDER BY topic, partition_id"
-                )
-                .bind(now_ms)
-                .fetch_all(&self.pool)
-                .await?
-            }
+                     ORDER BY topic, partition_id",
+            )
+            .bind(now_ms)
+            .fetch_all(&self.pool)
+            .await?,
         };
 
         Ok(rows
@@ -1338,7 +1380,13 @@ mod tests {
 
         // Commit offset
         store
-            .commit_offset("test-group", "consumer_test", 0, 100, Some("metadata1".to_string()))
+            .commit_offset(
+                "test-group",
+                "consumer_test",
+                0,
+                100,
+                Some("metadata1".to_string()),
+            )
             .await
             .unwrap();
 
@@ -1369,7 +1417,13 @@ mod tests {
 
         // Update existing offset (upsert)
         store
-            .commit_offset("test-group", "consumer_test", 0, 150, Some("metadata2".to_string()))
+            .commit_offset(
+                "test-group",
+                "consumer_test",
+                0,
+                150,
+                Some("metadata2".to_string()),
+            )
             .await
             .unwrap();
 
@@ -1471,7 +1525,10 @@ mod tests {
             store
                 .register_agent(AgentInfo {
                     agent_id: agent_id.to_string(),
-                    address: format!("127.0.0.1:{}", if agent_id == "agent-1" { 9091 } else { 9092 }),
+                    address: format!(
+                        "127.0.0.1:{}",
+                        if agent_id == "agent-1" { 9091 } else { 9092 }
+                    ),
                     availability_zone: "us-east-1a".to_string(),
                     agent_group: "writers".to_string(),
                     last_heartbeat: chrono::Utc::now().timestamp_millis(),
