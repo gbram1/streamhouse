@@ -75,9 +75,10 @@
 //! ```
 
 use std::sync::Arc;
+use std::time::Duration;
 use streamhouse_metadata::SqliteMetadataStore;
 use streamhouse_server::{pb::stream_house_server::StreamHouseServer, StreamHouseService};
-use streamhouse_storage::{SegmentCache, WriteConfig};
+use streamhouse_storage::{SegmentCache, WriteConfig, WriterPool};
 use tonic::transport::Server;
 use tonic_reflection::server::Builder as ReflectionBuilder;
 
@@ -153,13 +154,36 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         s3_upload_retries: 3,
     };
 
+    // Create writer pool
+    tracing::info!("Initializing writer pool");
+    let writer_pool = Arc::new(WriterPool::new(
+        metadata.clone(),
+        object_store.clone(),
+        config.clone(),
+    ));
+
+    // Start background flush thread
+    let flush_interval_secs = std::env::var("FLUSH_INTERVAL_SECS")
+        .unwrap_or_else(|_| "5".to_string())
+        .parse::<u64>()
+        .unwrap_or(5);
+    tracing::info!(
+        "Starting background flush thread (interval: {}s)",
+        flush_interval_secs
+    );
+    let _flush_handle = writer_pool
+        .clone()
+        .start_background_flush(Duration::from_secs(flush_interval_secs));
+
     // Create service
-    let service = StreamHouseService::new(metadata, object_store, cache, config);
+    let service =
+        StreamHouseService::new(metadata, object_store, cache, writer_pool.clone(), config);
 
     tracing::info!("StreamHouse server starting on {}", bind_addr);
     tracing::info!("Configuration:");
     tracing::info!("  Bucket: {}", s3_bucket);
     tracing::info!("  Cache: {} ({} bytes)", cache_dir, cache_size);
+    tracing::info!("  Flush interval: {}s", flush_interval_secs);
 
     // Set up reflection service
     let descriptor_bytes = include_bytes!("../proto/streamhouse_descriptor.bin");
@@ -167,12 +191,57 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .register_encoded_file_descriptor_set(descriptor_bytes)
         .build()?;
 
-    // Start server with reflection
+    // Set up graceful shutdown
+    let shutdown_pool = writer_pool.clone();
+    let (shutdown_tx, shutdown_rx) = tokio::sync::oneshot::channel::<()>();
+
+    // Spawn shutdown signal handler
+    tokio::spawn(async move {
+        let ctrl_c = async {
+            tokio::signal::ctrl_c()
+                .await
+                .expect("failed to install Ctrl+C handler");
+        };
+
+        #[cfg(unix)]
+        let terminate = async {
+            tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
+                .expect("failed to install signal handler")
+                .recv()
+                .await;
+        };
+
+        #[cfg(not(unix))]
+        let terminate = std::future::pending::<()>();
+
+        tokio::select! {
+            _ = ctrl_c => {
+                tracing::info!("Received SIGINT (Ctrl+C), initiating graceful shutdown");
+            },
+            _ = terminate => {
+                tracing::info!("Received SIGTERM, initiating graceful shutdown");
+            },
+        }
+
+        // Flush all writers before shutdown
+        tracing::info!("Flushing all pending writes...");
+        if let Err(e) = shutdown_pool.shutdown().await {
+            tracing::error!("Error during writer pool shutdown: {}", e);
+        }
+
+        let _ = shutdown_tx.send(());
+    });
+
+    // Start server with reflection and graceful shutdown
     Server::builder()
         .add_service(StreamHouseServer::new(service))
         .add_service(reflection_service)
-        .serve(bind_addr)
+        .serve_with_shutdown(bind_addr, async {
+            shutdown_rx.await.ok();
+        })
         .await?;
+
+    tracing::info!("StreamHouse server shut down gracefully");
 
     Ok(())
 }

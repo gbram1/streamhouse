@@ -158,6 +158,7 @@ pub mod manager;
 pub mod reader;
 pub mod segment;
 pub mod writer;
+pub mod writer_pool;
 
 pub use cache::{CacheStats, SegmentCache};
 pub use config::WriteConfig;
@@ -167,3 +168,4 @@ pub use manager::{AppendResult, StorageManager};
 pub use reader::{PartitionReader, ReadResult};
 pub use segment::{SegmentReader, SegmentWriter};
 pub use writer::{PartitionWriter, TopicWriter};
+pub use writer_pool::WriterPool;

@@ -2,7 +2,9 @@ use crate::pb::{stream_house_server::StreamHouse, *};
 use std::collections::HashMap;
 use std::sync::Arc;
 use streamhouse_metadata::{MetadataStore, TopicConfig};
-use streamhouse_storage::{PartitionReader, PartitionWriter, SegmentCache, WriteConfig};
+use streamhouse_storage::{
+    PartitionReader, PartitionWriter, SegmentCache, WriteConfig, WriterPool,
+};
 use tonic::{Request, Response, Status};
 
 /// StreamHouse gRPC service implementation
@@ -10,6 +12,8 @@ pub struct StreamHouseService {
     metadata: Arc<dyn MetadataStore>,
     object_store: Arc<dyn object_store::ObjectStore>,
     cache: Arc<SegmentCache>,
+    writer_pool: Arc<WriterPool>,
+    #[allow(dead_code)]
     config: WriteConfig,
 }
 
@@ -18,18 +22,24 @@ impl StreamHouseService {
         metadata: Arc<dyn MetadataStore>,
         object_store: Arc<dyn object_store::ObjectStore>,
         cache: Arc<SegmentCache>,
+        writer_pool: Arc<WriterPool>,
         config: WriteConfig,
     ) -> Self {
         Self {
             metadata,
             object_store,
             cache,
+            writer_pool,
             config,
         }
     }
 
-    /// Get or create a partition writer
-    async fn get_writer(&self, topic: &str, partition_id: u32) -> Result<PartitionWriter, Status> {
+    /// Get partition writer from pool
+    async fn get_writer(
+        &self,
+        topic: &str,
+        partition_id: u32,
+    ) -> Result<Arc<tokio::sync::Mutex<PartitionWriter>>, Status> {
         // Verify topic exists
         let topic_info = self
             .metadata
@@ -46,18 +56,11 @@ impl StreamHouseService {
             )));
         }
 
-        // Create writer
-        let writer = PartitionWriter::new(
-            topic.to_string(),
-            partition_id,
-            self.object_store.clone(),
-            self.metadata.clone(),
-            self.config.clone(),
-        )
-        .await
-        .map_err(|e| Status::internal(format!("Failed to create writer: {}", e)))?;
-
-        Ok(writer)
+        // Get writer from pool
+        self.writer_pool
+            .get_writer(topic, partition_id)
+            .await
+            .map_err(|e| Status::internal(format!("Failed to get writer: {}", e)))
     }
 
     /// Get a partition reader
@@ -201,7 +204,8 @@ impl StreamHouse for StreamHouseService {
     ) -> Result<Response<ProduceResponse>, Status> {
         let req = request.into_inner();
 
-        let mut writer = self.get_writer(&req.topic, req.partition).await?;
+        let writer = self.get_writer(&req.topic, req.partition).await?;
+        let mut writer_guard = writer.lock().await;
 
         let timestamp = chrono::Utc::now().timestamp_millis() as u64;
         let key = if req.key.is_empty() {
@@ -210,7 +214,7 @@ impl StreamHouse for StreamHouseService {
             Some(bytes::Bytes::from(req.key))
         };
 
-        let offset = writer
+        let offset = writer_guard
             .append(key, bytes::Bytes::from(req.value), timestamp)
             .await
             .map_err(|e| Status::internal(format!("Write failed: {}", e)))?;
@@ -224,7 +228,8 @@ impl StreamHouse for StreamHouseService {
     ) -> Result<Response<ProduceBatchResponse>, Status> {
         let req = request.into_inner();
 
-        let mut writer = self.get_writer(&req.topic, req.partition).await?;
+        let writer = self.get_writer(&req.topic, req.partition).await?;
+        let mut writer_guard = writer.lock().await;
 
         let timestamp = chrono::Utc::now().timestamp_millis() as u64;
         let mut first_offset = None;
@@ -237,7 +242,7 @@ impl StreamHouse for StreamHouseService {
                 Some(bytes::Bytes::from(proto_record.key))
             };
 
-            let offset = writer
+            let offset = writer_guard
                 .append(key, bytes::Bytes::from(proto_record.value), timestamp)
                 .await
                 .map_err(|e| Status::internal(format!("Write failed: {}", e)))?;
