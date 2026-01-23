@@ -15,6 +15,7 @@ async-trait = { workspace = true }
 thiserror = { workspace = true }
 tokio = { workspace = true }
 chrono = { workspace = true }
+lru = "0.12"
 
 [features]
 default = ["sqlite"]
