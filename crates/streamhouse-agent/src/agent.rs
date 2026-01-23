@@ -251,7 +251,11 @@ impl Agent {
         let address = self.config.address.clone();
         let availability_zone = self.config.availability_zone.clone();
         let agent_group = self.config.agent_group.clone();
-        let metadata = self.config.metadata.clone().unwrap_or_else(|| "{}".to_string());
+        let metadata = self
+            .config
+            .metadata
+            .clone()
+            .unwrap_or_else(|| "{}".to_string());
         let started_at = self.started_at;
         let interval = self.config.heartbeat_interval;
         let metadata_store = Arc::clone(&self.metadata_store);
@@ -369,20 +373,16 @@ impl AgentBuilder {
     pub async fn build(self) -> Result<Agent> {
         // Validate required fields
         if self.config.agent_id.is_empty() {
-            return Err(AgentError::Storage(
-                "agent_id is required".to_string(),
-            ));
+            return Err(AgentError::Storage("agent_id is required".to_string()));
         }
 
         if self.config.address.is_empty() {
-            return Err(AgentError::Storage(
-                "address is required".to_string(),
-            ));
+            return Err(AgentError::Storage("address is required".to_string()));
         }
 
-        let metadata_store = self.metadata_store.ok_or_else(|| {
-            AgentError::Storage("metadata_store is required".to_string())
-        })?;
+        let metadata_store = self
+            .metadata_store
+            .ok_or_else(|| AgentError::Storage("metadata_store is required".to_string()))?;
 
         let started_at = current_timestamp_ms();
 
