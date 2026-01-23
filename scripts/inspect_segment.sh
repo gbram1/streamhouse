@@ -68,10 +68,10 @@ echo ""
 
 # Check magic bytes
 MAGIC=$(xxd -p -l 4 $TMP_FILE)
-if [ "$MAGIC" = "53545253" ]; then  # "STRS" in hex
-    echo "   ✅ Magic: STRS (valid StreamHouse segment)"
+if [ "$MAGIC" = "5354524d" ]; then  # "STRM" in hex
+    echo "   ✅ Magic: STRM (valid StreamHouse segment)"
 else
-    echo "   ⚠️  Magic: $MAGIC (expected 53545253 = 'STRS')"
+    echo "   ⚠️  Magic: $MAGIC (expected 5354524d = 'STRM')"
 fi
 
 # Version
@@ -96,9 +96,20 @@ echo "   Data blocks + index: $((FILE_SIZE - 32)) bytes"
 echo ""
 
 # Try to extract readable strings (record keys/values)
-echo "3. Readable Content (JSON records):"
+echo "3. Readable Content (sample):"
 echo ""
-strings $TMP_FILE | grep -E '^\{' | head -10 || echo "   (No readable JSON found - may be compressed)"
+if [ "$COMPRESSION" = "00" ]; then
+    echo "   Keys found:"
+    strings $TMP_FILE | grep -E '^event-|^order-' | head -5 | sed 's/^/     /'
+    echo ""
+    echo "   JSON fragments:"
+    strings $TMP_FILE | grep -E 'event_type|user_id|order_id|customer' | head -5 | sed 's/^/     /'
+else
+    echo "   (Data is LZ4 compressed - cannot view raw)"
+fi
+echo ""
+echo "   To read full decoded records:"
+echo "   cargo run --package streamhouse-storage --example simple_reader -- $TOPIC $PARTITION 0 10"
 echo ""
 
 # Show hex dump of interesting parts
