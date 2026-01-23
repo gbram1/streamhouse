@@ -559,6 +559,340 @@ impl MetadataStore for SqliteMetadataStore {
 
         Ok(())
     }
+
+    // ============================================================
+    // AGENT OPERATIONS (Phase 4: Multi-Agent Architecture)
+    // ============================================================
+
+    async fn register_agent(&self, agent: AgentInfo) -> Result<()> {
+        let metadata_json = serde_json::to_string(&agent.metadata)?;
+
+        sqlx::query!(
+            r#"
+            INSERT INTO agents (
+                agent_id, address, availability_zone, agent_group,
+                last_heartbeat, started_at, metadata
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(agent_id) DO UPDATE SET
+                address = excluded.address,
+                availability_zone = excluded.availability_zone,
+                agent_group = excluded.agent_group,
+                last_heartbeat = excluded.last_heartbeat,
+                metadata = excluded.metadata
+            "#,
+            agent.agent_id,
+            agent.address,
+            agent.availability_zone,
+            agent.agent_group,
+            agent.last_heartbeat,
+            agent.started_at,
+            metadata_json,
+        )
+        .execute(&self.pool)
+        .await?;
+
+        Ok(())
+    }
+
+    async fn get_agent(&self, agent_id: &str) -> Result<Option<AgentInfo>> {
+        let query = format!(
+            "SELECT agent_id, address, availability_zone, agent_group, \
+             last_heartbeat, started_at, metadata \
+             FROM agents \
+             WHERE agent_id = '{}'",
+            agent_id
+        );
+
+        let row: Option<(String, String, String, String, i64, i64, String)> =
+            sqlx::query_as(&query).fetch_optional(&self.pool).await?;
+
+        Ok(row.map(|(agent_id, address, availability_zone, agent_group, last_heartbeat, started_at, metadata_json)| {
+            let metadata: std::collections::HashMap<String, String> =
+                serde_json::from_str(&metadata_json).unwrap_or_default();
+
+            AgentInfo {
+                agent_id,
+                address,
+                availability_zone,
+                agent_group,
+                last_heartbeat,
+                started_at,
+                metadata,
+            }
+        }))
+    }
+
+    async fn list_agents(
+        &self,
+        agent_group: Option<&str>,
+        availability_zone: Option<&str>,
+    ) -> Result<Vec<AgentInfo>> {
+        // Only return agents with heartbeat within last 60 seconds
+        let now_ms = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_millis() as i64;
+        let stale_threshold = now_ms - 60_000;
+
+        // Use a single query structure to avoid type mismatch
+        let query = match (agent_group, availability_zone) {
+            (Some(group), Some(az)) => format!(
+                "SELECT agent_id, address, availability_zone, agent_group, \
+                 last_heartbeat, started_at, metadata \
+                 FROM agents \
+                 WHERE agent_group = '{}' AND availability_zone = '{}' AND last_heartbeat > {} \
+                 ORDER BY agent_id",
+                group, az, stale_threshold
+            ),
+            (Some(group), None) => format!(
+                "SELECT agent_id, address, availability_zone, agent_group, \
+                 last_heartbeat, started_at, metadata \
+                 FROM agents \
+                 WHERE agent_group = '{}' AND last_heartbeat > {} \
+                 ORDER BY agent_id",
+                group, stale_threshold
+            ),
+            (None, Some(az)) => format!(
+                "SELECT agent_id, address, availability_zone, agent_group, \
+                 last_heartbeat, started_at, metadata \
+                 FROM agents \
+                 WHERE availability_zone = '{}' AND last_heartbeat > {} \
+                 ORDER BY agent_id",
+                az, stale_threshold
+            ),
+            (None, None) => format!(
+                "SELECT agent_id, address, availability_zone, agent_group, \
+                 last_heartbeat, started_at, metadata \
+                 FROM agents \
+                 WHERE last_heartbeat > {} \
+                 ORDER BY agent_id",
+                stale_threshold
+            ),
+        };
+
+        let rows: Vec<(String, String, String, String, i64, i64, String)> =
+            sqlx::query_as(&query).fetch_all(&self.pool).await?;
+
+        Ok(rows
+            .into_iter()
+            .map(|(agent_id, address, availability_zone, agent_group, last_heartbeat, started_at, metadata_json)| {
+                let metadata: std::collections::HashMap<String, String> =
+                    serde_json::from_str(&metadata_json).unwrap_or_default();
+
+                AgentInfo {
+                    agent_id,
+                    address,
+                    availability_zone,
+                    agent_group,
+                    last_heartbeat,
+                    started_at,
+                    metadata,
+                }
+            })
+            .collect())
+    }
+
+    async fn deregister_agent(&self, agent_id: &str) -> Result<()> {
+        sqlx::query!("DELETE FROM agents WHERE agent_id = ?", agent_id)
+            .execute(&self.pool)
+            .await?;
+
+        Ok(())
+    }
+
+    async fn acquire_partition_lease(
+        &self,
+        topic: &str,
+        partition_id: u32,
+        agent_id: &str,
+        lease_duration_ms: i64,
+    ) -> Result<PartitionLease> {
+        let now_ms = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_millis() as i64;
+        let expires_at = now_ms + lease_duration_ms;
+
+        // Try to acquire or renew lease
+        // This query implements compare-and-swap semantics:
+        // - If no lease exists OR lease expired OR same agent holds it, grant/renew
+        // - Otherwise, fail (another agent holds the lease)
+        let _result = sqlx::query!(
+            r#"
+            INSERT INTO partition_leases (
+                topic, partition_id, leader_agent_id, lease_expires_at, acquired_at, epoch
+            )
+            VALUES (?, ?, ?, ?, ?, 1)
+            ON CONFLICT(topic, partition_id) DO UPDATE SET
+                leader_agent_id = CASE
+                    WHEN excluded.leader_agent_id = leader_agent_id OR lease_expires_at < ?
+                    THEN excluded.leader_agent_id
+                    ELSE leader_agent_id
+                END,
+                lease_expires_at = CASE
+                    WHEN excluded.leader_agent_id = leader_agent_id OR lease_expires_at < ?
+                    THEN excluded.lease_expires_at
+                    ELSE lease_expires_at
+                END,
+                acquired_at = CASE
+                    WHEN excluded.leader_agent_id = leader_agent_id OR lease_expires_at < ?
+                    THEN excluded.acquired_at
+                    ELSE acquired_at
+                END,
+                epoch = CASE
+                    WHEN excluded.leader_agent_id = leader_agent_id OR lease_expires_at < ?
+                    THEN epoch + 1
+                    ELSE epoch
+                END
+            "#,
+            topic,
+            partition_id,
+            agent_id,
+            expires_at,
+            now_ms,
+            now_ms,
+            now_ms,
+            now_ms,
+            now_ms,
+        )
+        .execute(&self.pool)
+        .await?;
+
+        // Verify we got the lease
+        let lease = self.get_partition_lease(topic, partition_id).await?;
+
+        match lease {
+            Some(lease) if lease.leader_agent_id == agent_id => Ok(lease),
+            Some(_) => Err(MetadataError::ConflictError(format!(
+                "Partition {}/{} is already leased to another agent",
+                topic, partition_id
+            ))),
+            None => Err(MetadataError::NotFoundError(format!(
+                "Lease for partition {}/{} not found after acquisition",
+                topic, partition_id
+            ))),
+        }
+    }
+
+    async fn get_partition_lease(
+        &self,
+        topic: &str,
+        partition_id: u32,
+    ) -> Result<Option<PartitionLease>> {
+        let now_ms = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_millis() as i64;
+
+        let row = sqlx::query!(
+            r#"
+            SELECT topic, partition_id, leader_agent_id, lease_expires_at, acquired_at, epoch
+            FROM partition_leases
+            WHERE topic = ? AND partition_id = ? AND lease_expires_at > ?
+            "#,
+            topic,
+            partition_id,
+            now_ms,
+        )
+        .fetch_optional(&self.pool)
+        .await?;
+
+        Ok(row.map(|r| PartitionLease {
+            topic: r.topic,
+            partition_id: r.partition_id as u32,
+            leader_agent_id: r.leader_agent_id,
+            lease_expires_at: r.lease_expires_at,
+            acquired_at: r.acquired_at,
+            epoch: r.epoch as u64,
+        }))
+    }
+
+    async fn release_partition_lease(
+        &self,
+        topic: &str,
+        partition_id: u32,
+        agent_id: &str,
+    ) -> Result<()> {
+        let result = sqlx::query!(
+            r#"
+            DELETE FROM partition_leases
+            WHERE topic = ? AND partition_id = ? AND leader_agent_id = ?
+            "#,
+            topic,
+            partition_id,
+            agent_id,
+        )
+        .execute(&self.pool)
+        .await?;
+
+        if result.rows_affected() == 0 {
+            return Err(MetadataError::NotFoundError(format!(
+                "No lease found for partition {}/{} held by agent {}",
+                topic, partition_id, agent_id
+            )));
+        }
+
+        Ok(())
+    }
+
+    async fn list_partition_leases(
+        &self,
+        topic: Option<&str>,
+        agent_id: Option<&str>,
+    ) -> Result<Vec<PartitionLease>> {
+        let now_ms = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_millis() as i64;
+
+        // Use a single query structure to avoid type mismatch
+        let query = match (topic, agent_id) {
+            (Some(t), Some(a)) => format!(
+                "SELECT topic, partition_id, leader_agent_id, lease_expires_at, acquired_at, epoch \
+                 FROM partition_leases \
+                 WHERE topic = '{}' AND leader_agent_id = '{}' AND lease_expires_at > {} \
+                 ORDER BY topic, partition_id",
+                t, a, now_ms
+            ),
+            (Some(t), None) => format!(
+                "SELECT topic, partition_id, leader_agent_id, lease_expires_at, acquired_at, epoch \
+                 FROM partition_leases \
+                 WHERE topic = '{}' AND lease_expires_at > {} \
+                 ORDER BY topic, partition_id",
+                t, now_ms
+            ),
+            (None, Some(a)) => format!(
+                "SELECT topic, partition_id, leader_agent_id, lease_expires_at, acquired_at, epoch \
+                 FROM partition_leases \
+                 WHERE leader_agent_id = '{}' AND lease_expires_at > {} \
+                 ORDER BY topic, partition_id",
+                a, now_ms
+            ),
+            (None, None) => format!(
+                "SELECT topic, partition_id, leader_agent_id, lease_expires_at, acquired_at, epoch \
+                 FROM partition_leases \
+                 WHERE lease_expires_at > {} \
+                 ORDER BY topic, partition_id",
+                now_ms
+            ),
+        };
+
+        let rows: Vec<(String, i32, String, i64, i64, i64)> =
+            sqlx::query_as(&query).fetch_all(&self.pool).await?;
+
+        Ok(rows
+            .into_iter()
+            .map(|(topic, partition_id, leader_agent_id, lease_expires_at, acquired_at, epoch)| PartitionLease {
+                topic,
+                partition_id: partition_id as u32,
+                leader_agent_id,
+                lease_expires_at,
+                acquired_at,
+                epoch: epoch as u64,
+            })
+            .collect())
+    }
 }
 
 #[cfg(test)]

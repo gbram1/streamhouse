@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "\n            INSERT INTO agents (\n                agent_id, address, availability_zone, agent_group,\n                last_heartbeat, started_at, metadata\n            )\n            VALUES (?, ?, ?, ?, ?, ?, ?)\n            ON CONFLICT(agent_id) DO UPDATE SET\n                address = excluded.address,\n                availability_zone = excluded.availability_zone,\n                agent_group = excluded.agent_group,\n                last_heartbeat = excluded.last_heartbeat,\n                metadata = excluded.metadata\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 7
+    },
+    "nullable": []
+  },
+  "hash": "4fca16bb9f9674f675c9d6eb8054d193e8262ba21298802da7e8afa0d041a0e5"
+}

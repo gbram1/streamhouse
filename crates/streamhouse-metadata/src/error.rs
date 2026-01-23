@@ -58,6 +58,12 @@ pub enum MetadataError {
     #[error("Partition not found: {topic}/{partition}")]
     PartitionNotFound { topic: String, partition: u32 },
 
+    #[error("Not found: {0}")]
+    NotFoundError(String),
+
+    #[error("Conflict: {0}")]
+    ConflictError(String),
+
     #[error("Database error: {0}")]
     DatabaseError(#[from] sqlx::Error),
 
