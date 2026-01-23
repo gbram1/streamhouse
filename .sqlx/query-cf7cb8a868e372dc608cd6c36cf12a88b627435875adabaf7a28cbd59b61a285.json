@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "\n            INSERT INTO partition_leases (\n                topic, partition_id, leader_agent_id, lease_expires_at, acquired_at, epoch\n            )\n            VALUES (?, ?, ?, ?, ?, 1)\n            ON CONFLICT(topic, partition_id) DO UPDATE SET\n                leader_agent_id = CASE\n                    WHEN excluded.leader_agent_id = leader_agent_id OR lease_expires_at < ?\n                    THEN excluded.leader_agent_id\n                    ELSE leader_agent_id\n                END,\n                lease_expires_at = CASE\n                    WHEN excluded.leader_agent_id = leader_agent_id OR lease_expires_at < ?\n                    THEN excluded.lease_expires_at\n                    ELSE lease_expires_at\n                END,\n                acquired_at = CASE\n                    WHEN excluded.leader_agent_id = leader_agent_id OR lease_expires_at < ?\n                    THEN excluded.acquired_at\n                    ELSE acquired_at\n                END,\n                epoch = CASE\n                    WHEN excluded.leader_agent_id = leader_agent_id OR lease_expires_at < ?\n                    THEN epoch + 1\n                    ELSE epoch\n                END\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 9
+    },
+    "nullable": []
+  },
+  "hash": "cf7cb8a868e372dc608cd6c36cf12a88b627435875adabaf7a28cbd59b61a285"
+}

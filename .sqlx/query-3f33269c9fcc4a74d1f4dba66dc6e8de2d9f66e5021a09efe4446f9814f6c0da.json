@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "\n            DELETE FROM partition_leases\n            WHERE topic = ? AND partition_id = ? AND leader_agent_id = ?\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 3
+    },
+    "nullable": []
+  },
+  "hash": "3f33269c9fcc4a74d1f4dba66dc6e8de2d9f66e5021a09efe4446f9814f6c0da"
+}

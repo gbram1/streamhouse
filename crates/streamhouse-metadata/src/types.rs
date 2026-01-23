@@ -84,3 +84,56 @@ pub struct ConsumerOffset {
     pub committed_offset: u64,
     pub metadata: Option<String>,
 }
+
+/// Agent registration information (Phase 4)
+///
+/// Represents a stateless StreamHouse agent that can handle produce/consume requests.
+/// Agents register themselves on startup and send periodic heartbeats.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AgentInfo {
+    /// Unique agent identifier (e.g., "agent-us-east-1a-001")
+    pub agent_id: String,
+
+    /// Agent's gRPC address (e.g., "10.0.1.5:9090")
+    pub address: String,
+
+    /// Availability zone (e.g., "us-east-1a")
+    pub availability_zone: String,
+
+    /// Agent group for network isolation (e.g., "prod", "staging")
+    pub agent_group: String,
+
+    /// Last heartbeat timestamp (ms since epoch)
+    pub last_heartbeat: i64,
+
+    /// Agent startup timestamp (ms since epoch)
+    pub started_at: i64,
+
+    /// Additional metadata (version, capabilities, etc.)
+    pub metadata: HashMap<String, String>,
+}
+
+/// Partition leadership lease (Phase 4)
+///
+/// Represents which agent is currently the leader for a partition.
+/// Uses lease-based leadership with automatic expiration.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PartitionLease {
+    /// Topic name
+    pub topic: String,
+
+    /// Partition ID
+    pub partition_id: u32,
+
+    /// Current leader agent ID
+    pub leader_agent_id: String,
+
+    /// Lease expiration timestamp (ms since epoch)
+    pub lease_expires_at: i64,
+
+    /// Lease acquisition timestamp (ms since epoch)
+    pub acquired_at: i64,
+
+    /// Lease epoch (increments on each leadership change)
+    pub epoch: u64,
+}

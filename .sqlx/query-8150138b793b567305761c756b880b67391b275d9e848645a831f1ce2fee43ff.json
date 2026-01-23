@@ -1,0 +1,50 @@
+{
+  "db_name": "SQLite",
+  "query": "\n            SELECT topic, partition_id, leader_agent_id, lease_expires_at, acquired_at, epoch\n            FROM partition_leases\n            WHERE topic = ? AND partition_id = ? AND lease_expires_at > ?\n            ",
+  "describe": {
+    "columns": [
+      {
+        "name": "topic",
+        "ordinal": 0,
+        "type_info": "Text"
+      },
+      {
+        "name": "partition_id",
+        "ordinal": 1,
+        "type_info": "Int64"
+      },
+      {
+        "name": "leader_agent_id",
+        "ordinal": 2,
+        "type_info": "Text"
+      },
+      {
+        "name": "lease_expires_at",
+        "ordinal": 3,
+        "type_info": "Int64"
+      },
+      {
+        "name": "acquired_at",
+        "ordinal": 4,
+        "type_info": "Int64"
+      },
+      {
+        "name": "epoch",
+        "ordinal": 5,
+        "type_info": "Int64"
+      }
+    ],
+    "parameters": {
+      "Right": 3
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "8150138b793b567305761c756b880b67391b275d9e848645a831f1ce2fee43ff"
+}

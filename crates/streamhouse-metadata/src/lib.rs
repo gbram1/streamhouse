@@ -169,4 +169,72 @@ pub trait MetadataStore: Send + Sync {
     ) -> Result<Option<u64>>;
     async fn get_consumer_offsets(&self, group_id: &str) -> Result<Vec<ConsumerOffset>>;
     async fn delete_consumer_group(&self, group_id: &str) -> Result<()>;
+
+    // AGENT OPERATIONS (Phase 4: Multi-Agent Architecture)
+    // These methods enable stateless agents to coordinate via the metadata store
+
+    /// Register a new agent or update existing agent's heartbeat
+    ///
+    /// Called when an agent starts up and periodically (every 30s) to maintain liveness.
+    /// If agent already exists, updates last_heartbeat timestamp.
+    async fn register_agent(&self, agent: AgentInfo) -> Result<()>;
+
+    /// Get information about a specific agent
+    async fn get_agent(&self, agent_id: &str) -> Result<Option<AgentInfo>>;
+
+    /// List all agents, optionally filtered by agent group or availability zone
+    ///
+    /// Returns only agents with heartbeat within last 60 seconds (considered alive).
+    async fn list_agents(
+        &self,
+        agent_group: Option<&str>,
+        availability_zone: Option<&str>,
+    ) -> Result<Vec<AgentInfo>>;
+
+    /// Remove an agent (called on graceful shutdown)
+    async fn deregister_agent(&self, agent_id: &str) -> Result<()>;
+
+    /// Acquire leadership lease for a partition
+    ///
+    /// Implements compare-and-swap semantics:
+    /// - If no lease exists OR existing lease expired OR existing lease held by same agent,
+    ///   grant/renew the lease
+    /// - Otherwise, return error (another agent holds the lease)
+    ///
+    /// Returns the new lease on success.
+    async fn acquire_partition_lease(
+        &self,
+        topic: &str,
+        partition_id: u32,
+        agent_id: &str,
+        lease_duration_ms: i64,
+    ) -> Result<PartitionLease>;
+
+    /// Get current lease for a partition (if any)
+    ///
+    /// Returns None if no lease exists or lease has expired.
+    async fn get_partition_lease(
+        &self,
+        topic: &str,
+        partition_id: u32,
+    ) -> Result<Option<PartitionLease>>;
+
+    /// Release leadership lease for a partition
+    ///
+    /// Called during graceful shutdown. Only succeeds if the lease is held by the given agent.
+    async fn release_partition_lease(
+        &self,
+        topic: &str,
+        partition_id: u32,
+        agent_id: &str,
+    ) -> Result<()>;
+
+    /// List all partition leases, optionally filtered by topic or agent
+    ///
+    /// Useful for monitoring and debugging leadership distribution.
+    async fn list_partition_leases(
+        &self,
+        topic: Option<&str>,
+        agent_id: Option<&str>,
+    ) -> Result<Vec<PartitionLease>>;
 }
