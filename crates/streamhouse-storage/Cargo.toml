@@ -5,6 +5,9 @@ edition.workspace = true
 authors.workspace = true
 license.workspace = true
 
+[features]
+postgres = ["streamhouse-metadata/postgres"]
+
 [dependencies]
 streamhouse-core = { path = "../streamhouse-core" }
 streamhouse-metadata = { path = "../streamhouse-metadata" }

@@ -14,7 +14,6 @@ use bytes::Bytes;
 use object_store::{aws::AmazonS3Builder, ObjectStore};
 use std::collections::HashMap;
 use std::sync::Arc;
-use streamhouse_core::record::Record;
 use streamhouse_metadata::{MetadataStore, SqliteMetadataStore, TopicConfig};
 use streamhouse_storage::{PartitionReader, PartitionWriter, SegmentCache, WriteConfig};
 
@@ -110,7 +109,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         );
 
         writer
-            .append(Some(Bytes::from(key)), Bytes::from(value), current_timestamp())
+            .append(
+                Some(Bytes::from(key)),
+                Bytes::from(value),
+                current_timestamp(),
+            )
             .await?;
     }
 
@@ -150,7 +153,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         );
 
         writer
-            .append(Some(Bytes::from(key)), Bytes::from(value), current_timestamp())
+            .append(
+                Some(Bytes::from(key)),
+                Bytes::from(value),
+                current_timestamp(),
+            )
             .await?;
     }
 
@@ -211,7 +218,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             .map(|k| String::from_utf8_lossy(k).to_string())
             .unwrap_or_else(|| "null".to_string());
         let value_str = String::from_utf8_lossy(&record.value);
-        println!("     [{}] offset={}, key={}, value={}", i, record.offset, key_str, value_str);
+        println!(
+            "     [{}] offset={}, key={}, value={}",
+            i, record.offset, key_str, value_str
+        );
     }
     println!("     ... {} more records", result.records.len() - 3);
     println!();
@@ -223,13 +233,21 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let start = std::time::Instant::now();
     let result = reader.read(50, 10).await?;
     let first_duration = start.elapsed();
-    println!("     ✓ Read {} records in {:?}", result.records.len(), first_duration);
+    println!(
+        "     ✓ Read {} records in {:?}",
+        result.records.len(),
+        first_duration
+    );
 
     println!("   Second read (uses cached index):");
     let start = std::time::Instant::now();
     let result = reader.read(60, 10).await?;
     let second_duration = start.elapsed();
-    println!("     ✓ Read {} records in {:?}", result.records.len(), second_duration);
+    println!(
+        "     ✓ Read {} records in {:?}",
+        result.records.len(),
+        second_duration
+    );
 
     println!();
     println!("   📊 Phase 3.4 Impact:");
