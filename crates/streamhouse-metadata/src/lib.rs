@@ -110,9 +110,15 @@ pub mod error;
 pub mod store;
 pub mod types;
 
+#[cfg(feature = "postgres")]
+pub mod postgres;
+
 pub use error::{MetadataError, Result};
 pub use store::SqliteMetadataStore;
 pub use types::*;
+
+#[cfg(feature = "postgres")]
+pub use postgres::PostgresMetadataStore;
 
 use async_trait::async_trait;
 

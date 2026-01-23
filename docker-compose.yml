@@ -1,6 +1,7 @@
 version: '3.8'
 
 services:
+  # MinIO (S3-compatible object storage)
   minio:
     image: minio/minio:latest
     container_name: streamhouse-minio
@@ -19,5 +20,39 @@ services:
       timeout: 20s
       retries: 3
 
+  # PostgreSQL (Phase 3.2 - Metadata Store)
+  postgres:
+    image: postgres:16-alpine
+    container_name: streamhouse-postgres
+    environment:
+      POSTGRES_USER: streamhouse
+      POSTGRES_PASSWORD: streamhouse_dev
+      POSTGRES_DB: streamhouse_metadata
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U streamhouse"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # pgAdmin (Optional - PostgreSQL web UI)
+  # Run with: docker-compose --profile admin up
+  pgadmin:
+    image: dpage/pgadmin4:latest
+    container_name: streamhouse-pgadmin
+    environment:
+      PGADMIN_DEFAULT_EMAIL: admin@streamhouse.local
+      PGADMIN_DEFAULT_PASSWORD: admin
+    ports:
+      - "5050:80"
+    depends_on:
+      - postgres
+    profiles:
+      - admin
+
 volumes:
   minio-data:
+  postgres_data:
