@@ -1138,4 +1138,562 @@ mod tests {
             "Listing 10K partitions should complete within 10 seconds"
         );
     }
+
+    #[tokio::test]
+    #[ignore]
+    async fn test_postgres_segment_operations() {
+        let db_url = match get_test_db_url() {
+            Some(url) if url.starts_with("postgres://") => url,
+            _ => return,
+        };
+
+        let store = PostgresMetadataStore::new(&db_url).await.unwrap();
+
+        // Create test topic
+        let _ = store.delete_topic("segment_test").await;
+        store
+            .create_topic(TopicConfig {
+                name: "segment_test".to_string(),
+                partition_count: 1,
+                retention_ms: None,
+                config: HashMap::new(),
+            })
+            .await
+            .unwrap();
+
+        // Add segments
+        let segment1 = SegmentInfo {
+            id: "seg-1".to_string(),
+            topic: "segment_test".to_string(),
+            partition_id: 0,
+            base_offset: 0,
+            end_offset: 999,
+            record_count: 1000,
+            size_bytes: 1024000,
+            s3_bucket: "test-bucket".to_string(),
+            s3_key: "segment_test/0/00000000.seg".to_string(),
+            created_at: chrono::Utc::now().timestamp_millis(),
+        };
+
+        let segment2 = SegmentInfo {
+            id: "seg-2".to_string(),
+            topic: "segment_test".to_string(),
+            partition_id: 0,
+            base_offset: 1000,
+            end_offset: 1999,
+            record_count: 1000,
+            size_bytes: 1024000,
+            s3_bucket: "test-bucket".to_string(),
+            s3_key: "segment_test/0/00001000.seg".to_string(),
+            created_at: chrono::Utc::now().timestamp_millis(),
+        };
+
+        store.add_segment(segment1).await.unwrap();
+        store.add_segment(segment2).await.unwrap();
+
+        // Get all segments
+        let segments = store.get_segments("segment_test", 0).await.unwrap();
+        assert_eq!(segments.len(), 2);
+        assert_eq!(segments[0].base_offset, 0);
+        assert_eq!(segments[1].base_offset, 1000);
+
+        // Find segment by offset
+        let seg = store
+            .find_segment_for_offset("segment_test", 0, 500)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(seg.id, "seg-1");
+        assert_eq!(seg.base_offset, 0);
+        assert_eq!(seg.end_offset, 999);
+
+        let seg = store
+            .find_segment_for_offset("segment_test", 0, 1500)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(seg.id, "seg-2");
+
+        // Offset not found
+        let seg = store
+            .find_segment_for_offset("segment_test", 0, 5000)
+            .await
+            .unwrap();
+        assert!(seg.is_none());
+
+        // Delete old segments
+        let deleted = store
+            .delete_segments_before("segment_test", 0, 1000)
+            .await
+            .unwrap();
+        assert_eq!(deleted, 1); // Only seg-1 should be deleted
+
+        let segments = store.get_segments("segment_test", 0).await.unwrap();
+        assert_eq!(segments.len(), 1);
+        assert_eq!(segments[0].id, "seg-2");
+
+        // Clean up
+        store.delete_topic("segment_test").await.unwrap();
+    }
+
+    #[tokio::test]
+    #[ignore]
+    async fn test_postgres_high_watermark() {
+        let db_url = match get_test_db_url() {
+            Some(url) if url.starts_with("postgres://") => url,
+            _ => return,
+        };
+
+        let store = PostgresMetadataStore::new(&db_url).await.unwrap();
+
+        // Create test topic
+        let _ = store.delete_topic("watermark_test").await;
+        store
+            .create_topic(TopicConfig {
+                name: "watermark_test".to_string(),
+                partition_count: 2,
+                retention_ms: None,
+                config: HashMap::new(),
+            })
+            .await
+            .unwrap();
+
+        // Initial watermark should be 0
+        let partition = store
+            .get_partition("watermark_test", 0)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(partition.high_watermark, 0);
+
+        // Update watermark
+        store
+            .update_high_watermark("watermark_test", 0, 1000)
+            .await
+            .unwrap();
+
+        let partition = store
+            .get_partition("watermark_test", 0)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(partition.high_watermark, 1000);
+
+        // Update to higher value
+        store
+            .update_high_watermark("watermark_test", 0, 5000)
+            .await
+            .unwrap();
+
+        let partition = store
+            .get_partition("watermark_test", 0)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(partition.high_watermark, 5000);
+
+        // Other partition should still be 0
+        let partition = store
+            .get_partition("watermark_test", 1)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(partition.high_watermark, 0);
+
+        // Clean up
+        store.delete_topic("watermark_test").await.unwrap();
+    }
+
+    #[tokio::test]
+    #[ignore]
+    async fn test_postgres_consumer_groups() {
+        let db_url = match get_test_db_url() {
+            Some(url) if url.starts_with("postgres://") => url,
+            _ => return,
+        };
+
+        let store = PostgresMetadataStore::new(&db_url).await.unwrap();
+
+        // Create test topic
+        let _ = store.delete_topic("consumer_test").await;
+        store
+            .create_topic(TopicConfig {
+                name: "consumer_test".to_string(),
+                partition_count: 3,
+                retention_ms: None,
+                config: HashMap::new(),
+            })
+            .await
+            .unwrap();
+
+        // Clean up any existing consumer group
+        let _ = store.delete_consumer_group("test-group").await;
+
+        // Initially no offset
+        let offset = store
+            .get_committed_offset("test-group", "consumer_test", 0)
+            .await
+            .unwrap();
+        assert!(offset.is_none());
+
+        // Commit offset
+        store
+            .commit_offset("test-group", "consumer_test", 0, 100, Some("metadata1".to_string()))
+            .await
+            .unwrap();
+
+        // Retrieve offset
+        let offset = store
+            .get_committed_offset("test-group", "consumer_test", 0)
+            .await
+            .unwrap();
+        assert_eq!(offset, Some(100));
+
+        // Commit offsets for multiple partitions
+        store
+            .commit_offset("test-group", "consumer_test", 1, 200, None)
+            .await
+            .unwrap();
+        store
+            .commit_offset("test-group", "consumer_test", 2, 300, None)
+            .await
+            .unwrap();
+
+        // Get all offsets for group
+        let offsets = store.get_consumer_offsets("test-group").await.unwrap();
+        assert_eq!(offsets.len(), 3);
+        assert_eq!(offsets[0].committed_offset, 100);
+        assert_eq!(offsets[0].metadata, Some("metadata1".to_string()));
+        assert_eq!(offsets[1].committed_offset, 200);
+        assert_eq!(offsets[2].committed_offset, 300);
+
+        // Update existing offset (upsert)
+        store
+            .commit_offset("test-group", "consumer_test", 0, 150, Some("metadata2".to_string()))
+            .await
+            .unwrap();
+
+        let offset = store
+            .get_committed_offset("test-group", "consumer_test", 0)
+            .await
+            .unwrap();
+        assert_eq!(offset, Some(150));
+
+        // Delete consumer group
+        store.delete_consumer_group("test-group").await.unwrap();
+
+        // Offsets should be gone
+        let offset = store
+            .get_committed_offset("test-group", "consumer_test", 0)
+            .await
+            .unwrap();
+        assert!(offset.is_none());
+
+        // Clean up
+        store.delete_topic("consumer_test").await.unwrap();
+    }
+
+    #[tokio::test]
+    #[ignore]
+    async fn test_postgres_list_topics() {
+        let db_url = match get_test_db_url() {
+            Some(url) if url.starts_with("postgres://") => url,
+            _ => return,
+        };
+
+        let store = PostgresMetadataStore::new(&db_url).await.unwrap();
+
+        // Clean up
+        let _ = store.delete_topic("topic1").await;
+        let _ = store.delete_topic("topic2").await;
+        let _ = store.delete_topic("topic3").await;
+
+        // Create multiple topics
+        for (name, partitions) in [("topic1", 4), ("topic2", 8), ("topic3", 16)] {
+            store
+                .create_topic(TopicConfig {
+                    name: name.to_string(),
+                    partition_count: partitions,
+                    retention_ms: Some(86400000),
+                    config: HashMap::new(),
+                })
+                .await
+                .unwrap();
+        }
+
+        // List all topics
+        let topics = store.list_topics().await.unwrap();
+        assert!(topics.len() >= 3); // May have other topics from other tests
+
+        // Find our topics
+        let topic1 = topics.iter().find(|t| t.name == "topic1").unwrap();
+        let topic2 = topics.iter().find(|t| t.name == "topic2").unwrap();
+        let topic3 = topics.iter().find(|t| t.name == "topic3").unwrap();
+
+        assert_eq!(topic1.partition_count, 4);
+        assert_eq!(topic2.partition_count, 8);
+        assert_eq!(topic3.partition_count, 16);
+        assert_eq!(topic1.retention_ms, Some(86400000));
+
+        // Clean up
+        store.delete_topic("topic1").await.unwrap();
+        store.delete_topic("topic2").await.unwrap();
+        store.delete_topic("topic3").await.unwrap();
+    }
+
+    #[tokio::test]
+    #[ignore]
+    async fn test_postgres_lease_conflict() {
+        let db_url = match get_test_db_url() {
+            Some(url) if url.starts_with("postgres://") => url,
+            _ => return,
+        };
+
+        let store = PostgresMetadataStore::new(&db_url).await.unwrap();
+
+        // Create test topic
+        let _ = store.delete_topic("lease_conflict_test").await;
+        store
+            .create_topic(TopicConfig {
+                name: "lease_conflict_test".to_string(),
+                partition_count: 1,
+                retention_ms: None,
+                config: HashMap::new(),
+            })
+            .await
+            .unwrap();
+
+        // Register two agents
+        let _ = store.deregister_agent("agent-1").await;
+        let _ = store.deregister_agent("agent-2").await;
+
+        for agent_id in ["agent-1", "agent-2"] {
+            store
+                .register_agent(AgentInfo {
+                    agent_id: agent_id.to_string(),
+                    address: format!("127.0.0.1:{}", if agent_id == "agent-1" { 9091 } else { 9092 }),
+                    availability_zone: "us-east-1a".to_string(),
+                    agent_group: "writers".to_string(),
+                    last_heartbeat: chrono::Utc::now().timestamp_millis(),
+                    started_at: chrono::Utc::now().timestamp_millis(),
+                    metadata: HashMap::new(),
+                })
+                .await
+                .unwrap();
+        }
+
+        // Agent-1 acquires lease
+        let lease = store
+            .acquire_partition_lease("lease_conflict_test", 0, "agent-1", 30000)
+            .await
+            .unwrap();
+        assert_eq!(lease.leader_agent_id, "agent-1");
+        assert_eq!(lease.epoch, 1);
+
+        // Agent-2 tries to acquire the same lease (should fail)
+        let result = store
+            .acquire_partition_lease("lease_conflict_test", 0, "agent-2", 30000)
+            .await;
+        assert!(result.is_err());
+        assert!(matches!(result, Err(MetadataError::ConflictError(_))));
+
+        // Agent-1 can renew its own lease
+        let lease = store
+            .acquire_partition_lease("lease_conflict_test", 0, "agent-1", 30000)
+            .await
+            .unwrap();
+        assert_eq!(lease.leader_agent_id, "agent-1");
+        assert_eq!(lease.epoch, 2); // Epoch incremented
+
+        // List leases
+        let leases = store
+            .list_partition_leases(Some("lease_conflict_test"), None)
+            .await
+            .unwrap();
+        assert_eq!(leases.len(), 1);
+        assert_eq!(leases[0].leader_agent_id, "agent-1");
+
+        // Clean up
+        store
+            .release_partition_lease("lease_conflict_test", 0, "agent-1")
+            .await
+            .unwrap();
+        store.delete_topic("lease_conflict_test").await.unwrap();
+        store.deregister_agent("agent-1").await.unwrap();
+        store.deregister_agent("agent-2").await.unwrap();
+    }
+
+    #[tokio::test]
+    #[ignore]
+    async fn test_postgres_stale_agent_detection() {
+        let db_url = match get_test_db_url() {
+            Some(url) if url.starts_with("postgres://") => url,
+            _ => return,
+        };
+
+        let store = PostgresMetadataStore::new(&db_url).await.unwrap();
+
+        let _ = store.deregister_agent("fresh-agent").await;
+        let _ = store.deregister_agent("stale-agent").await;
+
+        // Register fresh agent (recent heartbeat)
+        store
+            .register_agent(AgentInfo {
+                agent_id: "fresh-agent".to_string(),
+                address: "127.0.0.1:9091".to_string(),
+                availability_zone: "us-east-1a".to_string(),
+                agent_group: "writers".to_string(),
+                last_heartbeat: chrono::Utc::now().timestamp_millis(),
+                started_at: chrono::Utc::now().timestamp_millis(),
+                metadata: HashMap::new(),
+            })
+            .await
+            .unwrap();
+
+        // Register stale agent (old heartbeat - 2 minutes ago)
+        let two_minutes_ago = chrono::Utc::now().timestamp_millis() - 120_000;
+        store
+            .register_agent(AgentInfo {
+                agent_id: "stale-agent".to_string(),
+                address: "127.0.0.1:9092".to_string(),
+                availability_zone: "us-east-1a".to_string(),
+                agent_group: "writers".to_string(),
+                last_heartbeat: two_minutes_ago,
+                started_at: two_minutes_ago,
+                metadata: HashMap::new(),
+            })
+            .await
+            .unwrap();
+
+        // list_agents filters out agents with heartbeat > 60s old
+        let agents = store.list_agents(Some("writers"), None).await.unwrap();
+
+        // Should only get fresh agent
+        assert!(agents.iter().any(|a| a.agent_id == "fresh-agent"));
+        assert!(!agents.iter().any(|a| a.agent_id == "stale-agent"));
+
+        // Clean up
+        store.deregister_agent("fresh-agent").await.unwrap();
+        store.deregister_agent("stale-agent").await.unwrap();
+    }
+
+    #[tokio::test]
+    #[ignore]
+    async fn test_postgres_topic_with_config() {
+        let db_url = match get_test_db_url() {
+            Some(url) if url.starts_with("postgres://") => url,
+            _ => return,
+        };
+
+        let store = PostgresMetadataStore::new(&db_url).await.unwrap();
+
+        let _ = store.delete_topic("config_test").await;
+
+        // Create topic with custom config
+        let mut config_map = HashMap::new();
+        config_map.insert("compression".to_string(), "lz4".to_string());
+        config_map.insert("retention.policy".to_string(), "delete".to_string());
+        config_map.insert("max.message.bytes".to_string(), "1048576".to_string());
+
+        store
+            .create_topic(TopicConfig {
+                name: "config_test".to_string(),
+                partition_count: 1,
+                retention_ms: Some(86400000),
+                config: config_map.clone(),
+            })
+            .await
+            .unwrap();
+
+        // Retrieve and verify config
+        let topic = store.get_topic("config_test").await.unwrap().unwrap();
+        assert_eq!(topic.config.len(), 3);
+        assert_eq!(topic.config.get("compression").unwrap(), "lz4");
+        assert_eq!(topic.config.get("retention.policy").unwrap(), "delete");
+        assert_eq!(topic.config.get("max.message.bytes").unwrap(), "1048576");
+
+        // Clean up
+        store.delete_topic("config_test").await.unwrap();
+    }
+
+    #[tokio::test]
+    #[ignore]
+    async fn test_postgres_cascade_delete() {
+        let db_url = match get_test_db_url() {
+            Some(url) if url.starts_with("postgres://") => url,
+            _ => return,
+        };
+
+        let store = PostgresMetadataStore::new(&db_url).await.unwrap();
+
+        let _ = store.delete_topic("cascade_test").await;
+
+        // Create topic with partitions and segments
+        store
+            .create_topic(TopicConfig {
+                name: "cascade_test".to_string(),
+                partition_count: 2,
+                retention_ms: None,
+                config: HashMap::new(),
+            })
+            .await
+            .unwrap();
+
+        // Add segment
+        store
+            .add_segment(SegmentInfo {
+                id: "cascade-seg".to_string(),
+                topic: "cascade_test".to_string(),
+                partition_id: 0,
+                base_offset: 0,
+                end_offset: 999,
+                record_count: 1000,
+                size_bytes: 1024,
+                s3_bucket: "test".to_string(),
+                s3_key: "test/key".to_string(),
+                created_at: chrono::Utc::now().timestamp_millis(),
+            })
+            .await
+            .unwrap();
+
+        // Commit consumer offset
+        let _ = store.delete_consumer_group("cascade-group").await;
+        store
+            .commit_offset("cascade-group", "cascade_test", 0, 500, None)
+            .await
+            .unwrap();
+
+        // Verify everything exists
+        let partitions = store.list_partitions("cascade_test").await.unwrap();
+        assert_eq!(partitions.len(), 2);
+
+        let segments = store.get_segments("cascade_test", 0).await.unwrap();
+        assert_eq!(segments.len(), 1);
+
+        let offset = store
+            .get_committed_offset("cascade-group", "cascade_test", 0)
+            .await
+            .unwrap();
+        assert_eq!(offset, Some(500));
+
+        // Delete topic (should cascade delete partitions and segments)
+        store.delete_topic("cascade_test").await.unwrap();
+
+        // Verify cascaded deletes
+        let partitions = store.list_partitions("cascade_test").await.unwrap();
+        assert_eq!(partitions.len(), 0);
+
+        let segments = store.get_segments("cascade_test", 0).await.unwrap();
+        assert_eq!(segments.len(), 0);
+
+        // Consumer offsets should also be cleaned up
+        let offset = store
+            .get_committed_offset("cascade-group", "cascade_test", 0)
+            .await
+            .unwrap();
+        assert!(offset.is_none());
+
+        // Clean up
+        let _ = store.delete_consumer_group("cascade-group").await;
+    }
 }

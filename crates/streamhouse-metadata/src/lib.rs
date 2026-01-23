@@ -106,6 +106,7 @@
 //! - ACID transactions ensure consistency
 //! - Safe to share across async tasks via Arc<>
 
+pub mod cached_store;
 pub mod error;
 pub mod store;
 pub mod types;
@@ -113,6 +114,7 @@ pub mod types;
 #[cfg(feature = "postgres")]
 pub mod postgres;
 
+pub use cached_store::{CachedMetadataStore, CacheConfig, CacheMetrics};
 pub use error::{MetadataError, Result};
 pub use store::SqliteMetadataStore;
 pub use types::*;

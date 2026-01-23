@@ -2452,6 +2452,7 @@ version = "0.1.0"
 dependencies = [
  "async-trait",
  "chrono",
+ "lru",
  "serde",
  "serde_json",
  "sqlx",
