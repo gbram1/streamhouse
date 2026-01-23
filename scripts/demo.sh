@@ -3,7 +3,7 @@
 # StreamHouse Demo - Complete Pipeline
 #
 # This script demonstrates the REAL StreamHouse pipeline end-to-end:
-# 1. Wipes all data (PostgreSQL + MinIO)
+# 1. Wipes all data (PostgreSQL + MinIO + SQLite + cache)
 # 2. Writes data through actual PartitionWriter APIs
 # 3. Shows metadata in PostgreSQL
 # 4. Shows segment files in MinIO
@@ -48,6 +48,33 @@ if [ "$SKIP_WIPE" = false ]; then
     docker exec streamhouse-minio mc alias set local http://localhost:9000 minioadmin minioadmin 2>/dev/null
     DELETED=$(docker exec streamhouse-minio mc rm --recursive --force local/streamhouse/ 2>&1 | grep "Removed" | wc -l | tr -d ' ')
     echo "    Deleted $DELETED objects"
+
+    echo "  • Wiping SQLite database..."
+    if [ -f /tmp/streamhouse_pipeline.db ]; then
+        rm -f /tmp/streamhouse_pipeline.db
+        echo "    Deleted /tmp/streamhouse_pipeline.db"
+    else
+        echo "    No SQLite database found"
+    fi
+
+    echo "  • Clearing segment cache..."
+    CACHE_CLEARED=0
+    if [ -d /tmp/streamhouse-cache ]; then
+        rm -rf /tmp/streamhouse-cache
+        CACHE_CLEARED=1
+    fi
+    # Also check for any other streamhouse cache directories
+    for cache_dir in /tmp/streamhouse-*; do
+        if [ -d "$cache_dir" ]; then
+            rm -rf "$cache_dir"
+            CACHE_CLEARED=1
+        fi
+    done
+    if [ $CACHE_CLEARED -eq 1 ]; then
+        echo "    Cleared segment cache"
+    else
+        echo "    No cache found"
+    fi
 
     echo ""
     echo "  ✅ Clean slate ready"
