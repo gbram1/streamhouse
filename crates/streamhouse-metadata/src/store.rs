@@ -607,20 +607,30 @@ impl MetadataStore for SqliteMetadataStore {
         let row: Option<(String, String, String, String, i64, i64, String)> =
             sqlx::query_as(&query).fetch_optional(&self.pool).await?;
 
-        Ok(row.map(|(agent_id, address, availability_zone, agent_group, last_heartbeat, started_at, metadata_json)| {
-            let metadata: std::collections::HashMap<String, String> =
-                serde_json::from_str(&metadata_json).unwrap_or_default();
-
-            AgentInfo {
+        Ok(row.map(
+            |(
                 agent_id,
                 address,
                 availability_zone,
                 agent_group,
                 last_heartbeat,
                 started_at,
-                metadata,
-            }
-        }))
+                metadata_json,
+            )| {
+                let metadata: std::collections::HashMap<String, String> =
+                    serde_json::from_str(&metadata_json).unwrap_or_default();
+
+                AgentInfo {
+                    agent_id,
+                    address,
+                    availability_zone,
+                    agent_group,
+                    last_heartbeat,
+                    started_at,
+                    metadata,
+                }
+            },
+        ))
     }
 
     async fn list_agents(
@@ -676,20 +686,30 @@ impl MetadataStore for SqliteMetadataStore {
 
         Ok(rows
             .into_iter()
-            .map(|(agent_id, address, availability_zone, agent_group, last_heartbeat, started_at, metadata_json)| {
-                let metadata: std::collections::HashMap<String, String> =
-                    serde_json::from_str(&metadata_json).unwrap_or_default();
-
-                AgentInfo {
+            .map(
+                |(
                     agent_id,
                     address,
                     availability_zone,
                     agent_group,
                     last_heartbeat,
                     started_at,
-                    metadata,
-                }
-            })
+                    metadata_json,
+                )| {
+                    let metadata: std::collections::HashMap<String, String> =
+                        serde_json::from_str(&metadata_json).unwrap_or_default();
+
+                    AgentInfo {
+                        agent_id,
+                        address,
+                        availability_zone,
+                        agent_group,
+                        last_heartbeat,
+                        started_at,
+                        metadata,
+                    }
+                },
+            )
             .collect())
     }
 
@@ -883,14 +903,18 @@ impl MetadataStore for SqliteMetadataStore {
 
         Ok(rows
             .into_iter()
-            .map(|(topic, partition_id, leader_agent_id, lease_expires_at, acquired_at, epoch)| PartitionLease {
-                topic,
-                partition_id: partition_id as u32,
-                leader_agent_id,
-                lease_expires_at,
-                acquired_at,
-                epoch: epoch as u64,
-            })
+            .map(
+                |(topic, partition_id, leader_agent_id, lease_expires_at, acquired_at, epoch)| {
+                    PartitionLease {
+                        topic,
+                        partition_id: partition_id as u32,
+                        leader_agent_id,
+                        lease_expires_at,
+                        acquired_at,
+                        epoch: epoch as u64,
+                    }
+                },
+            )
             .collect())
     }
 }
