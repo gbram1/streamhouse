@@ -5,7 +5,7 @@
 use std::sync::Arc;
 use streamhouse_metadata::SqliteMetadataStore;
 use streamhouse_server::{pb::stream_house_server::StreamHouse, pb::*, StreamHouseService};
-use streamhouse_storage::{SegmentCache, WriteConfig};
+use streamhouse_storage::{SegmentCache, WriteConfig, WriterPool};
 use tonic::Request;
 
 async fn setup_test_service() -> (StreamHouseService, tempfile::TempDir) {
@@ -47,7 +47,14 @@ async fn setup_test_service() -> (StreamHouseService, tempfile::TempDir) {
         s3_upload_retries: 3,
     };
 
-    let service = StreamHouseService::new(metadata, object_store, cache, config);
+    // Create writer pool
+    let writer_pool = Arc::new(WriterPool::new(
+        metadata.clone(),
+        object_store.clone(),
+        config.clone(),
+    ));
+
+    let service = StreamHouseService::new(metadata, object_store, cache, writer_pool, config);
     (service, temp_dir)
 }
 
