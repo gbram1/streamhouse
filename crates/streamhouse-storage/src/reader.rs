@@ -149,7 +149,7 @@ impl PartitionReader {
             .segment_index
             .find_segment_for_offset(start_offset)
             .await
-            .map_err(|e| Error::MetadataError(e))?
+            .map_err(Error::MetadataError)?
             .ok_or_else(|| Error::OffsetNotFound(start_offset))?;
 
         // Get segment data (from cache or S3)
