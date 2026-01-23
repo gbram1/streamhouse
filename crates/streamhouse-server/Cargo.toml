@@ -36,3 +36,6 @@ tempfile = { workspace = true }
 
 [build-dependencies]
 tonic-build = { workspace = true }
+
+[features]
+postgres = ["streamhouse-metadata/postgres"]
