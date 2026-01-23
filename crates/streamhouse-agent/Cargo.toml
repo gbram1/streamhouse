@@ -1,0 +1,21 @@
+[package]
+name = "streamhouse-agent"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[dependencies]
+streamhouse-core = { path = "../streamhouse-core" }
+streamhouse-metadata = { path = "../streamhouse-metadata" }
+streamhouse-storage = { path = "../streamhouse-storage" }
+tokio = { workspace = true }
+tracing = { workspace = true }
+thiserror = { workspace = true }
+async-trait = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+object_store = { workspace = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }
