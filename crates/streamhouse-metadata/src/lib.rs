@@ -114,7 +114,7 @@ pub mod types;
 #[cfg(feature = "postgres")]
 pub mod postgres;
 
-pub use cached_store::{CachedMetadataStore, CacheConfig, CacheMetrics};
+pub use cached_store::{CacheConfig, CacheMetrics, CachedMetadataStore};
 pub use error::{MetadataError, Result};
 pub use store::SqliteMetadataStore;
 pub use types::*;
