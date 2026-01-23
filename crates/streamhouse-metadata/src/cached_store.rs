@@ -248,6 +248,11 @@ impl CacheMetrics {
     }
 }
 
+// Type aliases to reduce complexity
+type TopicCache = Arc<RwLock<LruCache<String, CacheEntry<Topic>>>>;
+type PartitionCache = Arc<RwLock<LruCache<(String, u32), CacheEntry<Partition>>>>;
+type TopicListCache = Arc<RwLock<LruCache<(), CacheEntry<Vec<Topic>>>>>;
+
 /// Metadata store with LRU caching layer
 ///
 /// Implements write-through caching with TTL-based expiration.
@@ -259,14 +264,14 @@ pub struct CachedMetadataStore<S: MetadataStore> {
     config: CacheConfig,
 
     /// Topic cache: topic_name → Topic
-    topic_cache: Arc<RwLock<LruCache<String, CacheEntry<Topic>>>>,
+    topic_cache: TopicCache,
 
     /// Partition cache: (topic, partition_id) → Partition
-    partition_cache: Arc<RwLock<LruCache<(String, u32), CacheEntry<Partition>>>>,
+    partition_cache: PartitionCache,
 
     /// Topic list cache: () → Vec<Topic>
     /// Only one entry, but using LRU for consistent TTL handling
-    topic_list_cache: Arc<RwLock<LruCache<(), CacheEntry<Vec<Topic>>>>>,
+    topic_list_cache: TopicListCache,
 
     /// Cache performance metrics
     metrics: CacheMetrics,
