@@ -7,7 +7,10 @@ use streamhouse_storage::{PartitionReader, SegmentCache};
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args: Vec<String> = std::env::args().collect();
     if args.len() < 3 {
-        eprintln!("Usage: {} <topic> <partition> [start_offset] [count]", args[0]);
+        eprintln!(
+            "Usage: {} <topic> <partition> [start_offset] [count]",
+            args[0]
+        );
         std::process::exit(1);
     }
 
@@ -16,9 +19,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let start_offset: u64 = args.get(3).and_then(|s| s.parse().ok()).unwrap_or(0);
     let count: usize = args.get(4).and_then(|s| s.parse().ok()).unwrap_or(10);
 
-    let metadata: Arc<dyn MetadataStore> = Arc::new(
-        SqliteMetadataStore::new("/tmp/streamhouse_pipeline.db").await?
-    );
+    let metadata: Arc<dyn MetadataStore> =
+        Arc::new(SqliteMetadataStore::new("/tmp/streamhouse_pipeline.db").await?);
 
     let object_store: Arc<dyn ObjectStore> = Arc::new(
         AmazonS3Builder::new()
@@ -31,7 +33,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             .build()?,
     );
 
-    let cache = Arc::new(SegmentCache::new("/tmp/streamhouse-read-cache", 1024 * 1024 * 100)?);
+    let cache = Arc::new(SegmentCache::new(
+        "/tmp/streamhouse-read-cache",
+        1024 * 1024 * 100,
+    )?);
 
     let reader = PartitionReader::new(
         topic.clone(),

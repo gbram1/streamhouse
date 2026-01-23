@@ -22,9 +22,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Connect to PostgreSQL
     println!("📊 Connecting to PostgreSQL...");
     let database_url = "postgresql://streamhouse:streamhouse@localhost:5432/streamhouse_metadata";
-    let metadata: Arc<dyn MetadataStore> = Arc::new(
-        PostgresMetadataStore::new(database_url).await?
-    );
+    let metadata: Arc<dyn MetadataStore> =
+        Arc::new(PostgresMetadataStore::new(database_url).await?);
     println!("   ✅ Connected\n");
 
     // Connect to MinIO
@@ -41,7 +40,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     );
     println!("   ✅ Connected\n");
 
-    let cache = Arc::new(SegmentCache::new("/tmp/streamhouse-cache", 1024 * 1024 * 100)?);
+    let cache = Arc::new(SegmentCache::new(
+        "/tmp/streamhouse-cache",
+        1024 * 1024 * 100,
+    )?);
 
     // Create topics
     println!("📝 Creating topics...");
@@ -53,12 +55,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     ];
 
     for (name, partitions, retention) in &topics {
-        metadata.create_topic(TopicConfig {
-            name: name.to_string(),
-            partition_count: *partitions,
-            retention_ms: Some(*retention),
-            config: HashMap::new(),
-        }).await?;
+        metadata
+            .create_topic(TopicConfig {
+                name: name.to_string(),
+                partition_count: *partitions,
+                retention_ms: Some(*retention),
+                config: HashMap::new(),
+            })
+            .await?;
         println!("   ✅ Created '{}' ({} partitions)", name, partitions);
     }
     println!();
@@ -82,7 +86,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             object_store.clone(),
             metadata.clone(),
             write_config.clone(),
-        ).await?;
+        )
+        .await?;
 
         let count = match partition {
             0 => 100,
@@ -94,9 +99,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             let key = format!("order-{}-{}", partition, i);
             let value = format!(
                 r#"{{"order_id":{},"partition":{},"customer":"user-{}","amount":{}.99}}"#,
-                i, partition, i % 20, 50 + (i % 50)
+                i,
+                partition,
+                i % 20,
+                50 + (i % 50)
             );
-            writer.append(Some(Bytes::from(key)), Bytes::from(value), current_timestamp()).await?;
+            writer
+                .append(
+                    Some(Bytes::from(key)),
+                    Bytes::from(value),
+                    current_timestamp(),
+                )
+                .await?;
         }
 
         writer.flush().await?;
@@ -113,7 +127,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             object_store.clone(),
             metadata.clone(),
             write_config.clone(),
-        ).await?;
+        )
+        .await?;
 
         let count = if partition == 0 { 200 } else { 120 };
 
@@ -121,11 +136,23 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             let key = format!("event-{}-{}", partition, i);
             let value = format!(
                 r#"{{"event_type":"{}","user_id":{},"timestamp":{}}}"#,
-                if i % 3 == 0 { "click" } else if i % 3 == 1 { "view" } else { "purchase" },
+                if i % 3 == 0 {
+                    "click"
+                } else if i % 3 == 1 {
+                    "view"
+                } else {
+                    "purchase"
+                },
                 i % 50,
                 current_timestamp()
             );
-            writer.append(Some(Bytes::from(key)), Bytes::from(value), current_timestamp()).await?;
+            writer
+                .append(
+                    Some(Bytes::from(key)),
+                    Bytes::from(value),
+                    current_timestamp(),
+                )
+                .await?;
         }
 
         writer.flush().await?;
@@ -142,16 +169,21 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             object_store.clone(),
             metadata.clone(),
             write_config.clone(),
-        ).await?;
+        )
+        .await?;
 
         let count = 250;
 
         for i in 0..count {
             let value = format!(
                 r#"{{"metric":"cpu_usage","host":"host-{}","value":{},"timestamp":{}}}"#,
-                partition, 20 + (i % 80), current_timestamp()
+                partition,
+                20 + (i % 80),
+                current_timestamp()
             );
-            writer.append(None, Bytes::from(value), current_timestamp()).await?;
+            writer
+                .append(None, Bytes::from(value), current_timestamp())
+                .await?;
         }
 
         writer.flush().await?;
@@ -170,9 +202,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     );
 
     let result = reader.read(0, 5).await?;
-    println!("   ✅ Read {} records from orders/partition-0", result.records.len());
+    println!(
+        "   ✅ Read {} records from orders/partition-0",
+        result.records.len()
+    );
     for (i, record) in result.records.iter().take(3).enumerate() {
-        let key = record.key.as_ref().map(|k| String::from_utf8_lossy(k).to_string()).unwrap_or("null".to_string());
+        let key = record
+            .key
+            .as_ref()
+            .map(|k| String::from_utf8_lossy(k).to_string())
+            .unwrap_or("null".to_string());
         let value = String::from_utf8_lossy(&record.value);
         println!("      [{}] {}: {}", i, key, value);
     }
