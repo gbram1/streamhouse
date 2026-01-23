@@ -56,12 +56,15 @@ use tokio::sync::RwLock;
 
 /// Manages partition leases for this agent
 pub struct LeaseManager {
+    #[allow(dead_code)] // Will be used in Phase 4.2
     agent_id: String,
+    #[allow(dead_code)] // Will be used in Phase 4.2
     leases: Arc<RwLock<HashMap<(String, u32), PartitionLease>>>,
 }
 
 /// Lease information for a partition
 #[derive(Debug, Clone)]
+#[allow(dead_code)] // Will be used in Phase 4.2
 struct PartitionLease {
     topic: String,
     partition_id: u32,

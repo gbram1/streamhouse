@@ -153,8 +153,8 @@ impl HeartbeatTask {
 
     /// Send a single heartbeat
     async fn send_heartbeat(&self) -> Result<(), streamhouse_metadata::MetadataError> {
-        let metadata: HashMap<String, String> = serde_json::from_str(&self.metadata)
-            .unwrap_or_else(|_| HashMap::new());
+        let metadata: HashMap<String, String> =
+            serde_json::from_str(&self.metadata).unwrap_or_else(|_| HashMap::new());
 
         let agent_info = AgentInfo {
             agent_id: self.agent_id.clone(),
