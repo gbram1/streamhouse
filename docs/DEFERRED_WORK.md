@@ -1,7 +1,151 @@
 # StreamHouse - Deferred Work & Future Tasks
 
-**Last Updated**: 2026-01-23
+**Last Updated**: 2026-01-25
 **Purpose**: Track features/improvements that are valuable but not critical path
+
+---
+
+## Phase 4 Deferred Items
+
+### Phase 4.3 (Original Plan): AZ-Aware Routing
+
+**Status**: ⏳ Deferred
+**Priority**: Medium
+**When**: After Phase 5 (Producer/Consumer APIs) complete
+
+**What**: Optimize partition assignment to prefer local availability zone
+
+**What we have**:
+- ✅ `availability_zone` field in Agent struct
+- ✅ Agents can be deployed across multiple AZs
+- ✅ Consistent hashing distributes partitions
+
+**What's missing**:
+- ⏳ AZ-aware partition assignment (prefer local AZ for partition leadership)
+- ⏳ Client routing logic (connect to same-AZ agents)
+- ⏳ Cross-AZ cost tracking and optimization
+
+**Why defer**:
+- Current consistent hashing works fine
+- No customers yet to require cross-AZ cost optimization
+- Producer/Consumer APIs more important (Phase 5)
+- Can add AZ awareness later without breaking changes
+
+**When to revisit**:
+- High cross-AZ data transfer costs observed (>$100/month)
+- Multi-AZ deployment becomes common
+- Customer requires AZ affinity for compliance
+
+**Implementation checklist**:
+```
+[ ] Modify consistent hashing to include AZ weight
+[ ] Add AZ-preference config to PartitionAssigner
+[ ] Implement client-side agent discovery with AZ filtering
+[ ] Add metrics for cross-AZ traffic
+[ ] Integration tests with multi-AZ setup
+[ ] Documentation for AZ-aware deployment
+```
+
+**Estimated effort**: 1 week
+
+---
+
+### Phase 4.4: Advanced Agent Group Features
+
+**Status**: ⏳ Deferred
+**Priority**: Low
+**When**: When multi-tenancy becomes a requirement
+
+**What**: Enhanced agent group isolation and management
+
+**What we have**:
+- ✅ `agent_group` field in Agent struct
+- ✅ Agents can filter by group
+- ✅ Group-based agent discovery
+
+**What's missing**:
+- ⏳ Topic→Group affinity (topics pinned to specific agent groups)
+- ⏳ VPC/network isolation configuration
+- ⏳ Per-group resource quotas and limits
+- ⏳ Cross-group partition isolation enforcement
+
+**Why defer**:
+- Current group filtering sufficient for basic multi-tenancy
+- No customers requiring strict network isolation
+- More complex than needed for MVP
+- Can add incrementally as needed
+
+**When to revisit**:
+- Customer requires prod/staging isolation in same cluster
+- Multi-tenant SaaS deployment needed
+- Compliance requires network-level isolation
+
+**Implementation checklist**:
+```
+[ ] Add topic.agent_group field to topics table
+[ ] Enforce group affinity in lease acquisition
+[ ] Add VPC/subnet configuration to agent groups
+[ ] Implement per-group quotas (CPU, memory, bandwidth)
+[ ] Add cross-group metrics and monitoring
+[ ] Documentation for multi-tenant deployments
+```
+
+**Estimated effort**: 2 weeks
+
+---
+
+### Phase 4.5: Network Partition Testing
+
+**Status**: ⏳ Deferred
+**Priority**: Low
+**When**: For production hardening
+
+**What**: Simulate network partitions and byzantine failures
+
+**What we have**:
+- ✅ Agent failure tests (clean shutdown)
+- ✅ Lease failover tests
+- ✅ Epoch fencing tests
+
+**What's missing**:
+- ⏳ Network partition simulation (agent can't reach PostgreSQL)
+- ⏳ Split-brain scenario tests (multiple agents think they're leader)
+- ⏳ Byzantine failure tests (agent sends corrupt data)
+- ⏳ Clock skew tests (system time differences)
+
+**Why defer**:
+- Current tests cover 90% of failure scenarios
+- Network partitions rare in practice (cloud VPCs are reliable)
+- Epoch fencing already prevents split-brain
+- Need production workload data first
+
+**When to revisit**:
+- Before claiming "production-ready"
+- After observing real failures in production
+- Customer requires chaos engineering validation
+
+**Test scenarios to add**:
+```rust
+// Scenario 1: Network partition (agent isolated from PostgreSQL)
+test_agent_isolated_from_postgres()
+test_lease_expires_during_partition()
+test_writes_rejected_after_partition()
+
+// Scenario 2: Split-brain (rare, but theoretically possible)
+test_two_agents_think_they_lead_partition()
+test_epoch_fencing_prevents_corruption()
+
+// Scenario 3: Byzantine failures
+test_agent_sends_corrupt_segment()
+test_agent_claims_wrong_offset()
+test_agent_lies_about_lease()
+
+// Scenario 4: Clock skew
+test_lease_with_clock_skew()
+test_heartbeat_with_clock_drift()
+```
+
+**Estimated effort**: 1 week
 
 ---
 
