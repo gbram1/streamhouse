@@ -38,8 +38,14 @@
 //! }
 //! ```
 
+pub mod batch;
+pub mod connection_pool;
 pub mod error;
 pub mod producer;
+pub mod retry;
 
+pub use batch::{BatchManager, BatchRecord};
+pub use connection_pool::ConnectionPool;
 pub use error::{ClientError, Result};
 pub use producer::{Producer, ProducerBuilder, ProducerConfig, ProducerRecord, SendResult};
+pub use retry::{retry_with_backoff, retry_with_jittered_backoff, RetryPolicy};
