@@ -37,11 +37,9 @@ use std::sync::Arc;
 use std::time::Duration;
 use streamhouse_agent::grpc_service::ProducerServiceImpl;
 use streamhouse_client::{BatchManager, BatchRecord, ConnectionPool};
-use streamhouse_metadata::{
-    AgentInfo, MetadataStore, SqliteMetadataStore, TopicConfig,
-};
+use streamhouse_metadata::{AgentInfo, MetadataStore, SqliteMetadataStore, TopicConfig};
 use streamhouse_proto::producer::{
-    producer_service_server::ProducerServiceServer, produce_request::Record, ProduceRequest,
+    produce_request::Record, producer_service_server::ProducerServiceServer, ProduceRequest,
 };
 use streamhouse_storage::writer_pool::WriterPool;
 use tempfile::TempDir;
@@ -49,9 +47,7 @@ use tokio::net::TcpListener;
 use tonic::transport::Server;
 
 /// Helper to create a test metadata store with a topic and partition lease.
-async fn create_test_metadata_store(
-    agent_id: &str,
-) -> (Arc<dyn MetadataStore>, TempDir) {
+async fn create_test_metadata_store(agent_id: &str) -> (Arc<dyn MetadataStore>, TempDir) {
     let temp_dir = tempfile::tempdir().unwrap();
     let db_path = temp_dir.path().join("metadata.db");
 
@@ -232,20 +228,12 @@ async fn test_batch_manager() {
     manager.append(
         "orders",
         0,
-        BatchRecord::new(
-            Some(Bytes::from("key1")),
-            Bytes::from("value1"),
-            1000,
-        ),
+        BatchRecord::new(Some(Bytes::from("key1")), Bytes::from("value1"), 1000),
     );
     manager.append(
         "orders",
         0,
-        BatchRecord::new(
-            Some(Bytes::from("key2")),
-            Bytes::from("value2"),
-            1001,
-        ),
+        BatchRecord::new(Some(Bytes::from("key2")), Bytes::from("value2"), 1001),
     );
     manager.append(
         "events",
@@ -298,7 +286,10 @@ async fn test_connection_pool() {
 
     // Get connections and verify they work
     for i in 0..3 {
-        let mut client = connection_pool.get_connection(&agent_address).await.unwrap();
+        let mut client = connection_pool
+            .get_connection(&agent_address)
+            .await
+            .unwrap();
 
         let request = ProduceRequest {
             topic: "test_topic".to_string(),
@@ -320,8 +311,8 @@ async fn test_connection_pool() {
 
 #[tokio::test]
 async fn test_retry_policy() {
-    use streamhouse_client::{retry_with_backoff, RetryPolicy};
     use std::sync::atomic::{AtomicUsize, Ordering};
+    use streamhouse_client::{retry_with_backoff, RetryPolicy};
     use tonic::Status;
 
     let policy = RetryPolicy {

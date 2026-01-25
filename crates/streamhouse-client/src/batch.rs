@@ -309,10 +309,7 @@ impl BatchBuffer {
         let records = std::mem::take(&mut self.records);
         self.size_bytes = 0;
         self.created_at = Instant::now();
-        debug!(
-            record_count = records.len(),
-            "Drained batch buffer"
-        );
+        debug!(record_count = records.len(), "Drained batch buffer");
         records
     }
 
@@ -477,10 +474,7 @@ impl BatchManager {
             }
         }
 
-        debug!(
-            batch_count = ready.len(),
-            "Found ready batches"
-        );
+        debug!(batch_count = ready.len(), "Found ready batches");
         ready
     }
 
@@ -513,10 +507,7 @@ impl BatchManager {
             }
         }
 
-        debug!(
-            batch_count = all.len(),
-            "Flushed all batches"
-        );
+        debug!(batch_count = all.len(), "Flushed all batches");
         all
     }
 
@@ -546,11 +537,7 @@ mod tests {
 
     #[test]
     fn test_batch_record_size() {
-        let record = BatchRecord::new(
-            Some(Bytes::from("key")),
-            Bytes::from("value"),
-            1234567890,
-        );
+        let record = BatchRecord::new(Some(Bytes::from("key")), Bytes::from("value"), 1234567890);
         // key (3) + value (5) + overhead (16) = 24
         assert_eq!(record.size_bytes(), 24);
     }
@@ -606,8 +593,16 @@ mod tests {
     fn test_batch_manager_append() {
         let mut manager = BatchManager::new(100, 1024 * 1024, Duration::from_millis(100));
 
-        manager.append("orders", 0, BatchRecord::new(None, Bytes::from("test1"), 1000));
-        manager.append("orders", 1, BatchRecord::new(None, Bytes::from("test2"), 1001));
+        manager.append(
+            "orders",
+            0,
+            BatchRecord::new(None, Bytes::from("test1"), 1000),
+        );
+        manager.append(
+            "orders",
+            1,
+            BatchRecord::new(None, Bytes::from("test2"), 1001),
+        );
 
         let (partitions, records, _bytes) = manager.stats();
         assert_eq!(partitions, 2);
@@ -618,10 +613,18 @@ mod tests {
     fn test_batch_manager_ready_batches() {
         let mut manager = BatchManager::new(2, 1024 * 1024, Duration::from_secs(60));
 
-        manager.append("orders", 0, BatchRecord::new(None, Bytes::from("test1"), 1000));
+        manager.append(
+            "orders",
+            0,
+            BatchRecord::new(None, Bytes::from("test1"), 1000),
+        );
         assert!(manager.ready_batches().is_empty());
 
-        manager.append("orders", 0, BatchRecord::new(None, Bytes::from("test2"), 1001));
+        manager.append(
+            "orders",
+            0,
+            BatchRecord::new(None, Bytes::from("test2"), 1001),
+        );
         let ready = manager.ready_batches();
         assert_eq!(ready.len(), 1);
         assert_eq!(ready[0].0, "orders");
@@ -633,8 +636,16 @@ mod tests {
     fn test_batch_manager_flush_all() {
         let mut manager = BatchManager::new(100, 1024 * 1024, Duration::from_secs(60));
 
-        manager.append("orders", 0, BatchRecord::new(None, Bytes::from("test1"), 1000));
-        manager.append("events", 0, BatchRecord::new(None, Bytes::from("test2"), 1001));
+        manager.append(
+            "orders",
+            0,
+            BatchRecord::new(None, Bytes::from("test1"), 1000),
+        );
+        manager.append(
+            "events",
+            0,
+            BatchRecord::new(None, Bytes::from("test2"), 1001),
+        );
 
         let all = manager.flush_all();
         assert_eq!(all.len(), 2);
