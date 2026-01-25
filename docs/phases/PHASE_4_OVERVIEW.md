@@ -1,7 +1,7 @@
 # Phase 4: Multi-Agent Architecture - Overview
 
-**Status**: ✅ Complete (Phases 4.1 & 4.2)
-**Next**: Phase 4.3 (Partition Assignment)
+**Status**: ✅ COMPLETE (All Phases: 4.1, 4.2, 4.3)
+**Next**: Phase 5 (Read/Write Path Integration)
 
 ## Table of Contents
 
@@ -425,20 +425,26 @@ T=40s  : Agent-1 tries to write → REJECTED (stale epoch)
 
 **Tests**: 8 new tests (22 total passing)
 
-### 🔄 Phase 4.3: Partition Assignment (Next)
+### ✅ Phase 4.3: Partition Assignment (Complete)
 
-**Goal**: Automatically distribute partitions across agents.
+**Implemented**:
+- Automatic partition distribution using consistent hashing
+- Background rebalancing on topology changes (every 30s)
+- Seamless lease acquisition/release based on assignment
+- Agent integration with optional auto-assignment
+- Demo script showing failover and recovery
 
-**Features**:
-- Watch for agent joins/leaves
-- Assign partitions using consistent hashing
-- Rebalance on topology changes
-- Handle agent failures (automatic reassignment)
+**Files**:
+- `crates/streamhouse-agent/src/assigner.rs` (566 lines)
+- `crates/streamhouse-agent/examples/demo_phase_4_multi_agent.rs` (274 lines)
 
-**Planned Components**:
-- `PartitionAssigner` - Assignment algorithm
-- `RebalanceTask` - Background rebalancing
-- Assignment persistence in metadata store
+**Tests**: 3 new tests (25 total passing)
+
+**Key Features**:
+- Consistent hashing minimizes partition movement
+- Topology change detection (agent joins/leaves)
+- Automatic lease management via LeaseManager
+- Statistics tracking (rebalance count, assignments gained/lost)
 
 ---
 
@@ -677,12 +683,14 @@ If you need sub-second failover or multi-region active-active, consider Cockroac
 
 1. **Read Phase 4.1 Details**: [PHASE_4.1_COMPLETE.md](./PHASE_4.1_COMPLETE.md)
 2. **Read Phase 4.2 Details**: [PHASE_4.2_COMPLETE.md](./PHASE_4.2_COMPLETE.md)
-3. **Review Code**: `crates/streamhouse-agent/src/`
-4. **Run Tests**: `cargo test --package streamhouse-agent`
-5. **Deploy**: Follow Kubernetes/Docker examples above
-6. **Monitor**: Set up dashboards with SQL queries above
+3. **Read Phase 4.3 Details**: [PHASE_4.3_COMPLETE.md](./PHASE_4.3_COMPLETE.md)
+4. **Review Code**: `crates/streamhouse-agent/src/`
+5. **Run Demo**: `cargo run --package streamhouse-agent --example demo_phase_4_multi_agent`
+6. **Run Tests**: `cargo test --package streamhouse-agent`
+7. **Deploy**: Follow Kubernetes/Docker examples above
+8. **Monitor**: Set up dashboards with SQL queries above
 
 ---
 
-**Last Updated**: 2026-01-24
+**Last Updated**: 2026-01-25
 **Contributors**: Claude Sonnet 4.5

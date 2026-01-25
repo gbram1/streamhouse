@@ -33,6 +33,7 @@
 //! # }
 //! ```
 
+use crate::assigner::PartitionAssigner;
 use crate::error::{AgentError, Result};
 use crate::heartbeat::HeartbeatTask;
 use crate::lease_manager::LeaseManager;
@@ -67,6 +68,9 @@ pub struct AgentConfig {
 
     /// Optional metadata (JSON string)
     pub metadata: Option<String>,
+
+    /// Topics to auto-assign partitions for (optional)
+    pub managed_topics: Vec<String>,
 }
 
 impl Default for AgentConfig {
@@ -79,6 +83,7 @@ impl Default for AgentConfig {
             heartbeat_interval: Duration::from_secs(20),
             heartbeat_timeout: Duration::from_secs(60),
             metadata: None,
+            managed_topics: Vec::new(),
         }
     }
 }
@@ -102,6 +107,9 @@ pub struct Agent {
 
     /// Lease manager for partition leadership
     lease_manager: Arc<LeaseManager>,
+
+    /// Partition assigner (optional - for auto-assignment)
+    partition_assigner: Arc<RwLock<Option<PartitionAssigner>>>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -142,6 +150,27 @@ impl Agent {
         // Start lease renewal task
         self.lease_manager.start_renewal_task().await?;
 
+        // Start partition assigner if topics configured
+        if !self.config.managed_topics.is_empty() {
+            let assigner = PartitionAssigner::new(
+                self.config.agent_id.clone(),
+                self.config.agent_group.clone(),
+                Arc::clone(&self.metadata_store),
+                Arc::clone(&self.lease_manager),
+                self.config.managed_topics.clone(),
+            );
+
+            assigner.start().await?;
+
+            *self.partition_assigner.write().await = Some(assigner);
+
+            info!(
+                agent_id = %self.config.agent_id,
+                topics = ?self.config.managed_topics,
+                "Partition assigner started"
+            );
+        }
+
         *state = AgentState::Started;
 
         info!(
@@ -169,10 +198,19 @@ impl Agent {
             "Stopping agent gracefully"
         );
 
+        // Stop partition assigner (releases leases automatically)
+        if let Some(assigner) = self.partition_assigner.write().await.take() {
+            assigner.stop().await?;
+            info!(
+                agent_id = %self.config.agent_id,
+                "Partition assigner stopped"
+            );
+        }
+
         // Stop lease renewal task
         self.lease_manager.stop_renewal_task().await?;
 
-        // Release all partition leases
+        // Release all partition leases (for manual leases)
         self.lease_manager.release_all_leases().await?;
 
         // Stop heartbeat task
@@ -219,6 +257,15 @@ impl Agent {
     /// Get the lease manager (for acquiring partition leases)
     pub fn lease_manager(&self) -> &LeaseManager {
         &self.lease_manager
+    }
+
+    /// Get the partition assigner (if enabled)
+    pub async fn partition_assigner(&self) -> Option<Vec<(String, u32)>> {
+        if let Some(assigner) = self.partition_assigner.read().await.as_ref() {
+            Some(assigner.get_assigned_partitions().await)
+        } else {
+            None
+        }
     }
 
     /// Register agent with metadata store
@@ -387,6 +434,12 @@ impl AgentBuilder {
         self
     }
 
+    /// Set topics for automatic partition assignment
+    pub fn managed_topics(mut self, topics: Vec<String>) -> Self {
+        self.config.managed_topics = topics;
+        self
+    }
+
     /// Build the agent
     pub async fn build(self) -> Result<Agent> {
         // Validate required fields
@@ -416,6 +469,7 @@ impl AgentBuilder {
             state: Arc::new(RwLock::new(AgentState::Created)),
             heartbeat_handle: Arc::new(RwLock::new(None)),
             lease_manager,
+            partition_assigner: Arc::new(RwLock::new(None)),
         })
     }
 }

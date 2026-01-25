@@ -40,11 +40,13 @@
 //! ```
 
 pub mod agent;
+pub mod assigner;
 pub mod error;
 pub mod heartbeat;
 pub mod lease_manager;
 
 pub use agent::{Agent, AgentBuilder, AgentConfig};
+pub use assigner::PartitionAssigner;
 pub use error::{AgentError, Result};
 pub use heartbeat::HeartbeatTask;
 pub use lease_manager::{validate_epoch, LeaseManager};
