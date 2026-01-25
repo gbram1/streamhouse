@@ -1,0 +1,30 @@
+[package]
+name = "streamhouse-client"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+streamhouse-metadata = { path = "../streamhouse-metadata" }
+streamhouse-storage = { path = "../streamhouse-storage" }
+
+tokio = { version = "1.42", features = ["full"] }
+tracing = "0.1"
+thiserror = "2.0"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+bytes = "1.9"
+lz4 = "1.28"
+
+# For consistent hashing (same as agent)
+siphasher = "1.0"
+
+# For S3 integration
+object_store = "0.9"
+
+[dev-dependencies]
+tokio-test = "0.4"
+tempfile = "3.14"
+tracing-subscriber = "0.3"
