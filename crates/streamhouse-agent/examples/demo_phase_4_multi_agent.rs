@@ -105,7 +105,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         if !leases.is_empty() {
             println!("    Assigned partitions ({}):", leases.len());
             for lease in &leases {
-                println!("      - {}:{} (epoch {})", lease.topic, lease.partition_id, lease.epoch);
+                println!(
+                    "      - {}:{} (epoch {})",
+                    lease.topic, lease.partition_id, lease.epoch
+                );
             }
         } else {
             println!("    Assigned partitions: (waiting for rebalance...)");
@@ -135,7 +138,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
         println!("    Assigned partitions ({}):", leases.len());
         for lease in &leases {
-            println!("      - {}:{} (epoch {})", lease.topic, lease.partition_id, lease.epoch);
+            println!(
+                "      - {}:{} (epoch {})",
+                lease.topic, lease.partition_id, lease.epoch
+            );
         }
     }
 
@@ -174,7 +180,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
         println!("    Assigned partitions ({}):", leases.len());
         for lease in &leases {
-            println!("      - {}:{} (epoch {})", lease.topic, lease.partition_id, lease.epoch);
+            println!(
+                "      - {}:{} (epoch {})",
+                lease.topic, lease.partition_id, lease.epoch
+            );
         }
     }
 
