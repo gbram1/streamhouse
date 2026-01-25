@@ -45,13 +45,45 @@ use tokio::sync::RwLock;
 use tokio::task::JoinHandle;
 use tracing::{info, warn};
 
-/// Agent configuration
+/// Agent configuration.
+///
+/// Defines all configuration parameters for a StreamHouse agent.
+/// Use `AgentBuilder` for ergonomic construction with defaults.
+///
+/// # Fields
+///
+/// * `agent_id` - Unique agent identifier (e.g., "agent-us-east-1a-001")
+/// * `address` - Agent's gRPC address (e.g., "10.0.1.5:9090")
+/// * `availability_zone` - Cloud availability zone (e.g., "us-east-1a")
+/// * `agent_group` - Agent group for network isolation (e.g., "prod", "staging")
+/// * `heartbeat_interval` - How often to send heartbeats (default: 20s)
+/// * `heartbeat_timeout` - When to consider agent dead (default: 60s)
+/// * `metadata` - Optional metadata JSON string for monitoring/debugging
+/// * `managed_topics` - Topics to auto-assign partitions for (optional)
+///
+/// # Examples
+///
+/// ```ignore
+/// use streamhouse_agent::AgentConfig;
+/// use std::time::Duration;
+///
+/// let config = AgentConfig {
+///     agent_id: "agent-us-east-1a-001".to_string(),
+///     address: "10.0.1.5:9090".to_string(),
+///     availability_zone: "us-east-1a".to_string(),
+///     agent_group: "prod".to_string(),
+///     heartbeat_interval: Duration::from_secs(20),
+///     heartbeat_timeout: Duration::from_secs(60),
+///     metadata: Some(r#"{"version":"1.0.0"}"#.to_string()),
+///     managed_topics: vec!["orders".to_string()],
+/// };
+/// ```
 #[derive(Debug, Clone)]
 pub struct AgentConfig {
     /// Unique agent ID (e.g., "agent-us-east-1a-001")
     pub agent_id: String,
 
-    /// Agent address (e.g., "10.0.1.5:9090")
+    /// Agent address for gRPC (e.g., "10.0.1.5:9090")
     pub address: String,
 
     /// Availability zone (e.g., "us-east-1a")
@@ -63,10 +95,10 @@ pub struct AgentConfig {
     /// Heartbeat interval (default: 20s)
     pub heartbeat_interval: Duration,
 
-    /// Heartbeat timeout (default: 60s)
+    /// Heartbeat timeout - agents dead if no heartbeat in this time (default: 60s)
     pub heartbeat_timeout: Duration,
 
-    /// Optional metadata (JSON string)
+    /// Optional metadata (JSON string for monitoring/debugging)
     pub metadata: Option<String>,
 
     /// Topics to auto-assign partitions for (optional)
@@ -88,7 +120,55 @@ impl Default for AgentConfig {
     }
 }
 
-/// Main agent struct - manages lifecycle and coordination
+/// Main agent struct - manages lifecycle and coordination.
+///
+/// The Agent is the primary coordinator for a StreamHouse instance. It manages:
+/// - Agent registration and heartbeat with the metadata store
+/// - Partition lease acquisition and renewal
+/// - Graceful start/stop with proper cleanup
+/// - Optional automatic partition assignment
+///
+/// # Architecture
+///
+/// Agents are **stateless** - all state lives in the metadata store and S3.
+/// This allows:
+/// - Instant failover (another agent takes over expired leases)
+/// - Easy horizontal scaling (just start more agents)
+/// - No data loss on crashes (committed data is in S3)
+///
+/// # Thread Safety
+///
+/// Agent is Send + Sync and can be safely shared via Arc<Agent>.
+/// Internal state is protected by RwLock for concurrent access.
+///
+/// # Lifecycle
+///
+/// 1. **Build**: Configure agent via `AgentBuilder`
+/// 2. **Start**: Register with metadata, start heartbeat, acquire leases
+/// 3. **Run**: Serve produce/consume requests, renew leases
+/// 4. **Stop**: Flush data, release leases, deregister
+///
+/// # Examples
+///
+/// ```ignore
+/// use streamhouse_agent::Agent;
+///
+/// // Create and start agent
+/// let agent = Agent::builder()
+///     .agent_id("agent-us-east-1a-001")
+///     .address("10.0.1.5:9090")
+///     .availability_zone("us-east-1a")
+///     .agent_group("prod")
+///     .build()
+///     .await?;
+///
+/// agent.start().await?;
+///
+/// // ... serve traffic ...
+///
+/// // Graceful shutdown
+/// agent.stop().await?;
+/// ```
 pub struct Agent {
     /// Agent configuration
     config: AgentConfig,
@@ -96,19 +176,19 @@ pub struct Agent {
     /// Metadata store for coordination
     metadata_store: Arc<dyn MetadataStore>,
 
-    /// Agent start timestamp (ms since epoch)
+    /// Agent start timestamp (milliseconds since Unix epoch)
     started_at: i64,
 
-    /// Agent state (started/stopped)
+    /// Agent state (Created, Started, or Stopped)
     state: Arc<RwLock<AgentState>>,
 
-    /// Heartbeat task handle
+    /// Background heartbeat task handle
     heartbeat_handle: Arc<RwLock<Option<JoinHandle<()>>>>,
 
-    /// Lease manager for partition leadership
+    /// Lease manager for partition leadership coordination
     lease_manager: Arc<LeaseManager>,
 
-    /// Partition assigner (optional - for auto-assignment)
+    /// Partition assigner for automatic partition assignment (optional)
     partition_assigner: Arc<RwLock<Option<PartitionAssigner>>>,
 }
 
@@ -120,12 +200,67 @@ enum AgentState {
 }
 
 impl Agent {
-    /// Create a new agent builder
+    /// Create a new agent builder.
+    ///
+    /// This is the recommended way to construct an Agent. The builder provides
+    /// a fluent API with sensible defaults for all optional parameters.
+    ///
+    /// # Returns
+    ///
+    /// An `AgentBuilder` for configuring and building the agent.
+    ///
+    /// # Examples
+    ///
+    /// ```ignore
+    /// let agent = Agent::builder()
+    ///     .agent_id("agent-001")
+    ///     .address("localhost:9090")
+    ///     .build()
+    ///     .await?;
+    /// ```
     pub fn builder() -> AgentBuilder {
         AgentBuilder::new()
     }
 
-    /// Start the agent (register + begin heartbeat + lease renewal)
+    /// Start the agent (register, begin heartbeat, acquire leases).
+    ///
+    /// This method performs the following operations in order:
+    /// 1. Registers agent with metadata store (creates or updates agent record)
+    /// 2. Starts background heartbeat task (sends heartbeat every 20s)
+    /// 3. Starts lease renewal task (renews partition leases before expiration)
+    /// 4. Optionally starts partition assignment (if managed_topics configured)
+    ///
+    /// # Returns
+    ///
+    /// `Ok(())` on successful start.
+    ///
+    /// # Errors
+    ///
+    /// - `AlreadyStarted`: Agent is already running
+    /// - `Metadata`: Failed to register with metadata store
+    ///
+    /// # Important
+    ///
+    /// After calling `start()`, the agent is ready to serve traffic. The agent
+    /// will automatically:
+    /// - Maintain liveness via heartbeats
+    /// - Acquire and renew partition leases
+    /// - Detect lease expiration and gracefully release partitions
+    ///
+    /// # Examples
+    ///
+    /// ```ignore
+    /// let agent = Agent::builder()
+    ///     .agent_id("agent-001")
+    ///     .address("localhost:9090")
+    ///     .build()
+    ///     .await?;
+    ///
+    /// // Start agent (non-blocking)
+    /// agent.start().await?;
+    ///
+    /// println!("Agent started and ready to serve traffic");
+    /// ```
     pub async fn start(&self) -> Result<()> {
         let mut state = self.state.write().await;
 
