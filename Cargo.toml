@@ -8,7 +8,7 @@ members = [
     "crates/streamhouse-kafka",
     "crates/streamhouse-sql",
     "crates/streamhouse-server",
-    "crates/streamhouse-cli",
+    "crates/streamhouse-cli", "crates/streamhouse-client",
 ]
 
 [workspace.package]
