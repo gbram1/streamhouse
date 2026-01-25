@@ -333,11 +333,8 @@ impl RebalanceTask {
 
             // Assign each partition
             for partition_id in 0..topic.partition_count {
-                let assigned_agent = assign_partition_consistent_hash(
-                    topic_name,
-                    partition_id,
-                    &agent_ids,
-                );
+                let assigned_agent =
+                    assign_partition_consistent_hash(topic_name, partition_id, &agent_ids);
 
                 if assigned_agent == self.agent_id {
                     new_assignment.insert((topic_name.clone(), partition_id));
@@ -350,15 +347,11 @@ impl RebalanceTask {
             let state = self.state.read().await;
             let current = &state.assigned_partitions;
 
-            let to_acquire: Vec<(String, u32)> = new_assignment
-                .difference(current)
-                .cloned()
-                .collect();
+            let to_acquire: Vec<(String, u32)> =
+                new_assignment.difference(current).cloned().collect();
 
-            let to_release: Vec<(String, u32)> = current
-                .difference(&new_assignment)
-                .cloned()
-                .collect();
+            let to_release: Vec<(String, u32)> =
+                current.difference(&new_assignment).cloned().collect();
 
             (to_acquire, to_release)
         };
@@ -503,17 +496,27 @@ mod tests {
 
     #[test]
     fn test_consistent_hash_assignment() {
-        let agents = vec!["agent-1".to_string(), "agent-2".to_string(), "agent-3".to_string()];
+        let agents = vec![
+            "agent-1".to_string(),
+            "agent-2".to_string(),
+            "agent-3".to_string(),
+        ];
 
         // Assign all partitions
         let mut assignments: HashMap<String, Vec<u32>> = HashMap::new();
         for partition_id in 0..9 {
             let assigned = assign_partition_consistent_hash("orders", partition_id, &agents);
-            assignments.entry(assigned).or_insert_with(Vec::new).push(partition_id);
+            assignments
+                .entry(assigned)
+                .or_insert_with(Vec::new)
+                .push(partition_id);
         }
 
         // At least some agents should get assignments (consistent hashing may not use all)
-        assert!(!assignments.is_empty(), "At least one agent should have assignments");
+        assert!(
+            !assignments.is_empty(),
+            "At least one agent should have assignments"
+        );
 
         // Total should be 9
         let total: usize = assignments.values().map(|v| v.len()).sum();
@@ -522,7 +525,11 @@ mod tests {
 
     #[test]
     fn test_consistent_hash_stability() {
-        let agents = vec!["agent-1".to_string(), "agent-2".to_string(), "agent-3".to_string()];
+        let agents = vec![
+            "agent-1".to_string(),
+            "agent-2".to_string(),
+            "agent-3".to_string(),
+        ];
 
         // Initial assignment
         let mut initial: HashMap<u32, String> = HashMap::new();
@@ -536,7 +543,8 @@ mod tests {
 
         let mut moved = 0;
         for partition_id in 0..9 {
-            let new_assigned = assign_partition_consistent_hash("orders", partition_id, &agents_minus_one);
+            let new_assigned =
+                assign_partition_consistent_hash("orders", partition_id, &agents_minus_one);
 
             if initial[&partition_id] == "agent-2" {
                 // Partitions from removed agent must move

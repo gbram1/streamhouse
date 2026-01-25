@@ -43,28 +43,34 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Step 2: Create topics
     print_step("Creating topics with partitions");
 
-    metadata.create_topic(TopicConfig {
-        name: "orders".to_string(),
-        partition_count: 6,
-        retention_ms: Some(86400000), // 1 day
-        config: HashMap::new(),
-    }).await?;
+    metadata
+        .create_topic(TopicConfig {
+            name: "orders".to_string(),
+            partition_count: 6,
+            retention_ms: Some(86400000), // 1 day
+            config: HashMap::new(),
+        })
+        .await?;
     println!("✓ Created topic 'orders' with 6 partitions");
 
-    metadata.create_topic(TopicConfig {
-        name: "users".to_string(),
-        partition_count: 3,
-        retention_ms: Some(86400000),
-        config: HashMap::new(),
-    }).await?;
+    metadata
+        .create_topic(TopicConfig {
+            name: "users".to_string(),
+            partition_count: 3,
+            retention_ms: Some(86400000),
+            config: HashMap::new(),
+        })
+        .await?;
     println!("✓ Created topic 'users' with 3 partitions");
 
-    metadata.create_topic(TopicConfig {
-        name: "analytics".to_string(),
-        partition_count: 12,
-        retention_ms: Some(3600000), // 1 hour
-        config: HashMap::new(),
-    }).await?;
+    metadata
+        .create_topic(TopicConfig {
+            name: "analytics".to_string(),
+            partition_count: 12,
+            retention_ms: Some(3600000), // 1 hour
+            config: HashMap::new(),
+        })
+        .await?;
     println!("✓ Created topic 'analytics' with 12 partitions");
 
     println!("\n📊 Total: 3 topics, 21 partitions");
@@ -244,7 +250,10 @@ async fn show_partition_distribution(agents: &[Agent]) {
             // Group by topic
             let mut by_topic: HashMap<String, Vec<u32>> = HashMap::new();
             for (topic, partition_id) in partitions {
-                by_topic.entry(topic).or_insert_with(Vec::new).push(partition_id);
+                by_topic
+                    .entry(topic)
+                    .or_insert_with(Vec::new)
+                    .push(partition_id);
             }
 
             for (topic, mut partition_ids) in by_topic {
@@ -271,7 +280,10 @@ async fn show_partition_distribution_filtered(agents: &[Agent], indices: Vec<usi
 
                 let mut by_topic: HashMap<String, Vec<u32>> = HashMap::new();
                 for (topic, partition_id) in partitions {
-                    by_topic.entry(topic).or_insert_with(Vec::new).push(partition_id);
+                    by_topic
+                        .entry(topic)
+                        .or_insert_with(Vec::new)
+                        .push(partition_id);
                 }
 
                 for (topic, mut partition_ids) in by_topic {
@@ -285,7 +297,9 @@ async fn show_partition_distribution_filtered(agents: &[Agent], indices: Vec<usi
 }
 
 /// Show lease status from metadata store
-async fn show_lease_status(metadata: &Arc<dyn MetadataStore>) -> Result<(), Box<dyn std::error::Error>> {
+async fn show_lease_status(
+    metadata: &Arc<dyn MetadataStore>,
+) -> Result<(), Box<dyn std::error::Error>> {
     let leases = metadata.list_partition_leases(None, None).await?;
 
     println!("📊 Active leases: {}", leases.len());
@@ -306,7 +320,10 @@ async fn show_lease_status(metadata: &Arc<dyn MetadataStore>) -> Result<(), Box<
         // Group by topic for cleaner display
         let mut by_topic: HashMap<String, Vec<(u32, u64)>> = HashMap::new();
         for (topic, partition_id, epoch) in leases {
-            by_topic.entry(topic).or_insert_with(Vec::new).push((partition_id, epoch));
+            by_topic
+                .entry(topic)
+                .or_insert_with(Vec::new)
+                .push((partition_id, epoch));
         }
 
         for (topic, partitions) in by_topic {
@@ -359,7 +376,9 @@ async fn show_cluster_health(
 }
 
 /// Test agent discovery functionality
-async fn test_agent_discovery(metadata: &Arc<dyn MetadataStore>) -> Result<(), Box<dyn std::error::Error>> {
+async fn test_agent_discovery(
+    metadata: &Arc<dyn MetadataStore>,
+) -> Result<(), Box<dyn std::error::Error>> {
     println!("🔍 Testing agent discovery queries:\n");
 
     // List all agents
@@ -390,7 +409,9 @@ async fn test_agent_discovery(metadata: &Arc<dyn MetadataStore>) -> Result<(), B
 }
 
 /// Verify lease ownership is exclusive
-async fn verify_lease_ownership(metadata: &Arc<dyn MetadataStore>) -> Result<(), Box<dyn std::error::Error>> {
+async fn verify_lease_ownership(
+    metadata: &Arc<dyn MetadataStore>,
+) -> Result<(), Box<dyn std::error::Error>> {
     let leases = metadata.list_partition_leases(None, None).await?;
 
     // Check for duplicate partition ownership
@@ -413,7 +434,10 @@ async fn verify_lease_ownership(metadata: &Arc<dyn MetadataStore>) -> Result<(),
 
     if violations == 0 {
         println!("✅ All leases have exclusive ownership");
-        println!("   Verified {} unique partition leases", seen_partitions.len());
+        println!(
+            "   Verified {} unique partition leases",
+            seen_partitions.len()
+        );
     } else {
         println!("❌ Found {} ownership violations", violations);
     }
