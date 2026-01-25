@@ -2447,15 +2447,19 @@ name = "streamhouse-agent"
 version = "0.1.0"
 dependencies = [
  "async-trait",
+ "bytes",
  "object_store",
+ "prost",
  "serde",
  "serde_json",
  "streamhouse-core",
  "streamhouse-metadata",
+ "streamhouse-proto",
  "streamhouse-storage",
  "tempfile",
  "thiserror 1.0.69",
  "tokio",
+ "tonic",
  "tracing",
  "tracing-subscriber",
 ]
@@ -2522,6 +2526,16 @@ dependencies = [
  "streamhouse-core",
  "thiserror 1.0.69",
  "tokio",
+]
+
+[[package]]
+name = "streamhouse-proto"
+version = "0.1.0"
+dependencies = [
+ "bytes",
+ "prost",
+ "tonic",
+ "tonic-build",
 ]
 
 [[package]]

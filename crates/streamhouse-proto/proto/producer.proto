@@ -1,0 +1,63 @@
+// StreamHouse Producer Service Protocol
+//
+// This file defines the gRPC API for producers to send records to StreamHouse agents.
+// Agents are responsible for buffering, batching, and writing records to storage.
+
+syntax = "proto3";
+
+package streamhouse.producer;
+
+// Producer service for sending records to StreamHouse.
+//
+// This service is implemented by StreamHouse agents and consumed by Producer clients.
+// The agent validates partition leases, appends records to partition writers,
+// and returns the assigned offsets.
+service ProducerService {
+  // Produce records to a partition.
+  //
+  // The agent validates that it holds the lease for the partition, then appends
+  // the records to the partition writer. Records are batched to amortize the
+  // cost of network round-trips.
+  //
+  // Returns:
+  // - OK: Records appended successfully, response contains base offset
+  // - NOT_FOUND: Agent doesn't hold lease for this partition
+  // - FAILED_PRECONDITION: Lease expired
+  // - UNAVAILABLE: Agent shutting down
+  // - INTERNAL: Storage write failed
+  rpc Produce(ProduceRequest) returns (ProduceResponse);
+}
+
+// Request to produce records to a partition.
+message ProduceRequest {
+  // Topic name (must exist in metadata)
+  string topic = 1;
+
+  // Partition ID (must be valid for topic)
+  uint32 partition = 2;
+
+  // Records to append
+  repeated Record records = 3;
+
+  // Individual record in the batch
+  message Record {
+    // Optional record key (used for compaction, routing)
+    optional bytes key = 1;
+
+    // Record value (the actual data)
+    bytes value = 2;
+
+    // Record timestamp (milliseconds since Unix epoch)
+    uint64 timestamp = 3;
+  }
+}
+
+// Response from producing records.
+message ProduceResponse {
+  // Base offset of the first record in the batch
+  // Subsequent records have offsets base_offset + 1, base_offset + 2, etc.
+  uint64 base_offset = 1;
+
+  // Number of records successfully appended
+  uint32 record_count = 2;
+}
