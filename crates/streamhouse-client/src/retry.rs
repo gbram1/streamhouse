@@ -209,8 +209,8 @@ impl RetryPolicy {
     /// assert_eq!(policy.backoff(2), Duration::from_millis(400));
     /// ```
     pub fn backoff(&self, attempt: usize) -> Duration {
-        let backoff_ms = self.initial_backoff.as_millis() as f64
-            * self.backoff_multiplier.powi(attempt as i32);
+        let backoff_ms =
+            self.initial_backoff.as_millis() as f64 * self.backoff_multiplier.powi(attempt as i32);
         let backoff = Duration::from_millis(backoff_ms as u64);
         backoff.min(self.max_backoff)
     }
@@ -323,10 +323,7 @@ where
         match operation().await {
             Ok(result) => {
                 if attempt > 0 {
-                    debug!(
-                        attempt = attempt + 1,
-                        "Operation succeeded after retry"
-                    );
+                    debug!(attempt = attempt + 1, "Operation succeeded after retry");
                 }
                 return Ok(result);
             }
@@ -417,10 +414,7 @@ where
         match operation().await {
             Ok(result) => {
                 if attempt > 0 {
-                    debug!(
-                        attempt = attempt + 1,
-                        "Operation succeeded after retry"
-                    );
+                    debug!(attempt = attempt + 1, "Operation succeeded after retry");
                 }
                 return Ok(result);
             }
@@ -450,9 +444,8 @@ where
                 // Calculate backoff with jitter
                 let base_backoff = policy.backoff(attempt);
                 let jitter = 0.75 + (rand::random::<f64>() * 0.5); // 0.75-1.25x
-                let jittered_backoff = Duration::from_millis(
-                    (base_backoff.as_millis() as f64 * jitter) as u64,
-                );
+                let jittered_backoff =
+                    Duration::from_millis((base_backoff.as_millis() as f64 * jitter) as u64);
 
                 warn!(
                     attempt = attempt + 1,

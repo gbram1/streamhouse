@@ -39,12 +39,12 @@
 //!
 //! Target: 50K+ records/sec per agent with p99 latency < 10ms
 
+use std::sync::Arc;
 use streamhouse_metadata::MetadataStore;
 use streamhouse_proto::producer::{
     producer_service_server::ProducerService, ProduceRequest, ProduceResponse,
 };
 use streamhouse_storage::writer_pool::WriterPool;
-use std::sync::Arc;
 use tokio::sync::RwLock;
 use tonic::{Request, Response, Status};
 use tracing::{debug, error, warn};
@@ -210,10 +210,7 @@ impl ProducerServiceImpl {
                     error = %e,
                     "Failed to check lease"
                 );
-                Err(Status::internal(format!(
-                    "Failed to check lease: {}",
-                    e
-                )))
+                Err(Status::internal(format!("Failed to check lease: {}", e)))
             }
         }
     }
@@ -285,11 +282,7 @@ impl ProducerService for ProducerServiceImpl {
         self.validate_lease(&req.topic, req.partition).await?;
 
         // Get writer for partition
-        let writer = match self
-            .writer_pool
-            .get_writer(&req.topic, req.partition)
-            .await
-        {
+        let writer = match self.writer_pool.get_writer(&req.topic, req.partition).await {
             Ok(writer) => writer,
             Err(e) => {
                 error!(
@@ -328,10 +321,7 @@ impl ProducerService for ProducerServiceImpl {
                             error = %e,
                             "Failed to append record"
                         );
-                        return Err(Status::internal(format!(
-                            "Failed to append record: {}",
-                            e
-                        )));
+                        return Err(Status::internal(format!("Failed to append record: {}", e)));
                     }
                 }
             }
