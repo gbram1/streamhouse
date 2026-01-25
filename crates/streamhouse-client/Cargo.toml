@@ -9,14 +9,18 @@ repository.workspace = true
 [dependencies]
 streamhouse-metadata = { path = "../streamhouse-metadata" }
 streamhouse-storage = { path = "../streamhouse-storage" }
+streamhouse-proto = { path = "../streamhouse-proto" }
 
 tokio = { version = "1.42", features = ["full"] }
+tonic = { workspace = true }
+prost = { workspace = true }
 tracing = "0.1"
 thiserror = "2.0"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 bytes = "1.9"
 lz4 = "1.28"
+rand = "0.8"
 
 # For consistent hashing (same as agent)
 siphasher = "1.0"
@@ -28,3 +32,6 @@ object_store = "0.9"
 tokio-test = "0.4"
 tempfile = "3.14"
 tracing-subscriber = "0.3"
+tokio-stream = { version = "0.1", features = ["net"] }
+streamhouse-agent = { path = "../streamhouse-agent" }
+chrono = { workspace = true }
