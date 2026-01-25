@@ -1,12 +1,21 @@
 //! Write real data through actual StreamHouse pipeline to PostgreSQL + MinIO
+//!
+//! Run with: cargo run --example write_to_postgres --features postgres
 
+#[cfg(feature = "postgres")]
 use bytes::Bytes;
+#[cfg(feature = "postgres")]
 use object_store::{aws::AmazonS3Builder, ObjectStore};
+#[cfg(feature = "postgres")]
 use std::collections::HashMap;
+#[cfg(feature = "postgres")]
 use std::sync::Arc;
+#[cfg(feature = "postgres")]
 use streamhouse_metadata::{MetadataStore, PostgresMetadataStore, TopicConfig};
+#[cfg(feature = "postgres")]
 use streamhouse_storage::{PartitionReader, PartitionWriter, SegmentCache, WriteConfig};
 
+#[cfg(feature = "postgres")]
 fn current_timestamp() -> u64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -14,6 +23,7 @@ fn current_timestamp() -> u64 {
         .as_millis() as u64
 }
 
+#[cfg(feature = "postgres")]
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("\n🎯 Writing Real Data to PostgreSQL + MinIO");
@@ -228,4 +238,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!();
 
     Ok(())
+}
+
+#[cfg(not(feature = "postgres"))]
+fn main() {
+    eprintln!("This example requires the 'postgres' feature.");
+    eprintln!("Run with: cargo run --example write_to_postgres --features postgres");
+    std::process::exit(1);
 }
