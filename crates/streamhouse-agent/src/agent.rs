@@ -35,6 +35,7 @@
 
 use crate::error::{AgentError, Result};
 use crate::heartbeat::HeartbeatTask;
+use crate::lease_manager::LeaseManager;
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
@@ -98,6 +99,9 @@ pub struct Agent {
 
     /// Heartbeat task handle
     heartbeat_handle: Arc<RwLock<Option<JoinHandle<()>>>>,
+
+    /// Lease manager for partition leadership
+    lease_manager: Arc<LeaseManager>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -113,7 +117,7 @@ impl Agent {
         AgentBuilder::new()
     }
 
-    /// Start the agent (register + begin heartbeat)
+    /// Start the agent (register + begin heartbeat + lease renewal)
     pub async fn start(&self) -> Result<()> {
         let mut state = self.state.write().await;
 
@@ -135,6 +139,9 @@ impl Agent {
         // Start heartbeat task
         self.start_heartbeat().await?;
 
+        // Start lease renewal task
+        self.lease_manager.start_renewal_task().await?;
+
         *state = AgentState::Started;
 
         info!(
@@ -145,7 +152,7 @@ impl Agent {
         Ok(())
     }
 
-    /// Stop the agent (flush + deregister)
+    /// Stop the agent (flush + release leases + deregister)
     pub async fn stop(&self) -> Result<()> {
         let mut state = self.state.write().await;
 
@@ -161,6 +168,12 @@ impl Agent {
             agent_id = %self.config.agent_id,
             "Stopping agent gracefully"
         );
+
+        // Stop lease renewal task
+        self.lease_manager.stop_renewal_task().await?;
+
+        // Release all partition leases
+        self.lease_manager.release_all_leases().await?;
 
         // Stop heartbeat task
         self.stop_heartbeat().await?;
@@ -201,6 +214,11 @@ impl Agent {
     /// Check if agent is started
     pub async fn is_started(&self) -> bool {
         *self.state.read().await == AgentState::Started
+    }
+
+    /// Get the lease manager (for acquiring partition leases)
+    pub fn lease_manager(&self) -> &LeaseManager {
+        &self.lease_manager
     }
 
     /// Register agent with metadata store
@@ -386,12 +404,18 @@ impl AgentBuilder {
 
         let started_at = current_timestamp_ms();
 
+        let lease_manager = Arc::new(LeaseManager::new(
+            self.config.agent_id.clone(),
+            Arc::clone(&metadata_store),
+        ));
+
         Ok(Agent {
             config: self.config,
             metadata_store,
             started_at,
             state: Arc::new(RwLock::new(AgentState::Created)),
             heartbeat_handle: Arc::new(RwLock::new(None)),
+            lease_manager,
         })
     }
 }

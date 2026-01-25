@@ -19,7 +19,7 @@ pub enum AgentError {
     LeaseExpired { topic: String, partition: u32 },
 
     #[error("Stale epoch: expected {expected}, got {actual}")]
-    StaleEpoch { expected: i64, actual: i64 },
+    StaleEpoch { expected: u64, actual: u64 },
 
     #[error("Metadata error: {0}")]
     Metadata(#[from] streamhouse_metadata::MetadataError),

@@ -47,4 +47,4 @@ pub mod lease_manager;
 pub use agent::{Agent, AgentBuilder, AgentConfig};
 pub use error::{AgentError, Result};
 pub use heartbeat::HeartbeatTask;
-pub use lease_manager::LeaseManager;
+pub use lease_manager::{validate_epoch, LeaseManager};
