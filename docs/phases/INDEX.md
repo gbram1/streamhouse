@@ -134,12 +134,15 @@ Producer → BatchManager → ConnectionPool → Agent gRPC → PartitionWriter 
    - 13 advanced integration tests
    - **Performance**: 62,325 rec/s (100K records in 1.60s)
 
-4. **Phase 5.4: Offset Tracking** ⏳ PLANNED
+4. **[Phase 5.4: Offset Tracking](phase5/5.4-summary.md)** ✅
    - Return actual offsets from Producer.send()
+   - Async offset retrieval with wait_offset()
+   - Convenience method send_and_wait()
    - Track pending batches per partition
-   - Async offset retrieval callbacks
+   - 3 integration tests for offset tracking
+   - **Performance**: 198,884 rec/s (improved from 62K)
 
-**Total**: 39 tests, ~2,060 lines of code
+**Total**: 59 tests, ~2,275 lines of code
 
 ## Phase 6: Consumer API Implementation ✅
 
@@ -262,7 +265,8 @@ docs/phases/
 │   ├── README.md (overview)
 │   ├── 5.1-summary.md (Core Client Library)
 │   ├── 5.2-summary.md (Producer Implementation)
-│   └── 5.3-summary.md (gRPC Integration)
+│   ├── 5.3-summary.md (gRPC Integration)
+│   └── 5.4-summary.md (Offset Tracking)
 │
 ├── phase6/
 │   ├── README.md (overview)
@@ -301,7 +305,8 @@ docs/phases/
 - ✅ Batching and LZ4 compression
 - ✅ Retry logic with exponential backoff
 - ✅ gRPC connection pooling
-- ✅ **62,325 rec/s throughput** achieved
+- ✅ Actual offset tracking with async retrieval
+- ✅ **198,884 rec/s throughput** achieved
 
 ### Phase 6: Consumer API ✅
 - ✅ Kafka-like Consumer API with builder pattern
@@ -319,10 +324,12 @@ docs/phases/
 | Phase 2 | Several | Few | N/A | ✅ |
 | Phase 3 | Many | Several | N/A | ✅ |
 | Phase 4 | Many | Several | N/A | ✅ |
-| Phase 5 | 20 | 19 | **39** | ✅ |
-| Phase 6 | 20 (inherited) | 8 | **56** (total client) | ✅ |
+| Phase 5.1-5.3 | 20 | 19 | 39 | ✅ |
+| Phase 5.4 | 0 | 3 | 3 | ✅ |
+| Phase 6 | 0 | 8 | 8 | ✅ |
+| **Total (client)** | **20** | **39** | **59** | ✅ |
 
-**streamhouse-client total**: 56 tests passing (20 unit + 8 consumer integration + 19 producer integration + 9 other)
+**streamhouse-client total**: 59 tests passing (20 unit + 8 consumer integration + 22 producer integration + 9 other)
 
 ## Performance Summary
 
@@ -330,20 +337,16 @@ docs/phases/
 |-----------|--------|-------|-------|
 | Storage Layer | Sequential write | >100K rec/s | Phase 1 |
 | Storage Layer | Sequential read | >3.10M rec/s | Phase 1, with caching |
-| Producer API | Write throughput | 62,325 rec/s | Phase 5.3, batched |
+| Producer API | Write throughput | 198,884 rec/s | Phase 5.4, batched + offset tracking |
+| Producer API | Offset tracking overhead | <200ns | Phase 5.4, per record |
 | Producer API | Batch latency | <10ms p99 | Phase 5.3 |
-| Consumer API | Read throughput | 7.7K rec/s | Phase 6, debug build |
-| Consumer API | Expected (release) | >100K rec/s | Phase 6, projected |
+| Consumer API | Read throughput | 32,657 rec/s | Phase 6, release build |
+| Consumer API | Expected (optimized) | >100K rec/s | Phase 6, with tuning |
 | Cache | Hit rate | ~80% | Sequential workloads |
 
 ## Next Steps
 
-### Immediate (Phase 5.4)
-- [ ] Implement actual offset tracking in Producer
-- [ ] Add callback mechanism for async offset retrieval
-- [ ] Track pending batches per partition
-
-### Short-term (Phase 7)
+### Immediate (Phase 7)
 - [ ] Add Prometheus metrics
 - [ ] Implement structured logging with tracing
 - [ ] Consumer lag monitoring
@@ -380,5 +383,6 @@ For each new phase:
 
 - **2024-01**: Phase 1-4 completed (storage, agents, coordination)
 - **2024-01**: Phase 5.1-5.3 completed (Producer API, 62K rec/s)
-- **2024-01**: Phase 6 completed (Consumer API, 7.7K rec/s debug)
+- **2024-01**: Phase 6 completed (Consumer API, 32K rec/s release)
 - **2024-01**: Documentation reorganization (this index created)
+- **2026-01**: Phase 5.4 completed (Offset tracking, 198K rec/s)
