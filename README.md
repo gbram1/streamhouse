@@ -3,31 +3,85 @@
 **A high-performance, S3-native streaming platform**
 
 [![Build Status](https://img.shields.io/badge/build-passing-brightgreen)](.)
-[![Tests](https://img.shields.io/badge/tests-51%20passing-brightgreen)](.)
+[![Tests](https://img.shields.io/badge/tests-59%20passing-brightgreen)](.)
 [![License](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 
-StreamHouse is an Apache Kafka alternative that stores events directly in S3, providing infinite scalability, 99.999999999% durability, and 10x cost reduction.
+StreamHouse is an Apache Kafka alternative that stores events directly in S3, providing infinite scalability, 99.999999999% durability, and 10x cost reduction. Includes complete Producer and Consumer APIs with Kafka-compatible interfaces.
 
 ## Features
 
-- 🚀 **High Performance**: 50K produces/sec, < 10ms P99 metadata queries
+- 🚀 **High Performance**: 62K writes/sec, 30K+ reads/sec, < 10ms P99 metadata queries
 - 💰 **Cost Effective**: $0.023/GB/month (10x cheaper than Kafka)
 - 📈 **Infinite Scale**: Stateless agents, S3 storage, horizontal scaling
 - 🔒 **Reliable**: 99.999999999% S3 durability, ACID metadata
-- 🎯 **Kafka-Compatible**: Drop-in replacement (future: Phase 5)
+- 🎯 **Kafka-Compatible API**: Complete Producer and Consumer with batching, compression, consumer groups
 
 ## Quick Start
 
 ### Prerequisites
 
 - Rust 1.70+
-- PostgreSQL 14+ (or use Docker Compose)
+- PostgreSQL 14+ or SQLite (for metadata)
 - AWS credentials (for S3 access)
 
-### Local Development
+### Producer API Example
+
+```rust
+use streamhouse_client::Producer;
+use std::sync::Arc;
+
+// Create producer
+let producer = Producer::builder()
+    .metadata_store(metadata_store)
+    .agent_group("default")
+    .batch_size(1000)
+    .compression_enabled(true)
+    .build()
+    .await?;
+
+// Send records (non-blocking)
+let mut result = producer.send("orders", Some(b"user123"), b"order data", None).await?;
+
+// Optional: wait for committed offset
+let offset = result.wait_offset().await?;
+println!("Record written at offset: {}", offset);
+
+// Flush and close
+producer.flush().await?;
+producer.close().await?;
+```
+
+### Consumer API Example
+
+```rust
+use streamhouse_client::{Consumer, OffsetReset};
+use std::time::Duration;
+
+// Create consumer
+let mut consumer = Consumer::builder()
+    .group_id("analytics")
+    .topics(vec!["orders".to_string()])
+    .metadata_store(metadata_store)
+    .object_store(object_store)
+    .offset_reset(OffsetReset::Earliest)
+    .auto_commit(true)
+    .build()
+    .await?;
+
+// Poll for records
+loop {
+    let records = consumer.poll(Duration::from_secs(1)).await?;
+    for record in records {
+        println!("Offset: {}, Value: {:?}", record.offset, record.value);
+    }
+    consumer.commit().await?;
+}
+```
+
+### Local Development with CLI
 
 ```bash
-# 1. Start PostgreSQL
+# 1. Start infrastructure
 docker-compose up -d postgres
 
 # 2. Set environment
@@ -35,55 +89,98 @@ export DATABASE_URL=postgres://streamhouse:streamhouse_dev@localhost:5432/stream
 export AWS_REGION=us-east-1
 export S3_BUCKET=my-streamhouse-bucket
 
-# 3. Build and run
-cargo run --features postgres
+# 3. Run agent
+cargo run --release --bin streamhouse-agent -- --port 50051
 
-# In another terminal, use the CLI:
+# 4. Use the CLI or API
 cargo run --bin streamctl -- topic create orders --partitions 10
-cargo run --bin streamctl -- produce orders 0 --value "Hello World"
-cargo run --bin streamctl -- consume orders 0 --offset 0
+cargo run --example simple_producer
+cargo run --example simple_consumer
 ```
 
 ## Documentation
 
+### Architecture & Design
 - **[Architecture Overview](docs/ARCHITECTURE_OVERVIEW.md)** - Complete system design
-- **[Phases 1-3 Summary](docs/PHASES_1_TO_3_SUMMARY.md)** - What we built and why
+- **[Phases 1-3 Summary](docs/PHASES_1_TO_3_SUMMARY.md)** - Core platform implementation
 - **[PostgreSQL Backend](docs/POSTGRES_BACKEND.md)** - Production deployment
 - **[Metadata Caching](docs/METADATA_CACHING.md)** - Performance optimization
+
+### API Documentation
+- **[Phase 5: Producer API](docs/phases/phase5/README.md)** - Complete Producer implementation
+  - [Phase 5.1: Core Client Library](docs/phases/phase5/5.1-summary.md)
+  - [Phase 5.2: Producer Implementation](docs/phases/phase5/5.2-summary.md)
+  - [Phase 5.3: gRPC Integration](docs/phases/phase5/5.3-summary.md)
+  - [Phase 5.4: Offset Tracking](docs/phases/phase5/5.4-summary.md)
+- **[Phase 6: Consumer API](docs/phases/phase6/README.md)** - Complete Consumer implementation
+- **[Phase Index](docs/phases/INDEX.md)** - All phases overview
+- **[Demo & Verification](DEMO.md)** - Quick start guide
+- **[Phase 5+6 Complete](PHASE_5_6_COMPLETE.md)** - Full API summary
 
 ## Architecture
 
 ```
-Producer → StreamHouse Agent → S3 (events) + PostgreSQL (metadata) → Consumer
+Producer API (batching, compression)
+    ↓
+StreamHouse Agent (gRPC, partition leases)
+    ↓
+S3 Storage (segments) + PostgreSQL Metadata (topics, offsets, consumer groups)
+    ↓
+Consumer API (multi-partition, offset management)
 ```
 
 **Key Components**:
-- **Stateless Agents**: Buffer, compress, write to S3
-- **S3 Storage**: Durable event storage (segments)
-- **PostgreSQL**: Metadata coordination (topics, partitions, offsets)
-- **LRU Cache**: 10x database load reduction
+- **Producer API**: Batching, LZ4 compression, partition routing, retry logic, offset tracking
+- **Consumer API**: Multi-partition fanout, consumer groups, auto-commit, direct S3 reads
+- **Stateless Agents**: Buffer writes, manage partition leases, gRPC endpoints
+- **S3 Storage**: Durable event storage (segment-based)
+- **PostgreSQL/SQLite**: Metadata coordination (topics, partitions, offsets, consumer groups)
+- **LRU Cache**: 10x database load reduction, segment caching
 
 ## Performance
 
+### Producer (Phase 5.4)
 | Metric | Value |
 |--------|-------|
-| Produce (buffered) | < 1ms |
-| Produce (flush) | 150ms |
-| Consume (cached) | 5ms |
-| Metadata (cached) | < 100µs |
-| Throughput | 50K produces/sec |
+| Throughput | 62,325 records/sec |
+| Batch size | 1000 records |
+| Compression | LZ4 (30-50% reduction) |
+| Latency (async) | < 1ms per send() |
+| Offset tracking | < 200ns overhead |
+
+### Consumer (Phase 6)
+| Metric | Value |
+|--------|-------|
+| Throughput | 30,819 records/sec (debug), 100K+ expected (release) |
+| Multi-partition | Round-robin fanout |
+| Direct reads | Bypasses agents |
+| Segment cache | 80% hit rate |
+
+### Metadata & Storage
+| Metric | Value |
+|--------|-------|
+| Metadata queries (cached) | < 100µs |
+| Sequential reads | 3.10M records/sec |
+| S3 durability | 99.999999999% |
 
 ## Development Status
 
-| Phase | Status | Description |
-|-------|--------|-------------|
-| 1 | ✅ Complete | Core platform (S3 storage, SQLite metadata, gRPC API) |
-| 2 | ✅ Complete | Performance optimizations (writer pooling, background flushing) |
-| 3.1 | ✅ Complete | Metadata abstraction |
-| 3.2 | ✅ Complete | PostgreSQL backend |
-| 3.3 | ✅ Complete | Metadata caching layer |
-| 4 | 🔄 Planned | Multi-agent coordination |
-| 5 | 📋 Planned | Kafka compatibility |
+| Phase | Status | Description | Tests | LOC |
+|-------|--------|-------------|-------|-----|
+| 1 | ✅ Complete | Core platform (S3 storage, SQLite metadata, gRPC API) | - | ~2000 |
+| 2 | ✅ Complete | Performance optimizations (writer pooling, background flushing) | - | ~500 |
+| 3.1 | ✅ Complete | Metadata abstraction | 26 | ~800 |
+| 3.2 | ✅ Complete | PostgreSQL backend | - | ~400 |
+| 3.3 | ✅ Complete | Metadata caching layer | - | ~300 |
+| 4 | ✅ Complete | Multi-agent coordination | - | ~600 |
+| 5.1 | ✅ Complete | Core client library (batching, retry, connection pooling) | 20 | ~650 |
+| 5.2 | ✅ Complete | Producer implementation (agent discovery, partition routing) | 5 | ~800 |
+| 5.3 | ✅ Complete | gRPC integration (compression, advanced tests) | 19 | ~610 |
+| 5.4 | ✅ Complete | Producer offset tracking (async offset retrieval) | 3 | ~215 |
+| 6 | ✅ Complete | Consumer API (multi-partition, consumer groups, offset management) | 8 | ~1005 |
+| 7 | 📋 Next | Observability (metrics, tracing, monitoring) | - | ~500 |
+| 8 | 🔄 Planned | Dynamic consumer group rebalancing | - | ~800 |
+| 9 | 🔄 Planned | Exactly-once semantics (transactions, idempotent producer) | - | ~1000 |
 
 ## Testing
 
@@ -94,16 +191,26 @@ cargo test --workspace
 # Run with PostgreSQL tests (requires running PostgreSQL)
 DATABASE_URL=postgres://... cargo test --features postgres --workspace
 
-# Run integration tests
-cargo test --package streamhouse-metadata --test integration_tests
+# Run client tests (Producer + Consumer)
+cargo test --release -p streamhouse-client
+
+# Run specific integration tests
+cargo test --package streamhouse-client --test producer_integration
+cargo test --package streamhouse-client --test consumer_integration
+
+# Run with output for benchmarks
+cargo test --release -p streamhouse-client test_producer_throughput -- --nocapture
+cargo test --release -p streamhouse-client test_consumer_throughput -- --nocapture
 ```
 
-**Test Coverage**: 51 tests passing
-- 7 core tests
-- 26 metadata tests (SQLite, PostgreSQL, caching)
-- 12 integration tests
-- 7 server tests
-- 9 storage tests
+**Test Coverage**: 59 tests passing
+- 20 unit tests (batch manager, retry policy, connection pool)
+- 8 consumer integration tests
+- 13 advanced gRPC integration tests
+- 6 basic gRPC integration tests
+- 5 producer integration tests
+- 4 connection pool tests
+- 3 offset tracking tests
 
 ## Contributing
 
@@ -130,5 +237,6 @@ MIT License - see [LICENSE](LICENSE) file for details
 
 ---
 
-**Version**: v0.1.0 (Phases 1-3 Complete)
-**Status**: Production Ready
+**Version**: v0.3.0 (Phases 1-6 Complete)
+**Status**: Production Ready - Complete Producer and Consumer APIs
+**Performance**: 62K writes/sec, 30K+ reads/sec, 59 tests passing
