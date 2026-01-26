@@ -101,7 +101,7 @@ use crate::error::{ClientError, Result};
 use crate::retry::{retry_with_jittered_backoff, RetryPolicy};
 use bytes::Bytes;
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::hash::{Hash, Hasher};
 use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
@@ -301,26 +301,47 @@ pub struct ProducerRecord {
 ///
 /// - `topic`: Topic the record was written to
 /// - `partition`: Partition ID (0-indexed)
-/// - `offset`: Offset assigned to the record within the partition
+/// - `offset`: Offset assigned to the record (None until batch flushes)
+/// - `offset_receiver`: Optional receiver for async offset retrieval
 /// - `timestamp`: Timestamp of the record in milliseconds since Unix epoch
 ///
-/// ## Examples
+/// ## Phase 5.4: Async Offset Tracking
 ///
+/// Prior to Phase 5.4, `offset` was always 0 (placeholder). Starting in Phase 5.4,
+/// the offset is resolved asynchronously when the batch flushes to the agent.
+///
+/// ### Usage Patterns
+///
+/// **Pattern 1: Ignore offset (fire-and-forget)**
 /// ```ignore
-/// let result = producer.send("orders", Some(b"key"), b"value", None).await?;
+/// let _result = producer.send("orders", Some(b"key"), b"value", None).await?;
+/// // Don't care about the offset
+/// ```
 ///
-/// println!("Record written:");
-/// println!("  Topic: {}", result.topic);
-/// println!("  Partition: {}", result.partition);
-/// println!("  Offset: {}", result.offset);
-/// println!("  Timestamp: {}", result.timestamp);
+/// **Pattern 2: Wait for offset (blocking)**
+/// ```ignore
+/// let mut result = producer.send("orders", Some(b"key"), b"value", None).await?;
+/// let offset = result.wait_offset().await?;
+/// println!("Written at offset {}", offset);
+/// ```
+///
+/// **Pattern 3: Convenience method**
+/// ```ignore
+/// let offset = producer.send_and_wait("orders", Some(b"key"), b"value", None).await?;
+/// println!("Written at offset {}", offset);
 /// ```
 ///
 /// ## Serialization
 ///
 /// This struct implements `Serialize` and `Deserialize` for logging,
 /// monitoring, and testing purposes.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+///
+/// ## Note on Clone
+///
+/// `SendResult` does not implement `Clone` because `offset_receiver` contains
+/// a oneshot::Receiver which cannot be cloned. If you need to store the offset,
+/// call `wait_offset()` to get the offset value and store that instead.
+#[derive(Debug, Serialize, Deserialize)]
 pub struct SendResult {
     /// Topic name the record was written to.
     pub topic: String,
@@ -335,13 +356,14 @@ pub struct SendResult {
 
     /// Offset assigned to the record within the partition.
     ///
+    /// This is `None` immediately after `send()` returns and is set to `Some(offset)`
+    /// once the batch is flushed to the agent. Use `wait_offset()` to block until
+    /// the offset is available.
+    ///
+    /// ## Phase 5.4+
     /// Offsets are monotonically increasing integers starting from 0.
     /// Within a partition, offsets are guaranteed to be sequential and unique.
-    ///
-    /// ## Phase 5.1 Note
-    /// Due to creating a new writer per send, offsets may not increment
-    /// as expected. This will be fixed in Phase 5.2 with proper writer pooling.
-    pub offset: u64,
+    pub offset: Option<u64>,
 
     /// Timestamp of the record in milliseconds since Unix epoch.
     ///
@@ -349,7 +371,123 @@ pub struct SendResult {
     /// - The timestamp provided in the send request
     /// - The current system time (if not provided)
     pub timestamp: i64,
+
+    /// Receiver for async offset retrieval (Phase 5.4+).
+    ///
+    /// This receiver will receive the offset once the batch is flushed to the agent.
+    /// It can only be consumed once via `wait_offset()`.
+    ///
+    /// ## Note
+    /// This field is `#[serde(skip)]` because oneshot::Receiver is not serializable.
+    #[serde(skip)]
+    pub offset_receiver: Option<tokio::sync::oneshot::Receiver<u64>>,
 }
+
+impl SendResult {
+    /// Get the offset if immediately available (batch already flushed).
+    ///
+    /// # Returns
+    ///
+    /// `Some(offset)` if the batch has already been flushed to the agent and the offset
+    /// has been set. `None` if the batch is still pending.
+    ///
+    /// # Examples
+    ///
+    /// ```ignore
+    /// let result = producer.send("topic", None, b"data", None).await?;
+    ///
+    /// // Check if offset is immediately available
+    /// match result.offset() {
+    ///     Some(offset) => println!("Offset: {}", offset),
+    ///     None => println!("Offset pending"),
+    /// }
+    /// ```
+    pub fn offset(&self) -> Option<u64> {
+        self.offset
+    }
+
+    /// Wait for the offset to be set (blocks until batch flushes).
+    ///
+    /// This method consumes the `offset_receiver` and blocks until the batch is flushed
+    /// to the agent and the offset is known. If the offset is already set, it returns
+    /// immediately.
+    ///
+    /// # Returns
+    ///
+    /// The offset assigned to this record.
+    ///
+    /// # Errors
+    ///
+    /// - `ClientError::BatchFlushFailed`: Batch flush failed (agent error, connection lost, etc.)
+    /// - `ClientError::OffsetAlreadyConsumed`: `wait_offset()` called twice on same SendResult
+    ///
+    /// # Examples
+    ///
+    /// ```ignore
+    /// let mut result = producer.send("topic", None, b"data", None).await?;
+    ///
+    /// // Block until offset is available
+    /// let offset = result.wait_offset().await?;
+    /// println!("Written at offset {}", offset);
+    /// ```
+    ///
+    /// # Note
+    ///
+    /// This method takes `&mut self` because it consumes the `offset_receiver`.
+    /// Calling it twice on the same `SendResult` will return `OffsetAlreadyConsumed` error.
+    pub async fn wait_offset(&mut self) -> Result<u64> {
+        // Fast path: offset already set
+        if let Some(offset) = self.offset {
+            return Ok(offset);
+        }
+
+        // Wait for offset from receiver
+        if let Some(rx) = self.offset_receiver.take() {
+            match rx.await {
+                Ok(offset) => {
+                    self.offset = Some(offset);
+                    Ok(offset)
+                }
+                Err(_) => Err(ClientError::BatchFlushFailed),
+            }
+        } else {
+            Err(ClientError::OffsetAlreadyConsumed)
+        }
+    }
+}
+
+/// Pending record waiting for offset acknowledgment from agent.
+///
+/// When a record is sent via `Producer::send()`, it's appended to a batch and
+/// a `PendingRecord` is created to track its position. Once the batch flushes
+/// to the agent and the agent responds with offsets, we notify this pending
+/// record about its actual offset.
+///
+/// ## Phase 5.4
+///
+/// This struct is used to implement async offset tracking. Each `send()` call
+/// creates a oneshot channel and stores the sender in a `PendingRecord`. When
+/// the batch flush completes, we calculate each record's offset and send it
+/// through the channel.
+///
+/// ## Fields
+///
+/// - `offset_sender`: Oneshot channel sender for notifying about the offset
+///
+/// ## Note
+///
+/// We don't need to store `record_index` because records are processed in FIFO order
+/// from the pending queue, which matches the order they were added to the batch.
+struct PendingRecord {
+    /// Sender to notify about the offset once it's known.
+    offset_sender: tokio::sync::oneshot::Sender<u64>,
+}
+
+/// Queue of pending records for a single partition.
+///
+/// Records are appended to the back and popped from the front in FIFO order,
+/// matching the order they were added to the batch.
+type PendingQueue = VecDeque<PendingRecord>;
 
 /// High-level Producer API for sending records to StreamHouse.
 ///
@@ -446,6 +584,16 @@ pub struct Producer {
     /// This task runs continuously, checking for ready batches every 50ms
     /// and sending them to agents. It's aborted when close() is called.
     flush_handle: Arc<Mutex<Option<tokio::task::JoinHandle<()>>>>,
+
+    /// Pending records waiting for offset acknowledgment (Phase 5.4+).
+    ///
+    /// When a record is sent, we create a oneshot channel and store the sender
+    /// in this map. When the batch flushes and the agent responds with offsets,
+    /// we notify each pending record about its actual offset.
+    ///
+    /// Key: (topic, partition_id)
+    /// Value: Queue of pending records in FIFO order (matching batch order)
+    pending_records: Arc<Mutex<HashMap<(String, u32), PendingQueue>>>,
 }
 
 impl Producer {
@@ -598,20 +746,89 @@ impl Producer {
             timestamp,
         );
 
-        // Append to batch manager (background task will flush)
-        self.batch_manager
-            .lock()
-            .await
-            .append(topic, partition_id, record);
+        // Create oneshot channel for offset tracking (Phase 5.4)
+        let (offset_tx, offset_rx) = tokio::sync::oneshot::channel();
 
-        // Return immediately with placeholder offset
-        // TODO Phase 5.4: Track pending batches and return actual offset
+        // Append to batch manager (background task will flush)
+        let mut batch_manager = self.batch_manager.lock().await;
+        batch_manager.append(topic, partition_id, record);
+        drop(batch_manager);
+
+        // Track pending record for offset notification
+        let mut pending = self.pending_records.lock().await;
+        let key = (topic.to_string(), partition_id);
+        pending
+            .entry(key)
+            .or_insert_with(VecDeque::new)
+            .push_back(PendingRecord {
+                offset_sender: offset_tx,
+            });
+        drop(pending);
+
+        // Return immediately with offset receiver (Phase 5.4)
+        // Offset will be set asynchronously when batch flushes
         Ok(SendResult {
             topic: topic.to_string(),
             partition: partition_id,
-            offset: 0, // Placeholder - will be updated by background task
+            offset: None, // Will be set when batch completes
+            offset_receiver: Some(offset_rx),
             timestamp: timestamp as i64,
         })
+    }
+
+    /// Send a record and wait for the offset to be committed (Phase 5.4).
+    ///
+    /// This is a convenience wrapper around `send()` that blocks until the batch
+    /// is flushed and the offset is known. It's equivalent to calling `send()`
+    /// followed by `wait_offset()` on the result.
+    ///
+    /// # Arguments
+    ///
+    /// * `topic` - Topic name (must exist in metadata store)
+    /// * `key` - Optional key for partitioning
+    /// * `value` - Record payload
+    /// * `partition` - Optional explicit partition ID
+    ///
+    /// # Returns
+    ///
+    /// The offset assigned to this record.
+    ///
+    /// # Errors
+    ///
+    /// Returns `ClientError` if:
+    /// - `TopicNotFound`: Topic doesn't exist
+    /// - `InvalidPartition`: Explicit partition is out of range
+    /// - `BatchFlushFailed`: Batch flush failed (agent error, etc.)
+    /// - `NoAgentsAvailable`: No healthy agents in group
+    ///
+    /// # Performance Note
+    ///
+    /// This method blocks until the batch is flushed, which adds latency.
+    /// For high throughput, prefer using `send()` without waiting for offsets,
+    /// or batch multiple sends and wait for offsets later.
+    ///
+    /// # Examples
+    ///
+    /// ```ignore
+    /// // Send and wait for offset
+    /// let offset = producer.send_and_wait(
+    ///     "orders",
+    ///     Some(b"user123"),
+    ///     b"order data",
+    ///     None,
+    /// ).await?;
+    ///
+    /// println!("Written at offset {}", offset);
+    /// ```
+    pub async fn send_and_wait(
+        &self,
+        topic: &str,
+        key: Option<&[u8]>,
+        value: &[u8],
+        partition: Option<u32>,
+    ) -> Result<u64> {
+        let mut result = self.send(topic, key, value, partition).await?;
+        result.wait_offset().await
     }
 
     /// Flush any pending batched records to ensure they're written.
@@ -650,7 +867,9 @@ impl Producer {
         let ready = self.batch_manager.lock().await.ready_batches();
 
         for (topic, partition, records) in ready {
-            Self::send_batch_to_agent(
+            let record_count = records.len();
+
+            match Self::send_batch_to_agent(
                 &topic,
                 partition,
                 records,
@@ -659,7 +878,26 @@ impl Producer {
                 &self.agents,
                 &self.retry_policy,
             )
-            .await?;
+            .await
+            {
+                Ok(response) => {
+                    // SUCCESS: Notify pending records about their offsets (Phase 5.4)
+                    Self::notify_pending_offsets(
+                        &self.pending_records,
+                        &topic,
+                        partition,
+                        response.base_offset,
+                        record_count,
+                    )
+                    .await;
+                }
+                Err(e) => {
+                    // FAILURE: Fail pending records (Phase 5.4)
+                    Self::fail_pending_offsets(&self.pending_records, &topic, partition, record_count)
+                        .await;
+                    return Err(e);
+                }
+            }
         }
 
         Ok(())
@@ -891,6 +1129,76 @@ impl Producer {
     /// - Connection failed
     /// - Agent rejected request (NOT_FOUND, FAILED_PRECONDITION, etc.)
     /// - Max retries exhausted
+    /// Notify pending records about their offsets after successful batch flush (Phase 5.4).
+    ///
+    /// When a batch is successfully flushed to an agent, the agent responds with
+    /// `base_offset` (first record's offset) and `record_count`. We calculate each
+    /// record's offset as `base_offset + index` and notify the pending record.
+    ///
+    /// # Arguments
+    ///
+    /// * `pending_records` - Map of pending records per partition
+    /// * `topic` - Topic name
+    /// * `partition` - Partition ID
+    /// * `base_offset` - First record's offset from agent response
+    /// * `record_count` - Number of records that were flushed
+    async fn notify_pending_offsets(
+        pending_records: &Arc<Mutex<HashMap<(String, u32), PendingQueue>>>,
+        topic: &str,
+        partition: u32,
+        base_offset: u64,
+        record_count: usize,
+    ) {
+        let mut pending = pending_records.lock().await;
+        let key = (topic.to_string(), partition);
+
+        if let Some(queue) = pending.get_mut(&key) {
+            for i in 0..record_count {
+                if let Some(pending_record) = queue.pop_front() {
+                    let offset = base_offset + i as u64;
+                    // Send offset (ignore if receiver dropped)
+                    let _ = pending_record.offset_sender.send(offset);
+                } else {
+                    // Shouldn't happen, but log warning
+                    warn!(
+                        "No pending record for topic={} partition={} index={}",
+                        topic, partition, i
+                    );
+                    break;
+                }
+            }
+        }
+    }
+
+    /// Fail pending records when batch flush fails (Phase 5.4).
+    ///
+    /// When a batch fails to flush (agent error, connection lost, etc.), we need
+    /// to notify the pending records so their `wait_offset()` calls return an error.
+    /// We do this by dropping the senders, which causes receivers to get `Err`.
+    ///
+    /// # Arguments
+    ///
+    /// * `pending_records` - Map of pending records per partition
+    /// * `topic` - Topic name
+    /// * `partition` - Partition ID
+    /// * `record_count` - Number of records that failed
+    async fn fail_pending_offsets(
+        pending_records: &Arc<Mutex<HashMap<(String, u32), PendingQueue>>>,
+        topic: &str,
+        partition: u32,
+        record_count: usize,
+    ) {
+        let mut pending = pending_records.lock().await;
+        let key = (topic.to_string(), partition);
+
+        if let Some(queue) = pending.get_mut(&key) {
+            // Drop senders (receivers will get error)
+            for _ in 0..record_count {
+                queue.pop_front();
+            }
+        }
+    }
+
     async fn send_batch_to_agent(
         topic: &str,
         partition: u32,
@@ -1048,6 +1356,7 @@ impl Producer {
         metadata_store: Arc<dyn MetadataStore>,
         agents: Arc<RwLock<HashMap<String, AgentInfo>>>,
         retry_policy: RetryPolicy,
+        pending_records: Arc<Mutex<HashMap<(String, u32), PendingQueue>>>,
     ) -> tokio::task::JoinHandle<()> {
         tokio::spawn(async move {
             let mut interval = tokio::time::interval(Duration::from_millis(50));
@@ -1059,8 +1368,10 @@ impl Producer {
                 let ready = batch_manager.lock().await.ready_batches();
 
                 for (topic, partition, records) in ready {
+                    let record_count = records.len();
+
                     // Send batch to agent
-                    if let Err(e) = Self::send_batch_to_agent(
+                    match Self::send_batch_to_agent(
                         &topic,
                         partition,
                         records,
@@ -1071,12 +1382,29 @@ impl Producer {
                     )
                     .await
                     {
-                        error!(
-                            topic = topic,
-                            partition = partition,
-                            error = %e,
-                            "Failed to send batch"
-                        );
+                        Ok(response) => {
+                            // SUCCESS: Notify pending records about their offsets (Phase 5.4)
+                            Self::notify_pending_offsets(
+                                &pending_records,
+                                &topic,
+                                partition,
+                                response.base_offset,
+                                record_count,
+                            )
+                            .await;
+                        }
+                        Err(e) => {
+                            // FAILURE: Fail pending records (Phase 5.4)
+                            Self::fail_pending_offsets(&pending_records, &topic, partition, record_count)
+                                .await;
+
+                            error!(
+                                topic = topic,
+                                partition = partition,
+                                error = %e,
+                                "Failed to send batch"
+                            );
+                        }
                     }
                 }
             }
@@ -1604,6 +1932,9 @@ impl ProducerBuilder {
             self.agent_refresh_interval,
         ));
 
+        // Create pending records tracker (Phase 5.4)
+        let pending_records = Arc::new(Mutex::new(HashMap::new()));
+
         // Spawn background flush task
         let flush_handle = Arc::new(Mutex::new(Some(Producer::spawn_flush_task(
             Arc::clone(&batch_manager),
@@ -1611,6 +1942,7 @@ impl ProducerBuilder {
             Arc::clone(&metadata_store),
             Arc::clone(&agents),
             retry_policy.clone(),
+            Arc::clone(&pending_records),
         ))));
 
         Ok(Producer {
@@ -1622,6 +1954,7 @@ impl ProducerBuilder {
             batch_manager,
             retry_policy,
             flush_handle,
+            pending_records,
         })
     }
 }
