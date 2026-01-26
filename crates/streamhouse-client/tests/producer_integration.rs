@@ -424,7 +424,12 @@ async fn test_producer_offset_tracking() {
     let agent_id = "agent1";
     let (metadata_store, _metadata_temp) = create_test_metadata_store(agent_id).await;
     let (writer_pool, _storage_temp) = create_test_writer_pool(Arc::clone(&metadata_store)).await;
-    let agent_address = start_test_agent(agent_id.to_string(), Arc::clone(&metadata_store), writer_pool).await;
+    let agent_address = start_test_agent(
+        agent_id.to_string(),
+        Arc::clone(&metadata_store),
+        writer_pool,
+    )
+    .await;
 
     // Update agent address
     metadata_store
@@ -495,7 +500,12 @@ async fn test_producer_send_and_wait() {
     let agent_id = "agent1";
     let (metadata_store, _metadata_temp) = create_test_metadata_store(agent_id).await;
     let (writer_pool, _storage_temp) = create_test_writer_pool(Arc::clone(&metadata_store)).await;
-    let agent_address = start_test_agent(agent_id.to_string(), Arc::clone(&metadata_store), writer_pool).await;
+    let agent_address = start_test_agent(
+        agent_id.to_string(),
+        Arc::clone(&metadata_store),
+        writer_pool,
+    )
+    .await;
 
     // Update agent address
     metadata_store
@@ -541,7 +551,12 @@ async fn test_producer_offset_batch_flush() {
     let agent_id = "agent1";
     let (metadata_store, _metadata_temp) = create_test_metadata_store(agent_id).await;
     let (writer_pool, _storage_temp) = create_test_writer_pool(Arc::clone(&metadata_store)).await;
-    let agent_address = start_test_agent(agent_id.to_string(), Arc::clone(&metadata_store), writer_pool).await;
+    let agent_address = start_test_agent(
+        agent_id.to_string(),
+        Arc::clone(&metadata_store),
+        writer_pool,
+    )
+    .await;
 
     // Update agent address
     metadata_store
