@@ -2493,6 +2493,7 @@ dependencies = [
  "serde_json",
  "siphasher",
  "streamhouse-agent",
+ "streamhouse-core",
  "streamhouse-metadata",
  "streamhouse-proto",
  "streamhouse-storage",
