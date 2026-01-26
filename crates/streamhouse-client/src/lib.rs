@@ -23,29 +23,37 @@
 //! ## Consumer
 //!
 //! ```ignore
-//! use streamhouse_client::{Consumer, ConsumerConfig};
+//! use streamhouse_client::{Consumer, OffsetReset};
+//! use std::time::Duration;
 //!
 //! let consumer = Consumer::builder()
-//!     .metadata_store(metadata_store)
 //!     .group_id("analytics")
 //!     .topics(vec!["orders".to_string()])
+//!     .metadata_store(metadata_store)
+//!     .object_store(object_store)
+//!     .offset_reset(OffsetReset::Earliest)
 //!     .build()
 //!     .await?;
 //!
-//! while let Some(record) = consumer.poll(Duration::from_secs(1)).await? {
-//!     println!("Received: {:?}", record);
+//! loop {
+//!     let records = consumer.poll(Duration::from_secs(1)).await?;
+//!     for record in records {
+//!         println!("Received: {:?}", record);
+//!     }
 //!     consumer.commit().await?;
 //! }
 //! ```
 
 pub mod batch;
 pub mod connection_pool;
+pub mod consumer;
 pub mod error;
 pub mod producer;
 pub mod retry;
 
 pub use batch::{BatchManager, BatchRecord};
 pub use connection_pool::ConnectionPool;
+pub use consumer::{ConsumedRecord, Consumer, ConsumerBuilder, ConsumerConfig, OffsetReset};
 pub use error::{ClientError, Result};
 pub use producer::{Producer, ProducerBuilder, ProducerConfig, ProducerRecord, SendResult};
 pub use retry::{retry_with_backoff, retry_with_jittered_backoff, RetryPolicy};
