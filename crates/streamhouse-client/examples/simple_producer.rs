@@ -85,7 +85,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
         println!(
             "  Sent order {} → partition {}, offset {}",
-            i, result.partition, result.offset.unwrap_or(0)
+            i,
+            result.partition,
+            result.offset.unwrap_or(0)
         );
     }
     println!();
@@ -101,7 +103,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
         println!(
             "  Sent event → partition {} (explicit), offset {}",
-            result.partition, result.offset.unwrap_or(0)
+            result.partition,
+            result.offset.unwrap_or(0)
         );
     }
     println!();
@@ -118,7 +121,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
         println!(
             "  Event {} → partition {}, offset {}",
-            i, result.partition, result.offset.unwrap_or(0)
+            i,
+            result.partition,
+            result.offset.unwrap_or(0)
         );
     }
     println!();

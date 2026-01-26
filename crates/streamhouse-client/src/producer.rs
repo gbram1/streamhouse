@@ -893,8 +893,13 @@ impl Producer {
                 }
                 Err(e) => {
                     // FAILURE: Fail pending records (Phase 5.4)
-                    Self::fail_pending_offsets(&self.pending_records, &topic, partition, record_count)
-                        .await;
+                    Self::fail_pending_offsets(
+                        &self.pending_records,
+                        &topic,
+                        partition,
+                        record_count,
+                    )
+                    .await;
                     return Err(e);
                 }
             }
@@ -1129,6 +1134,7 @@ impl Producer {
     /// - Connection failed
     /// - Agent rejected request (NOT_FOUND, FAILED_PRECONDITION, etc.)
     /// - Max retries exhausted
+    ///
     /// Notify pending records about their offsets after successful batch flush (Phase 5.4).
     ///
     /// When a batch is successfully flushed to an agent, the agent responds with
@@ -1395,8 +1401,13 @@ impl Producer {
                         }
                         Err(e) => {
                             // FAILURE: Fail pending records (Phase 5.4)
-                            Self::fail_pending_offsets(&pending_records, &topic, partition, record_count)
-                                .await;
+                            Self::fail_pending_offsets(
+                                &pending_records,
+                                &topic,
+                                partition,
+                                record_count,
+                            )
+                            .await;
 
                             error!(
                                 topic = topic,
