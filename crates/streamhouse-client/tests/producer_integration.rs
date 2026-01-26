@@ -413,3 +413,196 @@ async fn test_producer_throughput() {
 
     producer.close().await.unwrap();
 }
+
+// ============================================================================
+// Phase 5.4: Offset Tracking Tests
+// ============================================================================
+
+#[tokio::test]
+async fn test_producer_offset_tracking() {
+    // Setup
+    let agent_id = "agent1";
+    let (metadata_store, _metadata_temp) = create_test_metadata_store(agent_id).await;
+    let (writer_pool, _storage_temp) = create_test_writer_pool(Arc::clone(&metadata_store)).await;
+    let agent_address = start_test_agent(agent_id.to_string(), Arc::clone(&metadata_store), writer_pool).await;
+
+    // Update agent address
+    metadata_store
+        .register_agent(AgentInfo {
+            agent_id: agent_id.to_string(),
+            address: agent_address.clone(),
+            availability_zone: "us-east-1a".to_string(),
+            agent_group: "default".to_string(),
+            last_heartbeat: chrono::Utc::now().timestamp_millis(),
+            started_at: chrono::Utc::now().timestamp_millis(),
+            metadata: HashMap::new(),
+        })
+        .await
+        .unwrap();
+
+    // Create producer
+    let producer = Producer::builder()
+        .metadata_store(Arc::clone(&metadata_store))
+        .agent_group("default")
+        .batch_size(10)
+        .batch_timeout(Duration::from_millis(50))
+        .compression_enabled(false)
+        .build()
+        .await
+        .unwrap();
+
+    // Send 10 records to same partition
+    let mut results = Vec::new();
+    for i in 0..10 {
+        let result = producer
+            .send(
+                "test_topic",
+                Some(format!("key{}", i).as_bytes()),
+                format!("value{}", i).as_bytes(),
+                Some(0), // Same partition
+            )
+            .await
+            .unwrap();
+        results.push(result);
+    }
+
+    // Explicitly flush to ensure batch is sent
+    producer.flush().await.unwrap();
+
+    // Wait for all offsets
+    let mut offsets = Vec::new();
+    for mut result in results {
+        let offset = result.wait_offset().await.unwrap();
+        offsets.push(offset);
+    }
+
+    // Verify offsets are sequential
+    println!("Offsets: {:?}", offsets);
+    for i in 0..offsets.len() - 1 {
+        assert_eq!(
+            offsets[i] + 1,
+            offsets[i + 1],
+            "Offsets should be sequential"
+        );
+    }
+
+    producer.close().await.unwrap();
+}
+
+#[tokio::test]
+async fn test_producer_send_and_wait() {
+    // Setup
+    let agent_id = "agent1";
+    let (metadata_store, _metadata_temp) = create_test_metadata_store(agent_id).await;
+    let (writer_pool, _storage_temp) = create_test_writer_pool(Arc::clone(&metadata_store)).await;
+    let agent_address = start_test_agent(agent_id.to_string(), Arc::clone(&metadata_store), writer_pool).await;
+
+    // Update agent address
+    metadata_store
+        .register_agent(AgentInfo {
+            agent_id: agent_id.to_string(),
+            address: agent_address.clone(),
+            availability_zone: "us-east-1a".to_string(),
+            agent_group: "default".to_string(),
+            last_heartbeat: chrono::Utc::now().timestamp_millis(),
+            started_at: chrono::Utc::now().timestamp_millis(),
+            metadata: HashMap::new(),
+        })
+        .await
+        .unwrap();
+
+    // Create producer
+    let producer = Producer::builder()
+        .metadata_store(Arc::clone(&metadata_store))
+        .agent_group("default")
+        .batch_size(10)
+        .batch_timeout(Duration::from_millis(50))
+        .compression_enabled(false)
+        .build()
+        .await
+        .unwrap();
+
+    // Test convenience method
+    // Note: send_and_wait includes flush internally by waiting for offset
+    let offset = producer
+        .send_and_wait("test_topic", Some(b"key1"), b"value1", Some(0))
+        .await
+        .unwrap();
+
+    println!("Offset from send_and_wait: {}", offset);
+    assert!(offset >= 0);
+
+    producer.close().await.unwrap();
+}
+
+#[tokio::test]
+async fn test_producer_offset_batch_flush() {
+    // Setup
+    let agent_id = "agent1";
+    let (metadata_store, _metadata_temp) = create_test_metadata_store(agent_id).await;
+    let (writer_pool, _storage_temp) = create_test_writer_pool(Arc::clone(&metadata_store)).await;
+    let agent_address = start_test_agent(agent_id.to_string(), Arc::clone(&metadata_store), writer_pool).await;
+
+    // Update agent address
+    metadata_store
+        .register_agent(AgentInfo {
+            agent_id: agent_id.to_string(),
+            address: agent_address.clone(),
+            availability_zone: "us-east-1a".to_string(),
+            agent_group: "default".to_string(),
+            last_heartbeat: chrono::Utc::now().timestamp_millis(),
+            started_at: chrono::Utc::now().timestamp_millis(),
+            metadata: HashMap::new(),
+        })
+        .await
+        .unwrap();
+
+    // Create producer with small batch size to force multiple batches
+    let producer = Producer::builder()
+        .metadata_store(Arc::clone(&metadata_store))
+        .agent_group("default")
+        .batch_size(5) // Force flush after 5 records
+        .batch_timeout(Duration::from_millis(1000))
+        .compression_enabled(false)
+        .build()
+        .await
+        .unwrap();
+
+    // Send 12 records (should create 3 batches: 5, 5, 2)
+    let mut results = Vec::new();
+    for i in 0..12 {
+        let result = producer
+            .send(
+                "test_topic",
+                Some(format!("key{}", i).as_bytes()),
+                format!("value{}", i).as_bytes(),
+                Some(0),
+            )
+            .await
+            .unwrap();
+        results.push(result);
+    }
+
+    // Flush remaining records (batch size 5, so last 2 records need explicit flush)
+    producer.flush().await.unwrap();
+
+    // Wait for all offsets
+    let mut offsets = Vec::new();
+    for mut result in results {
+        let offset = result.wait_offset().await.unwrap();
+        offsets.push(offset);
+    }
+
+    // Verify all offsets are sequential (across batch boundaries)
+    println!("Offsets across batches: {:?}", offsets);
+    assert_eq!(offsets.len(), 12);
+    for i in 0..offsets.len() - 1 {
+        assert_eq!(
+            offsets[i] + 1,
+            offsets[i + 1],
+            "Offsets should be sequential across batches"
+        );
+    }
+
+    producer.close().await.unwrap();
+}

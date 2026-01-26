@@ -529,6 +529,36 @@ impl BatchManager {
         let total_bytes: usize = self.buffers.values().map(|b| b.size_bytes()).sum();
         (partition_count, total_records, total_bytes)
     }
+
+    /// Get current batch size for a topic/partition (for tracking record index).
+    ///
+    /// This is used by the Producer to track which position a record will have
+    /// in its batch, which is needed for offset tracking in Phase 5.4.
+    ///
+    /// # Arguments
+    ///
+    /// * `topic` - Topic name
+    /// * `partition` - Partition ID
+    ///
+    /// # Returns
+    ///
+    /// The current number of records in the batch for this partition. Returns 0
+    /// if no batch exists yet for this partition.
+    ///
+    /// # Examples
+    ///
+    /// ```ignore
+    /// // Get record index before appending
+    /// let record_index = manager.get_batch_size("orders", 0);
+    /// manager.append("orders", 0, record);
+    /// // This record is at position `record_index` in the batch
+    /// ```
+    pub fn get_batch_size(&self, topic: &str, partition: u32) -> usize {
+        self.buffers
+            .get(&(topic.to_string(), partition))
+            .map(|buffer| buffer.len())
+            .unwrap_or(0)
+    }
 }
 
 #[cfg(test)]

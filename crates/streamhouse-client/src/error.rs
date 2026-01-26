@@ -232,6 +232,39 @@ pub enum ClientError {
     #[error("Operation timed out after {0:?}")]
     Timeout(std::time::Duration),
 
+    /// Batch flush failed, offset not available.
+    ///
+    /// This error occurs when calling `wait_offset()` on a SendResult but the
+    /// batch flush to the agent failed. The record was appended to the batch
+    /// but never successfully written to storage.
+    ///
+    /// ## Causes (Phase 5.4+)
+    /// - Agent connection failed during flush
+    /// - Agent returned error response
+    /// - Retry attempts exhausted
+    ///
+    /// ## Resolution
+    /// - Check agent availability and health
+    /// - Review retry configuration
+    /// - The record may need to be re-sent
+    #[error("Batch flush failed, offset not available")]
+    BatchFlushFailed,
+
+    /// Offset receiver already consumed.
+    ///
+    /// This error occurs when calling `wait_offset()` multiple times on the same
+    /// SendResult. The offset receiver can only be consumed once.
+    ///
+    /// ## Causes (Phase 5.4+)
+    /// - `wait_offset()` called twice on same SendResult
+    /// - Receiver was moved out and consumed elsewhere
+    ///
+    /// ## Resolution
+    /// - Store the offset value after first `wait_offset()` call
+    /// - Don't call `wait_offset()` multiple times on same SendResult
+    #[error("Offset receiver already consumed")]
+    OffsetAlreadyConsumed,
+
     /// Internal error that shouldn't normally occur.
     ///
     /// This error indicates a bug in the client library or an unexpected state.
