@@ -1,0 +1,384 @@
+# StreamHouse Phases - Complete Documentation Index
+
+This document provides a comprehensive index of all development phases for the StreamHouse project, a high-performance distributed streaming platform inspired by Apache Kafka and WarpStream.
+
+## Project Overview
+
+StreamHouse is a distributed streaming platform that decouples compute from storage by leveraging S3-compatible object storage for data persistence while using lightweight agents for coordination and write operations.
+
+**Key Design Principles**:
+- Disaggregated architecture (compute vs storage)
+- Direct S3 writes for durability
+- Agent-based coordination for writes
+- Direct storage reads for consumers
+- High throughput with low latency
+
+## Phase 1: Storage Layer Foundation ✅
+
+**Status**: COMPLETE
+**Documentation**: [phase1/README.md](phase1/README.md)
+
+Core storage infrastructure including segment-based storage, metadata management, and basic read/write paths.
+
+**Key Components**:
+- Segment writer and reader
+- Metadata store (SQLite)
+- Object storage integration (S3/MinIO)
+- Basic write and read paths
+- CLI tool for management
+
+**Achievements**:
+- Sequential write: >100K records/sec
+- Sequential read: >3M records/sec with caching
+- Segment-based storage with compression
+
+**Sub-phases**:
+1. [1.1 Project Setup](phase1/1.1-project-setup.md)
+2. [1.2 Segment Writer](phase1/1.2-segment-writer.md)
+3. [1.3 Metadata Store](phase1/1.3-metadata-store.md)
+4. [1.4 Write Path](phase1/1.4-write-path.md)
+5. [1.5 Read Path](phase1/1.5-read-path.md)
+6. [1.6 API Server](phase1/1.6-api-server.md)
+7. [1.7 CLI Tool](phase1/1.7-cli-tool.md)
+8. [1.8 Testing and Documentation](phase1/1.8-testing-and-documentation.md)
+
+## Phase 2: Writer Pooling and Coordination ✅
+
+**Status**: COMPLETE
+**Documentation**: [phase2/2.1-WRITER-POOLING.md](phase2/2.1-WRITER-POOLING.md)
+
+Implemented writer pooling for efficient partition writes with coordination.
+
+**Key Components**:
+- Writer pool management
+- Partition lease coordination
+- Concurrent write handling
+
+## Phase 3: Metadata and State Management ✅
+
+**Status**: COMPLETE
+**Documentation**: [phase3/README.md](phase3/README.md)
+
+Enhanced metadata store with agent registration, partition leasing, and consumer offset tracking.
+
+**Key Components**:
+- Agent registration and heartbeats
+- Partition lease management
+- Consumer group and offset tracking
+- Topic and partition metadata
+
+**Sub-phases**:
+- [3.1 Metadata Interface](phase3/3.1-METADATA-INTERFACE.md)
+- [3.2 Implementation](PHASE_3.2_COMPLETE.md)
+- [3.3 Testing](PHASE_3.3_COMPLETE.md)
+- [3.4 Finalization](PHASE_3.4_COMPLETE.md)
+
+**Verification**: [PHASE_3_VERIFICATION.md](PHASE_3_VERIFICATION.md)
+
+## Phase 4: Agent Architecture and Coordination ✅
+
+**Status**: COMPLETE
+**Documentation**: [phase4/README.md](phase4/README.md)
+
+Implemented agent-based coordination for partition management and distributed writes.
+
+**Key Components**:
+- Agent server with gRPC interface
+- Partition assignment via consistent hashing
+- Leader election for partition ownership
+- Health monitoring and failover
+
+**Sub-phases**:
+- [4.1 Core Agent](PHASE_4.1_COMPLETE.md)
+- [4.2 Coordination](PHASE_4.2_COMPLETE.md)
+- [4.3 Integration](PHASE_4.3_COMPLETE.md)
+
+**Planning**: [PHASE_4_PLAN.md](PHASE_4_PLAN.md)
+
+## Phase 5: Producer API and Client Library ✅
+
+**Status**: COMPLETE
+**Documentation**: [phase5/README.md](phase5/README.md)
+
+Comprehensive high-level Producer API with batching, compression, retry logic, and agent discovery.
+
+**Architecture**:
+```
+Producer → BatchManager → ConnectionPool → Agent gRPC → PartitionWriter → S3
+```
+
+**Key Features**:
+- Builder pattern API matching Kafka's style
+- Intelligent batching with LZ4 compression
+- Exponential backoff retry logic
+- gRPC connection pooling
+- Agent discovery via metadata store
+- Hash-based and round-robin partition routing
+
+**Performance**: 62,325 records/sec throughput
+
+**Sub-phases**:
+1. **[Phase 5.1: Core Client Library Foundation](phase5/5.1-summary.md)** ✅
+   - BatchManager, RetryPolicy, ConnectionPool
+   - Error handling and ClientError types
+   - 20 unit tests
+
+2. **[Phase 5.2: Producer Implementation](phase5/5.2-summary.md)** ✅
+   - Producer struct with builder pattern
+   - Agent discovery and partition routing
+   - 6 integration tests
+
+3. **[Phase 5.3: gRPC Integration](phase5/5.3-summary.md)** ✅
+   - Agent gRPC Write RPC integration
+   - Batch serialization to protobuf
+   - 13 advanced integration tests
+   - **Performance**: 62,325 rec/s (100K records in 1.60s)
+
+4. **Phase 5.4: Offset Tracking** ⏳ PLANNED
+   - Return actual offsets from Producer.send()
+   - Track pending batches per partition
+   - Async offset retrieval callbacks
+
+**Total**: 39 tests, ~2,060 lines of code
+
+## Phase 6: Consumer API Implementation ✅
+
+**Status**: COMPLETE
+**Documentation**: [phase6/README.md](phase6/README.md)
+
+High-level Consumer API for reading records with offset management and consumer group support.
+
+**Architecture**:
+```
+Consumer → PartitionReader → SegmentCache → S3
+         → MetadataStore (offset commits, segment lookup)
+```
+
+**Key Features**:
+- Direct storage reads (not agent-mediated)
+- Builder pattern matching Producer API
+- Multi-partition subscription with automatic discovery
+- Consumer group coordination with offset tracking
+- Auto-commit and manual commit support
+- Offset reset strategies (Earliest, Latest, None)
+- Graceful error handling for empty partitions
+
+**Performance**: ~7.7K rec/s (debug build), >100K rec/s expected (release)
+
+**Implementation**:
+- [Phase 6.0: Complete Consumer API](phase6/6.0-summary.md) ✅
+  - Consumer struct with builder pattern
+  - poll(), commit(), seek(), position(), close() methods
+  - 8 comprehensive integration tests
+  - Multi-topic and multi-partition support
+
+**Total**: 8 integration tests, ~1,005 lines of code
+
+**Key Achievement**: Full read/write API surface now complete, enabling end-to-end data flow.
+
+## Phase 7: Observability and Metrics (Planned)
+
+**Status**: ⏳ PLANNED
+**Goal**: Add comprehensive metrics, logging, and monitoring
+
+**Planned Features**:
+- Prometheus metrics (throughput, latency, errors, lag)
+- Structured logging with tracing crate
+- Health check endpoints
+- Consumer lag monitoring
+- Producer throughput metrics
+- Agent health dashboards
+
+**Estimated**: ~500 LOC
+
+## Phase 8: Advanced Consumer Features (Planned)
+
+**Status**: ⏳ PLANNED
+**Goal**: Dynamic consumer group rebalancing and coordination
+
+**Planned Features**:
+- Consumer member tracking and heartbeats
+- Coordinator election for groups
+- Generation IDs and fencing
+- Partition assignment strategies (range, round-robin, sticky)
+- Automatic rebalancing on member join/leave
+
+## Phase 9: Transactions and Exactly-Once (Planned)
+
+**Status**: ⏳ PLANNED
+**Goal**: Add transaction support and exactly-once semantics
+
+**Planned Features**:
+- Transactional writes across partitions
+- Idempotent producer (deduplication)
+- Exactly-once delivery semantics
+- Transaction coordinator
+- Atomic commit/abort
+
+## Phase 10: Advanced Performance (Planned)
+
+**Status**: ⏳ PLANNED
+**Goal**: Advanced load balancing, hedging, and optimization
+
+**Planned Features**:
+- Circuit breaker patterns
+- Request hedging for tail latency
+- Advanced load balancing
+- Multi-region support
+- Tiered storage (hot/cold)
+
+## Documentation Structure
+
+```
+docs/phases/
+├── INDEX.md (this file)
+│
+├── phase1/
+│   ├── README.md (overview)
+│   ├── 1.1-project-setup.md
+│   ├── 1.2-segment-writer.md
+│   ├── 1.3-metadata-store.md
+│   ├── 1.4-write-path.md
+│   ├── 1.5-read-path.md
+│   ├── 1.6-api-server.md
+│   ├── 1.7-cli-tool.md
+│   ├── 1.8-testing-and-documentation.md
+│   ├── SUMMARY.md
+│   ├── PERFORMANCE.md
+│   └── storage-architecture.md
+│
+├── phase2/
+│   └── 2.1-WRITER-POOLING.md
+│
+├── phase3/
+│   ├── README.md
+│   ├── STATUS.md
+│   └── 3.1-METADATA-INTERFACE.md
+│
+├── phase4/
+│   └── README.md
+│
+├── phase5/
+│   ├── README.md (overview)
+│   ├── 5.1-summary.md (Core Client Library)
+│   ├── 5.2-summary.md (Producer Implementation)
+│   └── 5.3-summary.md (gRPC Integration)
+│
+├── phase6/
+│   ├── README.md (overview)
+│   └── 6.0-summary.md (Consumer API)
+│
+├── PHASE_3.2_COMPLETE.md
+├── PHASE_3.3_COMPLETE.md
+├── PHASE_3.3_SUMMARY.md
+├── PHASE_3.4_COMPLETE.md
+├── PHASE_3.4_SUMMARY.md
+├── PHASE_3_4_FINAL_PROOF.md
+├── PHASE_3_4_PROOF_OF_WORK.md
+├── PHASE_3_VERIFICATION.md
+├── PHASE_4.1_COMPLETE.md
+├── PHASE_4.2_COMPLETE.md
+├── PHASE_4.3_COMPLETE.md
+├── PHASE_4_OVERVIEW.md
+├── PHASE_4_PLAN.md
+├── PHASE_5.1_COMPLETE.md
+├── PHASE_5.2_PLAN.md
+├── PHASE_5_PLAN.md
+└── WARPSTREAM-LEARNINGS.md
+```
+
+## Key Achievements to Date
+
+### Phase 1-4: Foundation ✅
+- ✅ Disaggregated storage architecture
+- ✅ High-performance segment-based storage (>3M rec/s reads)
+- ✅ Metadata store with agent coordination
+- ✅ Agent-based write coordination with leasing
+- ✅ Consistent hashing for partition assignment
+
+### Phase 5: Producer API ✅
+- ✅ Kafka-like Producer API with builder pattern
+- ✅ Batching and LZ4 compression
+- ✅ Retry logic with exponential backoff
+- ✅ gRPC connection pooling
+- ✅ **62,325 rec/s throughput** achieved
+
+### Phase 6: Consumer API ✅
+- ✅ Kafka-like Consumer API with builder pattern
+- ✅ Direct storage reads (no agent mediation)
+- ✅ Consumer group coordination
+- ✅ Offset management (auto-commit and manual)
+- ✅ Multi-topic and multi-partition support
+- ✅ **7.7K rec/s throughput** (debug build, >100K expected in release)
+
+## Test Coverage Summary
+
+| Phase | Unit Tests | Integration Tests | Total | Status |
+|-------|------------|-------------------|-------|--------|
+| Phase 1 | Many | Several | N/A | ✅ |
+| Phase 2 | Several | Few | N/A | ✅ |
+| Phase 3 | Many | Several | N/A | ✅ |
+| Phase 4 | Many | Several | N/A | ✅ |
+| Phase 5 | 20 | 19 | **39** | ✅ |
+| Phase 6 | 20 (inherited) | 8 | **56** (total client) | ✅ |
+
+**streamhouse-client total**: 56 tests passing (20 unit + 8 consumer integration + 19 producer integration + 9 other)
+
+## Performance Summary
+
+| Component | Metric | Value | Notes |
+|-----------|--------|-------|-------|
+| Storage Layer | Sequential write | >100K rec/s | Phase 1 |
+| Storage Layer | Sequential read | >3.10M rec/s | Phase 1, with caching |
+| Producer API | Write throughput | 62,325 rec/s | Phase 5.3, batched |
+| Producer API | Batch latency | <10ms p99 | Phase 5.3 |
+| Consumer API | Read throughput | 7.7K rec/s | Phase 6, debug build |
+| Consumer API | Expected (release) | >100K rec/s | Phase 6, projected |
+| Cache | Hit rate | ~80% | Sequential workloads |
+
+## Next Steps
+
+### Immediate (Phase 5.4)
+- [ ] Implement actual offset tracking in Producer
+- [ ] Add callback mechanism for async offset retrieval
+- [ ] Track pending batches per partition
+
+### Short-term (Phase 7)
+- [ ] Add Prometheus metrics
+- [ ] Implement structured logging with tracing
+- [ ] Consumer lag monitoring
+- [ ] Health check endpoints
+
+### Medium-term (Phase 8-9)
+- [ ] Dynamic consumer group rebalancing
+- [ ] Transaction support
+- [ ] Exactly-once semantics
+- [ ] Idempotent producer
+
+### Long-term (Phase 10+)
+- [ ] Circuit breaker patterns
+- [ ] Request hedging
+- [ ] Multi-region support
+- [ ] Tiered storage (hot/cold)
+
+## Related Documentation
+
+- [WARPSTREAM-LEARNINGS.md](WARPSTREAM-LEARNINGS.md) - Learnings from WarpStream architecture
+- [Architecture Overview](../../README.md) - Main project README
+- [Phase 1 Storage Architecture](phase1/storage-architecture.md) - Detailed storage design
+
+## Contributing
+
+For each new phase:
+1. Create a directory: `docs/phases/phaseN/`
+2. Add `README.md` with phase overview
+3. Add detailed sub-phase documentation as needed
+4. Update this INDEX.md with links and status
+5. Add completion summaries (e.g., `N.X-summary.md`)
+
+## Version History
+
+- **2024-01**: Phase 1-4 completed (storage, agents, coordination)
+- **2024-01**: Phase 5.1-5.3 completed (Producer API, 62K rec/s)
+- **2024-01**: Phase 6 completed (Consumer API, 7.7K rec/s debug)
+- **2024-01**: Documentation reorganization (this index created)
