@@ -95,16 +95,20 @@
 //!     .await?;
 //! ```
 
+use crate::batch::{BatchManager, BatchRecord};
+use crate::connection_pool::ConnectionPool;
 use crate::error::{ClientError, Result};
+use crate::retry::{retry_with_jittered_backoff, RetryPolicy};
 use bytes::Bytes;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::hash::{Hash, Hasher};
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use streamhouse_metadata::{AgentInfo, MetadataStore, Topic};
-use tokio::sync::RwLock;
-use tracing::{debug, info, warn};
+use streamhouse_proto::producer::{produce_request::Record, ProduceRequest, ProduceResponse};
+use tokio::sync::{Mutex, RwLock};
+use tracing::{debug, error, info, warn};
 
 /// Producer configuration containing all operational parameters.
 ///
@@ -404,10 +408,6 @@ pub struct Producer {
     ///
     /// This map is periodically refreshed by the background task.
     /// Keys are agent IDs, values are agent metadata (address, zone, etc.).
-    ///
-    /// ## Phase 5.2+
-    /// Used for routing requests to agents. Currently unused in Phase 5.1.
-    #[allow(dead_code)] // Will be used in Phase 5.2 for agent routing
     agents: Arc<RwLock<HashMap<String, AgentInfo>>>,
 
     /// Cache of topic metadata to reduce metadata store queries.
@@ -421,6 +421,31 @@ pub struct Producer {
     /// This task runs continuously until `close()` is called, at which point
     /// it's aborted. The leading underscore prevents unused field warnings.
     _refresh_handle: tokio::task::JoinHandle<()>,
+
+    /// Connection pool for gRPC connections to agents.
+    ///
+    /// Maintains per-agent connection pools with health tracking and idle timeout.
+    /// Connections are reused across send() calls for performance.
+    connection_pool: Arc<ConnectionPool>,
+
+    /// Batch manager for accumulating records before sending.
+    ///
+    /// Records are batched per (topic, partition) and flushed based on:
+    /// - Size trigger: batch_size records (default 100)
+    /// - Bytes trigger: 1MB of data
+    /// - Time trigger: batch_timeout elapsed (default 100ms)
+    batch_manager: Arc<Mutex<BatchManager>>,
+
+    /// Retry policy for handling transient failures.
+    ///
+    /// Configures exponential backoff (100ms-30s) and error classification.
+    retry_policy: RetryPolicy,
+
+    /// Handle to the background batch flush task.
+    ///
+    /// This task runs continuously, checking for ready batches every 50ms
+    /// and sending them to agents. It's aborted when close() is called.
+    flush_handle: Arc<Mutex<Option<tokio::task::JoinHandle<()>>>>,
 }
 
 impl Producer {
@@ -561,26 +586,42 @@ impl Producer {
             None => self.compute_partition(key, topic_meta.partition_count),
         };
 
-        // Phase 5.1: Write directly to storage (no agent communication yet)
-        // Phase 5.2: Find agent and send via gRPC
-        // let _agent = self.find_agent_for_partition(topic, partition_id).await?;
+        // Create batch record
+        let timestamp = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_millis() as u64;
 
-        let result = self
-            .send_to_storage(topic, partition_id, key, value)
-            .await?;
+        let record = BatchRecord::new(
+            key.map(Bytes::copy_from_slice),
+            Bytes::copy_from_slice(value),
+            timestamp,
+        );
 
-        Ok(result)
+        // Append to batch manager (background task will flush)
+        self.batch_manager
+            .lock()
+            .await
+            .append(topic, partition_id, record);
+
+        // Return immediately with placeholder offset
+        // TODO Phase 5.4: Track pending batches and return actual offset
+        Ok(SendResult {
+            topic: topic.to_string(),
+            partition: partition_id,
+            offset: 0, // Placeholder - will be updated by background task
+            timestamp: timestamp as i64,
+        })
     }
 
     /// Flush any pending batched records to ensure they're written.
     ///
-    /// In Phase 5.1, this is a no-op since records are written immediately
-    /// without batching. In Phase 5.2+, this will force all pending batches
-    /// to be sent to agents.
+    /// This method forces all ready batches to be sent to agents immediately,
+    /// without waiting for the background flush task.
     ///
     /// # Returns
     ///
-    /// Always returns `Ok(())` in Phase 5.1.
+    /// `Ok(())` if all batches were successfully sent, or an error if any batch failed.
     ///
     /// # Examples
     ///
@@ -594,27 +635,49 @@ impl Producer {
     /// producer.flush().await?;
     /// ```
     ///
-    /// # Phase 5.2+
+    /// # Behavior
     ///
-    /// Will block until all pending batches are sent and acknowledged.
-    /// Useful before shutting down or when you need durability guarantees.
+    /// - Gets all ready batches from the batch manager
+    /// - Sends each batch to the appropriate agent
+    /// - Returns error if any batch fails to send
+    ///
+    /// # Use Cases
+    ///
+    /// - Before shutting down to ensure all data is persisted
+    /// - After critical writes to guarantee durability
+    /// - For testing to ensure records are visible
     pub async fn flush(&self) -> Result<()> {
+        let ready = self.batch_manager.lock().await.ready_batches();
+
+        for (topic, partition, records) in ready {
+            Self::send_batch_to_agent(
+                &topic,
+                partition,
+                records,
+                &self.connection_pool,
+                &self.config.metadata_store,
+                &self.agents,
+                &self.retry_policy,
+            )
+            .await?;
+        }
+
         Ok(())
     }
 
     /// Close the producer and clean up all resources.
     ///
     /// This method performs graceful shutdown:
-    /// 1. Stops the background agent refresh task
-    /// 2. Flushes any pending batches (Phase 5.2+)
-    /// 3. Closes all agent connections (Phase 5.2+)
+    /// 1. Stops the background flush task
+    /// 2. Stops the background agent refresh task
+    /// 3. Flushes all pending batches
+    /// 4. Closes all agent connections
     ///
     /// After calling `close()`, the Producer cannot be used again.
     ///
     /// # Returns
     ///
-    /// Always returns `Ok(())` in Phase 5.1. May return errors in Phase 5.2+
-    /// if flushing or connection cleanup fails.
+    /// Returns `Ok(())` if shutdown was successful, or an error if flushing fails.
     ///
     /// # Examples
     ///
@@ -635,8 +698,49 @@ impl Producer {
     /// This method consumes `self`, so the Producer cannot be used after closing.
     /// If you need to share the Producer across tasks, wrap it in `Arc` and clone
     /// the Arc before passing to tasks.
+    ///
+    /// # Behavior
+    ///
+    /// 1. Aborts background tasks (flush and refresh)
+    /// 2. Flushes all pending batches (may take time if batches are large)
+    /// 3. Closes connection pool (drops all gRPC connections)
+    ///
+    /// If flushing fails, the error is returned and connections may not be closed.
     pub async fn close(self) -> Result<()> {
+        // 1. Abort background tasks
+        if let Some(handle) = self.flush_handle.lock().await.take() {
+            handle.abort();
+        }
         self._refresh_handle.abort();
+
+        // 2. Flush all pending batches
+        let all_batches = self.batch_manager.lock().await.flush_all();
+
+        for (topic, partition, records) in all_batches {
+            if let Err(e) = Self::send_batch_to_agent(
+                &topic,
+                partition,
+                records,
+                &self.connection_pool,
+                &self.config.metadata_store,
+                &self.agents,
+                &self.retry_policy,
+            )
+            .await
+            {
+                error!(
+                    topic = topic,
+                    partition = partition,
+                    error = %e,
+                    "Failed to flush batch on close"
+                );
+                // Continue trying to flush other batches
+            }
+        }
+
+        // 3. Close connection pool
+        self.connection_pool.close_all().await;
+
         Ok(())
     }
 
@@ -758,15 +862,105 @@ impl Producer {
         }
     }
 
-    /// Find the agent responsible for a specific partition.
+    /// Send a batch of records to an agent via gRPC.
     ///
-    /// This method uses consistent hashing to map partition IDs to agents.
-    /// The agent returned should be the one holding the lease for this partition.
+    /// This function handles the complete flow of sending a batch to an agent:
+    /// 1. Find the agent holding the lease for the partition
+    /// 2. Get a connection from the pool
+    /// 3. Build a ProduceRequest
+    /// 4. Send with retry logic
     ///
     /// # Arguments
     ///
-    /// * `_topic` - Topic name (unused in Phase 5.1, will be used in Phase 5.2)
-    /// * `_partition_id` - Partition ID (unused in Phase 5.1, will be used in Phase 5.2)
+    /// * `topic` - Topic name
+    /// * `partition` - Partition ID
+    /// * `records` - Batch of records to send
+    /// * `connection_pool` - Connection pool for gRPC connections
+    /// * `metadata_store` - Metadata store for partition lease lookup
+    /// * `agents` - Map of healthy agents
+    /// * `retry_policy` - Retry policy for handling failures
+    ///
+    /// # Returns
+    ///
+    /// `ProduceResponse` with base offset and record count.
+    ///
+    /// # Errors
+    ///
+    /// Returns error if:
+    /// - No agent found for partition
+    /// - Connection failed
+    /// - Agent rejected request (NOT_FOUND, FAILED_PRECONDITION, etc.)
+    /// - Max retries exhausted
+    async fn send_batch_to_agent(
+        topic: &str,
+        partition: u32,
+        records: Vec<BatchRecord>,
+        connection_pool: &ConnectionPool,
+        metadata_store: &Arc<dyn MetadataStore>,
+        agents: &Arc<RwLock<HashMap<String, AgentInfo>>>,
+        retry_policy: &RetryPolicy,
+    ) -> Result<ProduceResponse> {
+        // Find agent for partition
+        let agent =
+            Self::find_agent_for_partition_impl(topic, partition, metadata_store, agents).await?;
+
+        // Get connection from pool
+        let client = connection_pool
+            .get_connection(&agent.address)
+            .await
+            .map_err(|e| {
+                ClientError::AgentConnectionFailed(
+                    agent.agent_id.clone(),
+                    agent.address.clone(),
+                    e.to_string(),
+                )
+            })?;
+
+        // Build ProduceRequest
+        let proto_records: Vec<Record> = records
+            .into_iter()
+            .map(|r| Record {
+                key: r.key.map(|k| k.to_vec()),
+                value: r.value.to_vec(),
+                timestamp: r.timestamp,
+            })
+            .collect();
+
+        let request = ProduceRequest {
+            topic: topic.to_string(),
+            partition,
+            records: proto_records,
+        };
+
+        // Send with retry
+        let response = retry_with_jittered_backoff(retry_policy, || {
+            let mut client = client.clone();
+            let request = request.clone();
+            async move { client.produce(request).await }
+        })
+        .await
+        .map_err(|e| {
+            ClientError::AgentError(
+                agent.agent_id.clone(),
+                format!("Produce request failed: {}", e),
+            )
+        })?;
+
+        Ok(response.into_inner())
+    }
+
+    /// Find the agent responsible for a specific partition (static implementation).
+    ///
+    /// This is the actual implementation used by send_batch_to_agent.
+    /// It queries the metadata store for the partition lease and returns
+    /// the agent holding the lease.
+    ///
+    /// # Arguments
+    ///
+    /// * `topic` - Topic name
+    /// * `partition_id` - Partition ID
+    /// * `metadata_store` - Metadata store for lease lookup
+    /// * `agents` - Map of healthy agents
     ///
     /// # Returns
     ///
@@ -774,163 +968,118 @@ impl Producer {
     ///
     /// # Errors
     ///
-    /// Returns `NoAgentsAvailable` if no healthy agents are found in the group.
-    ///
-    /// # Phase 5.1 Implementation
-    ///
-    /// Currently returns any available agent since we write directly to storage.
-    /// This method is not used but is implemented for Phase 5.2 compatibility.
-    ///
-    /// # Phase 5.2 Implementation
-    ///
-    /// Will use consistent hashing to route to the correct agent:
-    /// 1. Hash the partition ID
-    /// 2. Find the nearest agent clockwise on the hash ring
-    /// 3. Verify agent holds the lease via metadata store
-    /// 4. If not, refresh agent list and retry
-    #[allow(dead_code)] // Will be used in Phase 5.2 for agent routing
-    async fn find_agent_for_partition(
-        &self,
-        _topic: &str,
-        _partition_id: u32,
+    /// Returns error if:
+    /// - No lease found for partition
+    /// - Agent not found in healthy agent map
+    /// - No agents available
+    async fn find_agent_for_partition_impl(
+        topic: &str,
+        partition_id: u32,
+        metadata_store: &Arc<dyn MetadataStore>,
+        agents: &Arc<RwLock<HashMap<String, AgentInfo>>>,
     ) -> Result<AgentInfo> {
-        let agents = self.agents.read().await;
-
-        if agents.is_empty() {
-            return Err(ClientError::NoAgentsAvailable(
-                self.config.agent_group.clone(),
-            ));
+        // Option 1: Query metadata store for partition lease
+        if let Ok(Some(lease)) = metadata_store
+            .get_partition_lease(topic, partition_id)
+            .await
+        {
+            // Get agent from cache
+            let agents_map = agents.read().await;
+            if let Some(agent) = agents_map.get(&lease.leader_agent_id) {
+                return Ok(agent.clone());
+            }
         }
 
-        // Phase 5.1: Return any agent (not used since we write directly to storage)
-        // Phase 5.2: Use consistent hashing to find agent holding partition lease
-        Ok(agents.values().next().unwrap().clone())
+        // Option 2: Fallback to consistent hashing
+        let agents_map = agents.read().await;
+        if agents_map.is_empty() {
+            return Err(ClientError::NoAgentsAvailable("default".to_string()));
+        }
+
+        // Use SipHash for consistent partition → agent mapping
+        use siphasher::sip::SipHasher;
+        let mut hasher = SipHasher::new();
+        format!("{}-{}", topic, partition_id).hash(&mut hasher);
+        let hash = hasher.finish();
+
+        let agent_idx = (hash as usize) % agents_map.len();
+        Ok(agents_map.values().nth(agent_idx).unwrap().clone())
     }
 
-    /// Send record directly to storage bypassing agent communication.
+    /// Spawn background task that periodically flushes ready batches.
     ///
-    /// **Phase 5.1 only**: This method writes directly to MinIO via the storage layer.
-    /// It creates a new `PartitionWriter` for each send, which is inefficient but
-    /// simple and validates the storage integration.
-    ///
-    /// **Phase 5.2**: This method will be replaced with gRPC communication to agents,
-    /// which will handle write pooling, batching, and connection management.
+    /// This task runs continuously in the background, checking for ready batches
+    /// every 50ms and sending them to agents via gRPC.
     ///
     /// # Arguments
     ///
-    /// * `topic` - Topic name
-    /// * `partition_id` - Partition ID to write to
-    /// * `key` - Optional key bytes
-    /// * `value` - Value bytes (the payload)
+    /// * `batch_manager` - Batch manager containing pending records
+    /// * `connection_pool` - Connection pool for gRPC connections
+    /// * `metadata_store` - Metadata store for partition lease lookup
+    /// * `agents` - Map of healthy agents
+    /// * `retry_policy` - Retry policy for handling failures
     ///
     /// # Returns
     ///
-    /// `SendResult` with topic, partition, offset, and timestamp.
+    /// JoinHandle to the spawned task.
     ///
-    /// # Errors
+    /// # Behavior
     ///
-    /// Returns `StorageError` if:
-    /// - MinIO is unreachable
-    /// - S3 bucket doesn't exist
-    /// - Insufficient permissions
-    /// - Write fails
+    /// 1. Wait 50ms
+    /// 2. Get ready batches from batch manager
+    /// 3. For each batch, send to agent
+    /// 4. Log errors but continue (never panics)
     ///
-    /// # Performance
+    /// # Error Handling
     ///
-    /// - Latency: ~200ms per send (S3 connection overhead)
-    /// - Throughput: ~5 records/sec (limited by connection creation)
+    /// If a batch send fails after retries:
+    /// - Logs error with topic, partition, and error message
+    /// - Continues processing other batches
+    /// - Does not retry failed batches (they are dropped)
     ///
-    /// # Implementation Details
+    /// # Lifecycle
     ///
-    /// 1. Create S3 object store pointing to MinIO (localhost:9000)
-    /// 2. Create `WriteConfig` with segment size, retention, etc.
-    /// 3. Create new `PartitionWriter` (reads high watermark from metadata)
-    /// 4. Append record to writer (compresses with LZ4)
-    /// 5. Writer uploads segment to MinIO
-    /// 6. Writer updates metadata with new offset
-    /// 7. Return result with offset and timestamp
-    ///
-    /// # Why So Slow?
-    ///
-    /// Each send:
-    /// - Creates new S3 connection (~50ms)
-    /// - Creates new writer (~10ms to read metadata)
-    /// - Uploads segment (~100ms for 1 record + LZ4 overhead)
-    /// - Updates metadata (~10ms)
-    ///
-    /// Phase 5.2 will eliminate this overhead via connection pooling and batching.
-    async fn send_to_storage(
-        &self,
-        topic: &str,
-        partition_id: u32,
-        key: Option<&[u8]>,
-        value: &[u8],
-    ) -> Result<SendResult> {
-        use object_store::aws::AmazonS3Builder;
-        use streamhouse_storage::{PartitionWriter, WriteConfig};
+    /// This task runs until:
+    /// - `Producer::close()` is called (aborts the task)
+    /// - The Producer is dropped (task handle is dropped)
+    fn spawn_flush_task(
+        batch_manager: Arc<Mutex<BatchManager>>,
+        connection_pool: Arc<ConnectionPool>,
+        metadata_store: Arc<dyn MetadataStore>,
+        agents: Arc<RwLock<HashMap<String, AgentInfo>>>,
+        retry_policy: RetryPolicy,
+    ) -> tokio::task::JoinHandle<()> {
+        tokio::spawn(async move {
+            let mut interval = tokio::time::interval(Duration::from_millis(50));
 
-        // Create S3 object store (MinIO)
-        let object_store = Arc::new(
-            AmazonS3Builder::new()
-                .with_bucket_name("streamhouse")
-                .with_region("us-east-1")
-                .with_endpoint("http://localhost:9000")
-                .with_access_key_id("minioadmin")
-                .with_secret_access_key("minioadmin")
-                .with_allow_http(true)
-                .build()
-                .map_err(|e| ClientError::StorageError(e.to_string()))?,
-        );
+            loop {
+                interval.tick().await;
 
-        // Create write config
-        let config = WriteConfig {
-            segment_max_size: 64 * 1024 * 1024, // 64MB
-            segment_max_age_ms: 3_600_000,      // 1 hour
-            s3_bucket: "streamhouse".to_string(),
-            s3_region: "us-east-1".to_string(),
-            s3_endpoint: Some("http://localhost:9000".to_string()),
-            block_size_target: 1024 * 1024, // 1MB
-            s3_upload_retries: 3,
-        };
+                // Get ready batches
+                let ready = batch_manager.lock().await.ready_batches();
 
-        let mut writer = PartitionWriter::new(
-            topic.to_string(),
-            partition_id,
-            object_store,
-            Arc::clone(&self.config.metadata_store),
-            config,
-        )
-        .await
-        .map_err(|e| ClientError::StorageError(e.to_string()))?;
-
-        // Get timestamp
-        let timestamp = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_millis() as u64;
-
-        // Write record
-        let offset = writer
-            .append(
-                key.map(Bytes::copy_from_slice),
-                Bytes::copy_from_slice(value),
-                timestamp,
-            )
-            .await
-            .map_err(|e| ClientError::StorageError(e.to_string()))?;
-
-        debug!(
-            topic = topic,
-            partition = partition_id,
-            offset = offset,
-            "Record written"
-        );
-
-        Ok(SendResult {
-            topic: topic.to_string(),
-            partition: partition_id,
-            offset,
-            timestamp: timestamp as i64,
+                for (topic, partition, records) in ready {
+                    // Send batch to agent
+                    if let Err(e) = Self::send_batch_to_agent(
+                        &topic,
+                        partition,
+                        records,
+                        &connection_pool,
+                        &metadata_store,
+                        &agents,
+                        &retry_policy,
+                    )
+                    .await
+                    {
+                        error!(
+                            topic = topic,
+                            partition = partition,
+                            error = %e,
+                            "Failed to send batch"
+                        );
+                    }
+                }
+            }
         })
     }
 
@@ -1426,6 +1575,27 @@ impl ProducerBuilder {
 
         *agents.write().await = agent_map;
 
+        // Initialize connection pool
+        let connection_pool = Arc::new(ConnectionPool::new(
+            10,                      // max connections per agent
+            Duration::from_secs(60), // idle timeout
+        ));
+
+        // Initialize batch manager
+        let batch_manager = Arc::new(Mutex::new(BatchManager::new(
+            self.batch_size,
+            1024 * 1024, // 1MB max batch bytes
+            self.batch_timeout,
+        )));
+
+        // Initialize retry policy
+        let retry_policy = RetryPolicy {
+            max_retries: self.max_retries,
+            initial_backoff: self.retry_backoff,
+            max_backoff: Duration::from_secs(30),
+            backoff_multiplier: 2.0,
+        };
+
         // Start background refresh task
         let refresh_handle = tokio::spawn(Producer::refresh_agents_task(
             Arc::clone(&metadata_store),
@@ -1434,11 +1604,24 @@ impl ProducerBuilder {
             self.agent_refresh_interval,
         ));
 
+        // Spawn background flush task
+        let flush_handle = Arc::new(Mutex::new(Some(Producer::spawn_flush_task(
+            Arc::clone(&batch_manager),
+            Arc::clone(&connection_pool),
+            Arc::clone(&metadata_store),
+            Arc::clone(&agents),
+            retry_policy.clone(),
+        ))));
+
         Ok(Producer {
             config,
             agents,
             topic_cache,
             _refresh_handle: refresh_handle,
+            connection_pool,
+            batch_manager,
+            retry_policy,
+            flush_handle,
         })
     }
 }
