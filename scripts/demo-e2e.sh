@@ -405,12 +405,29 @@ run_demo() {
 
     cd "$PROJECT_ROOT"
 
-    log_info "Building and running demo with metrics..."
+    log_info "Starting StreamHouse agent..."
     echo ""
 
-    cargo run --release --features metrics --example complete_pipeline_demo
+    # Start agent in background
+    cargo run --release --features metrics --bin streamhouse-agent > /tmp/streamhouse-agent.log 2>&1 &
+    AGENT_PID=$!
+
+    log_info "Waiting for agent to start..."
+    sleep 5
+
+    log_info "Running producer-consumer demo..."
+    echo ""
+
+    # Run e2e example
+    cargo run --release --features metrics -p streamhouse-client --example e2e_producer_consumer || true
 
     echo ""
+
+    # Stop agent
+    log_info "Stopping agent..."
+    kill $AGENT_PID 2>/dev/null || true
+    wait $AGENT_PID 2>/dev/null || true
+
     log_success "Demo execution complete!"
     echo ""
 }
