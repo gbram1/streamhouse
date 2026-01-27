@@ -88,6 +88,10 @@ colored = "2.1"
 # User directories
 dirs = "5.0"
 
+# Observability
+prometheus-client = "0.22"
+axum = { version = "0.7", features = ["macros"] }
+
 [profile.release]
 opt-level = 3
 lto = true

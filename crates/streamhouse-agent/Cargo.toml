@@ -5,6 +5,9 @@ edition.workspace = true
 authors.workspace = true
 license.workspace = true
 
+[features]
+metrics = ["prometheus-client", "axum"]
+
 [dependencies]
 streamhouse-core = { path = "../streamhouse-core" }
 streamhouse-metadata = { path = "../streamhouse-metadata" }
@@ -20,6 +23,10 @@ async-trait = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 object_store = { workspace = true }
+
+# Observability (optional)
+prometheus-client = { workspace = true, optional = true }
+axum = { workspace = true, optional = true }
 
 [dev-dependencies]
 tempfile = { workspace = true }

@@ -49,6 +49,132 @@ use tokio::sync::RwLock;
 use tonic::{Request, Response, Status};
 use tracing::{debug, error, warn};
 
+/// Prometheus metrics for the Agent.
+///
+/// Tracks agent-specific metrics like active partitions, lease renewals,
+/// write throughput, latency, and gRPC request statistics.
+/// All metrics use atomic operations for lock-free updates.
+///
+/// ## Metrics
+///
+/// - `active_partitions`: Current number of active partitions (gauge)
+/// - `lease_renewals_total`: Total lease renewal attempts (counter)
+/// - `records_written_total`: Total records written (counter)
+/// - `write_latency_seconds`: Write operation latency (histogram)
+/// - `active_connections`: Active gRPC connections (gauge)
+/// - `grpc_requests_total`: Total gRPC requests by method and status (counter)
+/// - `grpc_request_duration_seconds`: gRPC request duration (histogram)
+#[cfg(feature = "metrics")]
+pub struct AgentMetrics {
+    active_partitions: prometheus_client::metrics::gauge::Gauge<i64>,
+    lease_renewals_total: prometheus_client::metrics::counter::Counter<u64>,
+    records_written_total: prometheus_client::metrics::counter::Counter<u64>,
+    write_latency_seconds: prometheus_client::metrics::histogram::Histogram,
+    active_connections: prometheus_client::metrics::gauge::Gauge<i64>,
+    grpc_requests_total: prometheus_client::metrics::counter::Counter<u64>,
+    grpc_request_duration_seconds: prometheus_client::metrics::histogram::Histogram,
+}
+
+#[cfg(feature = "metrics")]
+impl AgentMetrics {
+    /// Create new AgentMetrics and register with the given registry.
+    pub fn new(registry: &mut prometheus_client::registry::Registry) -> Self {
+        let active_partitions = prometheus_client::metrics::gauge::Gauge::<i64>::default();
+        let lease_renewals = prometheus_client::metrics::counter::Counter::<u64>::default();
+        let records_written = prometheus_client::metrics::counter::Counter::<u64>::default();
+
+        let write_latency = prometheus_client::metrics::histogram::Histogram::new(
+            prometheus_client::metrics::histogram::exponential_buckets(0.001, 2.0, 15)
+        );
+
+        let active_connections = prometheus_client::metrics::gauge::Gauge::<i64>::default();
+        let grpc_requests = prometheus_client::metrics::counter::Counter::<u64>::default();
+
+        let grpc_duration = prometheus_client::metrics::histogram::Histogram::new(
+            prometheus_client::metrics::histogram::exponential_buckets(0.001, 2.0, 15)
+        );
+
+        registry.register(
+            "streamhouse_agent_active_partitions",
+            "Number of active partitions",
+            active_partitions.clone(),
+        );
+
+        registry.register(
+            "streamhouse_agent_lease_renewals_total",
+            "Total lease renewal attempts",
+            lease_renewals.clone(),
+        );
+
+        registry.register(
+            "streamhouse_agent_records_written_total",
+            "Total records written",
+            records_written.clone(),
+        );
+
+        registry.register(
+            "streamhouse_agent_write_latency_seconds",
+            "Write operation latency in seconds",
+            write_latency.clone(),
+        );
+
+        registry.register(
+            "streamhouse_agent_active_connections",
+            "Active gRPC connections",
+            active_connections.clone(),
+        );
+
+        registry.register(
+            "streamhouse_agent_grpc_requests_total",
+            "Total gRPC requests",
+            grpc_requests.clone(),
+        );
+
+        registry.register(
+            "streamhouse_agent_grpc_request_duration_seconds",
+            "gRPC request duration in seconds",
+            grpc_duration.clone(),
+        );
+
+        Self {
+            active_partitions,
+            lease_renewals_total: lease_renewals,
+            records_written_total: records_written,
+            write_latency_seconds: write_latency,
+            active_connections,
+            grpc_requests_total: grpc_requests,
+            grpc_request_duration_seconds: grpc_duration,
+        }
+    }
+
+    /// Record a write operation.
+    pub fn record_write(&self, record_count: u64, duration_secs: f64) {
+        self.records_written_total.inc_by(record_count);
+        self.write_latency_seconds.observe(duration_secs);
+    }
+
+    /// Record a gRPC request.
+    pub fn record_grpc_request(&self, duration_secs: f64) {
+        self.grpc_requests_total.inc();
+        self.grpc_request_duration_seconds.observe(duration_secs);
+    }
+
+    /// Update active partition count.
+    pub fn set_active_partitions(&self, count: i64) {
+        self.active_partitions.set(count);
+    }
+
+    /// Record a lease renewal attempt.
+    pub fn record_lease_renewal(&self) {
+        self.lease_renewals_total.inc();
+    }
+
+    /// Update active connection count.
+    pub fn set_active_connections(&self, count: i64) {
+        self.active_connections.set(count);
+    }
+}
+
 /// Producer service implementation for StreamHouse agents.
 ///
 /// This service handles ProduceRequests from Producer clients. It validates
@@ -92,6 +218,10 @@ pub struct ProducerServiceImpl {
 
     /// Agent state for checking if we're shutting down
     shutting_down: Arc<RwLock<bool>>,
+
+    /// Optional Prometheus metrics for observability
+    #[cfg(feature = "metrics")]
+    metrics: Option<Arc<AgentMetrics>>,
 }
 
 impl ProducerServiceImpl {
@@ -120,12 +250,15 @@ impl ProducerServiceImpl {
         writer_pool: Arc<WriterPool>,
         metadata_store: Arc<dyn MetadataStore>,
         agent_id: String,
+        #[cfg(feature = "metrics")] metrics: Option<Arc<AgentMetrics>>,
     ) -> Self {
         Self {
             writer_pool,
             metadata_store,
             agent_id,
             shutting_down: Arc::new(RwLock::new(false)),
+            #[cfg(feature = "metrics")]
+            metrics,
         }
     }
 
