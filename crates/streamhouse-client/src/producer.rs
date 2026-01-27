@@ -538,6 +538,145 @@ type PendingQueue = VecDeque<PendingRecord>;
 /// - 50K+ records/sec (batching + connection pooling)
 /// - <10ms p99 latency (gRPC + batching)
 /// - Production-ready
+
+/// Prometheus metrics for the Producer.
+///
+/// Tracks throughput, latency, batch sizes, and errors for producer operations.
+/// All metrics use atomic operations for lock-free updates.
+///
+/// ## Metrics
+///
+/// - `records_sent_total`: Total records sent (counter)
+/// - `bytes_sent_total`: Total bytes sent (counter)
+/// - `send_duration_seconds`: Latency of send() calls (histogram)
+/// - `batch_flush_duration_seconds`: Latency of batch flushes (histogram)
+/// - `batch_size_records`: Distribution of batch sizes in records (histogram)
+/// - `batch_size_bytes`: Distribution of batch sizes in bytes (histogram)
+/// - `send_errors_total`: Total send errors by type (counter)
+/// - `pending_records`: Current pending records awaiting offset (gauge)
+#[cfg(feature = "metrics")]
+pub struct ProducerMetrics {
+    records_sent_total: prometheus_client::metrics::counter::Counter<u64>,
+    bytes_sent_total: prometheus_client::metrics::counter::Counter<u64>,
+    send_duration_seconds: prometheus_client::metrics::histogram::Histogram,
+    batch_flush_duration_seconds: prometheus_client::metrics::histogram::Histogram,
+    batch_size_records: prometheus_client::metrics::histogram::Histogram,
+    batch_size_bytes: prometheus_client::metrics::histogram::Histogram,
+    send_errors_total: prometheus_client::metrics::counter::Counter<u64>,
+    pending_records: prometheus_client::metrics::gauge::Gauge<i64>,
+}
+
+#[cfg(feature = "metrics")]
+impl ProducerMetrics {
+    /// Create new ProducerMetrics and register with the given registry.
+    pub fn new(registry: &mut prometheus_client::registry::Registry) -> Self {
+        let records_sent = prometheus_client::metrics::counter::Counter::<u64>::default();
+        let bytes_sent = prometheus_client::metrics::counter::Counter::<u64>::default();
+
+        let send_duration = prometheus_client::metrics::histogram::Histogram::new(
+            prometheus_client::metrics::histogram::exponential_buckets(0.001, 2.0, 15)
+        );
+
+        let batch_flush_duration = prometheus_client::metrics::histogram::Histogram::new(
+            prometheus_client::metrics::histogram::exponential_buckets(0.001, 2.0, 15)
+        );
+
+        let batch_size_records = prometheus_client::metrics::histogram::Histogram::new(
+            prometheus_client::metrics::histogram::exponential_buckets(1.0, 2.0, 15)
+        );
+
+        let batch_size_bytes = prometheus_client::metrics::histogram::Histogram::new(
+            prometheus_client::metrics::histogram::exponential_buckets(100.0, 2.0, 15)
+        );
+
+        let send_errors = prometheus_client::metrics::counter::Counter::<u64>::default();
+        let pending = prometheus_client::metrics::gauge::Gauge::<i64>::default();
+
+        registry.register(
+            "streamhouse_producer_records_sent_total",
+            "Total number of records sent",
+            records_sent.clone(),
+        );
+
+        registry.register(
+            "streamhouse_producer_bytes_sent_total",
+            "Total bytes sent",
+            bytes_sent.clone(),
+        );
+
+        registry.register(
+            "streamhouse_producer_send_duration_seconds",
+            "Duration of send() calls in seconds",
+            send_duration.clone(),
+        );
+
+        registry.register(
+            "streamhouse_producer_batch_flush_duration_seconds",
+            "Duration of batch flushes in seconds",
+            batch_flush_duration.clone(),
+        );
+
+        registry.register(
+            "streamhouse_producer_batch_size_records",
+            "Batch size in records",
+            batch_size_records.clone(),
+        );
+
+        registry.register(
+            "streamhouse_producer_batch_size_bytes",
+            "Batch size in bytes",
+            batch_size_bytes.clone(),
+        );
+
+        registry.register(
+            "streamhouse_producer_send_errors_total",
+            "Total send errors",
+            send_errors.clone(),
+        );
+
+        registry.register(
+            "streamhouse_producer_pending_records",
+            "Current pending records awaiting offset",
+            pending.clone(),
+        );
+
+        Self {
+            records_sent_total: records_sent,
+            bytes_sent_total: bytes_sent,
+            send_duration_seconds: send_duration,
+            batch_flush_duration_seconds: batch_flush_duration,
+            batch_size_records: batch_size_records,
+            batch_size_bytes: batch_size_bytes,
+            send_errors_total: send_errors,
+            pending_records: pending,
+        }
+    }
+
+    /// Record a successful send operation.
+    pub fn record_send(&self, bytes: u64, duration_secs: f64) {
+        self.records_sent_total.inc();
+        self.bytes_sent_total.inc_by(bytes);
+        self.send_duration_seconds.observe(duration_secs);
+    }
+
+    /// Record a batch flush operation.
+    pub fn record_batch_flush(&self, record_count: usize, byte_count: usize, duration_secs: f64) {
+        self.batch_size_records.observe(record_count as f64);
+        self.batch_size_bytes.observe(byte_count as f64);
+        self.batch_flush_duration_seconds.observe(duration_secs);
+    }
+
+    /// Record a send error.
+    pub fn record_error(&self) {
+        self.send_errors_total.inc();
+    }
+
+    /// Update the pending records gauge.
+    pub fn set_pending(&self, count: i64) {
+        self.pending_records.set(count);
+    }
+}
+
 pub struct Producer {
     /// Producer configuration (immutable after creation).
     config: ProducerConfig,
@@ -594,6 +733,13 @@ pub struct Producer {
     /// Key: (topic, partition_id)
     /// Value: Queue of pending records in FIFO order (matching batch order)
     pending_records: Arc<Mutex<HashMap<(String, u32), PendingQueue>>>,
+
+    /// Optional Prometheus metrics for observability.
+    ///
+    /// When provided, the Producer will record throughput, latency, batch sizes,
+    /// and errors to Prometheus. Metrics are atomic and lock-free.
+    #[cfg(feature = "metrics")]
+    metrics: Option<Arc<ProducerMetrics>>,
 }
 
 impl Producer {
@@ -716,6 +862,9 @@ impl Producer {
         value: &[u8],
         partition: Option<u32>,
     ) -> Result<SendResult> {
+        #[cfg(feature = "metrics")]
+        let start = std::time::Instant::now();
+
         // Get topic metadata
         let topic_meta = self.get_or_fetch_topic(topic).await?;
 
@@ -764,6 +913,13 @@ impl Producer {
                 offset_sender: offset_tx,
             });
         drop(pending);
+
+        // Record metrics (Phase 7)
+        #[cfg(feature = "metrics")]
+        if let Some(ref metrics) = self.metrics {
+            let duration = start.elapsed().as_secs_f64();
+            metrics.record_send(value.len() as u64, duration);
+        }
 
         // Return immediately with offset receiver (Phase 5.4)
         // Offset will be set asynchronously when batch flushes
@@ -1213,7 +1369,10 @@ impl Producer {
         metadata_store: &Arc<dyn MetadataStore>,
         agents: &Arc<RwLock<HashMap<String, AgentInfo>>>,
         retry_policy: &RetryPolicy,
+        #[cfg(feature = "metrics")] metrics: Option<&Arc<ProducerMetrics>>,
     ) -> Result<ProduceResponse> {
+        #[cfg(feature = "metrics")]
+        let start = std::time::Instant::now();
         // Find agent for partition
         let agent =
             Self::find_agent_for_partition_impl(topic, partition, metadata_store, agents).await?;
@@ -1231,6 +1390,11 @@ impl Producer {
             })?;
 
         // Build ProduceRequest
+        #[cfg(feature = "metrics")]
+        let record_count = records.len();
+        #[cfg(feature = "metrics")]
+        let byte_count: usize = records.iter().map(|r| r.value.len()).sum();
+
         let proto_records: Vec<Record> = records
             .into_iter()
             .map(|r| Record {
@@ -1254,11 +1418,22 @@ impl Producer {
         })
         .await
         .map_err(|e| {
+            #[cfg(feature = "metrics")]
+            if let Some(metrics) = metrics {
+                metrics.record_error();
+            }
             ClientError::AgentError(
                 agent.agent_id.clone(),
                 format!("Produce request failed: {}", e),
             )
         })?;
+
+        // Record batch flush metrics (Phase 7)
+        #[cfg(feature = "metrics")]
+        if let Some(metrics) = metrics {
+            let duration = start.elapsed().as_secs_f64();
+            metrics.record_batch_flush(record_count, byte_count, duration);
+        }
 
         Ok(response.into_inner())
     }
@@ -1363,6 +1538,7 @@ impl Producer {
         agents: Arc<RwLock<HashMap<String, AgentInfo>>>,
         retry_policy: RetryPolicy,
         pending_records: Arc<Mutex<HashMap<(String, u32), PendingQueue>>>,
+        #[cfg(feature = "metrics")] metrics: Option<Arc<ProducerMetrics>>,
     ) -> tokio::task::JoinHandle<()> {
         tokio::spawn(async move {
             let mut interval = tokio::time::interval(Duration::from_millis(50));
@@ -1385,6 +1561,8 @@ impl Producer {
                         &metadata_store,
                         &agents,
                         &retry_policy,
+                        #[cfg(feature = "metrics")]
+                        metrics.as_ref(),
                     )
                     .await
                     {
@@ -1581,6 +1759,10 @@ pub struct ProducerBuilder {
 
     /// Base backoff duration for retries (default: 100ms).
     retry_backoff: Duration,
+
+    /// Optional Prometheus metrics for observability.
+    #[cfg(feature = "metrics")]
+    metrics: Option<Arc<ProducerMetrics>>,
 }
 
 impl ProducerBuilder {
@@ -1611,6 +1793,8 @@ impl ProducerBuilder {
             agent_refresh_interval: Duration::from_secs(30),
             max_retries: 3,
             retry_backoff: Duration::from_millis(100),
+            #[cfg(feature = "metrics")]
+            metrics: None,
         }
     }
 
@@ -1875,6 +2059,36 @@ impl ProducerBuilder {
         self
     }
 
+    /// Set optional Prometheus metrics for observability.
+    ///
+    /// When provided, the Producer will record throughput, latency, batch sizes,
+    /// and errors to Prometheus. Metrics are atomic and lock-free.
+    ///
+    /// # Arguments
+    ///
+    /// * `metrics` - ProducerMetrics instance (created with a Prometheus registry)
+    ///
+    /// # Examples
+    ///
+    /// ```ignore
+    /// use prometheus_client::registry::Registry;
+    /// use streamhouse_client::ProducerMetrics;
+    ///
+    /// let mut registry = Registry::default();
+    /// let metrics = Arc::new(ProducerMetrics::new(&mut registry));
+    ///
+    /// let producer = Producer::builder()
+    ///     .metadata_store(metadata_store)
+    ///     .metrics(metrics)
+    ///     .build()
+    ///     .await?;
+    /// ```
+    #[cfg(feature = "metrics")]
+    pub fn metrics(mut self, metrics: Arc<ProducerMetrics>) -> Self {
+        self.metrics = Some(metrics);
+        self
+    }
+
     /// Build the Producer
     pub async fn build(self) -> Result<Producer> {
         let metadata_store = self
@@ -1954,6 +2168,8 @@ impl ProducerBuilder {
             Arc::clone(&agents),
             retry_policy.clone(),
             Arc::clone(&pending_records),
+            #[cfg(feature = "metrics")]
+            self.metrics.clone(),
         ))));
 
         Ok(Producer {
@@ -1966,6 +2182,8 @@ impl ProducerBuilder {
             retry_policy,
             flush_handle,
             pending_records,
+            #[cfg(feature = "metrics")]
+            metrics: self.metrics,
         })
     }
 }
@@ -1985,6 +2203,8 @@ mod tests {
         let producer = ProducerBuilder {
             metadata_store: None,
             agent_group: "test".to_string(),
+            #[cfg(feature = "metrics")]
+            metrics: None,
             batch_size: 100,
             batch_timeout: Duration::from_millis(100),
             compression_enabled: true,

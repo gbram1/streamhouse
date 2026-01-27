@@ -57,6 +57,121 @@ use tokio::sync::RwLock;
 ///     consumer.commit().await?;
 /// }
 /// ```
+
+/// Prometheus metrics for the Consumer.
+///
+/// Tracks throughput, latency, consumer lag, and offset positions.
+/// All metrics use atomic operations for lock-free updates.
+///
+/// ## Metrics
+///
+/// - `records_consumed_total`: Total records consumed (counter)
+/// - `bytes_consumed_total`: Total bytes consumed (counter)
+/// - `poll_duration_seconds`: Latency of poll() calls (histogram)
+/// - `consumer_lag_records`: Consumer lag in records (gauge)
+/// - `consumer_lag_seconds`: Consumer lag in time (gauge)
+/// - `last_committed_offset`: Last committed offset (gauge)
+/// - `current_offset`: Current read position (gauge)
+#[cfg(feature = "metrics")]
+pub struct ConsumerMetrics {
+    records_consumed_total: prometheus_client::metrics::counter::Counter<u64>,
+    bytes_consumed_total: prometheus_client::metrics::counter::Counter<u64>,
+    poll_duration_seconds: prometheus_client::metrics::histogram::Histogram,
+    consumer_lag_records: prometheus_client::metrics::gauge::Gauge<i64>,
+    consumer_lag_seconds: prometheus_client::metrics::gauge::Gauge<i64>,
+    last_committed_offset: prometheus_client::metrics::gauge::Gauge<i64>,
+    current_offset: prometheus_client::metrics::gauge::Gauge<i64>,
+}
+
+#[cfg(feature = "metrics")]
+impl ConsumerMetrics {
+    /// Create new ConsumerMetrics and register with the given registry.
+    pub fn new(registry: &mut prometheus_client::registry::Registry) -> Self {
+        let records_consumed = prometheus_client::metrics::counter::Counter::<u64>::default();
+        let bytes_consumed = prometheus_client::metrics::counter::Counter::<u64>::default();
+
+        let poll_duration = prometheus_client::metrics::histogram::Histogram::new(
+            prometheus_client::metrics::histogram::exponential_buckets(0.001, 2.0, 15)
+        );
+
+        let lag_records = prometheus_client::metrics::gauge::Gauge::<i64>::default();
+        let lag_seconds = prometheus_client::metrics::gauge::Gauge::<i64>::default();
+        let last_committed = prometheus_client::metrics::gauge::Gauge::<i64>::default();
+        let current = prometheus_client::metrics::gauge::Gauge::<i64>::default();
+
+        registry.register(
+            "streamhouse_consumer_records_consumed_total",
+            "Total number of records consumed",
+            records_consumed.clone(),
+        );
+
+        registry.register(
+            "streamhouse_consumer_bytes_consumed_total",
+            "Total bytes consumed",
+            bytes_consumed.clone(),
+        );
+
+        registry.register(
+            "streamhouse_consumer_poll_duration_seconds",
+            "Duration of poll() calls in seconds",
+            poll_duration.clone(),
+        );
+
+        registry.register(
+            "streamhouse_consumer_lag_records",
+            "Consumer lag in records",
+            lag_records.clone(),
+        );
+
+        registry.register(
+            "streamhouse_consumer_lag_seconds",
+            "Consumer lag in seconds",
+            lag_seconds.clone(),
+        );
+
+        registry.register(
+            "streamhouse_consumer_last_committed_offset",
+            "Last committed offset",
+            last_committed.clone(),
+        );
+
+        registry.register(
+            "streamhouse_consumer_current_offset",
+            "Current read offset",
+            current.clone(),
+        );
+
+        Self {
+            records_consumed_total: records_consumed,
+            bytes_consumed_total: bytes_consumed,
+            poll_duration_seconds: poll_duration,
+            consumer_lag_records: lag_records,
+            consumer_lag_seconds: lag_seconds,
+            last_committed_offset: last_committed,
+            current_offset: current,
+        }
+    }
+
+    /// Record a successful poll operation.
+    pub fn record_poll(&self, record_count: usize, total_bytes: u64, duration_secs: f64) {
+        self.records_consumed_total.inc_by(record_count as u64);
+        self.bytes_consumed_total.inc_by(total_bytes);
+        self.poll_duration_seconds.observe(duration_secs);
+    }
+
+    /// Update consumer lag metrics.
+    pub fn update_lag(&self, lag_records: i64, lag_seconds: i64) {
+        self.consumer_lag_records.set(lag_records);
+        self.consumer_lag_seconds.set(lag_seconds);
+    }
+
+    /// Update offset positions.
+    pub fn update_offsets(&self, current: i64, committed: i64) {
+        self.current_offset.set(current);
+        self.last_committed_offset.set(committed);
+    }
+}
+
 pub struct Consumer {
     config: ConsumerConfig,
     group_id: Option<String>,
@@ -76,6 +191,12 @@ pub struct Consumer {
     auto_commit: bool,
     auto_commit_interval: Duration,
     last_commit: tokio::time::Instant,
+
+    // Observability
+    #[cfg(feature = "metrics")]
+    metrics: Option<Arc<ConsumerMetrics>>,
+    #[cfg(feature = "metrics")]
+    last_lag_update: tokio::time::Instant,
 }
 
 /// Key for identifying a partition in the readers map.
@@ -138,6 +259,8 @@ pub struct ConsumerBuilder {
     auto_commit: bool,
     auto_commit_interval: Duration,
     offset_reset: OffsetReset,
+    #[cfg(feature = "metrics")]
+    metrics: Option<Arc<ConsumerMetrics>>,
 }
 
 impl ConsumerBuilder {
@@ -153,6 +276,8 @@ impl ConsumerBuilder {
             auto_commit: true,
             auto_commit_interval: Duration::from_secs(5),
             offset_reset: OffsetReset::Latest,
+            #[cfg(feature = "metrics")]
+            metrics: None,
         }
     }
 
@@ -219,6 +344,39 @@ impl ConsumerBuilder {
         self
     }
 
+    /// Set optional Prometheus metrics for observability.
+    ///
+    /// When provided, the Consumer will record throughput, latency, consumer lag,
+    /// and offset positions to Prometheus. Metrics are atomic and lock-free.
+    ///
+    /// # Arguments
+    ///
+    /// * `metrics` - ConsumerMetrics instance (created with a Prometheus registry)
+    ///
+    /// # Examples
+    ///
+    /// ```ignore
+    /// use prometheus_client::registry::Registry;
+    /// use streamhouse_client::ConsumerMetrics;
+    ///
+    /// let mut registry = Registry::default();
+    /// let metrics = Arc::new(ConsumerMetrics::new(&mut registry));
+    ///
+    /// let consumer = Consumer::builder()
+    ///     .group_id("my-group")
+    ///     .topics(vec!["orders".to_string()])
+    ///     .metadata_store(metadata_store)
+    ///     .object_store(object_store)
+    ///     .metrics(metrics)
+    ///     .build()
+    ///     .await?;
+    /// ```
+    #[cfg(feature = "metrics")]
+    pub fn metrics(mut self, metrics: Arc<ConsumerMetrics>) -> Self {
+        self.metrics = Some(metrics);
+        self
+    }
+
     /// Build the Consumer.
     ///
     /// # Errors
@@ -274,6 +432,10 @@ impl ConsumerBuilder {
             auto_commit: self.auto_commit,
             auto_commit_interval: self.auto_commit_interval,
             last_commit: tokio::time::Instant::now(),
+            #[cfg(feature = "metrics")]
+            metrics: self.metrics,
+            #[cfg(feature = "metrics")]
+            last_lag_update: tokio::time::Instant::now(),
         };
 
         // Initialize partition readers for subscribed topics
@@ -392,6 +554,8 @@ impl Consumer {
     /// Returns an error if reading from storage fails.
     pub async fn poll(&mut self, timeout: Duration) -> Result<Vec<ConsumedRecord>> {
         let start = tokio::time::Instant::now();
+        #[cfg(feature = "metrics")]
+        let metrics_start = std::time::Instant::now();
         let mut all_records = Vec::new();
 
         // Read from each partition (round-robin)
@@ -454,6 +618,20 @@ impl Consumer {
             drop(readers); // Release write lock before commit
             self.commit().await?;
             self.last_commit = tokio::time::Instant::now();
+        }
+
+        // Record metrics (Phase 7)
+        #[cfg(feature = "metrics")]
+        if let Some(ref metrics) = self.metrics {
+            let duration = metrics_start.elapsed().as_secs_f64();
+            let total_bytes: u64 = all_records.iter().map(|r| r.value.len() as u64).sum();
+            metrics.record_poll(all_records.len(), total_bytes, duration);
+
+            // Update lag metrics every 30 seconds
+            if self.last_lag_update.elapsed() >= Duration::from_secs(30) {
+                self.update_lag_internal().await.ok(); // Ignore errors
+                self.last_lag_update = tokio::time::Instant::now();
+            }
         }
 
         Ok(all_records)
@@ -560,6 +738,76 @@ impl Consumer {
             .ok_or_else(|| ClientError::InvalidPartition(partition_id, topic.to_string(), 0))?;
 
         Ok(partition_consumer.current_offset)
+    }
+
+    /// Get the current consumer lag for a specific partition (Phase 7).
+    ///
+    /// Consumer lag is the difference between the partition's high watermark
+    /// (latest offset) and the consumer's current position.
+    ///
+    /// # Arguments
+    ///
+    /// * `topic` - Topic name
+    /// * `partition` - Partition ID
+    ///
+    /// # Returns
+    ///
+    /// The lag in records (high_watermark - current_offset).
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    /// - Partition metadata cannot be fetched
+    /// - Partition is not subscribed
+    ///
+    /// # Examples
+    ///
+    /// ```ignore
+    /// let lag = consumer.lag("orders", 0).await?;
+    /// println!("Current lag: {} records", lag);
+    /// ```
+    pub async fn lag(&self, topic: &str, partition: u32) -> Result<i64> {
+        // Get partition metadata for high watermark
+        let partition_meta = self
+            .metadata_store
+            .get_partition(topic, partition)
+            .await
+            .map_err(ClientError::MetadataError)?
+            .ok_or_else(|| {
+                ClientError::TopicNotFound(format!("Partition {}/{} not found", topic, partition))
+            })?;
+
+        // Get current offset
+        let current = self.position(topic, partition).await?;
+
+        // Calculate lag
+        Ok(partition_meta.high_watermark as i64 - current as i64)
+    }
+
+    /// Internal method to update lag metrics for all partitions (Phase 7).
+    #[cfg(feature = "metrics")]
+    async fn update_lag_internal(&self) -> Result<()> {
+        if let Some(ref metrics) = self.metrics {
+            let readers = self.readers.read().await;
+
+            for (key, partition_consumer) in readers.iter() {
+                // Get partition metadata
+                if let Ok(Some(partition_meta)) = self
+                    .metadata_store
+                    .get_partition(&key.topic, key.partition_id)
+                    .await
+                {
+                    let current = partition_consumer.current_offset as i64;
+                    let high_watermark = partition_meta.high_watermark as i64;
+                    let lag_records = high_watermark - current;
+
+                    // Update metrics
+                    metrics.update_lag(lag_records, 0); // lag_seconds not implemented yet
+                    metrics.update_offsets(current, partition_consumer.last_committed_offset as i64);
+                }
+            }
+        }
+        Ok(())
     }
 
     /// Close the consumer and commit final offsets.

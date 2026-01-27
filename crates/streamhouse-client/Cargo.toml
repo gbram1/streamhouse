@@ -6,6 +6,9 @@ authors.workspace = true
 license.workspace = true
 repository.workspace = true
 
+[features]
+metrics = ["prometheus-client"]
+
 [dependencies]
 streamhouse-core = { path = "../streamhouse-core" }
 streamhouse-metadata = { path = "../streamhouse-metadata" }
@@ -28,6 +31,9 @@ siphasher = "1.0"
 
 # For S3 integration
 object_store = "0.9"
+
+# For metrics
+prometheus-client = { workspace = true, optional = true }
 
 [dev-dependencies]
 tokio-test = "0.4"

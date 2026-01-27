@@ -94,7 +94,13 @@ async fn start_test_agent(
     let addr = listener.local_addr().unwrap();
     let address = format!("http://{}", addr);
 
-    let service = ProducerServiceImpl::new(writer_pool, metadata_store, agent_id);
+    let service = ProducerServiceImpl::new(
+        writer_pool,
+        metadata_store,
+        agent_id,
+        #[cfg(feature = "metrics")]
+        None,
+    );
 
     tokio::spawn(async move {
         Server::builder()

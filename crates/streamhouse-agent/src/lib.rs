@@ -46,9 +46,17 @@ pub mod grpc_service;
 pub mod heartbeat;
 pub mod lease_manager;
 
+#[cfg(feature = "metrics")]
+pub mod metrics_server;
+
 pub use agent::{Agent, AgentBuilder, AgentConfig};
 pub use assigner::PartitionAssigner;
 pub use error::{AgentError, Result};
 pub use grpc_service::ProducerServiceImpl;
 pub use heartbeat::HeartbeatTask;
 pub use lease_manager::{validate_epoch, LeaseManager};
+
+#[cfg(feature = "metrics")]
+pub use grpc_service::AgentMetrics;
+#[cfg(feature = "metrics")]
+pub use metrics_server::MetricsServer;
