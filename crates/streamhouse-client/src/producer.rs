@@ -538,7 +538,7 @@ type PendingQueue = VecDeque<PendingRecord>;
 /// - 50K+ records/sec (batching + connection pooling)
 /// - <10ms p99 latency (gRPC + batching)
 /// - Production-ready
-
+///
 /// Prometheus metrics for the Producer.
 ///
 /// Tracks throughput, latency, batch sizes, and errors for producer operations.
@@ -574,19 +574,19 @@ impl ProducerMetrics {
         let bytes_sent = prometheus_client::metrics::counter::Counter::<u64>::default();
 
         let send_duration = prometheus_client::metrics::histogram::Histogram::new(
-            prometheus_client::metrics::histogram::exponential_buckets(0.001, 2.0, 15)
+            prometheus_client::metrics::histogram::exponential_buckets(0.001, 2.0, 15),
         );
 
         let batch_flush_duration = prometheus_client::metrics::histogram::Histogram::new(
-            prometheus_client::metrics::histogram::exponential_buckets(0.001, 2.0, 15)
+            prometheus_client::metrics::histogram::exponential_buckets(0.001, 2.0, 15),
         );
 
         let batch_size_records = prometheus_client::metrics::histogram::Histogram::new(
-            prometheus_client::metrics::histogram::exponential_buckets(1.0, 2.0, 15)
+            prometheus_client::metrics::histogram::exponential_buckets(1.0, 2.0, 15),
         );
 
         let batch_size_bytes = prometheus_client::metrics::histogram::Histogram::new(
-            prometheus_client::metrics::histogram::exponential_buckets(100.0, 2.0, 15)
+            prometheus_client::metrics::histogram::exponential_buckets(100.0, 2.0, 15),
         );
 
         let send_errors = prometheus_client::metrics::counter::Counter::<u64>::default();
@@ -645,8 +645,8 @@ impl ProducerMetrics {
             bytes_sent_total: bytes_sent,
             send_duration_seconds: send_duration,
             batch_flush_duration_seconds: batch_flush_duration,
-            batch_size_records: batch_size_records,
-            batch_size_bytes: batch_size_bytes,
+            batch_size_records,
+            batch_size_bytes,
             send_errors_total: send_errors,
             pending_records: pending,
         }
@@ -1033,6 +1033,8 @@ impl Producer {
                 &self.config.metadata_store,
                 &self.agents,
                 &self.retry_policy,
+                #[cfg(feature = "metrics")]
+                self.metrics.as_ref(),
             )
             .await
             {
@@ -1124,6 +1126,8 @@ impl Producer {
                 &self.config.metadata_store,
                 &self.agents,
                 &self.retry_policy,
+                #[cfg(feature = "metrics")]
+                self.metrics.as_ref(),
             )
             .await
             {
@@ -1361,6 +1365,7 @@ impl Producer {
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
     async fn send_batch_to_agent(
         topic: &str,
         partition: u32,

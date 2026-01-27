@@ -26,8 +26,6 @@
 //! ```
 
 #[cfg(feature = "metrics")]
-use crate::grpc_service::AgentMetrics;
-#[cfg(feature = "metrics")]
 use axum::{
     extract::State,
     response::{IntoResponse, Response},

@@ -57,7 +57,7 @@ use tokio::sync::RwLock;
 ///     consumer.commit().await?;
 /// }
 /// ```
-
+///
 /// Prometheus metrics for the Consumer.
 ///
 /// Tracks throughput, latency, consumer lag, and offset positions.
@@ -91,7 +91,7 @@ impl ConsumerMetrics {
         let bytes_consumed = prometheus_client::metrics::counter::Counter::<u64>::default();
 
         let poll_duration = prometheus_client::metrics::histogram::Histogram::new(
-            prometheus_client::metrics::histogram::exponential_buckets(0.001, 2.0, 15)
+            prometheus_client::metrics::histogram::exponential_buckets(0.001, 2.0, 15),
         );
 
         let lag_records = prometheus_client::metrics::gauge::Gauge::<i64>::default();
@@ -803,7 +803,8 @@ impl Consumer {
 
                     // Update metrics
                     metrics.update_lag(lag_records, 0); // lag_seconds not implemented yet
-                    metrics.update_offsets(current, partition_consumer.last_committed_offset as i64);
+                    metrics
+                        .update_offsets(current, partition_consumer.last_committed_offset as i64);
                 }
             }
         }

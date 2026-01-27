@@ -84,14 +84,14 @@ impl AgentMetrics {
         let records_written = prometheus_client::metrics::counter::Counter::<u64>::default();
 
         let write_latency = prometheus_client::metrics::histogram::Histogram::new(
-            prometheus_client::metrics::histogram::exponential_buckets(0.001, 2.0, 15)
+            prometheus_client::metrics::histogram::exponential_buckets(0.001, 2.0, 15),
         );
 
         let active_connections = prometheus_client::metrics::gauge::Gauge::<i64>::default();
         let grpc_requests = prometheus_client::metrics::counter::Counter::<u64>::default();
 
         let grpc_duration = prometheus_client::metrics::histogram::Histogram::new(
-            prometheus_client::metrics::histogram::exponential_buckets(0.001, 2.0, 15)
+            prometheus_client::metrics::histogram::exponential_buckets(0.001, 2.0, 15),
         );
 
         registry.register(
@@ -219,9 +219,9 @@ pub struct ProducerServiceImpl {
     /// Agent state for checking if we're shutting down
     shutting_down: Arc<RwLock<bool>>,
 
-    /// Optional Prometheus metrics for observability
+    /// Optional Prometheus metrics for observability (reserved for future use)
     #[cfg(feature = "metrics")]
-    metrics: Option<Arc<AgentMetrics>>,
+    _metrics: Option<Arc<AgentMetrics>>,
 }
 
 impl ProducerServiceImpl {
@@ -258,7 +258,7 @@ impl ProducerServiceImpl {
             agent_id,
             shutting_down: Arc::new(RwLock::new(false)),
             #[cfg(feature = "metrics")]
-            metrics,
+            _metrics: metrics,
         }
     }
 
