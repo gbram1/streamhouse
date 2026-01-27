@@ -35,9 +35,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let metadata: Arc<dyn MetadataStore> =
         Arc::new(SqliteMetadataStore::new(db_path.to_str().unwrap()).await?);
 
-    let object_store = Arc::new(
-        object_store::local::LocalFileSystem::new_with_prefix(&data_path)?
-    ) as Arc<dyn object_store::ObjectStore>;
+    let object_store = Arc::new(object_store::local::LocalFileSystem::new_with_prefix(
+        &data_path,
+    )?) as Arc<dyn object_store::ObjectStore>;
 
     println!("  ✓ Metadata store: {}", db_path.display());
     println!("  ✓ Object store: {}\n", data_path.display());
@@ -53,7 +53,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             config: HashMap::new(),
         };
 
-        metadata.create_topic(topic_config).await
+        metadata
+            .create_topic(topic_config)
+            .await
             .unwrap_or_else(|e| {
                 println!("  (Topic '{}' may already exist: {})", topic_name, e);
             });
@@ -162,7 +164,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             consumer_metrics.record_poll(5, 750, 0.002);
 
             if (i + 1) % 20 == 0 {
-                println!("  Simulated: {} poll operations ({} records)", i + 1, (i + 1) * 5);
+                println!(
+                    "  Simulated: {} poll operations ({} records)",
+                    i + 1,
+                    (i + 1) * 5
+                );
             }
         }
 
@@ -194,8 +200,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         // Get partitions
         for partition_id in 0..topic.partition_count {
             if let Some(partition) = metadata.get_partition(&topic.name, partition_id).await? {
-                println!("    └─ Partition {}: high watermark: {}",
-                    partition_id, partition.high_watermark);
+                println!(
+                    "    └─ Partition {}: high watermark: {}",
+                    partition_id, partition.high_watermark
+                );
             }
         }
     }
@@ -225,7 +233,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     for seg_id in 0..3 {
         let segment_path = segment_dir.join(format!("segment_{:010}.dat", seg_id * 1000));
-        fs::write(&segment_path, format!("Sample segment {} data", seg_id).as_bytes())?;
+        fs::write(
+            &segment_path,
+            format!("Sample segment {} data", seg_id).as_bytes(),
+        )?;
     }
 
     println!("📦 Sample segments created:");
