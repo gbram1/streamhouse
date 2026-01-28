@@ -63,9 +63,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         #[cfg(feature = "postgres")]
         {
             info!("  Using PostgreSQL");
-            Arc::new(
-                streamhouse_metadata::PostgresMetadataStore::new(&metadata_store_url).await?,
-            )
+            Arc::new(streamhouse_metadata::PostgresMetadataStore::new(&metadata_store_url).await?)
         }
         #[cfg(not(feature = "postgres"))]
         {
@@ -110,8 +108,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .unwrap_or(100 * 1024 * 1024); // 100MB default
 
     let segment_cache = Arc::new(streamhouse_storage::SegmentCache::new(
-        &cache_dir,
-        cache_size,
+        &cache_dir, cache_size,
     )?);
 
     info!("✓ Segment cache initialized ({})", cache_dir);

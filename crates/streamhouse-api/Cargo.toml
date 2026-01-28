@@ -34,6 +34,9 @@ streamhouse-client = { path = "../streamhouse-client" }
 streamhouse-storage = { path = "../streamhouse-storage" }
 object_store = { workspace = true }
 
+[features]
+postgres = ["streamhouse-metadata/postgres"]
+
 [[bin]]
 name = "api"
 path = "src/bin/api.rs"

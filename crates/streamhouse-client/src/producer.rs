@@ -1386,11 +1386,12 @@ impl Producer {
 
         // Get connection from pool
         // Add http:// scheme if not present
-        let address = if agent.address.starts_with("http://") || agent.address.starts_with("https://") {
-            agent.address.clone()
-        } else {
-            format!("http://{}", agent.address)
-        };
+        let address =
+            if agent.address.starts_with("http://") || agent.address.starts_with("https://") {
+                agent.address.clone()
+            } else {
+                format!("http://{}", agent.address)
+            };
 
         let client = connection_pool
             .get_connection(&address)
