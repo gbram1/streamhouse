@@ -16,9 +16,7 @@ use crate::{models::*, AppState};
     ),
     tag = "agents"
 )]
-pub async fn list_agents(
-    State(state): State<AppState>,
-) -> Result<Json<Vec<Agent>>, StatusCode> {
+pub async fn list_agents(State(state): State<AppState>) -> Result<Json<Vec<Agent>>, StatusCode> {
     let agents = state
         .metadata
         .list_agents(None, None) // No filters
@@ -35,7 +33,9 @@ pub async fn list_agents(
     // Count leases per agent
     let mut lease_counts = std::collections::HashMap::new();
     for lease in all_leases {
-        *lease_counts.entry(lease.leader_agent_id.clone()).or_insert(0u32) += 1;
+        *lease_counts
+            .entry(lease.leader_agent_id.clone())
+            .or_insert(0u32) += 1;
     }
 
     // Build response with lease counts

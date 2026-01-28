@@ -67,7 +67,10 @@ pub async fn consume(
     );
 
     // Read records
-    let result = reader.read(req.offset, req.max_records).await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let result = reader
+        .read(req.offset, req.max_records)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
     // Convert to API records
     let records: Vec<ConsumedRecord> = result
@@ -77,7 +80,10 @@ pub async fn consume(
         .map(|(i, record)| ConsumedRecord {
             partition: req.partition,
             offset: req.offset + i as u64,
-            key: record.key.as_ref().map(|k| String::from_utf8_lossy(k).to_string()),
+            key: record
+                .key
+                .as_ref()
+                .map(|k| String::from_utf8_lossy(k).to_string()),
             value: String::from_utf8_lossy(&record.value).to_string(),
             timestamp: record.timestamp as i64,
         })

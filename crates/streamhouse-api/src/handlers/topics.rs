@@ -12,7 +12,7 @@ use streamhouse_metadata::TopicConfig;
 
 fn format_timestamp(timestamp: i64) -> String {
     DateTime::from_timestamp(timestamp, 0)
-        .unwrap_or_else(|| Utc::now())
+        .unwrap_or_else(Utc::now)
         .to_rfc3339()
 }
 
@@ -24,9 +24,7 @@ fn format_timestamp(timestamp: i64) -> String {
     ),
     tag = "topics"
 )]
-pub async fn list_topics(
-    State(state): State<AppState>,
-) -> Result<Json<Vec<Topic>>, StatusCode> {
+pub async fn list_topics(State(state): State<AppState>) -> Result<Json<Vec<Topic>>, StatusCode> {
     let topics = state
         .metadata
         .list_topics()
@@ -70,7 +68,13 @@ pub async fn create_topic(
     }
 
     // Check if topic already exists
-    if state.metadata.get_topic(&req.name).await.unwrap_or(None).is_some() {
+    if state
+        .metadata
+        .get_topic(&req.name)
+        .await
+        .unwrap_or(None)
+        .is_some()
+    {
         return Err(StatusCode::CONFLICT);
     }
 

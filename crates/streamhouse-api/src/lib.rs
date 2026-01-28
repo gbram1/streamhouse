@@ -3,7 +3,7 @@
 //! HTTP/JSON API for managing StreamHouse clusters via web console and other HTTP clients.
 
 use axum::{
-    routing::{delete, get, post},
+    routing::{get, post},
     Router,
 };
 use std::sync::Arc;
