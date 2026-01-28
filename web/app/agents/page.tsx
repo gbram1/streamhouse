@@ -6,7 +6,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Zap, Loader2, AlertCircle, CheckCircle, Server, Activity, Clock } from "lucide-react";
+import { Zap, Loader2, AlertCircle, CheckCircle, Server, Activity, Clock, Eye } from "lucide-react";
 import { apiClient } from "@/lib/api/client";
 import type { Agent } from "@/lib/api/client";
 
@@ -216,6 +216,54 @@ export default function AgentsPage() {
           </Card>
         </div>
 
+        {/* Partition Distribution */}
+        {agents.length > 0 && (
+          <Card className="mb-8">
+            <CardHeader>
+              <CardTitle>Partition Distribution</CardTitle>
+              <CardDescription>
+                Load distribution across agents
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="space-y-4">
+                {agents.map((agent) => {
+                  const healthy = isAgentHealthy(agent.last_heartbeat);
+                  const percentage = totalLeases > 0 ? (agent.active_leases / totalLeases) * 100 : 0;
+
+                  return (
+                    <div key={agent.agent_id} className="space-y-2">
+                      <div className="flex items-center justify-between text-sm">
+                        <div className="flex items-center space-x-2">
+                          <code className="text-xs bg-gray-100 dark:bg-gray-800 px-2 py-1 rounded">
+                            {agent.agent_id}
+                          </code>
+                          {!healthy && (
+                            <Badge variant="secondary" className="text-xs">
+                              Stale
+                            </Badge>
+                          )}
+                        </div>
+                        <span className="text-muted-foreground">
+                          {agent.active_leases} partitions ({percentage.toFixed(1)}%)
+                        </span>
+                      </div>
+                      <div className="w-full bg-gray-200 dark:bg-gray-800 rounded-full h-2">
+                        <div
+                          className={`h-2 rounded-full transition-all ${
+                            healthy ? 'bg-blue-600' : 'bg-yellow-500'
+                          }`}
+                          style={{ width: `${percentage}%` }}
+                        />
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
         {/* Agents Table */}
         <Card>
           <CardHeader>
@@ -236,12 +284,13 @@ export default function AgentsPage() {
                   <TableHead>Last Heartbeat</TableHead>
                   <TableHead>Uptime</TableHead>
                   <TableHead>Status</TableHead>
+                  <TableHead>Actions</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {agents.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={8} className="text-center text-muted-foreground">
+                    <TableCell colSpan={9} className="text-center text-muted-foreground">
                       <div className="py-8">
                         <Server className="h-12 w-12 mx-auto mb-4 opacity-50" />
                         <p>No agents found</p>
@@ -299,6 +348,14 @@ export default function AgentsPage() {
                             )}
                             {healthy ? 'Healthy' : 'Stale'}
                           </Badge>
+                        </TableCell>
+                        <TableCell>
+                          <Link href={`/agents/${agent.agent_id}`}>
+                            <Button variant="outline" size="sm">
+                              <Eye className="mr-2 h-4 w-4" />
+                              View Details
+                            </Button>
+                          </Link>
                         </TableCell>
                       </TableRow>
                     );
