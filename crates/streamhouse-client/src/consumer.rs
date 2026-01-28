@@ -552,6 +552,7 @@ impl Consumer {
     /// # Errors
     ///
     /// Returns an error if reading from storage fails.
+    #[tracing::instrument(skip(self), fields(timeout_ms = timeout.as_millis()))]
     pub async fn poll(&mut self, timeout: Duration) -> Result<Vec<ConsumedRecord>> {
         let start = tokio::time::Instant::now();
         #[cfg(feature = "metrics")]
@@ -647,6 +648,7 @@ impl Consumer {
     /// Returns an error if:
     /// - Consumer was created without a group_id
     /// - Metadata store commit fails
+    #[tracing::instrument(skip(self))]
     pub async fn commit(&self) -> Result<()> {
         let group_id = self
             .group_id

@@ -108,7 +108,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use streamhouse_metadata::{AgentInfo, MetadataStore, Topic};
 use streamhouse_proto::producer::{produce_request::Record, ProduceRequest, ProduceResponse};
 use tokio::sync::{Mutex, RwLock};
-use tracing::{debug, error, info, warn};
+use tracing::{debug, error, info, instrument, warn};
 
 /// Producer configuration containing all operational parameters.
 ///
@@ -855,6 +855,7 @@ impl Producer {
     /// - Sends to agent via gRPC
     /// - Agent maintains writer pool
     /// - <10ms p99 latency with batching
+    #[instrument(skip(self, value), fields(topic, partition, value_len = value.len()))]
     pub async fn send(
         &self,
         topic: &str,
@@ -1366,6 +1367,7 @@ impl Producer {
     }
 
     #[allow(clippy::too_many_arguments)]
+    #[instrument(skip(records, connection_pool, metadata_store, agents, retry_policy, metrics), fields(topic, partition, record_count = records.len()))]
     async fn send_batch_to_agent(
         topic: &str,
         partition: u32,
