@@ -34,9 +34,11 @@ use object_store::aws::AmazonS3Builder;
 use object_store::ObjectStore;
 use std::sync::Arc;
 use std::time::Duration;
-use streamhouse_agent::Agent;
+use streamhouse_agent::{Agent, ProducerServiceImpl};
 use streamhouse_metadata::{MetadataStore, SqliteMetadataStore};
+use streamhouse_proto::producer::producer_service_server::ProducerServiceServer;
 use streamhouse_storage::{SegmentCache, WriteConfig, WriterPool};
+use tonic::transport::Server;
 use tracing::{error, info, Level};
 use tracing_subscriber::FmtSubscriber;
 
@@ -146,7 +148,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         s3_upload_retries: 3,
     };
 
-    let _writer_pool = Arc::new(WriterPool::new(
+    let writer_pool = Arc::new(WriterPool::new(
         metadata.clone(),
         object_store.clone(),
         write_config,
@@ -172,24 +174,101 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     agent.start().await?;
     info!("✓ Agent started successfully");
+
+    // Start gRPC server
+    info!("Starting gRPC server...");
+    let grpc_addr = agent_address.parse()?;
+
+    #[cfg(feature = "metrics")]
+    let grpc_service = ProducerServiceImpl::new(
+        writer_pool.clone(),
+        metadata.clone(),
+        agent_id.clone(),
+        None, // Metrics will be added separately
+    );
+
+    #[cfg(not(feature = "metrics"))]
+    let grpc_service = ProducerServiceImpl::new(
+        writer_pool.clone(),
+        metadata.clone(),
+        agent_id.clone(),
+    );
+
+    let grpc_server = ProducerServiceServer::new(grpc_service);
+
+    let agent_for_shutdown = Arc::clone(&agent);
+    let grpc_handle = tokio::spawn(async move {
+        if let Err(e) = Server::builder()
+            .add_service(grpc_server)
+            .serve(grpc_addr)
+            .await
+        {
+            error!("gRPC server error: {}", e);
+        }
+    });
+
+    info!("✓ gRPC server started on {}", agent_address);
+
+    // Start metrics server if enabled
+    #[cfg(feature = "metrics")]
+    {
+        let metrics_port = std::env::var("METRICS_PORT")
+            .ok()
+            .and_then(|p| p.parse::<u16>().ok())
+            .unwrap_or(8080);
+
+        let metrics_addr = format!("0.0.0.0:{}", metrics_port);
+        info!("Starting metrics server on {}...", metrics_addr);
+
+        let registry = Arc::new(prometheus_client::registry::Registry::default());
+
+        // Create a function to check if agent has active leases
+        let has_active_leases = Arc::new(move || {
+            // For now, always return true if agent is started
+            // TODO: Add Agent::has_active_leases() method
+            true
+        });
+
+        let metrics_server = streamhouse_agent::MetricsServer::new(
+            metrics_addr.parse()?,
+            registry,
+            has_active_leases,
+        );
+
+        tokio::spawn(async move {
+            if let Err(e) = metrics_server.start().await {
+                error!("Metrics server error: {}", e);
+            }
+        });
+
+        info!("✓ Metrics server started on {}", metrics_addr);
+    }
+
     info!("");
     info!("Agent {} is now running", agent_id);
-    info!("Listening on: {}", agent_address);
+    info!("  gRPC:    {}", agent_address);
+    #[cfg(feature = "metrics")]
+    {
+        let metrics_port = std::env::var("METRICS_PORT")
+            .ok()
+            .and_then(|p| p.parse::<u16>().ok())
+            .unwrap_or(8080);
+        info!("  Metrics: http://0.0.0.0:{}", metrics_port);
+    }
     info!("");
 
     // Setup graceful shutdown
-    let agent_clone = Arc::clone(&agent);
     tokio::spawn(async move {
         tokio::signal::ctrl_c().await.ok();
         info!("Received shutdown signal, stopping agent...");
-        if let Err(e) = agent_clone.stop().await {
+        if let Err(e) = agent_for_shutdown.stop().await {
             error!("Error during shutdown: {}", e);
         }
         std::process::exit(0);
     });
 
-    // Keep agent running
-    loop {
-        tokio::time::sleep(Duration::from_secs(60)).await;
-    }
+    // Wait for gRPC server to complete (or Ctrl+C)
+    grpc_handle.await?;
+
+    Ok(())
 }
