@@ -27,3 +27,10 @@ Thumbs.db
 # Cache
 /tmp
 cache/
+
+# Next.js / Web Console
+web/node_modules/
+web/.next/
+web/out/
+web/.env.local
+web/.vercel
