@@ -188,11 +188,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     );
 
     #[cfg(not(feature = "metrics"))]
-    let grpc_service = ProducerServiceImpl::new(
-        writer_pool.clone(),
-        metadata.clone(),
-        agent_id.clone(),
-    );
+    let grpc_service =
+        ProducerServiceImpl::new(writer_pool.clone(), metadata.clone(), agent_id.clone());
 
     let grpc_server = ProducerServiceServer::new(grpc_service);
 
