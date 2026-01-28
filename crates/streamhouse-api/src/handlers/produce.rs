@@ -29,7 +29,7 @@ pub async fn produce(
         .ok_or(StatusCode::NOT_FOUND)?;
 
     // Send message
-    let result = state
+    let mut result = state
         .producer
         .send(
             &req.topic,
@@ -40,8 +40,21 @@ pub async fn produce(
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
+    // Immediately flush to send the batch and get the offset
+    state
+        .producer
+        .flush()
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    // Wait for the offset to be assigned (should be immediate after flush)
+    let offset = result
+        .wait_offset()
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
     Ok(Json(ProduceResponse {
-        offset: result.offset.unwrap_or(0),
+        offset,
         partition: result.partition,
     }))
 }
