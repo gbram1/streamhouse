@@ -38,7 +38,7 @@ use streamhouse_agent::Agent;
 use streamhouse_metadata::{MetadataStore, SqliteMetadataStore};
 use streamhouse_storage::{SegmentCache, WriteConfig, WriterPool};
 use tracing::{error, info, Level};
-use tracing_subscriber::FmtSubscriber
+use tracing_subscriber::FmtSubscriber;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -48,9 +48,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .parse()
         .unwrap_or(Level::INFO);
 
-    let subscriber = FmtSubscriber::builder()
-        .with_max_level(log_level)
-        .finish();
+    let subscriber = FmtSubscriber::builder().with_max_level(log_level).finish();
     tracing::subscriber::set_global_default(subscriber)?;
 
     info!("🚀 StreamHouse Agent starting...");
@@ -63,9 +61,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             .unwrap_or_else(|| format!("agent-{}", uuid::Uuid::new_v4()))
     });
 
-    let agent_address = std::env::var("AGENT_ADDRESS").unwrap_or_else(|_| "0.0.0.0:9090".to_string());
-    let availability_zone =
-        std::env::var("AGENT_ZONE").unwrap_or_else(|_| "default".to_string());
+    let agent_address =
+        std::env::var("AGENT_ADDRESS").unwrap_or_else(|_| "0.0.0.0:9090".to_string());
+    let availability_zone = std::env::var("AGENT_ZONE").unwrap_or_else(|_| "default".to_string());
     let agent_group = std::env::var("AGENT_GROUP").unwrap_or_else(|_| "default".to_string());
 
     let heartbeat_interval = std::env::var("HEARTBEAT_INTERVAL")
@@ -89,8 +87,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Connect to metadata store
     info!("Connecting to metadata store...");
-    let metadata_store_url = std::env::var("METADATA_STORE")
-        .expect("METADATA_STORE environment variable required");
+    let metadata_store_url =
+        std::env::var("METADATA_STORE").expect("METADATA_STORE environment variable required");
 
     let metadata: Arc<dyn MetadataStore> = if metadata_store_url.starts_with("postgresql://")
         || metadata_store_url.starts_with("postgres://")
@@ -98,9 +96,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         #[cfg(feature = "postgres")]
         {
             info!("  Using PostgreSQL: {}", metadata_store_url);
-            Arc::new(
-                streamhouse_metadata::PostgresMetadataStore::new(&metadata_store_url).await?,
-            )
+            Arc::new(streamhouse_metadata::PostgresMetadataStore::new(&metadata_store_url).await?)
         }
         #[cfg(not(feature = "postgres"))]
         {
@@ -129,13 +125,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     info!("✓ Object store connected (bucket: {})", s3_bucket);
 
     // Setup segment cache
-    let cache_dir = std::env::var("STREAMHOUSE_CACHE").unwrap_or_else(|_| "./data/cache".to_string());
+    let cache_dir =
+        std::env::var("STREAMHOUSE_CACHE").unwrap_or_else(|_| "./data/cache".to_string());
     let cache_size = std::env::var("STREAMHOUSE_CACHE_SIZE")
         .ok()
         .and_then(|s| s.parse::<u64>().ok())
         .unwrap_or(1024 * 1024 * 1024); // 1GB default
 
-    let cache = Arc::new(SegmentCache::new(&cache_dir, cache_size)?);
+    let _cache = Arc::new(SegmentCache::new(&cache_dir, cache_size)?);
     info!("✓ Segment cache initialized ({})", cache_dir);
 
     // Create writer pool
@@ -149,7 +146,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         s3_upload_retries: 3,
     };
 
-    let writer_pool = Arc::new(WriterPool::new(
+    let _writer_pool = Arc::new(WriterPool::new(
         metadata.clone(),
         object_store.clone(),
         write_config,

@@ -546,7 +546,8 @@ async fn test_producer_send_and_wait() {
         .unwrap();
 
     println!("Offset from send_and_wait: {}", offset);
-    assert!(offset >= 0);
+    // offset is u64 so always >= 0, just verify we got a value
+    let _ = offset;
 
     producer.close().await.unwrap();
 }

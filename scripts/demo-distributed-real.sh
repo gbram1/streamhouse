@@ -107,9 +107,13 @@ echo "  Metadata store: $METADATA_STORE"
 echo "  Object store: MinIO (streamhouse-data)"
 echo
 
-# Run the multi-agent demo in background to setup topics and start agents
+# Build the example first (to avoid waiting during startup)
+echo "  Building demo binary..."
+cargo build --quiet --release --example demo_phase_4_multi_agent
+
+# Run the multi-agent demo in background
 echo "  Starting multi-agent coordinator..."
-nohup cargo run --quiet --release --example demo_phase_4_multi_agent > ./data/agent-logs/coordinator.log 2>&1 &
+nohup ./target/release/examples/demo_phase_4_multi_agent > ./data/agent-logs/coordinator.log 2>&1 &
 DEMO_PID=$!
 
 echo "  Demo PID: $DEMO_PID"
@@ -123,8 +127,8 @@ for i in {1..30}; do
     fi
     if [ $i -eq 30 ]; then
         echo -e "  ${RED}✗${NC} Agents failed to start within 30 seconds"
-        echo "  Last 20 lines of log:"
-        tail -20 ./data/agent-logs/coordinator.log
+        echo "  Last 50 lines of log:"
+        tail -50 ./data/agent-logs/coordinator.log 2>/dev/null || echo "  (Log file not created)"
         exit 1
     fi
     sleep 1

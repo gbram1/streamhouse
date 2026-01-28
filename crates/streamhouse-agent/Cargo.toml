@@ -7,6 +7,7 @@ license.workspace = true
 
 [features]
 metrics = ["prometheus-client", "axum"]
+postgres = []
 
 [dependencies]
 streamhouse-core = { path = "../streamhouse-core" }

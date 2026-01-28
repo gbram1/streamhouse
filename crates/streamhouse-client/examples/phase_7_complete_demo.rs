@@ -35,7 +35,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let metadata: Arc<dyn MetadataStore> =
         Arc::new(SqliteMetadataStore::new(db_path.to_str().unwrap()).await?);
 
-    let object_store = Arc::new(object_store::local::LocalFileSystem::new_with_prefix(
+    let _object_store = Arc::new(object_store::local::LocalFileSystem::new_with_prefix(
         &data_path,
     )?) as Arc<dyn object_store::ObjectStore>;
 
@@ -118,7 +118,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         prometheus_client::encoding::text::encode(&mut buffer, &registry)?;
 
         // Show first few lines
-        for (i, line) in buffer.lines().take(20).enumerate() {
+        for (_i, line) in buffer.lines().take(20).enumerate() {
             if !line.starts_with('#') {
                 println!("  {}", line);
             }
