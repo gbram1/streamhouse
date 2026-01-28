@@ -123,6 +123,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let object_store: Arc<dyn ObjectStore> = Arc::new(
         AmazonS3Builder::from_env()
             .with_bucket_name(&s3_bucket)
+            .with_allow_http(true) // Allow HTTP for MinIO/local development
             .build()?,
     );
 
