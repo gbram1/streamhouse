@@ -87,10 +87,41 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     info!("✓ Producer initialized");
 
+    // Setup object store for consumer
+    info!("Connecting to object store...");
+    let s3_bucket =
+        std::env::var("STREAMHOUSE_BUCKET").unwrap_or_else(|_| "streamhouse-data".to_string());
+
+    let object_store: Arc<dyn object_store::ObjectStore> = Arc::new(
+        object_store::aws::AmazonS3Builder::from_env()
+            .with_bucket_name(&s3_bucket)
+            .with_allow_http(true) // Allow HTTP for MinIO
+            .build()?,
+    );
+
+    info!("✓ Object store connected (bucket: {})", s3_bucket);
+
+    // Setup segment cache
+    let cache_dir =
+        std::env::var("STREAMHOUSE_CACHE").unwrap_or_else(|_| "./data/cache".to_string());
+    let cache_size = std::env::var("STREAMHOUSE_CACHE_SIZE")
+        .ok()
+        .and_then(|s| s.parse::<u64>().ok())
+        .unwrap_or(100 * 1024 * 1024); // 100MB default
+
+    let segment_cache = Arc::new(streamhouse_storage::SegmentCache::new(
+        &cache_dir,
+        cache_size,
+    )?);
+
+    info!("✓ Segment cache initialized ({})", cache_dir);
+
     // Create app state
     let state = AppState {
         metadata,
         producer: Arc::new(producer),
+        object_store,
+        segment_cache,
     };
 
     // Create router

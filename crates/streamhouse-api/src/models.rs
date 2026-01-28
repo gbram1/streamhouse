@@ -86,3 +86,20 @@ pub struct ErrorResponse {
     pub error: String,
     pub message: String,
 }
+
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct ConsumeResponse {
+    pub records: Vec<ConsumedRecord>,
+    pub next_offset: u64,
+}
+
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct ConsumedRecord {
+    pub partition: u32,
+    pub offset: u64,
+    pub key: Option<String>,
+    pub value: String,
+    pub timestamp: i64,
+}
