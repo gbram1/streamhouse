@@ -50,6 +50,7 @@ async fn setup_test_env_with_topic(
 }
 
 /// Helper to setup test environment with default "test_topic" name.
+#[allow(dead_code)]
 async fn setup_test_env() -> (
     Arc<dyn MetadataStore>,
     Arc<dyn object_store::ObjectStore>,
