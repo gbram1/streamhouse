@@ -23,10 +23,13 @@ async-trait = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 object_store = { workspace = true }
+hostname = "0.3"
+uuid = { version = "1.6", features = ["v4"] }
 
 # Observability (optional)
 prometheus-client = { workspace = true, optional = true }
 axum = { workspace = true, optional = true }
+tracing-subscriber.workspace = true
 
 [dev-dependencies]
 tempfile = { workspace = true }
