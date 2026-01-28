@@ -21,6 +21,8 @@ pub mod models;
 pub struct AppState {
     pub metadata: Arc<dyn MetadataStore>,
     pub producer: Arc<Producer>,
+    pub object_store: Arc<dyn object_store::ObjectStore>,
+    pub segment_cache: Arc<streamhouse_storage::SegmentCache>,
 }
 
 /// Create the API router with all endpoints
@@ -45,6 +47,8 @@ pub fn create_router(state: AppState) -> Router {
         .route("/agents/:id", get(handlers::agents::get_agent))
         // Produce
         .route("/produce", post(handlers::produce::produce))
+        // Consume
+        .route("/consume", get(handlers::consume::consume))
         // Metrics
         .route("/metrics", get(handlers::metrics::get_metrics))
         .with_state(state);
@@ -84,6 +88,7 @@ pub async fn serve(router: Router, port: u16) -> Result<(), Box<dyn std::error::
         handlers::agents::list_agents,
         handlers::agents::get_agent,
         handlers::produce::produce,
+        handlers::consume::consume,
         handlers::metrics::get_metrics,
         handlers::metrics::health_check,
     ),
@@ -94,6 +99,8 @@ pub async fn serve(router: Router, port: u16) -> Result<(), Box<dyn std::error::
         models::Partition,
         models::ProduceRequest,
         models::ProduceResponse,
+        models::ConsumeResponse,
+        models::ConsumedRecord,
         models::MetricsSnapshot,
         models::HealthResponse,
     )),
@@ -101,6 +108,7 @@ pub async fn serve(router: Router, port: u16) -> Result<(), Box<dyn std::error::
         (name = "topics", description = "Topic management"),
         (name = "agents", description = "Agent monitoring"),
         (name = "produce", description = "Message production"),
+        (name = "consume", description = "Message consumption"),
         (name = "metrics", description = "Cluster metrics"),
         (name = "health", description = "Health checks"),
     ),

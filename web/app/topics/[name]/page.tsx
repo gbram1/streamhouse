@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Separator } from "@/components/ui/separator";
-import { Zap, ArrowLeft, Loader2, AlertCircle, CheckCircle, Database, Server } from "lucide-react";
+import { Zap, ArrowLeft, Loader2, AlertCircle, CheckCircle, Database, Server, Eye } from "lucide-react";
 import { apiClient } from "@/lib/api/client";
 import type { Topic, Partition } from "@/lib/api/client";
 
@@ -256,12 +256,13 @@ export default function TopicDetailPage({ params }: { params: Promise<{ name: st
                   <TableHead>Low Watermark</TableHead>
                   <TableHead>Messages</TableHead>
                   <TableHead>Status</TableHead>
+                  <TableHead>Actions</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {partitions.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={6} className="text-center text-muted-foreground">
+                    <TableCell colSpan={7} className="text-center text-muted-foreground">
                       No partitions found
                     </TableCell>
                   </TableRow>
@@ -290,6 +291,14 @@ export default function TopicDetailPage({ params }: { params: Promise<{ name: st
                           <CheckCircle className="mr-1 h-3 w-3" />
                           Active
                         </Badge>
+                      </TableCell>
+                      <TableCell>
+                        <Link href={`/topics/${topicName}/partitions/${partition.partition_id}/messages`}>
+                          <Button variant="outline" size="sm">
+                            <Eye className="mr-2 h-4 w-4" />
+                            View Messages
+                          </Button>
+                        </Link>
                       </TableCell>
                     </TableRow>
                   ))

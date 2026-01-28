@@ -54,6 +54,19 @@ export interface MetricsSnapshot {
   total_storage_bytes: number;
 }
 
+export interface ConsumedRecord {
+  partition: number;
+  offset: number;
+  key: string | null;
+  value: string;
+  timestamp: number;
+}
+
+export interface ConsumeResponse {
+  records: ConsumedRecord[];
+  nextOffset: number;
+}
+
 class ApiClient {
   private baseUrl: string;
 
@@ -146,6 +159,22 @@ class ApiClient {
       method: 'POST',
       body: JSON.stringify(request),
     });
+  }
+
+  // Consume
+  async consume(
+    topic: string,
+    partition: number,
+    offset: number = 0,
+    maxRecords: number = 100
+  ): Promise<ConsumeResponse> {
+    const params = new URLSearchParams({
+      topic,
+      partition: partition.toString(),
+      offset: offset.toString(),
+      maxRecords: maxRecords.toString(),
+    });
+    return this.request<ConsumeResponse>(`/api/v1/consume?${params}`);
   }
 
   // Metrics

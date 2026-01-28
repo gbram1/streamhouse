@@ -31,6 +31,8 @@ chrono = "0.4"
 # StreamHouse dependencies
 streamhouse-metadata = { path = "../streamhouse-metadata" }
 streamhouse-client = { path = "../streamhouse-client" }
+streamhouse-storage = { path = "../streamhouse-storage" }
+object_store = { workspace = true }
 
 [[bin]]
 name = "api"

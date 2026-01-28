@@ -3050,10 +3050,12 @@ version = "0.1.0"
 dependencies = [
  "axum 0.7.9",
  "chrono",
+ "object_store",
  "serde",
  "serde_json",
  "streamhouse-client",
  "streamhouse-metadata",
+ "streamhouse-storage",
  "tokio",
  "tower 0.4.13",
  "tower-http 0.5.2",
