@@ -1385,8 +1385,15 @@ impl Producer {
             Self::find_agent_for_partition_impl(topic, partition, metadata_store, agents).await?;
 
         // Get connection from pool
+        // Add http:// scheme if not present
+        let address = if agent.address.starts_with("http://") || agent.address.starts_with("https://") {
+            agent.address.clone()
+        } else {
+            format!("http://{}", agent.address)
+        };
+
         let client = connection_pool
-            .get_connection(&agent.address)
+            .get_connection(&address)
             .await
             .map_err(|e| {
                 ClientError::AgentConnectionFailed(
