@@ -10,7 +10,7 @@ members = [
     "crates/streamhouse-server",
     "crates/streamhouse-cli",
     "crates/streamhouse-client",
-    "crates/streamhouse-proto",
+    "crates/streamhouse-proto", "crates/streamhouse-api",
 ]
 
 [workspace.package]
