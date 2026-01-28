@@ -17,6 +17,8 @@
 //! - `AWS_ACCESS_KEY_ID`: S3 access key
 //! - `AWS_SECRET_ACCESS_KEY`: S3 secret key
 //! - `AWS_ENDPOINT_URL`: S3 endpoint URL for MinIO
+//! - `SEGMENT_MAX_SIZE`: Max segment size in bytes before flush (default: 100MB)
+//! - `SEGMENT_MAX_AGE_MS`: Max segment age in ms before flush (default: 10 minutes)
 //!
 //! # Example
 //!
@@ -138,9 +140,26 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     info!("✓ Segment cache initialized ({})", cache_dir);
 
     // Create writer pool
+    // Configurable segment settings for development/testing vs production
+    let segment_max_size = std::env::var("SEGMENT_MAX_SIZE")
+        .ok()
+        .and_then(|s| s.parse::<usize>().ok())
+        .unwrap_or(100 * 1024 * 1024); // Default: 100MB
+
+    let segment_max_age_ms = std::env::var("SEGMENT_MAX_AGE_MS")
+        .ok()
+        .and_then(|s| s.parse::<u64>().ok())
+        .unwrap_or(10 * 60 * 1000); // Default: 10 minutes
+
+    info!(
+        "Segment settings: max_size={}MB, max_age={}s",
+        segment_max_size / (1024 * 1024),
+        segment_max_age_ms / 1000
+    );
+
     let write_config = WriteConfig {
-        segment_max_size: 100 * 1024 * 1024, // 100MB
-        segment_max_age_ms: 10 * 60 * 1000,  // 10 minutes
+        segment_max_size,
+        segment_max_age_ms,
         s3_bucket: s3_bucket.clone(),
         s3_region: std::env::var("AWS_REGION").unwrap_or_else(|_| "us-east-1".to_string()),
         s3_endpoint: std::env::var("S3_ENDPOINT").ok(),
