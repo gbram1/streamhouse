@@ -219,9 +219,9 @@ pub struct ProducerServiceImpl {
     /// Agent state for checking if we're shutting down
     shutting_down: Arc<RwLock<bool>>,
 
-    /// Optional Prometheus metrics for observability (reserved for future use)
+    /// Optional Prometheus metrics for observability
     #[cfg(feature = "metrics")]
-    _metrics: Option<Arc<AgentMetrics>>,
+    metrics: Option<Arc<AgentMetrics>>,
 }
 
 impl ProducerServiceImpl {
@@ -258,7 +258,7 @@ impl ProducerServiceImpl {
             agent_id,
             shutting_down: Arc::new(RwLock::new(false)),
             #[cfg(feature = "metrics")]
-            _metrics: metrics,
+            metrics,
         }
     }
 
@@ -385,10 +385,18 @@ impl ProducerService for ProducerServiceImpl {
     /// - Lock contention minimized (only one lock per batch, not per record)
     ///
     /// Target: ~1ms per request (100 records), 50K+ rec/s per agent
+    #[tracing::instrument(skip(self, request), fields(
+        topic = %request.get_ref().topic,
+        partition = request.get_ref().partition,
+        record_count = request.get_ref().records.len()
+    ))]
     async fn produce(
         &self,
         request: Request<ProduceRequest>,
     ) -> std::result::Result<Response<ProduceResponse>, Status> {
+        #[cfg(feature = "metrics")]
+        let start = std::time::Instant::now();
+
         // Check if shutting down
         if *self.shutting_down.read().await {
             return Err(Status::unavailable("Agent is shutting down"));
@@ -471,6 +479,14 @@ impl ProducerService for ProducerServiceImpl {
             record_count = record_count,
             "Successfully produced records"
         );
+
+        // Record metrics (Phase 7)
+        #[cfg(feature = "metrics")]
+        if let Some(ref metrics) = self.metrics {
+            let duration = start.elapsed().as_secs_f64();
+            metrics.record_write(record_count as u64, duration);
+            metrics.record_grpc_request(duration);
+        }
 
         Ok(Response::new(ProduceResponse {
             base_offset,
