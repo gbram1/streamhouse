@@ -1,0 +1,110 @@
+//! StreamHouse REST API Server Binary
+//!
+//! # Environment Variables
+//!
+//! - `METADATA_STORE`: SQLite path or PostgreSQL URL (required)
+//! - `API_PORT`: HTTP port (default: 3001)
+//! - `AWS_ACCESS_KEY_ID`: S3 access key (required)
+//! - `AWS_SECRET_ACCESS_KEY`: S3 secret key (required)
+//! - `AWS_ENDPOINT_URL`: MinIO/S3 endpoint (optional)
+//! - `AWS_REGION`: AWS region (default: us-east-1)
+//! - `STREAMHOUSE_BUCKET`: S3 bucket name (default: streamhouse-data)
+//! - `RUST_LOG`: Log level (default: info)
+//!
+//! # Example
+//!
+//! ```bash
+//! export METADATA_STORE=./data/metadata.db
+//! export AWS_ENDPOINT_URL=http://localhost:9000
+//! export AWS_ACCESS_KEY_ID=minioadmin
+//! export AWS_SECRET_ACCESS_KEY=minioadmin
+//! export API_PORT=3001
+//! cargo run --bin api
+//! ```
+
+use std::sync::Arc;
+use streamhouse_api::{create_router, serve, AppState};
+use streamhouse_client::Producer;
+use streamhouse_metadata::{MetadataStore, SqliteMetadataStore};
+use tracing::{info, Level};
+use tracing_subscriber::FmtSubscriber;
+
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    // Setup logging
+    let log_level = std::env::var("RUST_LOG")
+        .unwrap_or_else(|_| "info".to_string())
+        .parse()
+        .unwrap_or(Level::INFO);
+
+    let subscriber = FmtSubscriber::builder().with_max_level(log_level).finish();
+    tracing::subscriber::set_global_default(subscriber)?;
+
+    info!("🚀 StreamHouse REST API starting...");
+
+    // Load configuration
+    let metadata_store_url =
+        std::env::var("METADATA_STORE").expect("METADATA_STORE environment variable required");
+
+    let api_port = std::env::var("API_PORT")
+        .ok()
+        .and_then(|p| p.parse::<u16>().ok())
+        .unwrap_or(3001);
+
+    info!("Configuration:");
+    info!("  Metadata Store: {}", metadata_store_url);
+    info!("  API Port: {}", api_port);
+
+    // Connect to metadata store
+    info!("Connecting to metadata store...");
+    let metadata: Arc<dyn MetadataStore> = if metadata_store_url.starts_with("postgresql://")
+        || metadata_store_url.starts_with("postgres://")
+    {
+        #[cfg(feature = "postgres")]
+        {
+            info!("  Using PostgreSQL");
+            Arc::new(
+                streamhouse_metadata::PostgresMetadataStore::new(&metadata_store_url).await?,
+            )
+        }
+        #[cfg(not(feature = "postgres"))]
+        {
+            return Err("PostgreSQL URL provided but postgres feature not enabled".into());
+        }
+    } else {
+        info!("  Using SQLite");
+        Arc::new(SqliteMetadataStore::new(&metadata_store_url).await?)
+    };
+
+    info!("✓ Metadata store connected");
+
+    // Create producer
+    info!("Initializing producer...");
+    let producer = Producer::builder()
+        .metadata_store(metadata.clone())
+        .build()
+        .await?;
+
+    info!("✓ Producer initialized");
+
+    // Create app state
+    let state = AppState {
+        metadata,
+        producer: Arc::new(producer),
+    };
+
+    // Create router
+    let router = create_router(state);
+
+    info!("");
+    info!("REST API Server Ready");
+    info!("  API: http://localhost:{}/api/v1", api_port);
+    info!("  Swagger UI: http://localhost:{}/swagger-ui", api_port);
+    info!("  Health: http://localhost:{}/health", api_port);
+    info!("");
+
+    // Start server
+    serve(router, api_port).await?;
+
+    Ok(())
+}

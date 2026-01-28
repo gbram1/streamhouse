@@ -1,0 +1,117 @@
+//! StreamHouse REST API Server
+//!
+//! HTTP/JSON API for managing StreamHouse clusters via web console and other HTTP clients.
+
+use axum::{
+    routing::{delete, get, post},
+    Router,
+};
+use std::sync::Arc;
+use streamhouse_client::Producer;
+use streamhouse_metadata::MetadataStore;
+use tower_http::cors::CorsLayer;
+use utoipa::OpenApi;
+use utoipa_swagger_ui::SwaggerUi;
+
+pub mod handlers;
+pub mod models;
+
+/// Application state shared across handlers
+#[derive(Clone)]
+pub struct AppState {
+    pub metadata: Arc<dyn MetadataStore>,
+    pub producer: Arc<Producer>,
+}
+
+/// Create the API router with all endpoints
+pub fn create_router(state: AppState) -> Router {
+    // API v1 routes
+    let api_routes = Router::new()
+        // Topics
+        .route(
+            "/topics",
+            get(handlers::topics::list_topics).post(handlers::topics::create_topic),
+        )
+        .route(
+            "/topics/:name",
+            get(handlers::topics::get_topic).delete(handlers::topics::delete_topic),
+        )
+        .route(
+            "/topics/:name/partitions",
+            get(handlers::topics::list_partitions),
+        )
+        // Agents
+        .route("/agents", get(handlers::agents::list_agents))
+        .route("/agents/:id", get(handlers::agents::get_agent))
+        // Produce
+        .route("/produce", post(handlers::produce::produce))
+        // Metrics
+        .route("/metrics", get(handlers::metrics::get_metrics))
+        .with_state(state);
+
+    // OpenAPI documentation
+    let swagger = SwaggerUi::new("/swagger-ui").url("/api-docs/openapi.json", ApiDoc::openapi());
+
+    // Main router with CORS
+    Router::new()
+        .nest("/api/v1", api_routes)
+        .merge(swagger)
+        .route("/health", get(handlers::metrics::health_check))
+        .layer(CorsLayer::permissive())
+}
+
+/// Start the API server
+pub async fn serve(router: Router, port: u16) -> Result<(), Box<dyn std::error::Error>> {
+    let addr = format!("0.0.0.0:{}", port);
+    let listener = tokio::net::TcpListener::bind(&addr).await?;
+    tracing::info!("🚀 REST API server listening on {}", addr);
+    tracing::info!("   Swagger UI: http://localhost:{}/swagger-ui", port);
+    tracing::info!("   Health: http://localhost:{}/health", port);
+
+    axum::serve(listener, router).await?;
+    Ok(())
+}
+
+/// OpenAPI specification
+#[derive(OpenApi)]
+#[openapi(
+    paths(
+        handlers::topics::list_topics,
+        handlers::topics::create_topic,
+        handlers::topics::get_topic,
+        handlers::topics::delete_topic,
+        handlers::topics::list_partitions,
+        handlers::agents::list_agents,
+        handlers::agents::get_agent,
+        handlers::produce::produce,
+        handlers::metrics::get_metrics,
+        handlers::metrics::health_check,
+    ),
+    components(schemas(
+        models::Topic,
+        models::CreateTopicRequest,
+        models::Agent,
+        models::Partition,
+        models::ProduceRequest,
+        models::ProduceResponse,
+        models::MetricsSnapshot,
+        models::HealthResponse,
+    )),
+    tags(
+        (name = "topics", description = "Topic management"),
+        (name = "agents", description = "Agent monitoring"),
+        (name = "produce", description = "Message production"),
+        (name = "metrics", description = "Cluster metrics"),
+        (name = "health", description = "Health checks"),
+    ),
+    info(
+        title = "StreamHouse API",
+        version = "0.1.0",
+        description = "REST API for StreamHouse - S3-Native Event Streaming",
+        contact(
+            name = "StreamHouse",
+            url = "https://github.com/yourusername/streamhouse"
+        )
+    )
+)]
+struct ApiDoc;

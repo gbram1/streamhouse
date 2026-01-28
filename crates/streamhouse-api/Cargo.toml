@@ -1,0 +1,37 @@
+[package]
+name = "streamhouse-api"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+# HTTP framework
+axum = { version = "0.7", features = ["macros"] }
+tokio = { workspace = true, features = ["full"] }
+tower = "0.4"
+tower-http = { version = "0.5", features = ["cors", "trace"] }
+
+# Serialization
+serde = { workspace = true }
+serde_json = "1.0"
+
+# OpenAPI docs
+utoipa = { version = "4.0", features = ["axum_extras"] }
+utoipa-swagger-ui = { version = "7.1", features = ["axum"] }
+
+# Logging
+tracing = { workspace = true }
+tracing-subscriber = "0.3"
+
+# Time
+chrono = "0.4"
+
+# StreamHouse dependencies
+streamhouse-metadata = { path = "../streamhouse-metadata" }
+streamhouse-client = { path = "../streamhouse-client" }
+
+[[bin]]
+name = "api"
+path = "src/bin/api.rs"
