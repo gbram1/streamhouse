@@ -103,3 +103,38 @@ pub struct ConsumedRecord {
     pub value: String,
     pub timestamp: i64,
 }
+
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct ConsumerGroupInfo {
+    pub group_id: String,
+    pub topics: Vec<String>,
+    pub total_lag: i64,
+    pub partition_count: usize,
+}
+
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct ConsumerGroupDetail {
+    pub group_id: String,
+    pub offsets: Vec<ConsumerOffsetInfo>,
+}
+
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct ConsumerOffsetInfo {
+    pub topic: String,
+    pub partition_id: u32,
+    pub committed_offset: u64,
+    pub high_watermark: u64,
+    pub lag: i64,
+}
+
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct ConsumerGroupLag {
+    pub group_id: String,
+    pub total_lag: i64,
+    pub partition_count: usize,
+    pub topics: Vec<String>,
+}

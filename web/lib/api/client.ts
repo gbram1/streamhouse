@@ -67,6 +67,33 @@ export interface ConsumeResponse {
   nextOffset: number;
 }
 
+export interface ConsumerGroupInfo {
+  groupId: string;
+  topics: string[];
+  totalLag: number;
+  partitionCount: number;
+}
+
+export interface ConsumerGroupDetail {
+  groupId: string;
+  offsets: ConsumerOffsetInfo[];
+}
+
+export interface ConsumerOffsetInfo {
+  topic: string;
+  partitionId: number;
+  committedOffset: number;
+  highWatermark: number;
+  lag: number;
+}
+
+export interface ConsumerGroupLag {
+  groupId: string;
+  totalLag: number;
+  partitionCount: number;
+  topics: string[];
+}
+
 class ApiClient {
   private baseUrl: string;
 
@@ -144,15 +171,6 @@ class ApiClient {
     return this.request<Agent>(`/api/v1/agents/${agentId}`);
   }
 
-  // Consumer Groups
-  async listConsumerGroups(): Promise<ConsumerGroup[]> {
-    return this.request<ConsumerGroup[]>('/api/v1/consumer-groups');
-  }
-
-  async getConsumerGroup(groupId: string): Promise<ConsumerGroup> {
-    return this.request<ConsumerGroup>(`/api/v1/consumer-groups/${groupId}`);
-  }
-
   // Produce
   async produce(request: ProduceRequest): Promise<{ offset: number }> {
     return this.request<{ offset: number }>('/api/v1/produce', {
@@ -180,6 +198,19 @@ class ApiClient {
   // Metrics
   async getMetrics(): Promise<MetricsSnapshot> {
     return this.request<MetricsSnapshot>('/api/v1/metrics');
+  }
+
+  // Consumer Groups
+  async listConsumerGroups(): Promise<ConsumerGroupInfo[]> {
+    return this.request<ConsumerGroupInfo[]>('/api/v1/consumer-groups');
+  }
+
+  async getConsumerGroup(groupId: string): Promise<ConsumerGroupDetail> {
+    return this.request<ConsumerGroupDetail>(`/api/v1/consumer-groups/${groupId}`);
+  }
+
+  async getConsumerGroupLag(groupId: string): Promise<ConsumerGroupLag> {
+    return this.request<ConsumerGroupLag>(`/api/v1/consumer-groups/${groupId}/lag`);
   }
 
   // Health

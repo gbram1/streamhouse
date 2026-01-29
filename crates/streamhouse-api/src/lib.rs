@@ -49,6 +49,19 @@ pub fn create_router(state: AppState) -> Router {
         .route("/produce", post(handlers::produce::produce))
         // Consume
         .route("/consume", get(handlers::consume::consume))
+        // Consumer Groups
+        .route(
+            "/consumer-groups",
+            get(handlers::consumer_groups::list_consumer_groups),
+        )
+        .route(
+            "/consumer-groups/:group_id",
+            get(handlers::consumer_groups::get_consumer_group),
+        )
+        .route(
+            "/consumer-groups/:group_id/lag",
+            get(handlers::consumer_groups::get_consumer_group_lag),
+        )
         // Metrics
         .route("/metrics", get(handlers::metrics::get_metrics))
         .with_state(state);
@@ -89,6 +102,9 @@ pub async fn serve(router: Router, port: u16) -> Result<(), Box<dyn std::error::
         handlers::agents::get_agent,
         handlers::produce::produce,
         handlers::consume::consume,
+        handlers::consumer_groups::list_consumer_groups,
+        handlers::consumer_groups::get_consumer_group,
+        handlers::consumer_groups::get_consumer_group_lag,
         handlers::metrics::get_metrics,
         handlers::metrics::health_check,
     ),
@@ -101,6 +117,10 @@ pub async fn serve(router: Router, port: u16) -> Result<(), Box<dyn std::error::
         models::ProduceResponse,
         models::ConsumeResponse,
         models::ConsumedRecord,
+        models::ConsumerGroupInfo,
+        models::ConsumerGroupDetail,
+        models::ConsumerGroupLag,
+        models::ConsumerOffsetInfo,
         models::MetricsSnapshot,
         models::HealthResponse,
     )),
@@ -109,6 +129,7 @@ pub async fn serve(router: Router, port: u16) -> Result<(), Box<dyn std::error::
         (name = "agents", description = "Agent monitoring"),
         (name = "produce", description = "Message production"),
         (name = "consume", description = "Message consumption"),
+        (name = "consumer-groups", description = "Consumer group monitoring"),
         (name = "metrics", description = "Cluster metrics"),
         (name = "health", description = "Health checks"),
     ),
