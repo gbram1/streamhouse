@@ -50,10 +50,13 @@
 //! # Web Console: http://localhost:8080
 //! ```
 
+use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::Duration;
-use streamhouse_metadata::SqliteMetadataStore;
+use streamhouse_metadata::{AgentInfo, MetadataStore, SqliteMetadataStore};
+#[cfg(feature = "postgres")]
+use streamhouse_metadata::PostgresMetadataStore;
 use streamhouse_server::{pb::stream_house_server::StreamHouseServer, StreamHouseService};
 use streamhouse_storage::{SegmentCache, WriteConfig, WriterPool};
 use streamhouse_client::Producer;
@@ -104,8 +107,22 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let _s3_prefix = std::env::var("STREAMHOUSE_PREFIX").unwrap_or_else(|_| "data".to_string());
 
     // Initialize metadata store
-    tracing::info!("📦 Initializing metadata store at {}", metadata_path);
-    let metadata = Arc::new(SqliteMetadataStore::new(&metadata_path).await?);
+    let metadata: Arc<dyn MetadataStore> = {
+        #[cfg(feature = "postgres")]
+        if let Ok(database_url) = std::env::var("DATABASE_URL") {
+            tracing::info!("📦 Initializing PostgreSQL metadata store");
+            Arc::new(PostgresMetadataStore::new(&database_url).await?)
+        } else {
+            tracing::info!("📦 Initializing SQLite metadata store at {}", metadata_path);
+            Arc::new(SqliteMetadataStore::new(&metadata_path).await?)
+        }
+
+        #[cfg(not(feature = "postgres"))]
+        {
+            tracing::info!("📦 Initializing SQLite metadata store at {}", metadata_path);
+            Arc::new(SqliteMetadataStore::new(&metadata_path).await?)
+        }
+    };
 
     // Initialize object store (S3)
     tracing::info!("☁️  Initializing object store (bucket: {})", s3_bucket);
@@ -119,10 +136,19 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 local_path,
             )?)
         } else {
-            // Use S3
-            let s3 = object_store::aws::AmazonS3Builder::from_env()
-                .with_bucket_name(&s3_bucket)
-                .build()?;
+            // Use S3 (or MinIO with custom endpoint)
+            let mut builder = object_store::aws::AmazonS3Builder::from_env()
+                .with_bucket_name(&s3_bucket);
+
+            // Set custom endpoint for MinIO
+            if let Ok(endpoint) = std::env::var("S3_ENDPOINT") {
+                tracing::info!("   Using custom S3 endpoint: {}", endpoint);
+                builder = builder
+                    .with_endpoint(endpoint)
+                    .with_allow_http(true); // Allow HTTP for local MinIO
+            }
+
+            let s3 = builder.build()?;
             Arc::new(s3)
         };
 
@@ -135,9 +161,20 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let cache = Arc::new(SegmentCache::new(&cache_dir, cache_size)?);
 
     // Create storage config
+    // For development: smaller segments (1MB) and shorter age (10 seconds) for faster visibility
+    // For production: use larger values (64MB, 10 minutes) for better batching
+    let segment_max_size = std::env::var("SEGMENT_MAX_SIZE")
+        .ok()
+        .and_then(|s| s.parse::<usize>().ok())
+        .unwrap_or(1024 * 1024); // 1MB default for dev
+    let segment_max_age_ms = std::env::var("SEGMENT_MAX_AGE_MS")
+        .ok()
+        .and_then(|s| s.parse::<u64>().ok())
+        .unwrap_or(10 * 1000); // 10 seconds default for dev
+
     let config = WriteConfig {
-        segment_max_size: 64 * 1024 * 1024, // 64MB
-        segment_max_age_ms: 10 * 60 * 1000, // 10 minutes
+        segment_max_size,
+        segment_max_age_ms,
         s3_bucket: s3_bucket.clone(),
         s3_region: std::env::var("AWS_REGION").unwrap_or_else(|_| "us-east-1".to_string()),
         s3_endpoint: std::env::var("S3_ENDPOINT").ok(),
@@ -171,19 +208,32 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let grpc_service =
         StreamHouseService::new(metadata.clone(), object_store.clone(), cache.clone(), writer_pool.clone(), config.clone());
 
-    // Create Producer for REST API
-    tracing::info!("🔌 Initializing Producer for REST API");
-    let producer = Arc::new(
-        Producer::builder()
-            .metadata_store(metadata.clone())
-            .build()
-            .await?,
-    );
+    // Register unified server as an agent
+    tracing::info!("🤖 Registering unified server as agent");
+    use streamhouse_metadata::AgentInfo;
+    let agent_id = format!("unified-{}", std::process::id());
+    let now_ms = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_millis() as i64;
 
-    // Create REST API state
+    let agent_info = AgentInfo {
+        agent_id: agent_id.clone(),
+        address: format!("{}:{}", grpc_addr.ip(), grpc_addr.port()),
+        availability_zone: std::env::var("AVAILABILITY_ZONE").unwrap_or_else(|_| "default".to_string()),
+        agent_group: "default".to_string(),
+        last_heartbeat: now_ms,
+        started_at: now_ms,
+        metadata: std::collections::HashMap::new(),
+    };
+    metadata.register_agent(agent_info).await?;
+    tracing::info!("   Registered as agent: {}", agent_id);
+
+    // Create REST API state (use WriterPool directly in unified server)
     let api_state = streamhouse_api::AppState {
         metadata: metadata.clone(),
-        producer: producer.clone(),
+        producer: None,
+        writer_pool: Some(writer_pool.clone()),
         object_store: object_store.clone(),
         segment_cache: cache.clone(),
     };
@@ -200,12 +250,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Build unified HTTP router
     let http_router = Router::new()
-        // Mount REST API at /api/v1
-        .nest("/api", api_router)
+        // Merge REST API (already includes /api/v1 and /health routes)
+        .merge(api_router)
         // Mount Schema Registry at /schemas
         .nest("/schemas", schema_router)
-        // Health endpoint
-        .route("/health", get(|| async { "OK" }))
         // Serve web console static files
         .fallback_service(ServeDir::new(&web_console_path))
         .layer(TraceLayer::new_for_http());

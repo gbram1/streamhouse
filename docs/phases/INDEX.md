@@ -194,7 +194,39 @@ Consumer → PartitionReader → SegmentCache → S3
 
 **Estimated**: ~500 LOC
 
-## Phase 8: Advanced Consumer Features (Planned)
+## Phase 8: Schema Registry ✅
+
+**Status**: COMPLETE
+**Documentation**: [PHASE_8_COMPLETE.md](PHASE_8_COMPLETE.md)
+
+Implemented schema registry for managing message schemas with versioning and compatibility checks.
+
+**Key Features**:
+- Schema versioning and evolution
+- Compatibility validation
+- REST API for schema management
+- Integration with unified server
+
+## Phase 8.5: Server Consolidation ✅
+
+**Status**: COMPLETE
+**Documentation**: [PHASE_8.5_COMPLETE.md](PHASE_8.5_COMPLETE.md)
+
+Unified three separate servers (gRPC, REST API, Schema Registry) into a single binary for simplified deployment.
+
+**Key Achievements**:
+- 67% reduction in processes (3 → 1)
+- 33% reduction in memory usage
+- Direct WriterPool integration (no gRPC for internal writes)
+- Production-ready with graceful shutdown
+- Supports both unified and distributed modes
+
+**Architecture**:
+- REST API writes directly to WriterPool (in-memory, fast)
+- gRPC server available for external clients
+- Shared PostgreSQL/MinIO infrastructure
+
+## Phase 9: Advanced Consumer Features (Planned)
 
 **Status**: ⏳ PLANNED
 **Goal**: Dynamic consumer group rebalancing and coordination
@@ -206,7 +238,7 @@ Consumer → PartitionReader → SegmentCache → S3
 - Partition assignment strategies (range, round-robin, sticky)
 - Automatic rebalancing on member join/leave
 
-## Phase 9: Transactions and Exactly-Once (Planned)
+## Phase 10: Transactions and Exactly-Once (Planned)
 
 **Status**: ⏳ PLANNED
 **Goal**: Add transaction support and exactly-once semantics
@@ -218,17 +250,56 @@ Consumer → PartitionReader → SegmentCache → S3
 - Transaction coordinator
 - Atomic commit/abort
 
-## Phase 10: Advanced Performance (Planned)
+## Phase 10: Transactions and Exactly-Once (Planned)
 
 **Status**: ⏳ PLANNED
-**Goal**: Advanced load balancing, hedging, and optimization
+**Goal**: Add transaction support and exactly-once semantics
 
 **Planned Features**:
-- Circuit breaker patterns
-- Request hedging for tail latency
-- Advanced load balancing
-- Multi-region support
-- Tiered storage (hot/cold)
+- Transactional writes across partitions
+- Idempotent producer (deduplication)
+- Exactly-once delivery semantics
+- Transaction coordinator
+- Atomic commit/abort
+
+## Phase 11: Distributed Architecture & Horizontal Scaling (Deferred)
+
+**Status**: ⏳ DEFERRED (Future Work)
+**Documentation**: [PHASE_11_PLAN.md](PHASE_11_PLAN.md)
+**Goal**: Transform unified server into distributed system with horizontal scaling
+
+**Motivation**:
+- Enable production-grade high availability
+- Horizontal scaling for high throughput (>100K req/s)
+- Geographic distribution across regions
+- Fault isolation between API and storage layers
+
+**Key Changes**:
+- Separate API servers (stateless) from storage agents (stateful)
+- Use gRPC Producer client for API → Agent communication
+- Multiple API servers behind load balancer
+- Multiple agents with partition assignment
+- Configuration toggle: `STREAMHOUSE_MODE=unified|distributed`
+
+**Architecture Comparison**:
+
+*Current (Unified)*:
+- Single process with REST API + gRPC + WriterPool
+- Direct in-memory writes (~1ms latency)
+- Good for: development, demos, moderate workloads
+
+*Future (Distributed)*:
+- API servers (stateless) → gRPC → Agents (WriterPool)
+- Network-based writes (~3-5ms latency)
+- Good for: production HA, horizontal scaling, high throughput
+
+**When to Implement**:
+- Production traffic exceeds single-server capacity
+- High availability requirements (99.99%+)
+- Need for horizontal scaling
+- Multi-region deployment
+
+**Estimated Effort**: 2-3 weeks
 
 ## Documentation Structure
 
@@ -288,6 +359,9 @@ docs/phases/
 ├── PHASE_5.1_COMPLETE.md
 ├── PHASE_5.2_PLAN.md
 ├── PHASE_5_PLAN.md
+├── PHASE_7_STATUS.md
+├── PHASE_8.5_COMPLETE.md
+├── PHASE_11_PLAN.md
 └── WARPSTREAM-LEARNINGS.md
 ```
 
@@ -315,6 +389,20 @@ docs/phases/
 - ✅ Offset management (auto-commit and manual)
 - ✅ Multi-topic and multi-partition support
 - ✅ **7.7K rec/s throughput** (debug build, >100K expected in release)
+
+### Phase 8: Schema Registry ✅
+- ✅ Schema versioning and evolution
+- ✅ Compatibility validation
+- ✅ REST API for schema management
+- ✅ Integration with unified server
+
+### Phase 8.5: Server Consolidation ✅
+- ✅ Unified server binary (gRPC + REST API + Schema Registry)
+- ✅ Direct WriterPool integration for produce (no gRPC overhead)
+- ✅ PostgreSQL and MinIO backend support
+- ✅ 67% reduction in processes, 33% reduction in memory
+- ✅ Production-ready with graceful shutdown
+- ✅ **Successfully producing messages to MinIO via REST API**
 
 ## Test Coverage Summary
 
@@ -352,13 +440,19 @@ docs/phases/
 - [ ] Consumer lag monitoring
 - [ ] Health check endpoints
 
-### Medium-term (Phase 8-9)
+### Medium-term (Phase 9-10)
 - [ ] Dynamic consumer group rebalancing
 - [ ] Transaction support
 - [ ] Exactly-once semantics
 - [ ] Idempotent producer
 
-### Long-term (Phase 10+)
+### Long-term (Phase 11 - Deferred)
+- [ ] **Distributed Architecture** - Transform to multi-server deployment
+  - Separate API servers from storage agents
+  - gRPC-based communication between layers
+  - Horizontal scaling support
+  - Load balancing and high availability
+  - See [PHASE_11_PLAN.md](PHASE_11_PLAN.md) for details
 - [ ] Circuit breaker patterns
 - [ ] Request hedging
 - [ ] Multi-region support
@@ -386,3 +480,5 @@ For each new phase:
 - **2024-01**: Phase 6 completed (Consumer API, 32K rec/s release)
 - **2024-01**: Documentation reorganization (this index created)
 - **2026-01**: Phase 5.4 completed (Offset tracking, 198K rec/s)
+- **2026-01-29**: Phase 8.5 completed (Unified server with direct WriterPool, PostgreSQL/MinIO)
+- **2026-01-29**: Phase 11 planned (Distributed architecture with gRPC, deferred)

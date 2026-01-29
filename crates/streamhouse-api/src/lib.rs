@@ -20,7 +20,8 @@ pub mod models;
 #[derive(Clone)]
 pub struct AppState {
     pub metadata: Arc<dyn MetadataStore>,
-    pub producer: Arc<Producer>,
+    pub producer: Option<Arc<Producer>>,
+    pub writer_pool: Option<Arc<streamhouse_storage::writer_pool::WriterPool>>,
     pub object_store: Arc<dyn object_store::ObjectStore>,
     pub segment_cache: Arc<streamhouse_storage::SegmentCache>,
 }
