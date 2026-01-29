@@ -44,6 +44,35 @@ cargo run --bin schema-registry
 
 The server will start on `http://localhost:8081`
 
+### Using the Web UI
+
+StreamHouse includes a web-based UI for managing schemas. To use it:
+
+1. **Start the Schema Registry server** (see above)
+
+2. **Start the Web Console**:
+   ```bash
+   cd web
+   npm install
+   npm run dev
+   ```
+
+3. **Access the UI** at `http://localhost:3000/schemas`
+
+The Schema Registry UI provides:
+- **View all subjects** - Browse all registered schema subjects
+- **Register new schemas** - Add new schemas with Avro, Protobuf, or JSON format
+- **View schema versions** - See all versions for each subject
+- **View schema details** - Inspect schema definitions with syntax highlighting
+- **Delete subjects** - Remove schemas (use with caution!)
+
+**Environment Configuration**:
+Set `NEXT_PUBLIC_SCHEMA_REGISTRY_URL` to point to your schema registry server:
+```bash
+# In web/.env.local
+NEXT_PUBLIC_SCHEMA_REGISTRY_URL=http://localhost:8081
+```
+
 ### Registering a Schema
 
 ```bash

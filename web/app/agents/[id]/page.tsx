@@ -104,6 +104,9 @@ export default function AgentDetailPage({ params }: { params: Promise<{ id: stri
                 <Link href="/topics">
                   <Button variant="ghost">Topics</Button>
                 </Link>
+                <Link href="/schemas">
+                  <Button variant="ghost">Schemas</Button>
+                </Link>
                 <Link href="/agents">
                   <Button variant="default">Agents</Button>
                 </Link>
@@ -141,6 +144,9 @@ export default function AgentDetailPage({ params }: { params: Promise<{ id: stri
                 </Link>
                 <Link href="/topics">
                   <Button variant="ghost">Topics</Button>
+                </Link>
+                <Link href="/schemas">
+                  <Button variant="ghost">Schemas</Button>
                 </Link>
                 <Link href="/agents">
                   <Button variant="default">Agents</Button>

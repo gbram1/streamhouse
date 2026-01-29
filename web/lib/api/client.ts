@@ -50,6 +50,8 @@ export interface ProduceRequest {
 export interface MetricsSnapshot {
   topics_count: number;
   agents_count: number;
+  partitions_count: number;
+  total_messages: number;
   throughput_per_sec: number;
   total_storage_bytes: number;
 }

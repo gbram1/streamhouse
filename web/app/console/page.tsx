@@ -96,7 +96,7 @@ export default function ConsolePage() {
         topic: selectedTopic,
         key: messageKey || '(none)',
         value: messageValue,
-        partition: response.partition,
+        partition: partitionNum ?? -1,
         offset: response.offset,
         timestamp: new Date(),
         status: 'success',
