@@ -1,6 +1,7 @@
 //! Message produce endpoint
 
 use axum::{extract::State, http::StatusCode, Json};
+use bytes::Bytes;
 
 use crate::{models::*, AppState};
 
@@ -21,40 +22,78 @@ pub async fn produce(
     Json(req): Json<ProduceRequest>,
 ) -> Result<Json<ProduceResponse>, StatusCode> {
     // Validate topic exists
-    state
+    let topic = state
         .metadata
         .get_topic(&req.topic)
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
         .ok_or(StatusCode::NOT_FOUND)?;
 
-    // Send message
-    let mut result = state
-        .producer
-        .send(
-            &req.topic,
-            req.key.as_deref().map(|k| k.as_bytes()),
-            req.value.as_bytes(),
-            req.partition,
-        )
-        .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    // If WriterPool is available, write directly (unified server mode)
+    if let Some(writer_pool) = &state.writer_pool {
+        // Determine partition
+        let partition = req.partition.unwrap_or(0);
 
-    // Immediately flush to send the batch and get the offset
-    state
-        .producer
-        .flush()
-        .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+        // Validate partition exists
+        if partition >= topic.partition_count {
+            return Err(StatusCode::BAD_REQUEST);
+        }
 
-    // Wait for the offset to be assigned (should be immediate after flush)
-    let offset = result
-        .wait_offset()
-        .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+        // Get writer for partition
+        let writer = writer_pool
+            .get_writer(&req.topic, partition)
+            .await
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
-    Ok(Json(ProduceResponse {
-        offset,
-        partition: result.partition,
-    }))
+        // Prepare record
+        let key = req.key.as_deref().map(|k| Bytes::from(k.to_string()));
+        let value = Bytes::from(req.value);
+        let timestamp = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_millis() as u64;
+
+        // Write record
+        let offset = {
+            let mut writer_guard = writer.lock().await;
+            writer_guard
+                .append(key, value, timestamp)
+                .await
+                .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+        };
+
+        return Ok(Json(ProduceResponse { offset, partition }));
+    }
+
+    // Otherwise, use Producer client (distributed mode)
+    if let Some(producer) = &state.producer {
+        let mut result = producer
+            .send(
+                &req.topic,
+                req.key.as_deref().map(|k| k.as_bytes()),
+                req.value.as_bytes(),
+                req.partition,
+            )
+            .await
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+        // Immediately flush to send the batch and get the offset
+        producer
+            .flush()
+            .await
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+        // Wait for the offset to be assigned (should be immediate after flush)
+        let offset = result
+            .wait_offset()
+            .await
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+        return Ok(Json(ProduceResponse {
+            offset,
+            partition: result.partition,
+        }));
+    }
+
+    Err(StatusCode::INTERNAL_SERVER_ERROR)
 }

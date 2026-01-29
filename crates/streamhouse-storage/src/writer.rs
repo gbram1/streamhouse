@@ -507,7 +507,8 @@ impl PartitionWriter {
     /// }
     /// ```
     pub async fn flush(&mut self) -> Result<()> {
-        if self.current_segment.record_count() > 0 {
+        // Only flush if segment should roll (meets size or age threshold)
+        if self.current_segment.record_count() > 0 && self.should_roll_segment() {
             self.roll_segment().await?;
         }
         Ok(())

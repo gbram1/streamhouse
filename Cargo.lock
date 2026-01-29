@@ -3396,6 +3396,7 @@ name = "streamhouse-api"
 version = "0.1.0"
 dependencies = [
  "axum 0.7.9",
+ "bytes",
  "chrono",
  "object_store",
  "serde",

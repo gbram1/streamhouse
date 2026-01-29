@@ -1,10 +1,14 @@
 /**
  * StreamHouse API Client
  *
- * This client will communicate with the REST API backend (to be implemented in Phase 10)
+ * This client will communicate with the REST API backend
  */
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001';
+// Use relative URLs in browser (Next.js will proxy via rewrites)
+// Use localhost:8080 in Node.js context (SSR)
+const API_BASE_URL = typeof window !== 'undefined'
+  ? '' // Browser: use relative URLs (proxied by Next.js)
+  : process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080'; // Server: direct connection
 
 export interface Topic {
   name: string;

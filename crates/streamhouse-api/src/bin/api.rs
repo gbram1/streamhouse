@@ -116,7 +116,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Create app state
     let state = AppState {
         metadata,
-        producer: Arc::new(producer),
+        producer: Some(Arc::new(producer)),
+        writer_pool: None,
         object_store,
         segment_cache,
     };
