@@ -513,28 +513,254 @@ streamhouse_sql::execute(r#"
 
 ---
 
+## Phase 13: Write-Ahead Log (WAL) for Durability (HIGH PRIORITY)
+
+**Business Value**: Eliminate data loss on agent failure, production-grade durability guarantee
+
+### Problem Statement
+
+**Current Issue**: StreamHouse has the same data loss problem as "Glacier Kafka"
+- Unflushed segment data lives in-memory SegmentBuffer
+- If agent crashes before segment flush → data is LOST
+- This is acceptable for some use cases but critical flaw for others
+
+**Comparison with Kafka Approach**:
+- Article proposes "multi-part PUT" approach - data lost on leader failure
+- StreamHouse uses single PUT per segment - data lost on agent failure
+- Both designs sacrifice some durability for 90% cost savings vs traditional Kafka
+
+### Solution: Local Write-Ahead Log
+
+Add a small local WAL (1-10GB) for durability before S3 upload:
+
+```rust
+// Current (unsafe):
+buffer.append(record)?;  // In-memory only!
+
+// With WAL (safe):
+wal.append(record)?;     // Durable local write
+buffer.append(record)?;  // In-memory buffer
+```
+
+**Recovery Process**:
+1. Agent crashes mid-segment
+2. New agent acquires lease for partition
+3. New agent reads WAL and recovers unflushed records
+4. Continues building segment from recovered state
+
+### Features
+
+1. **Local Durability Layer**
+   - WAL stored on local disk (EBS/persistent volume)
+   - Sequential write-only (optimized for throughput)
+   - One WAL file per partition
+   - Automatic cleanup after S3 upload
+
+2. **Recovery Mechanism**
+   - Read WAL on agent startup
+   - Rebuild in-memory SegmentBuffer from WAL
+   - Continue where previous agent left off
+   - Verify no duplicate records
+
+3. **Performance Optimizations**
+   - Batch WAL writes (group commits)
+   - fsync policy configurable (every N records or N ms)
+   - mmap for fast sequential writes
+   - WAL recycling (preallocated files)
+
+### API Design
+
+```rust
+// Configuration
+let agent = Agent::builder()
+    .wal_enabled(true)
+    .wal_directory("./data/wal")
+    .wal_sync_interval(Duration::from_millis(100))  // fsync every 100ms
+    .wal_max_size_mb(1024)  // 1GB per partition
+    .build()
+    .await?;
+
+// Usage (transparent to users)
+producer.send("orders", order_data).await?;
+// Internally:
+// 1. WAL.append(record) + fsync
+// 2. SegmentBuffer.append(record)
+// 3. Return ack to producer
+```
+
+### Latency vs Durability Tradeoffs
+
+**Configuration Profiles**:
+
+```rust
+// Ultra-Safe (Financial/Critical):
+WAL_SYNC_INTERVAL=1ms      // fsync every 1ms
+SEGMENT_MAX_SIZE=1MB       // Small segments
+SEGMENT_MAX_AGE_MS=5000    // 5 second flush
+// Latency: +1-3ms, Data loss window: 0 records
+
+// Balanced (Default):
+WAL_SYNC_INTERVAL=100ms    // fsync every 100ms
+SEGMENT_MAX_SIZE=10MB      // Medium segments
+SEGMENT_MAX_AGE_MS=30000   // 30 second flush
+// Latency: +1-5ms, Data loss window: ~100-1000 records
+
+// High-Throughput (Logs/Analytics):
+WAL_SYNC_INTERVAL=1000ms   // fsync every 1 second
+SEGMENT_MAX_SIZE=100MB     // Large segments
+SEGMENT_MAX_AGE_MS=300000  // 5 minute flush
+// Latency: +1-5ms, Data loss window: ~10,000+ records
+
+// WAL-Disabled (Cost-optimized, "Glacier Mode"):
+WAL_ENABLED=false
+SEGMENT_MAX_SIZE=100MB
+SEGMENT_MAX_AGE_MS=300000
+// Latency: 0ms overhead, Data loss window: entire segment
+```
+
+### Architecture Comparison
+
+**Before (Current - Risky)**:
+```
+Producer → gRPC → Agent → SegmentBuffer (RAM) → S3
+                              ↓ (crash = data lost!)
+```
+
+**After (WAL - Safe)**:
+```
+Producer → gRPC → Agent → WAL (Disk) → SegmentBuffer (RAM) → S3
+                              ↓           ↓
+                         (durable!)  (recoverable!)
+```
+
+### Cost Analysis
+
+**Storage Cost**:
+- WAL: 1-10GB per agent (EBS/local disk)
+- Cost: ~$0.10-1.00 per agent/month
+- Negligible compared to 90% S3 savings
+
+**Latency Cost**:
+- Local disk write: 1-5ms (SSD)
+- Much faster than S3 PUT: 20-50ms
+- Acceptable for most workloads
+
+**Throughput Impact**:
+- Sequential writes: 100-500 MB/s (modern SSD)
+- No bottleneck for streaming workloads
+
+### Implementation Plan
+
+**Phase 1: Basic WAL (1 week)**
+- Implement WAL append/read
+- Simple recovery on agent startup
+- Basic tests
+
+**Phase 2: Performance (1 week)**
+- Batch writes and group commits
+- mmap optimization
+- WAL recycling
+
+**Phase 3: Advanced Features (1 week)**
+- Configurable sync policies
+- WAL compaction
+- Monitoring and metrics
+
+### Estimated Work
+- **Lines of Code**: ~1,200 LOC
+- **Time**: 2-3 weeks
+- **Components**:
+  - WAL writer/reader
+  - Recovery logic
+  - Sync policy manager
+  - WAL cleanup service
+  - Monitoring integration
+
+### Inspiration Source
+
+Based on analysis of article: "How hard would it really be to make open-source Kafka use object storage without replication and disks?"
+
+**Key Insights**:
+1. Multi-part PUT approach has same data loss issue as StreamHouse
+2. Author accepts 6-50 second visibility delay for 90% cost savings
+3. StreamHouse is AHEAD of proposed "Glacier Kafka" design
+4. Adding WAL makes StreamHouse strictly better than the article's proposal
+
+**StreamHouse Advantages Over "Glacier Kafka"**:
+- Simpler design (no Kafka legacy)
+- Stateless agents vs stateful leaders
+- More flexible segment sizing
+- Modern Rust/gRPC stack
+
+---
+
+## Latency vs Cost Positioning
+
+**Market Positioning Chart**:
+
+```
+High Cost (Traditional Kafka)
+↑
+│  ┌─────────────┐
+│  │   Kafka     │  $$$$ - <10ms latency
+│  └─────────────┘
+│
+│  ┌─────────────┐
+│  │ StreamHouse │  $ - 1-30s latency (configurable)
+│  │  (w/ WAL)   │  + Durability guarantee
+│  └─────────────┘
+│
+│  ┌─────────────┐
+│  │ Glacier Mode│  $ - 30-300s latency
+│  │ (no WAL)    │  - Data loss risk on crash
+│  └─────────────┘
+↓
+Low Cost (S3-Native)
+```
+
+**Use Case Matrix**:
+
+| Use Case | WAL Config | Latency | Cost Savings | Data Loss Risk |
+|----------|-----------|---------|--------------|----------------|
+| **Financial Transactions** | Ultra-Safe | 1-5s | 75% | None |
+| **User Events** | Balanced | 5-30s | 85% | Minimal |
+| **Application Logs** | High-Throughput | 30-60s | 90% | Low |
+| **Analytics/ML** | Glacier | 60-300s | 95% | Acceptable |
+
+---
+
 ## Technical Debt to Address
 
-1. **Agent Binary Build Issue**
+1. **Write-Ahead Log (WAL)** - **NEW HIGH PRIORITY**
+   - Critical for production durability
+   - Eliminates data loss on agent failure
+   - See Phase 13 above
+
+2. **Agent Binary Build Issue**
    - Fix compilation error in `crates/streamhouse-agent/src/bin/agent.rs`
    - Missing semicolon on import (line 41)
 
-2. **PostgreSQL Metadata Store**
+3. **PostgreSQL Metadata Store**
    - Server currently uses SQLite
    - Add PostgreSQL support for production multi-node deployments
 
-3. **HTTP Metrics Endpoints** (Phase 7 completion)
+4. **HTTP Metrics Endpoints** (Phase 7 completion)
    - Implement `/metrics`, `/health`, `/ready` endpoints
    - ~500 LOC remaining
 
-4. **Connection Pool Metrics**
+5. **Connection Pool Metrics**
    - Add Prometheus metrics to ConnectionPool
    - Track active/idle/failed connections
 
-5. **Graceful Shutdown**
+6. **Graceful Shutdown**
    - Improve agent shutdown process
    - Flush pending writes before exit
    - Release leases cleanly
+
+7. **Latency/Cost Documentation**
+   - Document configuration profiles (Ultra-Safe, Balanced, etc.)
+   - Create tuning guide for different workloads
+   - Benchmark different segment sizes vs cost/latency
 
 ---
 
@@ -593,9 +819,14 @@ streamhouse_sql::execute(r#"
 ---
 
 **Document Status**: Active
-**Last Updated**: 2026-01-27
+**Last Updated**: 2026-01-28
 **Owner**: Engineering Team
 **Review Cycle**: Monthly
+
+**Recent Updates**:
+- 2026-01-28: Added Phase 13 (WAL) based on "Glacier Kafka" article analysis
+- 2026-01-28: Added latency vs cost positioning and use case matrix
+- 2026-01-28: Identified StreamHouse advantages over proposed Kafka S3 designs
 
 ---
 
