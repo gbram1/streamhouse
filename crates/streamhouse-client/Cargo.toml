@@ -43,3 +43,12 @@ tracing-subscriber = "0.3"
 tokio-stream = { version = "0.1", features = ["net"] }
 streamhouse-agent = { path = "../streamhouse-agent" }
 chrono = { workspace = true }
+criterion = { workspace = true }
+
+[[bench]]
+name = "producer_bench"
+harness = false
+
+[[bench]]
+name = "consumer_bench"
+harness = false
