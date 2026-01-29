@@ -64,6 +64,7 @@ use crate::{
     config::WriteConfig,
     error::{Error, Result},
     segment::SegmentWriter,
+    wal::WAL,
 };
 use bytes::Bytes;
 use object_store::ObjectStore;
@@ -142,6 +143,9 @@ pub struct PartitionWriter {
     object_store: Arc<dyn ObjectStore>,
     metadata: Arc<dyn MetadataStore>,
 
+    // Write-Ahead Log for durability (optional)
+    wal: Option<WAL>,
+
     // Configuration
     config: WriteConfig,
 }
@@ -196,9 +200,49 @@ impl PartitionWriter {
                 partition: partition_id,
             })?;
 
-        let current_offset = partition.high_watermark;
+        let mut current_offset = partition.high_watermark;
 
-        let current_segment = SegmentWriter::new(Compression::Lz4);
+        let mut current_segment = SegmentWriter::new(Compression::Lz4);
+
+        // Initialize WAL if configured
+        let wal = if let Some(ref wal_config) = config.wal_config {
+            let wal = WAL::open(&topic, partition_id, wal_config.clone()).await?;
+
+            // Recover any unflushed records from WAL
+            let recovered_records = wal.recover().await?;
+            if !recovered_records.is_empty() {
+                tracing::info!(
+                    topic = %topic,
+                    partition = partition_id,
+                    recovered = recovered_records.len(),
+                    "Recovering unflushed records from WAL"
+                );
+
+                // Replay records into current segment
+                for wal_record in recovered_records {
+                    let record = Record::new(
+                        current_offset,
+                        wal_record.timestamp,
+                        wal_record.key,
+                        wal_record.value,
+                    );
+                    current_offset += 1;
+                    current_segment
+                        .append(&record)
+                        .map_err(|e| Error::SegmentError(e.to_string()))?;
+                }
+
+                tracing::info!(
+                    topic = %topic,
+                    partition = partition_id,
+                    "WAL recovery complete"
+                );
+            }
+
+            Some(wal)
+        } else {
+            None
+        };
 
         Ok(Self {
             topic,
@@ -209,6 +253,7 @@ impl PartitionWriter {
             segment_size_estimate: 0,
             object_store,
             metadata,
+            wal,
             config,
         })
     }
@@ -266,6 +311,11 @@ impl PartitionWriter {
     ) -> Result<u64> {
         let offset = self.current_offset;
         self.current_offset += 1;
+
+        // Write to WAL first for durability (if enabled)
+        if let Some(ref wal) = self.wal {
+            wal.append(key.as_deref(), value.as_ref()).await?;
+        }
 
         // Create Record
         let record = Record::new(offset, timestamp, key, value);
@@ -354,6 +404,16 @@ impl PartitionWriter {
         self.metadata
             .update_high_watermark(&self.topic, self.partition_id, end_offset + 1)
             .await?;
+
+        // Truncate WAL now that data is safely in S3
+        if let Some(ref wal) = self.wal {
+            wal.truncate().await?;
+            tracing::debug!(
+                topic = %self.topic,
+                partition = self.partition_id,
+                "WAL truncated after successful S3 upload"
+            );
+        }
 
         // Reset state for new segment
         self.segment_created_at = now_ms();

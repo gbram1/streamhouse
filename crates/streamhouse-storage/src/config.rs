@@ -37,6 +37,7 @@
 //! };
 //! ```
 
+use crate::wal::WALConfig;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -65,6 +66,10 @@ pub struct WriteConfig {
     /// Number of S3 upload retries with exponential backoff (default: 3)
     #[serde(default = "default_retries")]
     pub s3_upload_retries: u32,
+
+    /// WAL configuration (optional - if None, WAL is disabled)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub wal_config: Option<WALConfig>,
 }
 
 impl Default for WriteConfig {
@@ -77,6 +82,7 @@ impl Default for WriteConfig {
             s3_endpoint: None,
             block_size_target: default_block_size(),
             s3_upload_retries: default_retries(),
+            wal_config: None, // WAL disabled by default
         }
     }
 }
