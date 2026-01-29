@@ -301,6 +301,112 @@ Unified three separate servers (gRPC, REST API, Schema Registry) into a single b
 
 **Estimated Effort**: 2-3 weeks
 
+## Phase 12: Business Validation & Market Discovery ⏳
+
+**Status**: ⏳ IN PROGRESS (Starting now)
+**Documentation**: [ROADMAP_INTEGRATED.md](ROADMAP_INTEGRATED.md)
+**Goal**: Validate customer demand and product-market fit before scaling
+
+**Timeline**: 12 weeks (3 months)
+
+**Sub-phases**:
+
+### Phase 12.1: Customer Discovery (Weeks 1-2) ⏳
+- Interview 20 potential customers
+- Validate pain points and willingness to adopt
+- Identify 4+ design partner candidates
+- **Decision Gate**: GO/NO-GO on technical validation
+
+### Phase 12.2: Technical Validation (Weeks 3-6)
+- Chaos engineering test suite
+- Performance benchmarks (10TB, 100M msgs/day)
+- Cost validation (actual AWS bills)
+- Build Kafka Connect plugin
+- **Decision Gate**: GO/NO-GO on design partner POCs
+
+### Phase 12.3: Design Partner POCs (Weeks 7-12)
+- Deploy archive tier with 3 design partners
+- Run 30-day pilots
+- Monitor uptime, cost savings, feedback
+- **Decision Gate**: GO/PIVOT/NO-GO on v1 product
+
+### Phase 12.4: Critical Operational Fixes (Parallel, Weeks 1-8)
+Running in parallel with business validation:
+
+**12.4.1: Write-Ahead Log** (Week 1-2)
+- Prevent data loss during S3 flush
+- Replay on startup
+- ~500 LOC, 40 hours
+
+**12.4.2: S3 Throttling Protection** (Week 3-4)
+- Rate limiting per operation type
+- Circuit breaker and backpressure
+- Prefix sharding
+- ~500 LOC, 40 hours
+
+**12.4.3: Operational Runbooks** (Week 5-6)
+- Troubleshooting guides for top 7 failure scenarios
+- Error message improvements
+- 30 hours
+
+**12.4.4: Monitoring & Dashboards** (Week 7-8)
+- Prometheus metrics exporter
+- 5 Grafana dashboards
+- Alert rules
+- ~400 LOC, 40 hours
+
+**Exit Criteria**:
+- ✅ STRONG GO (200+ points): Proceed to Phase 13, raise pre-seed
+- ⚠️ QUALIFIED GO (150-199): 3-month improvement cycle
+- 🔄 PIVOT (100-149): Try different positioning
+- ❌ NO-GO (<100): Shelve or alternative path
+
+**Estimated Effort**: 370 hours (~9 weeks full-time)
+
+## Phase 13: Archive Tier v1 (Minimum Viable Product)
+
+**Status**: ⏳ PENDING VALIDATION
+**Prerequisite**: Phase 12 STRONG GO decision
+**Goal**: Ship minimal product that creates customer pull
+
+**Timeline**: Weeks 13-20 (2 months)
+
+**Sub-phases**:
+
+### Phase 13.1: Kafka Connect Plugin (Weeks 13-15)
+- Kafka Connect source connector
+- Copy Kafka → StreamHouse
+- Offset tracking and error handling
+- Documentation
+- **Deliverable**: Connector JAR, 15 integration tests
+
+### Phase 13.2: Managed Deployment (Weeks 16-18)
+- Terraform modules (AWS/GCP/Azure)
+- Docker images + Helm charts
+- Deployment scripts
+- **Deliverable**: Infrastructure-as-code, deployment docs
+
+### Phase 13.3: Customer Onboarding (Weeks 19-20)
+- Onboarding checklist
+- Migration playbook
+- Cost/ROI calculators
+- Tutorial videos
+- **Deliverable**: Onboarding kit, support portal
+
+**What's Included**:
+- Archive tier for long-retention workloads
+- Read-only batch analytics
+- Coexists with existing Kafka
+- Non-critical workload (low risk)
+
+**What's NOT Included**:
+- Real-time consumers (batch only in v1)
+- Direct producers (still use Kafka)
+- Full consumer groups
+- Exactly-once semantics
+
+**Estimated Effort**: 180 hours (~5 weeks full-time)
+
 ## Documentation Structure
 
 ```
@@ -460,9 +566,17 @@ docs/phases/
 
 ## Related Documentation
 
+### Technical Documentation
 - [WARPSTREAM-LEARNINGS.md](WARPSTREAM-LEARNINGS.md) - Learnings from WarpStream architecture
 - [Architecture Overview](../../README.md) - Main project README
 - [Phase 1 Storage Architecture](phase1/storage-architecture.md) - Detailed storage design
+- [ROADMAP_INTEGRATED.md](ROADMAP_INTEGRATED.md) - **Integrated Technical & Business Roadmap**
+
+### Business & Strategy Documentation
+- [Business Analysis Package](../README_BUSINESS.md) - **START HERE** for business context
+- [Executive Summary](../EXECUTIVE_SUMMARY.md) - 15-min business overview
+- [Full Business Analysis](../BUSINESS_ANALYSIS.md) - 60-min deep dive (market, competition, risks)
+- [Decision Framework](../DECISION_FRAMEWORK.md) - Structured go/no-go decision guide
 
 ## Contributing
 
@@ -482,3 +596,7 @@ For each new phase:
 - **2026-01**: Phase 5.4 completed (Offset tracking, 198K rec/s)
 - **2026-01-29**: Phase 8.5 completed (Unified server with direct WriterPool, PostgreSQL/MinIO)
 - **2026-01-29**: Phase 11 planned (Distributed architecture with gRPC, deferred)
+- **2026-01-29**: **Business analysis completed** (market validation, competitive analysis, GTM strategy)
+- **2026-01-29**: Phase 12 added (Business Validation & Market Discovery - 12 weeks)
+- **2026-01-29**: Phase 13 added (Archive Tier v1 - MVP product)
+- **2026-01-29**: Integrated roadmap created (combines technical + business phases)
