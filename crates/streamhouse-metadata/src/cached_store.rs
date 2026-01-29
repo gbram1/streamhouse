@@ -565,6 +565,10 @@ impl<S: MetadataStore + 'static> MetadataStore for CachedMetadataStore<S> {
         self.inner.get_consumer_offsets(group_id).await
     }
 
+    async fn list_consumer_groups(&self) -> Result<Vec<String>> {
+        self.inner.list_consumer_groups().await
+    }
+
     async fn delete_consumer_group(&self, group_id: &str) -> Result<()> {
         self.inner.delete_consumer_group(group_id).await
     }

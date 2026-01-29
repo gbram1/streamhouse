@@ -614,6 +614,14 @@ impl MetadataStore for PostgresMetadataStore {
             .collect())
     }
 
+    async fn list_consumer_groups(&self) -> Result<Vec<String>> {
+        let rows = sqlx::query("SELECT DISTINCT group_id FROM consumer_offsets ORDER BY group_id")
+            .fetch_all(&self.pool)
+            .await?;
+
+        Ok(rows.into_iter().map(|r| r.get("group_id")).collect())
+    }
+
     async fn delete_consumer_group(&self, group_id: &str) -> Result<()> {
         sqlx::query("DELETE FROM consumer_groups WHERE group_id = $1")
             .bind(group_id)
