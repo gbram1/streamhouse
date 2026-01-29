@@ -380,9 +380,19 @@ impl PartitionWriter {
             self.topic, self.partition_id, base_offset
         );
 
+        // Record segment write metrics (Phase 7.1d)
+        streamhouse_observability::metrics::SEGMENT_WRITES_TOTAL
+            .with_label_values(&[&self.topic, &self.partition_id.to_string()])
+            .inc();
+
         // Upload to S3 with retries
         self.upload_to_s3(&s3_key, Bytes::from(segment_bytes))
             .await?;
+
+        // Record segment flush metrics (Phase 7.1d)
+        streamhouse_observability::metrics::SEGMENT_FLUSHES_TOTAL
+            .with_label_values(&[&self.topic, &self.partition_id.to_string()])
+            .inc();
 
         // Record segment in metadata
         let segment_info = SegmentInfo {
@@ -437,8 +447,22 @@ impl PartitionWriter {
         let path = object_store::path::Path::from(key);
 
         for attempt in 0..self.config.s3_upload_retries {
+            // Record S3 request metric (Phase 7.1d)
+            streamhouse_observability::metrics::S3_REQUESTS_TOTAL
+                .with_label_values(&["PUT"])
+                .inc();
+
+            // Measure S3 latency
+            let start = std::time::Instant::now();
+
             match self.object_store.put(&path, data.clone()).await {
                 Ok(_) => {
+                    // Record S3 latency on success (Phase 7.1d)
+                    let duration = start.elapsed().as_secs_f64();
+                    streamhouse_observability::metrics::S3_LATENCY
+                        .with_label_values(&["PUT"])
+                        .observe(duration);
+
                     tracing::debug!(
                         key = %key,
                         size = data.len(),
@@ -448,6 +472,11 @@ impl PartitionWriter {
                     return Ok(());
                 }
                 Err(e) if attempt < self.config.s3_upload_retries - 1 => {
+                    // Record S3 error metric (Phase 7.1d)
+                    streamhouse_observability::metrics::S3_ERRORS_TOTAL
+                        .with_label_values(&["PUT", "retry"])
+                        .inc();
+
                     let backoff_ms = 100 * 2_u64.pow(attempt);
                     tracing::warn!(
                         key = %key,
@@ -459,6 +488,11 @@ impl PartitionWriter {
                     tokio::time::sleep(tokio::time::Duration::from_millis(backoff_ms)).await;
                 }
                 Err(e) => {
+                    // Record S3 error metric (Phase 7.1d)
+                    streamhouse_observability::metrics::S3_ERRORS_TOTAL
+                        .with_label_values(&["PUT", "failed"])
+                        .inc();
+
                     tracing::error!(
                         key = %key,
                         error = %e,

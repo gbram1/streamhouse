@@ -863,7 +863,6 @@ impl Producer {
         value: &[u8],
         partition: Option<u32>,
     ) -> Result<SendResult> {
-        #[cfg(feature = "metrics")]
         let start = std::time::Instant::now();
 
         // Get topic metadata
@@ -916,11 +915,16 @@ impl Producer {
         drop(pending);
 
         // Record metrics (Phase 7)
-        #[cfg(feature = "metrics")]
-        if let Some(ref metrics) = self.metrics {
-            let duration = start.elapsed().as_secs_f64();
-            metrics.record_send(value.len() as u64, duration);
-        }
+        let duration = start.elapsed().as_secs_f64();
+        streamhouse_observability::metrics::PRODUCER_RECORDS_TOTAL
+            .with_label_values(&[topic])
+            .inc();
+        streamhouse_observability::metrics::PRODUCER_BYTES_TOTAL
+            .with_label_values(&[topic])
+            .inc_by(value.len() as u64);
+        streamhouse_observability::metrics::PRODUCER_LATENCY
+            .with_label_values(&[topic])
+            .observe(duration);
 
         // Return immediately with offset receiver (Phase 5.4)
         // Offset will be set asynchronously when batch flushes
@@ -1034,8 +1038,6 @@ impl Producer {
                 &self.config.metadata_store,
                 &self.agents,
                 &self.retry_policy,
-                #[cfg(feature = "metrics")]
-                self.metrics.as_ref(),
             )
             .await
             {
@@ -1127,8 +1129,6 @@ impl Producer {
                 &self.config.metadata_store,
                 &self.agents,
                 &self.retry_policy,
-                #[cfg(feature = "metrics")]
-                self.metrics.as_ref(),
             )
             .await
             {
@@ -1367,7 +1367,7 @@ impl Producer {
     }
 
     #[allow(clippy::too_many_arguments)]
-    #[instrument(skip(records, connection_pool, metadata_store, agents, retry_policy, metrics), fields(topic, partition, record_count = records.len()))]
+    #[instrument(skip(records, connection_pool, metadata_store, agents, retry_policy), fields(topic, partition, record_count = records.len()))]
     async fn send_batch_to_agent(
         topic: &str,
         partition: u32,
@@ -1376,9 +1376,7 @@ impl Producer {
         metadata_store: &Arc<dyn MetadataStore>,
         agents: &Arc<RwLock<HashMap<String, AgentInfo>>>,
         retry_policy: &RetryPolicy,
-        #[cfg(feature = "metrics")] metrics: Option<&Arc<ProducerMetrics>>,
     ) -> Result<ProduceResponse> {
-        #[cfg(feature = "metrics")]
         let start = std::time::Instant::now();
         // Find agent for partition
         let agent =
@@ -1405,10 +1403,8 @@ impl Producer {
             })?;
 
         // Build ProduceRequest
-        #[cfg(feature = "metrics")]
         let record_count = records.len();
-        #[cfg(feature = "metrics")]
-        let byte_count: usize = records.iter().map(|r| r.value.len()).sum();
+        let _byte_count: usize = records.iter().map(|r| r.value.len()).sum();
 
         let proto_records: Vec<Record> = records
             .into_iter()
@@ -1433,10 +1429,9 @@ impl Producer {
         })
         .await
         .map_err(|e| {
-            #[cfg(feature = "metrics")]
-            if let Some(metrics) = metrics {
-                metrics.record_error();
-            }
+            streamhouse_observability::metrics::PRODUCER_ERRORS_TOTAL
+                .with_label_values(&[topic, "agent_error"])
+                .inc();
             ClientError::AgentError(
                 agent.agent_id.clone(),
                 format!("Produce request failed: {}", e),
@@ -1444,11 +1439,15 @@ impl Producer {
         })?;
 
         // Record batch flush metrics (Phase 7)
-        #[cfg(feature = "metrics")]
-        if let Some(metrics) = metrics {
-            let duration = start.elapsed().as_secs_f64();
-            metrics.record_batch_flush(record_count, byte_count, duration);
-        }
+        let duration = start.elapsed().as_secs_f64();
+        streamhouse_observability::metrics::PRODUCER_BATCH_SIZE
+            .with_label_values(&[topic])
+            .observe(record_count as f64);
+        streamhouse_observability::metrics::PRODUCER_LATENCY
+            .with_label_values(&[topic])
+            .observe(duration);
+        // Note: byte_count is calculated but PRODUCER_BYTES_TOTAL is already
+        // updated in send() for each individual record, so we don't double-count here
 
         Ok(response.into_inner())
     }
@@ -1576,8 +1575,6 @@ impl Producer {
                         &metadata_store,
                         &agents,
                         &retry_policy,
-                        #[cfg(feature = "metrics")]
-                        metrics.as_ref(),
                     )
                     .await
                     {

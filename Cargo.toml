@@ -12,7 +12,7 @@ members = [
     "crates/streamhouse-client",
     "crates/streamhouse-proto",
     "crates/streamhouse-api",
-    "crates/streamhouse-schema-registry",
+    "crates/streamhouse-schema-registry", "crates/streamhouse-observability",
 ]
 
 [workspace.package]

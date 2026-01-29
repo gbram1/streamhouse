@@ -144,6 +144,8 @@ impl SegmentCache {
         let path = self.cache_path(cache_key);
 
         if !path.exists() {
+            // Record cache miss (Phase 7.1e)
+            streamhouse_observability::metrics::CACHE_MISSES_TOTAL.inc();
             return Ok(None);
         }
 
@@ -155,6 +157,9 @@ impl SegmentCache {
             let mut lru = self.lru.lock().await;
             lru.get(cache_key);
         }
+
+        // Record cache hit (Phase 7.1e)
+        streamhouse_observability::metrics::CACHE_HITS_TOTAL.inc();
 
         tracing::debug!(
             cache_key = %cache_key,
@@ -183,6 +188,9 @@ impl SegmentCache {
         {
             let mut current_size = self.current_size.lock().await;
             *current_size += size;
+
+            // Record cache size metric (Phase 7.1e)
+            streamhouse_observability::metrics::CACHE_SIZE_BYTES.set(*current_size as i64);
         }
 
         // Update LRU (add to front)
@@ -219,6 +227,9 @@ impl SegmentCache {
                 }
 
                 *current_size = current_size.saturating_sub(size);
+
+                // Record cache size metric after eviction (Phase 7.1e)
+                streamhouse_observability::metrics::CACHE_SIZE_BYTES.set(*current_size as i64);
 
                 tracing::debug!(
                     cache_key = %cache_key,
