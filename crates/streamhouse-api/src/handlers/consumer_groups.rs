@@ -1,7 +1,7 @@
 //! Consumer group endpoints
 
 use axum::{extract::State, http::StatusCode, Json};
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 
 use crate::models::{ConsumerGroupDetail, ConsumerGroupInfo, ConsumerGroupLag, ConsumerOffsetInfo};
 use crate::AppState;
@@ -17,34 +17,55 @@ use crate::AppState;
 pub async fn list_consumer_groups(
     State(state): State<AppState>,
 ) -> Result<Json<Vec<ConsumerGroupInfo>>, StatusCode> {
-    // Get all topics to fetch partition metadata
-    let topics = state
+    // Get all consumer group IDs
+    let group_ids = state
         .metadata
-        .list_topics()
+        .list_consumer_groups()
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
-    // Collect all consumer offsets across all topics
-    let group_data: HashMap<String, ConsumerGroupInfo> = HashMap::new();
+    // Collect information for each group
+    let mut groups = Vec::new();
 
-    for topic in &topics {
-        let _partitions = state
+    for group_id in group_ids {
+        // Get consumer offsets for this group
+        let offsets = state
             .metadata
-            .list_partitions(&topic.name)
+            .get_consumer_offsets(&group_id)
             .await
             .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
-        // Get consumer offsets for this topic
-        // Note: We need to find all groups by scanning partitions
-        // This is a limitation - ideally we'd have a list_consumer_groups method
-        // For now, we'll scan for any committed offsets
-        // In a real implementation, we'd have a proper consumer group registry
-    }
+        if offsets.is_empty() {
+            continue;
+        }
 
-    // Since we don't have a direct way to list all consumer groups,
-    // we'll need to scan through consumer offsets
-    // For now, return empty list - this will be populated when we add proper consumer group tracking
-    let groups: Vec<ConsumerGroupInfo> = group_data.into_values().collect();
+        let partition_count = offsets.len();
+
+        // Collect topics and calculate total lag
+        let mut topics_set: HashSet<String> = HashSet::new();
+        let mut total_lag = 0i64;
+
+        for offset in offsets {
+            topics_set.insert(offset.topic.clone());
+
+            // Get partition to calculate lag
+            if let Ok(Some(partition)) = state
+                .metadata
+                .get_partition(&offset.topic, offset.partition_id)
+                .await
+            {
+                let lag = partition.high_watermark as i64 - offset.committed_offset as i64;
+                total_lag += lag;
+            }
+        }
+
+        groups.push(ConsumerGroupInfo {
+            group_id,
+            topics: topics_set.into_iter().collect(),
+            total_lag,
+            partition_count,
+        });
+    }
 
     Ok(Json(groups))
 }

@@ -10,11 +10,19 @@ repository.workspace = true
 streamhouse-core = { path = "../streamhouse-core" }
 streamhouse-storage = { path = "../streamhouse-storage" }
 streamhouse-metadata = { path = "../streamhouse-metadata" }
+streamhouse-api = { path = "../streamhouse-api" }
+streamhouse-schema-registry = { path = "../streamhouse-schema-registry" }
+streamhouse-client = { path = "../streamhouse-client" }
 
 # gRPC
 tonic = { workspace = true }
 tonic-reflection = { workspace = true }
 prost = { workspace = true }
+
+# HTTP
+axum = { workspace = true }
+tower = "0.4"
+tower-http = { version = "0.5", features = ["fs", "trace"] }
 
 # Async
 tokio = { workspace = true }
@@ -30,6 +38,8 @@ tracing-subscriber = { workspace = true }
 anyhow = { workspace = true }
 thiserror = { workspace = true }
 chrono = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
 
 [dev-dependencies]
 tempfile = { workspace = true }
@@ -39,3 +49,7 @@ tonic-build = { workspace = true }
 
 [features]
 postgres = ["streamhouse-metadata/postgres"]
+
+[[bin]]
+name = "unified-server"
+path = "src/bin/unified-server.rs"

@@ -587,6 +587,33 @@ pub trait MetadataStore: Send + Sync {
     /// Fast (< 10ms for groups consuming 100 partitions).
     async fn get_consumer_offsets(&self, group_id: &str) -> Result<Vec<ConsumerOffset>>;
 
+    /// List all consumer groups that have committed offsets.
+    ///
+    /// Returns a list of unique consumer group IDs that have at least one committed offset.
+    /// This is used by the REST API to enumerate all active consumer groups.
+    ///
+    /// # Returns
+    ///
+    /// A vector of consumer group IDs (strings), sorted alphabetically.
+    ///
+    /// # Errors
+    ///
+    /// - `DatabaseError`: Database operation failed
+    ///
+    /// # Performance
+    ///
+    /// Fast (< 10ms for thousands of groups) as this uses a DISTINCT query.
+    ///
+    /// # Examples
+    ///
+    /// ```ignore
+    /// let groups = store.list_consumer_groups().await?;
+    /// for group_id in groups {
+    ///     println!("Consumer group: {}", group_id);
+    /// }
+    /// ```
+    async fn list_consumer_groups(&self) -> Result<Vec<String>>;
+
     /// Delete a consumer group and all its committed offsets.
     ///
     /// This is useful for cleaning up old consumer groups that are no longer active.
