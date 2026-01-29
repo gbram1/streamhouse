@@ -37,8 +37,9 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { Plus, Eye, Trash2, AlertCircle } from 'lucide-react';
+import { Plus, Eye, Trash2, AlertCircle, Zap } from 'lucide-react';
 import { Alert, AlertDescription } from '@/components/ui/alert';
+import Link from 'next/link';
 
 interface Schema {
   id: number;
@@ -200,22 +201,84 @@ export default function SchemasPage() {
 
   if (isLoading) {
     return (
-      <div className="container mx-auto p-6">
-        <div className="text-center py-12">Loading schemas...</div>
+      <div className="min-h-screen bg-gray-50 dark:bg-gray-950">
+        <header className="border-b bg-white dark:bg-gray-900">
+          <div className="container mx-auto px-4 py-4">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center space-x-2">
+                <Zap className="h-8 w-8 text-blue-600" />
+                <h1 className="text-2xl font-bold">StreamHouse</h1>
+              </div>
+              <nav className="flex items-center space-x-4">
+                <Link href="/dashboard">
+                  <Button variant="ghost">Dashboard</Button>
+                </Link>
+                <Link href="/topics">
+                  <Button variant="ghost">Topics</Button>
+                </Link>
+                <Link href="/schemas">
+                  <Button variant="default">Schemas</Button>
+                </Link>
+                <Link href="/agents">
+                  <Button variant="ghost">Agents</Button>
+                </Link>
+                <Link href="/console">
+                  <Button variant="ghost">Console</Button>
+                </Link>
+                <Button variant="outline">Sign Out</Button>
+              </nav>
+            </div>
+          </div>
+        </header>
+        <main className="container mx-auto px-4 py-8">
+          <div className="text-center py-12">Loading schemas...</div>
+        </main>
       </div>
     );
   }
 
   return (
-    <div className="container mx-auto p-6 space-y-6">
+    <div className="min-h-screen bg-gray-50 dark:bg-gray-950">
       {/* Header */}
-      <div className="flex justify-between items-center">
-        <div>
-          <h1 className="text-3xl font-bold">Schema Registry</h1>
-          <p className="text-gray-600 mt-1">
-            Manage schemas for data validation and evolution
-          </p>
+      <header className="border-b bg-white dark:bg-gray-900">
+        <div className="container mx-auto px-4 py-4">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center space-x-2">
+              <Zap className="h-8 w-8 text-blue-600" />
+              <h1 className="text-2xl font-bold">StreamHouse</h1>
+            </div>
+            <nav className="flex items-center space-x-4">
+              <Link href="/dashboard">
+                <Button variant="ghost">Dashboard</Button>
+              </Link>
+              <Link href="/topics">
+                <Button variant="ghost">Topics</Button>
+              </Link>
+              <Link href="/schemas">
+                <Button variant="default">Schemas</Button>
+              </Link>
+              <Link href="/agents">
+                <Button variant="ghost">Agents</Button>
+              </Link>
+              <Link href="/console">
+                <Button variant="ghost">Console</Button>
+              </Link>
+              <Button variant="outline">Sign Out</Button>
+            </nav>
+          </div>
         </div>
+      </header>
+
+      {/* Main Content */}
+      <main className="container mx-auto px-4 py-8 space-y-6">
+        {/* Page Header */}
+        <div className="flex justify-between items-center">
+          <div>
+            <h2 className="text-3xl font-bold">Schema Registry</h2>
+            <p className="text-gray-600 mt-1">
+              Manage schemas for data validation and evolution
+            </p>
+          </div>
 
         <Dialog>
           <DialogTrigger asChild>
@@ -415,6 +478,7 @@ export default function SchemasPage() {
           </DialogContent>
         </Dialog>
       )}
+      </main>
     </div>
   );
 }
