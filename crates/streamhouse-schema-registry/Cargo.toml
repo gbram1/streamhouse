@@ -1,0 +1,33 @@
+[package]
+name = "streamhouse-schema-registry"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[dependencies]
+streamhouse-metadata = { path = "../streamhouse-metadata" }
+tokio = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+async-trait = { workspace = true }
+bytes = { workspace = true }
+
+# Schema format support
+apache-avro = "0.16"
+prost = { workspace = true }
+jsonschema = "0.18"
+
+# REST API
+axum = { workspace = true }
+tower-http = { version = "0.5", features = ["cors", "trace"] }
+
+# Caching
+moka = { version = "0.12", features = ["future"] }
+
+[dev-dependencies]
+tokio-test = "0.4"
+tempfile = { workspace = true }

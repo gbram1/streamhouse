@@ -93,6 +93,9 @@ export default function Dashboard() {
               <Link href="/topics">
                 <Button variant="ghost">Topics</Button>
               </Link>
+              <Link href="/schemas">
+                <Button variant="ghost">Schemas</Button>
+              </Link>
               <Link href="/agents">
                 <Button variant="ghost">Agents</Button>
               </Link>
