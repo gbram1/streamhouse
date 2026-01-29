@@ -19,6 +19,10 @@
 //! - `AWS_ENDPOINT_URL`: S3 endpoint URL for MinIO
 //! - `SEGMENT_MAX_SIZE`: Max segment size in bytes before flush (default: 100MB)
 //! - `SEGMENT_MAX_AGE_MS`: Max segment age in ms before flush (default: 10 minutes)
+//! - `WAL_ENABLED`: Enable Write-Ahead Log for durability (default: false)
+//! - `WAL_DIR`: Directory for WAL files (default: ./data/wal)
+//! - `WAL_SYNC_INTERVAL_MS`: Fsync interval in milliseconds (default: 100ms)
+//! - `WAL_MAX_SIZE`: Max WAL file size in bytes (default: 1GB)
 //!
 //! # Example
 //!
@@ -39,7 +43,7 @@ use std::time::Duration;
 use streamhouse_agent::{Agent, ProducerServiceImpl};
 use streamhouse_metadata::{MetadataStore, SqliteMetadataStore};
 use streamhouse_proto::producer::producer_service_server::ProducerServiceServer;
-use streamhouse_storage::{SegmentCache, WriteConfig, WriterPool};
+use streamhouse_storage::{SegmentCache, SyncPolicy, WALConfig, WriteConfig, WriterPool};
 use tonic::transport::Server;
 use tracing::{error, info, Level};
 use tracing_subscriber::FmtSubscriber;
@@ -158,6 +162,41 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         segment_max_age_ms / 1000
     );
 
+    // WAL configuration
+    let wal_enabled = std::env::var("WAL_ENABLED")
+        .ok()
+        .and_then(|s| s.parse::<bool>().ok())
+        .unwrap_or(false);
+
+    let wal_config = if wal_enabled {
+        let wal_dir = std::env::var("WAL_DIR")
+            .unwrap_or_else(|_| "./data/wal".to_string());
+        let wal_sync_interval_ms = std::env::var("WAL_SYNC_INTERVAL_MS")
+            .ok()
+            .and_then(|s| s.parse::<u64>().ok())
+            .unwrap_or(100);
+        let wal_max_size = std::env::var("WAL_MAX_SIZE")
+            .ok()
+            .and_then(|s| s.parse::<u64>().ok())
+            .unwrap_or(1024 * 1024 * 1024); // 1GB
+
+        info!("WAL enabled:");
+        info!("  Directory: {}", wal_dir);
+        info!("  Sync interval: {}ms", wal_sync_interval_ms);
+        info!("  Max size: {}MB", wal_max_size / (1024 * 1024));
+
+        Some(WALConfig {
+            directory: wal_dir.into(),
+            sync_policy: SyncPolicy::Interval {
+                interval: Duration::from_millis(wal_sync_interval_ms),
+            },
+            max_size_bytes: wal_max_size,
+        })
+    } else {
+        info!("WAL disabled (set WAL_ENABLED=true to enable)");
+        None
+    };
+
     let write_config = WriteConfig {
         segment_max_size,
         segment_max_age_ms,
@@ -166,6 +205,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         s3_endpoint: std::env::var("S3_ENDPOINT").ok(),
         block_size_target: 1024 * 1024, // 1MB
         s3_upload_retries: 3,
+        wal_config,
     };
 
     let writer_pool = Arc::new(WriterPool::new(
