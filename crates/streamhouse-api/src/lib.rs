@@ -65,7 +65,7 @@ pub fn create_router(state: AppState) -> Router {
         )
         // Metrics
         .route("/metrics", get(handlers::metrics::get_metrics))
-        .with_state(state);
+        .with_state(state.clone());
 
     // OpenAPI documentation
     let swagger = SwaggerUi::new("/swagger-ui").url("/api-docs/openapi.json", ApiDoc::openapi());
@@ -75,6 +75,9 @@ pub fn create_router(state: AppState) -> Router {
         .nest("/api/v1", api_routes)
         .merge(swagger)
         .route("/health", get(handlers::metrics::health_check))
+        .route("/live", get(handlers::metrics::liveness_check))
+        .route("/ready", get(handlers::metrics::readiness_check))
+        .with_state(state.clone())
         .layer(CorsLayer::permissive())
 }
 
@@ -85,6 +88,8 @@ pub async fn serve(router: Router, port: u16) -> Result<(), Box<dyn std::error::
     tracing::info!("🚀 REST API server listening on {}", addr);
     tracing::info!("   Swagger UI: http://localhost:{}/swagger-ui", port);
     tracing::info!("   Health: http://localhost:{}/health", port);
+    tracing::info!("   Liveness: http://localhost:{}/live", port);
+    tracing::info!("   Readiness: http://localhost:{}/ready", port);
 
     axum::serve(listener, router).await?;
     Ok(())

@@ -981,6 +981,7 @@ impl Producer {
     ///
     /// println!("Written at offset {}", offset);
     /// ```
+    #[instrument(skip(self, key, value), fields(topic, value_len = value.len()))]
     pub async fn send_and_wait(
         &self,
         topic: &str,
@@ -1024,6 +1025,7 @@ impl Producer {
     /// - Before shutting down to ensure all data is persisted
     /// - After critical writes to guarantee durability
     /// - For testing to ensure records are visible
+    #[instrument(skip(self))]
     pub async fn flush(&self) -> Result<()> {
         let ready = self.batch_manager.lock().await.ready_batches();
 
@@ -1110,6 +1112,7 @@ impl Producer {
     /// 3. Closes connection pool (drops all gRPC connections)
     ///
     /// If flushing fails, the error is returned and connections may not be closed.
+    #[instrument(skip(self))]
     pub async fn close(self) -> Result<()> {
         // 1. Abort background tasks
         if let Some(handle) = self.flush_handle.lock().await.take() {

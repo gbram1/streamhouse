@@ -303,6 +303,7 @@ impl PartitionWriter {
     ///
     /// println!("Wrote record at offset {}", offset);
     /// ```
+    #[tracing::instrument(skip(self, key, value), fields(topic = %self.topic, partition = %self.partition_id, value_len = value.len()))]
     pub async fn append(
         &mut self,
         key: Option<Bytes>,
@@ -589,6 +590,7 @@ impl TopicWriter {
     }
 
     /// Append a record, automatically selecting partition
+    #[tracing::instrument(skip(self, key, value), fields(topic = %self.topic, value_len = value.len()))]
     pub async fn append(
         &self,
         key: Option<Bytes>,
