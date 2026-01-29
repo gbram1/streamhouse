@@ -100,6 +100,7 @@ impl StreamHouse for StreamHouseService {
     // Admin Operations
     // ========================================================================
 
+    #[tracing::instrument(skip(self, request), fields(topic = %request.get_ref().name, partitions = request.get_ref().partition_count))]
     async fn create_topic(
         &self,
         request: Request<CreateTopicRequest>,
@@ -154,6 +155,7 @@ impl StreamHouse for StreamHouseService {
         }))
     }
 
+    #[tracing::instrument(skip(self, _request))]
     async fn list_topics(
         &self,
         _request: Request<ListTopicsRequest>,
@@ -198,6 +200,7 @@ impl StreamHouse for StreamHouseService {
     // Producer Operations
     // ========================================================================
 
+    #[tracing::instrument(skip(self, request), fields(topic = %request.get_ref().topic, partition = request.get_ref().partition, value_len = request.get_ref().value.len()))]
     async fn produce(
         &self,
         request: Request<ProduceRequest>,
@@ -222,6 +225,7 @@ impl StreamHouse for StreamHouseService {
         Ok(Response::new(ProduceResponse { offset, timestamp }))
     }
 
+    #[tracing::instrument(skip(self, request), fields(topic = %request.get_ref().topic, partition = request.get_ref().partition, record_count = request.get_ref().records.len()))]
     async fn produce_batch(
         &self,
         request: Request<ProduceBatchRequest>,
@@ -270,6 +274,7 @@ impl StreamHouse for StreamHouseService {
     // Consumer Operations
     // ========================================================================
 
+    #[tracing::instrument(skip(self, request), fields(topic = %request.get_ref().topic, partition = request.get_ref().partition, offset = request.get_ref().offset, max_records = request.get_ref().max_records))]
     async fn consume(
         &self,
         request: Request<ConsumeRequest>,

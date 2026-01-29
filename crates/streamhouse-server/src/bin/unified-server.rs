@@ -68,13 +68,33 @@ use tower_http::trace::TraceLayer;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    // Initialize logging
-    tracing_subscriber::fmt()
-        .with_env_filter(
-            tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info")),
-        )
-        .init();
+    // Initialize logging with JSON support for production (Phase 7.2c)
+    let log_format = std::env::var("LOG_FORMAT").unwrap_or_else(|_| "text".to_string());
+    let env_filter = tracing_subscriber::EnvFilter::try_from_default_env()
+        .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info"));
+
+    match log_format.to_lowercase().as_str() {
+        "json" => {
+            // Production JSON format (structured logs for log aggregation)
+            tracing_subscriber::fmt()
+                .json()
+                .with_env_filter(env_filter)
+                .with_current_span(true)
+                .with_span_list(true)
+                .with_target(true)
+                .with_thread_ids(true)
+                .with_thread_names(true)
+                .init();
+        }
+        _ => {
+            // Development text format (human-readable)
+            tracing_subscriber::fmt()
+                .with_env_filter(env_filter)
+                .with_target(true)
+                .with_thread_ids(false)
+                .init();
+        }
+    }
 
     // Initialize observability (metrics)
     streamhouse_observability::init();

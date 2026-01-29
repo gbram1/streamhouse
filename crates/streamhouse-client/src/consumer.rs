@@ -690,6 +690,7 @@ impl Consumer {
     /// # Errors
     ///
     /// Returns an error if the partition is not subscribed.
+    #[tracing::instrument(skip(self), fields(topic, partition_id, offset))]
     pub async fn seek(&self, topic: &str, partition_id: u32, offset: u64) -> Result<()> {
         let key = PartitionKey {
             topic: topic.to_string(),

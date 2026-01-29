@@ -74,3 +74,47 @@ pub async fn health_check() -> Json<HealthResponse> {
         status: "ok".to_string(),
     })
 }
+
+/// Liveness probe endpoint (Kubernetes liveness check)
+/// Returns 200 OK if the process is running
+#[utoipa::path(
+    get,
+    path = "/live",
+    responses(
+        (status = 200, description = "Service is alive", body = HealthResponse)
+    ),
+    tag = "health"
+)]
+pub async fn liveness_check() -> Json<HealthResponse> {
+    // Same as health_check - if we can respond, we're alive
+    Json(HealthResponse {
+        status: "ok".to_string(),
+    })
+}
+
+/// Readiness probe endpoint (Kubernetes readiness check)
+/// Returns 200 OK if the service is ready to accept traffic
+/// Checks that metadata store is accessible
+#[utoipa::path(
+    get,
+    path = "/ready",
+    responses(
+        (status = 200, description = "Service is ready", body = HealthResponse),
+        (status = 503, description = "Service not ready")
+    ),
+    tag = "health"
+)]
+pub async fn readiness_check(
+    State(state): State<AppState>,
+) -> Result<Json<HealthResponse>, StatusCode> {
+    // Check if metadata store is accessible by attempting to list topics
+    match state.metadata.list_topics().await {
+        Ok(_) => Ok(Json(HealthResponse {
+            status: "ready".to_string(),
+        })),
+        Err(e) => {
+            tracing::warn!("Readiness check failed: metadata store unavailable: {}", e);
+            Err(StatusCode::SERVICE_UNAVAILABLE)
+        }
+    }
+}

@@ -63,7 +63,7 @@ bytes = { version = "1.5", features = ["serde"] }
 thiserror = "1.0"
 anyhow = "1.0"
 tracing = "0.1"
-tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
 
 # CLI
 clap = { version = "4.4", features = ["derive"] }
