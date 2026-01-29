@@ -193,9 +193,6 @@ pub struct Consumer {
     last_commit: tokio::time::Instant,
 
     // Observability
-    #[cfg(feature = "metrics")]
-    metrics: Option<Arc<ConsumerMetrics>>,
-    #[cfg(feature = "metrics")]
     last_lag_update: tokio::time::Instant,
 }
 
@@ -259,8 +256,6 @@ pub struct ConsumerBuilder {
     auto_commit: bool,
     auto_commit_interval: Duration,
     offset_reset: OffsetReset,
-    #[cfg(feature = "metrics")]
-    metrics: Option<Arc<ConsumerMetrics>>,
 }
 
 impl ConsumerBuilder {
@@ -276,8 +271,6 @@ impl ConsumerBuilder {
             auto_commit: true,
             auto_commit_interval: Duration::from_secs(5),
             offset_reset: OffsetReset::Latest,
-            #[cfg(feature = "metrics")]
-            metrics: None,
         }
     }
 
@@ -432,9 +425,6 @@ impl ConsumerBuilder {
             auto_commit: self.auto_commit,
             auto_commit_interval: self.auto_commit_interval,
             last_commit: tokio::time::Instant::now(),
-            #[cfg(feature = "metrics")]
-            metrics: self.metrics,
-            #[cfg(feature = "metrics")]
             last_lag_update: tokio::time::Instant::now(),
         };
 
@@ -555,8 +545,6 @@ impl Consumer {
     #[tracing::instrument(skip(self), fields(timeout_ms = timeout.as_millis()))]
     pub async fn poll(&mut self, timeout: Duration) -> Result<Vec<ConsumedRecord>> {
         let start = tokio::time::Instant::now();
-        #[cfg(feature = "metrics")]
-        let metrics_start = std::time::Instant::now();
         let mut all_records = Vec::new();
 
         // Read from each partition (round-robin)
@@ -622,17 +610,22 @@ impl Consumer {
         }
 
         // Record metrics (Phase 7)
-        #[cfg(feature = "metrics")]
-        if let Some(ref metrics) = self.metrics {
-            let duration = metrics_start.elapsed().as_secs_f64();
-            let total_bytes: u64 = all_records.iter().map(|r| r.value.len() as u64).sum();
-            metrics.record_poll(all_records.len(), total_bytes, duration);
+        // Record per-topic metrics
+        let mut topic_stats: HashMap<String, usize> = HashMap::new();
+        for record in &all_records {
+            *topic_stats.entry(record.topic.clone()).or_insert(0) += 1;
+        }
 
-            // Update lag metrics every 30 seconds
-            if self.last_lag_update.elapsed() >= Duration::from_secs(30) {
-                self.update_lag_internal().await.ok(); // Ignore errors
-                self.last_lag_update = tokio::time::Instant::now();
-            }
+        for (topic, count) in topic_stats {
+            streamhouse_observability::metrics::CONSUMER_RECORDS_TOTAL
+                .with_label_values(&[&topic, self.group_id.as_deref().unwrap_or("default")])
+                .inc_by(count as u64);
+        }
+
+        // Update lag metrics every 30 seconds
+        if self.last_lag_update.elapsed() >= Duration::from_secs(30) {
+            self.update_lag_internal().await.ok(); // Ignore errors
+            self.last_lag_update = tokio::time::Instant::now();
         }
 
         Ok(all_records)
@@ -787,27 +780,29 @@ impl Consumer {
     }
 
     /// Internal method to update lag metrics for all partitions (Phase 7).
-    #[cfg(feature = "metrics")]
     async fn update_lag_internal(&self) -> Result<()> {
-        if let Some(ref metrics) = self.metrics {
-            let readers = self.readers.read().await;
+        let readers = self.readers.read().await;
+        let group_id = self.group_id.as_deref().unwrap_or("default");
 
-            for (key, partition_consumer) in readers.iter() {
-                // Get partition metadata
-                if let Ok(Some(partition_meta)) = self
-                    .metadata_store
-                    .get_partition(&key.topic, key.partition_id)
-                    .await
-                {
-                    let current = partition_consumer.current_offset as i64;
-                    let high_watermark = partition_meta.high_watermark as i64;
-                    let lag_records = high_watermark - current;
+        for (key, partition_consumer) in readers.iter() {
+            // Get partition metadata
+            if let Ok(Some(partition_meta)) = self
+                .metadata_store
+                .get_partition(&key.topic, key.partition_id)
+                .await
+            {
+                let current = partition_consumer.current_offset as i64;
+                let high_watermark = partition_meta.high_watermark as i64;
+                let lag_records = high_watermark - current;
 
-                    // Update metrics
-                    metrics.update_lag(lag_records, 0); // lag_seconds not implemented yet
-                    metrics
-                        .update_offsets(current, partition_consumer.last_committed_offset as i64);
-                }
+                // Update lag metric
+                streamhouse_observability::metrics::CONSUMER_LAG
+                    .with_label_values(&[
+                        &key.topic,
+                        &key.partition_id.to_string(),
+                        group_id,
+                    ])
+                    .set(lag_records);
             }
         }
         Ok(())

@@ -152,6 +152,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         s3_endpoint: std::env::var("S3_ENDPOINT").ok(),
         block_size_target: 1024 * 1024, // 1MB
         s3_upload_retries: 3,
+        wal_config: None, // WAL disabled by default
     };
 
     // Create writer pool

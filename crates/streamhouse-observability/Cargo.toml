@@ -1,0 +1,30 @@
+[package]
+name = "streamhouse-observability"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+# Metrics
+prometheus = "0.13"
+lazy_static = "1.4"
+
+# Logging
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["json", "env-filter", "fmt"] }
+
+# Async runtime
+tokio = { workspace = true }
+
+# HTTP server (for metrics endpoint)
+axum = { workspace = true }
+
+# Serialization
+serde = { workspace = true }
+serde_json = { workspace = true }
+
+[dev-dependencies]
+tokio-test = "0.4"
+tower = "0.5"

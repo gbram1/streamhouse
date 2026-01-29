@@ -50,20 +50,19 @@
 //! # Web Console: http://localhost:8080
 //! ```
 
-use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::Duration;
-use streamhouse_metadata::{AgentInfo, MetadataStore, SqliteMetadataStore};
+use streamhouse_metadata::{MetadataStore, SqliteMetadataStore};
 #[cfg(feature = "postgres")]
 use streamhouse_metadata::PostgresMetadataStore;
 use streamhouse_server::{pb::stream_house_server::StreamHouseServer, StreamHouseService};
 use streamhouse_storage::{SegmentCache, WriteConfig, WriterPool};
-use streamhouse_client::Producer;
 use streamhouse_schema_registry::{SchemaRegistry, SchemaRegistryApi, MemorySchemaStorage};
+use streamhouse_observability;
 use tonic::transport::Server as GrpcServer;
 use tonic_reflection::server::Builder as ReflectionBuilder;
-use axum::{Router, routing::get};
+use axum::Router;
 use tower_http::services::ServeDir;
 use tower_http::trace::TraceLayer;
 
@@ -76,6 +75,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info")),
         )
         .init();
+
+    // Initialize observability (metrics)
+    streamhouse_observability::init();
 
     tracing::info!("🚀 Starting StreamHouse Unified Server");
 
@@ -248,12 +250,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let schema_api = SchemaRegistryApi::new(schema_registry);
     let schema_router = schema_api.router();
 
+    // Create metrics router
+    let metrics_router = streamhouse_observability::exporter::create_metrics_router();
+
     // Build unified HTTP router
     let http_router = Router::new()
         // Merge REST API (already includes /api/v1 and /health routes)
         .merge(api_router)
         // Mount Schema Registry at /schemas
         .nest("/schemas", schema_router)
+        // Merge Prometheus metrics endpoint at /metrics
+        .merge(metrics_router)
         // Serve web console static files
         .fallback_service(ServeDir::new(&web_console_path))
         .layer(TraceLayer::new_for_http());
@@ -313,6 +320,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     tracing::info!("   Schema Registry: http://{}/schemas", http_addr);
     tracing::info!("   Web Console:    http://{}", http_addr);
     tracing::info!("   Health:         http://{}/health", http_addr);
+    tracing::info!("   Metrics:        http://{}/metrics", http_addr);
     tracing::info!("");
     tracing::info!("Configuration:");
     tracing::info!("   Bucket:         {}", s3_bucket);
