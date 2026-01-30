@@ -19,7 +19,7 @@
 //! - `AWS_ENDPOINT_URL`: S3 endpoint URL for MinIO
 //! - `SEGMENT_MAX_SIZE`: Max segment size in bytes before flush (default: 100MB)
 //! - `SEGMENT_MAX_AGE_MS`: Max segment age in ms before flush (default: 10 minutes)
-//! - `WAL_ENABLED`: Enable Write-Ahead Log for durability (default: false)
+//! - `WAL_ENABLED`: Enable Write-Ahead Log for durability (default: true)
 //! - `WAL_DIR`: Directory for WAL files (default: ./data/wal)
 //! - `WAL_SYNC_INTERVAL_MS`: Fsync interval in milliseconds (default: 100ms)
 //! - `WAL_MAX_SIZE`: Max WAL file size in bytes (default: 1GB)
@@ -162,11 +162,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         segment_max_age_ms / 1000
     );
 
-    // WAL configuration
+    // WAL configuration (enabled by default for data durability)
     let wal_enabled = std::env::var("WAL_ENABLED")
         .ok()
         .and_then(|s| s.parse::<bool>().ok())
-        .unwrap_or(false);
+        .unwrap_or(true);  // Changed to true for production safety
 
     let wal_config = if wal_enabled {
         let wal_dir = std::env::var("WAL_DIR").unwrap_or_else(|_| "./data/wal".to_string());
@@ -192,7 +192,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             max_size_bytes: wal_max_size,
         })
     } else {
-        info!("WAL disabled (set WAL_ENABLED=true to enable)");
+        info!("WAL disabled (set WAL_ENABLED=true to enable or remove WAL_ENABLED=false override)");
         None
     };
 
