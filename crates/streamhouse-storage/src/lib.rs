@@ -151,25 +151,31 @@
 //! 5. **CLI tool** - Admin and testing interface
 
 pub mod cache;
+pub mod circuit_breaker;
 pub mod config;
 pub mod consumer;
 pub mod error;
 pub mod manager;
+pub mod rate_limiter;
 pub mod reader;
 pub mod segment;
 pub mod segment_index;
+pub mod throttle;
 pub mod wal;
 pub mod writer;
 pub mod writer_pool;
 
 pub use cache::{CacheStats, SegmentCache};
+pub use circuit_breaker::{CircuitBreaker, CircuitBreakerConfig, CircuitState};
 pub use config::WriteConfig;
 pub use consumer::Consumer;
 pub use error::{Error, Result};
 pub use manager::{AppendResult, StorageManager};
+pub use rate_limiter::{BucketConfig, RateLimiter, S3Operation};
 pub use reader::{PartitionReader, ReadResult};
 pub use segment::{SegmentReader, SegmentWriter};
 pub use segment_index::{SegmentIndex, SegmentIndexConfig};
+pub use throttle::{ThrottleConfig, ThrottleCoordinator, ThrottleDecision};
 pub use wal::{SyncPolicy, WALConfig, WALRecord, WAL};
 pub use writer::{PartitionWriter, TopicWriter};
 pub use writer_pool::WriterPool;

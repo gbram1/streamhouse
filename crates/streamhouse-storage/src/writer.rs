@@ -63,7 +63,9 @@
 use crate::{
     config::WriteConfig,
     error::{Error, Result},
+    rate_limiter::S3Operation,
     segment::SegmentWriter,
+    throttle::{ThrottleCoordinator, ThrottleDecision},
     wal::WAL,
 };
 use bytes::Bytes;
@@ -145,6 +147,9 @@ pub struct PartitionWriter {
 
     // Write-Ahead Log for durability (optional)
     wal: Option<WAL>,
+
+    // S3 Throttle Coordinator (optional)
+    throttle: Option<ThrottleCoordinator>,
 
     // Configuration
     config: WriteConfig,
@@ -244,6 +249,13 @@ impl PartitionWriter {
             None
         };
 
+        // Initialize throttle coordinator if configured
+        let throttle = if let Some(ref throttle_config) = config.throttle_config {
+            Some(ThrottleCoordinator::new(throttle_config.clone()))
+        } else {
+            None
+        };
+
         Ok(Self {
             topic,
             partition_id,
@@ -254,6 +266,7 @@ impl PartitionWriter {
             object_store,
             metadata,
             wal,
+            throttle,
             config,
         })
     }
@@ -443,11 +456,36 @@ impl PartitionWriter {
         Ok(())
     }
 
-    /// Upload segment to S3 with exponential backoff retry
+    /// Upload segment to S3 with exponential backoff retry and throttling protection
     async fn upload_to_s3(&self, key: &str, data: Bytes) -> Result<()> {
         let path = object_store::path::Path::from(key);
 
         for attempt in 0..self.config.s3_upload_retries {
+            // Check throttle before attempting upload (Phase 12.4.2)
+            if let Some(ref throttle) = self.throttle {
+                match throttle.acquire(S3Operation::Put).await {
+                    ThrottleDecision::Allow => {
+                        // Allowed to proceed
+                    }
+                    ThrottleDecision::RateLimited => {
+                        tracing::warn!(
+                            key = %key,
+                            attempt = attempt + 1,
+                            "S3 PUT rate limited - backpressure applied"
+                        );
+                        return Err(Error::S3RateLimited);
+                    }
+                    ThrottleDecision::CircuitOpen => {
+                        tracing::error!(
+                            key = %key,
+                            attempt = attempt + 1,
+                            "S3 circuit breaker open - rejecting request"
+                        );
+                        return Err(Error::S3CircuitOpen);
+                    }
+                }
+            }
+
             // Record S3 request metric (Phase 7.1d)
             streamhouse_observability::metrics::S3_REQUESTS_TOTAL
                 .with_label_values(&["PUT"])
@@ -464,6 +502,11 @@ impl PartitionWriter {
                         .with_label_values(&["PUT"])
                         .observe(duration);
 
+                    // Report success to throttle coordinator (Phase 12.4.2)
+                    if let Some(ref throttle) = self.throttle {
+                        throttle.report_result(S3Operation::Put, true, false).await;
+                    }
+
                     tracing::debug!(
                         key = %key,
                         size = data.len(),
@@ -478,12 +521,24 @@ impl PartitionWriter {
                         .with_label_values(&["PUT", "retry"])
                         .inc();
 
+                    // Check if this is a throttle error (503 SlowDown) (Phase 12.4.2)
+                    let is_throttle_error = e.to_string().contains("SlowDown")
+                        || e.to_string().contains("503");
+
+                    // Report failure to throttle coordinator (Phase 12.4.2)
+                    if let Some(ref throttle) = self.throttle {
+                        throttle
+                            .report_result(S3Operation::Put, false, is_throttle_error)
+                            .await;
+                    }
+
                     let backoff_ms = 100 * 2_u64.pow(attempt);
                     tracing::warn!(
                         key = %key,
                         attempt = attempt + 1,
                         backoff_ms,
                         error = %e,
+                        is_throttle_error,
                         "S3 upload failed, retrying"
                     );
                     tokio::time::sleep(tokio::time::Duration::from_millis(backoff_ms)).await;
@@ -494,9 +549,21 @@ impl PartitionWriter {
                         .with_label_values(&["PUT", "failed"])
                         .inc();
 
+                    // Check if this is a throttle error (503 SlowDown) (Phase 12.4.2)
+                    let is_throttle_error = e.to_string().contains("SlowDown")
+                        || e.to_string().contains("503");
+
+                    // Report final failure to throttle coordinator (Phase 12.4.2)
+                    if let Some(ref throttle) = self.throttle {
+                        throttle
+                            .report_result(S3Operation::Put, false, is_throttle_error)
+                            .await;
+                    }
+
                     tracing::error!(
                         key = %key,
                         error = %e,
+                        is_throttle_error,
                         "S3 upload failed after all retries"
                     );
                     return Err(Error::S3UploadFailed(e.to_string()));
