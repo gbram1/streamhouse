@@ -265,6 +265,23 @@ pub enum ClientError {
     #[error("Offset receiver already consumed")]
     OffsetAlreadyConsumed,
 
+    /// Schema registry operation failed.
+    ///
+    /// This error occurs when schema registration, validation, or resolution fails.
+    ///
+    /// ## Causes (Phase 9+)
+    /// - Schema registry server is unreachable
+    /// - Schema validation failed
+    /// - Schema compatibility check failed
+    /// - Invalid schema format
+    ///
+    /// ## Resolution
+    /// - Verify schema registry is running
+    /// - Check schema syntax
+    /// - Review compatibility requirements
+    #[error("Schema registry error: {0}")]
+    SchemaRegistryError(String),
+
     /// Internal error that shouldn't normally occur.
     ///
     /// This error indicates a bug in the client library or an unexpected state.

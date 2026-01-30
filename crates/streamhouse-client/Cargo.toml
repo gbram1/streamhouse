@@ -27,6 +27,7 @@ bytes = "1.9"
 lz4 = "1.28"
 rand = "0.8"
 futures = { workspace = true }
+reqwest = { version = "0.12", features = ["json"] }
 
 # For consistent hashing (same as agent)
 siphasher = "1.0"

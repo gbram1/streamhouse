@@ -24,6 +24,9 @@ pub enum SchemaError {
     #[error("Invalid schema format: {0}")]
     InvalidFormat(String),
 
+    #[error("Invalid compatibility mode: {0}")]
+    InvalidCompatibilityMode(String),
+
     #[error("Serialization error: {0}")]
     SerializationError(String),
 
@@ -38,4 +41,7 @@ pub enum SchemaError {
 
     #[error("JSON error: {0}")]
     JsonError(#[from] serde_json::Error),
+
+    #[error("Database error: {0}")]
+    DatabaseError(#[from] sqlx::Error),
 }

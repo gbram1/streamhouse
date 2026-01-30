@@ -39,6 +39,7 @@ pub mod error;
 pub mod registry;
 pub mod serde;
 pub mod storage;
+pub mod storage_postgres;
 pub mod types;
 
 pub use api::SchemaRegistryApi;
@@ -46,4 +47,5 @@ pub use error::{Result, SchemaError};
 pub use registry::SchemaRegistry;
 pub use serde::{deserialize_with_schema_id, serialize_with_schema_id};
 pub use storage::{MemorySchemaStorage, SchemaStorage};
+pub use storage_postgres::PostgresSchemaStorage;
 pub use types::*;
