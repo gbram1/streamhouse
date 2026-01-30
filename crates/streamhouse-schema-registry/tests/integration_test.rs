@@ -37,7 +37,7 @@ async fn test_end_to_end_schema_registration() {
     assert!(schema_id > 0);
 
     // Verify schema can be retrieved by ID
-    let schema = registry.get_schema_by_id(schema_id).await;
+    let _schema = registry.get_schema_by_id(schema_id).await;
     // Note: Will fail with current placeholder storage, but demonstrates expected behavior
     // assert!(schema.is_ok());
 }
@@ -86,7 +86,7 @@ async fn test_schema_compatibility_enforcement() {
         metadata: None,
     };
 
-    let result = registry.register_schema("users-value", request2).await;
+    let _result = registry.register_schema("users-value", request2).await;
     // Should succeed (backward compatible)
     // Note: Will fail with placeholder storage
     // assert!(result.is_ok());

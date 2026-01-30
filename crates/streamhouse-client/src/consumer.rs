@@ -259,6 +259,8 @@ pub struct ConsumerBuilder {
     auto_commit_interval: Duration,
     offset_reset: OffsetReset,
     max_poll_records: usize,
+    #[cfg(feature = "metrics")]
+    metrics: Option<Arc<ConsumerMetrics>>,
 }
 
 impl ConsumerBuilder {
@@ -275,6 +277,8 @@ impl ConsumerBuilder {
             auto_commit_interval: Duration::from_secs(5),
             offset_reset: OffsetReset::Latest,
             max_poll_records: 100, // Phase 8.3b: default 100 records per partition
+            #[cfg(feature = "metrics")]
+            metrics: None,
         }
     }
 

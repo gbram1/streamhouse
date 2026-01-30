@@ -92,7 +92,7 @@ fn bench_segment_write(c: &mut Criterion) {
                 Compression::Zstd => "zstd",
             };
 
-            group.throughput(Throughput::Elements(record_count as u64));
+            group.throughput(Throughput::Elements(record_count));
             group.bench_with_input(
                 BenchmarkId::new(format!("{}_compression", compression_name), record_count),
                 &record_count,
@@ -133,7 +133,7 @@ fn bench_segment_read(c: &mut Criterion) {
             }
             let segment_bytes = Bytes::from(writer.finish().unwrap());
 
-            group.throughput(Throughput::Elements(record_count as u64));
+            group.throughput(Throughput::Elements(record_count));
             group.bench_with_input(
                 BenchmarkId::new(format!("{}_compression", compression_name), record_count),
                 &segment_bytes,
@@ -154,7 +154,7 @@ fn bench_segment_roundtrip(c: &mut Criterion) {
     let mut group = c.benchmark_group("segment_roundtrip");
 
     for record_count in [100, 1000, 10_000] {
-        group.throughput(Throughput::Elements(record_count as u64));
+        group.throughput(Throughput::Elements(record_count));
         group.bench_with_input(
             BenchmarkId::from_parameter(record_count),
             &record_count,
@@ -229,7 +229,7 @@ fn bench_read_from_offset(c: &mut Criterion) {
 
     // Benchmark reading from different offsets
     for offset_pct in [0, 25, 50, 75, 90] {
-        let offset = (record_count * offset_pct / 100) as u64;
+        let offset = record_count * offset_pct / 100;
         group.bench_with_input(
             BenchmarkId::new("offset_pct", offset_pct),
             &offset,

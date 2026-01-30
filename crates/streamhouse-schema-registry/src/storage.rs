@@ -4,7 +4,7 @@
 
 use crate::{
     error::{Result, SchemaError},
-    types::{CompatibilityMode, Schema, SchemaFormat, SubjectConfig},
+    types::{CompatibilityMode, Schema, SubjectConfig},
 };
 use async_trait::async_trait;
 use std::sync::Arc;
@@ -61,14 +61,14 @@ pub trait SchemaStorage: Send + Sync {
 ///
 /// Uses the metadata store's generic KV storage for persistence.
 pub struct MemorySchemaStorage {
-    metadata: Arc<dyn MetadataStore>,
+    _metadata: Arc<dyn MetadataStore>,
     next_id: std::sync::atomic::AtomicI32,
 }
 
 impl MemorySchemaStorage {
     pub fn new(metadata: Arc<dyn MetadataStore>) -> Self {
         Self {
-            metadata,
+            _metadata: metadata,
             next_id: std::sync::atomic::AtomicI32::new(1),
         }
     }
@@ -78,31 +78,31 @@ impl MemorySchemaStorage {
             .fetch_add(1, std::sync::atomic::Ordering::SeqCst)
     }
 
-    fn schema_key(id: i32) -> String {
+    fn _schema_key(id: i32) -> String {
         format!("schema:{}", id)
     }
 
-    fn subject_version_key(subject: &str, version: i32) -> String {
+    fn _subject_version_key(subject: &str, version: i32) -> String {
         format!("subject:{}:version:{}", subject, version)
     }
 
-    fn subject_latest_key(subject: &str) -> String {
+    fn _subject_latest_key(subject: &str) -> String {
         format!("subject:{}:latest", subject)
     }
 
-    fn subject_versions_key(subject: &str) -> String {
+    fn _subject_versions_key(subject: &str) -> String {
         format!("subject:{}:versions", subject)
     }
 
-    fn subject_config_key(subject: &str) -> String {
+    fn _subject_config_key(subject: &str) -> String {
         format!("subject:{}:config", subject)
     }
 
-    fn global_config_key() -> String {
+    fn _global_config_key() -> String {
         "global:config".to_string()
     }
 
-    fn subjects_key() -> String {
+    fn _subjects_key() -> String {
         "subjects".to_string()
     }
 }
@@ -128,7 +128,7 @@ impl SchemaStorage for MemorySchemaStorage {
         schema.version = version;
 
         // Serialize schema
-        let schema_json = serde_json::to_string(&schema)
+        let _schema_json = serde_json::to_string(&schema)
             .map_err(|e| SchemaError::SerializationError(e.to_string()))?;
 
         // Store schema by ID
@@ -198,7 +198,7 @@ impl SchemaStorage for MemorySchemaStorage {
         Ok(version)
     }
 
-    async fn schema_exists(&self, subject: &str, schema: &str) -> Result<Option<i32>> {
+    async fn schema_exists(&self, subject: &str, _schema: &str) -> Result<Option<i32>> {
         // Placeholder: would check in metadata store
         tracing::debug!(subject = subject, "schema_exists not yet implemented");
         Ok(None)

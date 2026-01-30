@@ -497,8 +497,6 @@ impl ProducerService for ProducerServiceImpl {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-
     // TODO: Add unit tests for ProducerServiceImpl
     // - test_produce_success
     // - test_produce_no_lease

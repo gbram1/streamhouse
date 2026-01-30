@@ -92,6 +92,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         s3_endpoint: Some("http://localhost:9000".to_string()),
         block_size_target: 1024 * 10,
         s3_upload_retries: 3,
+        wal_config: None,
     };
 
     // Write to orders topic

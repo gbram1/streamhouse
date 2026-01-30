@@ -63,13 +63,13 @@ impl SchemaRegistryApi {
 
         let listener = tokio::net::TcpListener::bind(addr)
             .await
-            .map_err(|e| SchemaError::IoError(e))?;
+            .map_err(SchemaError::IoError)?;
 
         info!(addr = %addr, "Schema Registry API server listening");
 
         axum::serve(listener, app)
             .await
-            .map_err(|e| SchemaError::IoError(std::io::Error::new(std::io::ErrorKind::Other, e)))?;
+            .map_err(|e| SchemaError::IoError(std::io::Error::other(e)))?;
 
         Ok(())
     }
