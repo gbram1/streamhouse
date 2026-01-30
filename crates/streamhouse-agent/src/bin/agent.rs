@@ -169,8 +169,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .unwrap_or(false);
 
     let wal_config = if wal_enabled {
-        let wal_dir = std::env::var("WAL_DIR")
-            .unwrap_or_else(|_| "./data/wal".to_string());
+        let wal_dir = std::env::var("WAL_DIR").unwrap_or_else(|_| "./data/wal".to_string());
         let wal_sync_interval_ms = std::env::var("WAL_SYNC_INTERVAL_MS")
             .ok()
             .and_then(|s| s.parse::<u64>().ok())

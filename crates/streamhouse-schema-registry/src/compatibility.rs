@@ -193,7 +193,8 @@ mod tests {
 
     #[test]
     fn test_avro_same_schema_compatible() {
-        let schema_str = r#"{"type": "record", "name": "User", "fields": [{"name": "name", "type": "string"}]}"#;
+        let schema_str =
+            r#"{"type": "record", "name": "User", "fields": [{"name": "name", "type": "string"}]}"#;
 
         let existing = Schema {
             id: 1,
@@ -218,7 +219,8 @@ mod tests {
 
     #[test]
     fn test_avro_backward_compatible_new_optional_field() {
-        let old_schema = r#"{"type": "record", "name": "User", "fields": [{"name": "name", "type": "string"}]}"#;
+        let old_schema =
+            r#"{"type": "record", "name": "User", "fields": [{"name": "name", "type": "string"}]}"#;
         let new_schema = r#"{"type": "record", "name": "User", "fields": [{"name": "name", "type": "string"}, {"name": "age", "type": "int", "default": 0}]}"#;
 
         let existing = Schema {

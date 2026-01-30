@@ -65,11 +65,7 @@ impl SchemaRegistry {
         }
 
         // Check if this exact schema already exists
-        if let Some(existing_id) = self
-            .storage
-            .schema_exists(subject, &request.schema)
-            .await?
-        {
+        if let Some(existing_id) = self.storage.schema_exists(subject, &request.schema).await? {
             return Ok(existing_id);
         }
 
@@ -100,14 +96,12 @@ impl SchemaRegistry {
         }
 
         // Fetch from storage
-        let schema = self
-            .storage
-            .get_schema_by_id(id)
-            .await?
-            .ok_or_else(|| SchemaError::SchemaNotFound {
+        let schema = self.storage.get_schema_by_id(id).await?.ok_or_else(|| {
+            SchemaError::SchemaNotFound {
                 subject: format!("id:{}", id),
                 version: 0,
-            })?;
+            }
+        })?;
 
         // Cache for future lookups
         self.schema_cache.insert(id, schema.clone()).await;
@@ -273,7 +267,8 @@ mod tests {
         let storage = Arc::new(MemorySchemaStorage::new(metadata));
         let registry = SchemaRegistry::new(storage);
 
-        let schema_str = r#"{"type": "record", "name": "User", "fields": [{"name": "name", "type": "string"}]}"#;
+        let schema_str =
+            r#"{"type": "record", "name": "User", "fields": [{"name": "name", "type": "string"}]}"#;
 
         let request = RegisterSchemaRequest {
             schema: schema_str.to_string(),
@@ -282,7 +277,10 @@ mod tests {
             metadata: None,
         };
 
-        let id = registry.register_schema("test-subject", request).await.unwrap();
+        let id = registry
+            .register_schema("test-subject", request)
+            .await
+            .unwrap();
         assert!(id > 0);
 
         // Note: With current placeholder storage, duplicate detection doesn't work yet
@@ -294,7 +292,10 @@ mod tests {
             metadata: None,
         };
 
-        let id2 = registry.register_schema("test-subject", request2).await.unwrap();
+        let id2 = registry
+            .register_schema("test-subject", request2)
+            .await
+            .unwrap();
         // TODO: Enable this assertion once storage is fully implemented
         // assert_eq!(id, id2);
         assert!(id2 > 0);

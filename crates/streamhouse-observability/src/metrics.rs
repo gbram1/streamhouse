@@ -1,7 +1,6 @@
 use lazy_static::lazy_static;
 use prometheus::{
-    HistogramOpts, HistogramVec, IntCounter,
-    IntCounterVec, IntGauge, IntGaugeVec, Opts, Registry,
+    HistogramOpts, HistogramVec, IntCounter, IntCounterVec, IntGauge, IntGaugeVec, Opts, Registry,
 };
 use std::sync::Once;
 
@@ -171,72 +170,72 @@ pub fn init() {
         REGISTRY
             .register(Box::new(PRODUCER_RECORDS_TOTAL.clone()))
             .expect("producer_records_total can be registered");
-    REGISTRY
-        .register(Box::new(PRODUCER_BYTES_TOTAL.clone()))
-        .expect("producer_bytes_total can be registered");
-    REGISTRY
-        .register(Box::new(PRODUCER_LATENCY.clone()))
-        .expect("producer_latency can be registered");
-    REGISTRY
-        .register(Box::new(PRODUCER_BATCH_SIZE.clone()))
-        .expect("producer_batch_size can be registered");
-    REGISTRY
-        .register(Box::new(PRODUCER_ERRORS_TOTAL.clone()))
-        .expect("producer_errors_total can be registered");
+        REGISTRY
+            .register(Box::new(PRODUCER_BYTES_TOTAL.clone()))
+            .expect("producer_bytes_total can be registered");
+        REGISTRY
+            .register(Box::new(PRODUCER_LATENCY.clone()))
+            .expect("producer_latency can be registered");
+        REGISTRY
+            .register(Box::new(PRODUCER_BATCH_SIZE.clone()))
+            .expect("producer_batch_size can be registered");
+        REGISTRY
+            .register(Box::new(PRODUCER_ERRORS_TOTAL.clone()))
+            .expect("producer_errors_total can be registered");
 
-    // Consumer metrics
-    REGISTRY
-        .register(Box::new(CONSUMER_RECORDS_TOTAL.clone()))
-        .expect("consumer_records_total can be registered");
-    REGISTRY
-        .register(Box::new(CONSUMER_LAG.clone()))
-        .expect("consumer_lag can be registered");
-    REGISTRY
-        .register(Box::new(CONSUMER_REBALANCES_TOTAL.clone()))
-        .expect("consumer_rebalances_total can be registered");
-    REGISTRY
-        .register(Box::new(CONSUMER_ERRORS_TOTAL.clone()))
-        .expect("consumer_errors_total can be registered");
+        // Consumer metrics
+        REGISTRY
+            .register(Box::new(CONSUMER_RECORDS_TOTAL.clone()))
+            .expect("consumer_records_total can be registered");
+        REGISTRY
+            .register(Box::new(CONSUMER_LAG.clone()))
+            .expect("consumer_lag can be registered");
+        REGISTRY
+            .register(Box::new(CONSUMER_REBALANCES_TOTAL.clone()))
+            .expect("consumer_rebalances_total can be registered");
+        REGISTRY
+            .register(Box::new(CONSUMER_ERRORS_TOTAL.clone()))
+            .expect("consumer_errors_total can be registered");
 
-    // Storage metrics
-    REGISTRY
-        .register(Box::new(SEGMENT_WRITES_TOTAL.clone()))
-        .expect("segment_writes_total can be registered");
-    REGISTRY
-        .register(Box::new(SEGMENT_FLUSHES_TOTAL.clone()))
-        .expect("segment_flushes_total can be registered");
-    REGISTRY
-        .register(Box::new(S3_REQUESTS_TOTAL.clone()))
-        .expect("s3_requests_total can be registered");
-    REGISTRY
-        .register(Box::new(S3_ERRORS_TOTAL.clone()))
-        .expect("s3_errors_total can be registered");
-    REGISTRY
-        .register(Box::new(S3_LATENCY.clone()))
-        .expect("s3_latency can be registered");
-    REGISTRY
-        .register(Box::new(CACHE_HITS_TOTAL.clone()))
-        .expect("cache_hits_total can be registered");
-    REGISTRY
-        .register(Box::new(CACHE_MISSES_TOTAL.clone()))
-        .expect("cache_misses_total can be registered");
-    REGISTRY
-        .register(Box::new(CACHE_SIZE_BYTES.clone()))
-        .expect("cache_size_bytes can be registered");
+        // Storage metrics
+        REGISTRY
+            .register(Box::new(SEGMENT_WRITES_TOTAL.clone()))
+            .expect("segment_writes_total can be registered");
+        REGISTRY
+            .register(Box::new(SEGMENT_FLUSHES_TOTAL.clone()))
+            .expect("segment_flushes_total can be registered");
+        REGISTRY
+            .register(Box::new(S3_REQUESTS_TOTAL.clone()))
+            .expect("s3_requests_total can be registered");
+        REGISTRY
+            .register(Box::new(S3_ERRORS_TOTAL.clone()))
+            .expect("s3_errors_total can be registered");
+        REGISTRY
+            .register(Box::new(S3_LATENCY.clone()))
+            .expect("s3_latency can be registered");
+        REGISTRY
+            .register(Box::new(CACHE_HITS_TOTAL.clone()))
+            .expect("cache_hits_total can be registered");
+        REGISTRY
+            .register(Box::new(CACHE_MISSES_TOTAL.clone()))
+            .expect("cache_misses_total can be registered");
+        REGISTRY
+            .register(Box::new(CACHE_SIZE_BYTES.clone()))
+            .expect("cache_size_bytes can be registered");
 
-    // System metrics
-    REGISTRY
-        .register(Box::new(CONNECTIONS_ACTIVE.clone()))
-        .expect("connections_active can be registered");
-    REGISTRY
-        .register(Box::new(PARTITIONS_TOTAL.clone()))
-        .expect("partitions_total can be registered");
-    REGISTRY
-        .register(Box::new(TOPICS_TOTAL.clone()))
-        .expect("topics_total can be registered");
-    REGISTRY
-        .register(Box::new(AGENTS_ACTIVE.clone()))
-        .expect("agents_active can be registered");
+        // System metrics
+        REGISTRY
+            .register(Box::new(CONNECTIONS_ACTIVE.clone()))
+            .expect("connections_active can be registered");
+        REGISTRY
+            .register(Box::new(PARTITIONS_TOTAL.clone()))
+            .expect("partitions_total can be registered");
+        REGISTRY
+            .register(Box::new(TOPICS_TOTAL.clone()))
+            .expect("topics_total can be registered");
+        REGISTRY
+            .register(Box::new(AGENTS_ACTIVE.clone()))
+            .expect("agents_active can be registered");
         REGISTRY
             .register(Box::new(UPTIME_SECONDS.clone()))
             .expect("uptime_seconds can be registered");
@@ -255,15 +254,23 @@ mod tests {
 
     #[test]
     fn test_producer_metrics() {
-        PRODUCER_RECORDS_TOTAL.with_label_values(&["test-topic"]).inc();
-        PRODUCER_BYTES_TOTAL.with_label_values(&["test-topic"]).inc_by(1024);
+        PRODUCER_RECORDS_TOTAL
+            .with_label_values(&["test-topic"])
+            .inc();
+        PRODUCER_BYTES_TOTAL
+            .with_label_values(&["test-topic"])
+            .inc_by(1024);
 
         assert_eq!(
-            PRODUCER_RECORDS_TOTAL.with_label_values(&["test-topic"]).get(),
+            PRODUCER_RECORDS_TOTAL
+                .with_label_values(&["test-topic"])
+                .get(),
             1
         );
         assert_eq!(
-            PRODUCER_BYTES_TOTAL.with_label_values(&["test-topic"]).get(),
+            PRODUCER_BYTES_TOTAL
+                .with_label_values(&["test-topic"])
+                .get(),
             1024
         );
     }

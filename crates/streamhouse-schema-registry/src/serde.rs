@@ -53,13 +53,19 @@ pub fn deserialize_with_schema_id(data: &[u8]) -> Result<(i32, &[u8])> {
 }
 
 /// Serialize Avro data with schema
-pub fn serialize_avro(schema: &apache_avro::Schema, value: &apache_avro::types::Value) -> Result<Vec<u8>> {
+pub fn serialize_avro(
+    schema: &apache_avro::Schema,
+    value: &apache_avro::types::Value,
+) -> Result<Vec<u8>> {
     apache_avro::to_avro_datum(schema, value.clone())
         .map_err(|e| SchemaError::SerializationError(e.to_string()))
 }
 
 /// Deserialize Avro data with schema
-pub fn deserialize_avro(schema: &apache_avro::Schema, data: &[u8]) -> Result<apache_avro::types::Value> {
+pub fn deserialize_avro(
+    schema: &apache_avro::Schema,
+    data: &[u8],
+) -> Result<apache_avro::types::Value> {
     apache_avro::from_avro_datum(schema, &mut &data[..], None)
         .map_err(|e| SchemaError::DeserializationError(e.to_string()))
 }

@@ -168,11 +168,13 @@ fn bench_decompression(c: &mut Criterion) {
         let (_offset, _key, value, _timestamp) = create_test_record(i as u64, 1024);
         buffer.extend_from_slice(&value);
     }
-    let compressed = lz4::block::compress(&buffer, Some(lz4::block::CompressionMode::DEFAULT), false).unwrap();
+    let compressed =
+        lz4::block::compress(&buffer, Some(lz4::block::CompressionMode::DEFAULT), false).unwrap();
 
     group.bench_function("lz4_decompress", |b| {
         b.iter(|| {
-            let decompressed = lz4::block::decompress(&compressed, Some(buffer.len() as i32)).unwrap();
+            let decompressed =
+                lz4::block::decompress(&compressed, Some(buffer.len() as i32)).unwrap();
             black_box(decompressed);
         });
     });

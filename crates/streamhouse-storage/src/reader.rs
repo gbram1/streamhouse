@@ -264,8 +264,12 @@ impl PartitionReader {
 
                 let future = async move {
                     // Find segment for this offset
-                    if let Ok(Some(segment)) = segment_index_clone.find_segment_for_offset(offset_to_find).await {
-                        let cache_key = format!("{}-{}-{}", topic_clone, partition_id, segment.base_offset);
+                    if let Ok(Some(segment)) = segment_index_clone
+                        .find_segment_for_offset(offset_to_find)
+                        .await
+                    {
+                        let cache_key =
+                            format!("{}-{}-{}", topic_clone, partition_id, segment.base_offset);
 
                         // Check if already cached
                         if let Ok(Some(_)) = cache_clone.get(&cache_key).await {

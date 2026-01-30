@@ -165,9 +165,10 @@ impl ConnectionPool {
             let pools = self.pools.read().await;
             if let Some(pool) = pools.get(address) {
                 // Find a healthy, non-idle connection
-                if let Some(conn) = pool.iter().find(|c| {
-                    c.healthy && now.duration_since(c.last_used) < self.idle_timeout
-                }) {
+                if let Some(conn) = pool
+                    .iter()
+                    .find(|c| c.healthy && now.duration_since(c.last_used) < self.idle_timeout)
+                {
                     debug!(
                         address = %address,
                         pool_size = pool.len(),
@@ -284,21 +285,18 @@ impl ConnectionPool {
     ) -> Result<ProducerServiceClient<Channel>, Box<dyn std::error::Error + Send + Sync>> {
         let endpoint = Endpoint::from_shared(address.to_string())?
             // Reduced timeouts for faster failure detection (Phase 8.2a)
-            .timeout(Duration::from_secs(10))            // Overall request timeout (was 30s)
-            .connect_timeout(Duration::from_secs(3))     // Connection timeout (was 10s)
-
+            .timeout(Duration::from_secs(10)) // Overall request timeout (was 30s)
+            .connect_timeout(Duration::from_secs(3)) // Connection timeout (was 10s)
             // TCP-level keepalive (detect dead connections)
             .tcp_keepalive(Some(Duration::from_secs(30))) // Send keepalive every 30s (was 60s)
-
             // HTTP/2 keepalive (application-level health check)
-            .http2_keep_alive_interval(Duration::from_secs(20))  // Ping every 20s
-            .keep_alive_timeout(Duration::from_secs(5))          // Timeout if no pong in 5s
-            .keep_alive_while_idle(true)                         // Send pings even when idle
-
+            .http2_keep_alive_interval(Duration::from_secs(20)) // Ping every 20s
+            .keep_alive_timeout(Duration::from_secs(5)) // Timeout if no pong in 5s
+            .keep_alive_while_idle(true) // Send pings even when idle
             // HTTP/2 performance tuning
-            .http2_adaptive_window(true)                         // Dynamic flow control
-            .initial_connection_window_size(Some(1024 * 1024))   // 1MB initial window
-            .initial_stream_window_size(Some(1024 * 1024));      // 1MB per stream
+            .http2_adaptive_window(true) // Dynamic flow control
+            .initial_connection_window_size(Some(1024 * 1024)) // 1MB initial window
+            .initial_stream_window_size(Some(1024 * 1024)); // 1MB per stream
 
         let channel = endpoint.connect().await?;
 
@@ -307,8 +305,9 @@ impl ConnectionPool {
 
         // Set max concurrent streams (HTTP/2 multiplexing)
         // This allows 100 in-flight requests on a single connection
-        client = client.max_decoding_message_size(64 * 1024 * 1024)  // 64MB max message
-                       .max_encoding_message_size(64 * 1024 * 1024); // 64MB max message
+        client = client
+            .max_decoding_message_size(64 * 1024 * 1024) // 64MB max message
+            .max_encoding_message_size(64 * 1024 * 1024); // 64MB max message
 
         Ok(client)
     }

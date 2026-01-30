@@ -178,4 +178,3 @@ pub async fn get_consumer_group_lag(
         topics: topics.into_iter().collect(),
     }))
 }
-

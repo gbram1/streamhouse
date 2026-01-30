@@ -115,7 +115,9 @@ fn bench_batch_compression(c: &mut Criterion) {
             }
 
             // Compress the batch
-            let compressed = lz4::block::compress(&buffer, Some(lz4::block::CompressionMode::DEFAULT), false).unwrap();
+            let compressed =
+                lz4::block::compress(&buffer, Some(lz4::block::CompressionMode::DEFAULT), false)
+                    .unwrap();
             black_box(compressed);
         });
     });
