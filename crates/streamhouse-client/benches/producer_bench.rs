@@ -153,7 +153,7 @@ fn bench_partitioning(c: &mut Criterion) {
         b.iter(|| {
             let mut partition_counts = vec![0u32; partition_count];
             for i in 0..record_count {
-                let partition = (i % partition_count) as usize;
+                let partition = i % partition_count;
                 partition_counts[partition] += 1;
             }
             black_box(partition_counts);

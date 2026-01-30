@@ -57,7 +57,6 @@ use std::time::Duration;
 #[cfg(feature = "postgres")]
 use streamhouse_metadata::PostgresMetadataStore;
 use streamhouse_metadata::{MetadataStore, SqliteMetadataStore};
-use streamhouse_observability;
 use streamhouse_schema_registry::{MemorySchemaStorage, SchemaRegistry, SchemaRegistryApi};
 use streamhouse_server::{pb::stream_house_server::StreamHouseServer, StreamHouseService};
 use streamhouse_storage::{SegmentCache, WriteConfig, WriterPool};

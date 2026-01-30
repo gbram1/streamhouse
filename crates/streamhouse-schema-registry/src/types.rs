@@ -22,10 +22,11 @@ impl SchemaFormat {
 }
 
 /// Compatibility mode for schema evolution
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum CompatibilityMode {
     /// New schema can read data written with old schema
+    #[default]
     Backward,
 
     /// Old schema can read data written with new schema
@@ -45,12 +46,6 @@ pub enum CompatibilityMode {
 
     /// No compatibility checking
     None,
-}
-
-impl Default for CompatibilityMode {
-    fn default() -> Self {
-        CompatibilityMode::Backward
-    }
 }
 
 /// Schema metadata stored in registry

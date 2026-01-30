@@ -506,10 +506,7 @@ mod tests {
         let mut assignments: HashMap<String, Vec<u32>> = HashMap::new();
         for partition_id in 0..9 {
             let assigned = assign_partition_consistent_hash("orders", partition_id, &agents);
-            assignments
-                .entry(assigned)
-                .or_insert_with(Vec::new)
-                .push(partition_id);
+            assignments.entry(assigned).or_default().push(partition_id);
         }
 
         // At least some agents should get assignments (consistent hashing may not use all)

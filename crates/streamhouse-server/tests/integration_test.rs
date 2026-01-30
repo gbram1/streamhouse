@@ -45,6 +45,7 @@ async fn setup_test_service() -> (StreamHouseService, tempfile::TempDir) {
         s3_endpoint: None,
         block_size_target: 100, // Very small
         s3_upload_retries: 3,
+        wal_config: None,
     };
 
     // Create writer pool

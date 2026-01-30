@@ -250,10 +250,7 @@ async fn show_partition_distribution(agents: &[Agent]) {
             // Group by topic
             let mut by_topic: HashMap<String, Vec<u32>> = HashMap::new();
             for (topic, partition_id) in partitions {
-                by_topic
-                    .entry(topic)
-                    .or_insert_with(Vec::new)
-                    .push(partition_id);
+                by_topic.entry(topic).or_default().push(partition_id);
             }
 
             for (topic, mut partition_ids) in by_topic {
@@ -280,10 +277,7 @@ async fn show_partition_distribution_filtered(agents: &[Agent], indices: Vec<usi
 
                 let mut by_topic: HashMap<String, Vec<u32>> = HashMap::new();
                 for (topic, partition_id) in partitions {
-                    by_topic
-                        .entry(topic)
-                        .or_insert_with(Vec::new)
-                        .push(partition_id);
+                    by_topic.entry(topic).or_default().push(partition_id);
                 }
 
                 for (topic, mut partition_ids) in by_topic {
@@ -309,7 +303,7 @@ async fn show_lease_status(
     for lease in leases {
         by_agent
             .entry(lease.leader_agent_id.clone())
-            .or_insert_with(Vec::new)
+            .or_default()
             .push((lease.topic, lease.partition_id, lease.epoch));
     }
 
@@ -322,7 +316,7 @@ async fn show_lease_status(
         for (topic, partition_id, epoch) in leases {
             by_topic
                 .entry(topic)
-                .or_insert_with(Vec::new)
+                .or_default()
                 .push((partition_id, epoch));
         }
 

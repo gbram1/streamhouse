@@ -242,7 +242,7 @@ impl SchemaRegistry {
 
                 // Validate it's actually a JSON Schema
                 if let Ok(json) = serde_json::from_str::<serde_json::Value>(schema) {
-                    if !json.get("$schema").is_some() && !json.get("type").is_some() {
+                    if json.get("$schema").is_none() && json.get("type").is_none() {
                         return Err(SchemaError::InvalidSchema(
                             "Not a valid JSON Schema (missing $schema or type)".to_string(),
                         ));

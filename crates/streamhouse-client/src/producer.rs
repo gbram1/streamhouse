@@ -1555,7 +1555,7 @@ impl Producer {
         agents: Arc<RwLock<HashMap<String, AgentInfo>>>,
         retry_policy: RetryPolicy,
         pending_records: Arc<Mutex<HashMap<(String, u32), PendingQueue>>>,
-        #[cfg(feature = "metrics")] metrics: Option<Arc<ProducerMetrics>>,
+        #[cfg(feature = "metrics")] _metrics: Option<Arc<ProducerMetrics>>,
     ) -> tokio::task::JoinHandle<()> {
         tokio::spawn(async move {
             let mut interval = tokio::time::interval(Duration::from_millis(50));
@@ -2215,7 +2215,7 @@ mod tests {
 
     #[test]
     fn test_compute_partition_with_key() {
-        let producer = ProducerBuilder {
+        let _producer = ProducerBuilder {
             metadata_store: None,
             agent_group: "test".to_string(),
             #[cfg(feature = "metrics")]
