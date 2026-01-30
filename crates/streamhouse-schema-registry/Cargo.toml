@@ -15,6 +15,8 @@ tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
 async-trait = { workspace = true }
 bytes = { workspace = true }
+sqlx = { workspace = true, features = ["postgres"] }
+sha2 = "0.10"
 
 # Schema format support
 apache-avro = "0.16"

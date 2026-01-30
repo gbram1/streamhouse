@@ -50,6 +50,7 @@ pub mod consumer;
 pub mod error;
 pub mod producer;
 pub mod retry;
+pub mod schema_registry_client;
 
 pub use batch::{BatchManager, BatchRecord};
 pub use connection_pool::ConnectionPool;
@@ -57,3 +58,4 @@ pub use consumer::{ConsumedRecord, Consumer, ConsumerBuilder, ConsumerConfig, Of
 pub use error::{ClientError, Result};
 pub use producer::{Producer, ProducerBuilder, ProducerConfig, ProducerRecord, SendResult};
 pub use retry::{retry_with_backoff, retry_with_jittered_backoff, RetryPolicy};
+pub use schema_registry_client::{Schema, SchemaFormat, SchemaRegistryClient};

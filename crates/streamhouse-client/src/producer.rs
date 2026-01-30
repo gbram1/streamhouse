@@ -740,6 +740,19 @@ pub struct Producer {
     /// and errors to Prometheus. Metrics are atomic and lock-free.
     #[cfg(feature = "metrics")]
     _metrics: Option<Arc<ProducerMetrics>>,
+
+    /// Optional schema registry client for schema validation (Phase 9+).
+    ///
+    /// When provided, enables schema validation and auto-registration via
+    /// the send_with_schema() method. Schemas are validated against compatibility
+    /// rules before being registered.
+    schema_registry: Option<Arc<crate::schema_registry_client::SchemaRegistryClient>>,
+
+    /// Schema cache for fast schema ID lookup (Phase 9+).
+    ///
+    /// Caches subject -> schema_id mappings to avoid repeated registry lookups.
+    /// Cache is write-through: schemas are registered once and cached permanently.
+    schema_cache: Arc<RwLock<HashMap<String, i32>>>,
 }
 
 impl Producer {
@@ -935,6 +948,192 @@ impl Producer {
             offset_receiver: Some(offset_rx),
             timestamp: timestamp as i64,
         })
+    }
+
+    /// Send a record with schema validation and auto-registration (Phase 9+).
+    ///
+    /// This method validates the schema against the subject's compatibility rules,
+    /// registers it in the schema registry if needed, and prepends the schema ID
+    /// to the message payload using Confluent wire format.
+    ///
+    /// The subject name is derived from the topic as "{topic}-value" by convention.
+    ///
+    /// # Wire Format
+    ///
+    /// Messages are encoded as:
+    /// - Byte 0: Magic byte (0x00)
+    /// - Bytes 1-4: Schema ID (big-endian int32)
+    /// - Bytes 5+: Serialized data
+    ///
+    /// # Arguments
+    ///
+    /// * `topic` - Topic name (must exist in metadata store)
+    /// * `key` - Optional key for partitioning
+    /// * `value` - Record payload (pre-serialized according to schema)
+    /// * `schema` - Schema definition (Avro JSON, Protobuf descriptor, etc.)
+    /// * `schema_format` - Schema format (Avro, Protobuf, Json)
+    /// * `partition` - Optional explicit partition ID
+    ///
+    /// # Returns
+    ///
+    /// SendResult with partition and offset information.
+    ///
+    /// # Errors
+    ///
+    /// Returns `ClientError::SchemaRegistryError` if:
+    /// - Schema registry is not configured (call `.schema_registry(url)` on builder)
+    /// - Schema validation fails
+    /// - Schema is incompatible with existing versions
+    /// - Registry is unreachable
+    ///
+    /// # Examples
+    ///
+    /// ```ignore
+    /// use streamhouse_client::{Producer, SchemaFormat};
+    ///
+    /// let producer = Producer::builder()
+    ///     .metadata_store(metadata)
+    ///     .schema_registry("http://localhost:8081")
+    ///     .build()
+    ///     .await?;
+    ///
+    /// let avro_schema = r#"{"type": "record", "name": "Order", "fields": [
+    ///     {"name": "id", "type": "int"},
+    ///     {"name": "amount", "type": "double"}
+    /// ]}"#;
+    ///
+    /// // Assume value is already Avro-encoded
+    /// let value = avro_encode(&order)?;
+    ///
+    /// let result = producer.send_with_schema(
+    ///     "orders",
+    ///     Some(b"order-123"),
+    ///     &value,
+    ///     avro_schema,
+    ///     SchemaFormat::Avro,
+    ///     None,
+    /// ).await?;
+    /// ```
+    pub async fn send_with_schema(
+        &self,
+        topic: &str,
+        key: Option<&[u8]>,
+        value: &[u8],
+        schema: &str,
+        schema_format: crate::schema_registry_client::SchemaFormat,
+        partition: Option<u32>,
+    ) -> Result<SendResult> {
+        // Ensure schema registry is configured
+        let registry = self.schema_registry.as_ref().ok_or_else(|| {
+            ClientError::ConfigError(
+                "Schema registry not configured. Call .schema_registry(url) on builder".to_string(),
+            )
+        })?;
+
+        // Derive subject from topic (convention: "{topic}-value")
+        let subject = format!("{}-value", topic);
+
+        // Check cache for schema ID
+        {
+            let cache = self.schema_cache.read().await;
+            if let Some(&schema_id) = cache.get(&subject) {
+                tracing::debug!(
+                    subject = %subject,
+                    schema_id = schema_id,
+                    "Schema ID found in cache"
+                );
+                return self
+                    .send_with_schema_id(topic, key, value, schema_id, partition)
+                    .await;
+            }
+        }
+
+        // Register schema (or get existing ID)
+        tracing::debug!(
+            subject = %subject,
+            "Registering schema with registry"
+        );
+
+        let schema_id = registry
+            .register_schema(&subject, schema, schema_format)
+            .await?;
+
+        tracing::info!(
+            subject = %subject,
+            schema_id = schema_id,
+            "Schema registered successfully"
+        );
+
+        // Cache schema ID
+        {
+            let mut cache = self.schema_cache.write().await;
+            cache.insert(subject, schema_id);
+        }
+
+        // Send with schema ID
+        self.send_with_schema_id(topic, key, value, schema_id, partition)
+            .await
+    }
+
+    /// Send a record with a known schema ID (Phase 9+).
+    ///
+    /// This is a lower-level method that assumes the schema is already registered
+    /// and the ID is known. It prepends the schema ID to the message payload using
+    /// Confluent wire format.
+    ///
+    /// Most users should use `send_with_schema()` instead, which handles schema
+    /// registration automatically.
+    ///
+    /// # Wire Format
+    ///
+    /// Messages are encoded as:
+    /// - Byte 0: Magic byte (0x00)
+    /// - Bytes 1-4: Schema ID (big-endian int32)
+    /// - Bytes 5+: Serialized data
+    ///
+    /// # Arguments
+    ///
+    /// * `topic` - Topic name (must exist in metadata store)
+    /// * `key` - Optional key for partitioning
+    /// * `value` - Record payload (pre-serialized according to schema)
+    /// * `schema_id` - Schema ID from registry
+    /// * `partition` - Optional explicit partition ID
+    ///
+    /// # Returns
+    ///
+    /// SendResult with partition and offset information.
+    ///
+    /// # Examples
+    ///
+    /// ```ignore
+    /// // If you already have the schema ID from a previous registration:
+    /// let schema_id = 42;
+    /// let value = avro_encode(&order)?;
+    ///
+    /// let result = producer.send_with_schema_id(
+    ///     "orders",
+    ///     Some(b"order-123"),
+    ///     &value,
+    ///     schema_id,
+    ///     None,
+    /// ).await?;
+    /// ```
+    pub async fn send_with_schema_id(
+        &self,
+        topic: &str,
+        key: Option<&[u8]>,
+        value: &[u8],
+        schema_id: i32,
+        partition: Option<u32>,
+    ) -> Result<SendResult> {
+        // Prepend magic byte (0x00) + schema_id (4 bytes big-endian)
+        let mut payload = Vec::with_capacity(5 + value.len());
+        payload.push(0x00); // Magic byte
+        payload.extend_from_slice(&schema_id.to_be_bytes());
+        payload.extend_from_slice(value);
+
+        // Use existing send() method with the encoded payload
+        self.send(topic, key, &payload, partition).await
     }
 
     /// Send a record and wait for the offset to be committed (Phase 5.4).
@@ -1778,6 +1977,12 @@ pub struct ProducerBuilder {
     /// Optional Prometheus metrics for observability.
     #[cfg(feature = "metrics")]
     metrics: Option<Arc<ProducerMetrics>>,
+
+    /// Optional schema registry URL for schema validation (Phase 9+).
+    ///
+    /// When set, enables schema validation and auto-registration. Schemas
+    /// are cached locally to avoid repeated registry lookups.
+    schema_registry_url: Option<String>,
 }
 
 impl ProducerBuilder {
@@ -1810,6 +2015,7 @@ impl ProducerBuilder {
             retry_backoff: Duration::from_millis(100),
             #[cfg(feature = "metrics")]
             metrics: None,
+            schema_registry_url: None,
         }
     }
 
@@ -2104,6 +2310,40 @@ impl ProducerBuilder {
         self
     }
 
+    /// Set the schema registry URL for schema validation (Phase 9+).
+    ///
+    /// When set, enables the `send_with_schema()` method for automatic schema
+    /// validation and registration. Schemas are cached locally to minimize
+    /// registry lookups.
+    ///
+    /// # Arguments
+    ///
+    /// * `url` - Base URL of the schema registry (e.g., "http://localhost:8081")
+    ///
+    /// # Examples
+    ///
+    /// ```ignore
+    /// let producer = Producer::builder()
+    ///     .metadata_store(metadata)
+    ///     .schema_registry("http://localhost:8081")
+    ///     .build()
+    ///     .await?;
+    ///
+    /// // Now you can use send_with_schema()
+    /// producer.send_with_schema(
+    ///     "orders",
+    ///     None,
+    ///     b"avro_data",
+    ///     avro_schema,
+    ///     SchemaFormat::Avro,
+    ///     None,
+    /// ).await?;
+    /// ```
+    pub fn schema_registry(mut self, url: impl Into<String>) -> Self {
+        self.schema_registry_url = Some(url.into());
+        self
+    }
+
     /// Build the Producer
     pub async fn build(self) -> Result<Producer> {
         let metadata_store = self
@@ -2187,6 +2427,15 @@ impl ProducerBuilder {
             self.metrics.clone(),
         ))));
 
+        // Initialize schema registry client if URL provided
+        let schema_registry = self.schema_registry_url.map(|url| {
+            Arc::new(crate::schema_registry_client::SchemaRegistryClient::new(
+                url,
+            ))
+        });
+
+        let schema_cache = Arc::new(RwLock::new(HashMap::new()));
+
         Ok(Producer {
             config,
             agents,
@@ -2199,6 +2448,8 @@ impl ProducerBuilder {
             pending_records,
             #[cfg(feature = "metrics")]
             _metrics: self.metrics,
+            schema_registry,
+            schema_cache,
         })
     }
 }
@@ -2227,6 +2478,7 @@ mod tests {
             agent_refresh_interval: Duration::from_secs(30),
             max_retries: 3,
             retry_backoff: Duration::from_millis(100),
+            schema_registry_url: None,
         };
 
         // Create a mock producer (we can't fully initialize without metadata store)
