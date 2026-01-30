@@ -196,6 +196,21 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         None
     };
 
+    // Throttle configuration (Phase 12.4.2: S3 Throttling Protection)
+    // Enable by default to prevent S3 503 SlowDown errors
+    let throttle_enabled = std::env::var("THROTTLE_ENABLED")
+        .ok()
+        .and_then(|s| s.parse::<bool>().ok())
+        .unwrap_or(true); // Enabled by default for production safety
+
+    let throttle_config = if throttle_enabled {
+        info!("S3 throttling protection enabled (default S3 rate limits: PUT=3000/s, GET=5000/s)");
+        Some(streamhouse_storage::ThrottleConfig::default())
+    } else {
+        info!("S3 throttling protection disabled (set THROTTLE_ENABLED=true to enable)");
+        None
+    };
+
     let write_config = WriteConfig {
         segment_max_size,
         segment_max_age_ms,
@@ -205,6 +220,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         block_size_target: 1024 * 1024, // 1MB
         s3_upload_retries: 3,
         wal_config,
+        throttle_config,
     };
 
     let writer_pool = Arc::new(WriterPool::new(

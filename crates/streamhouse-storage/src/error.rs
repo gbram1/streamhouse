@@ -52,4 +52,10 @@ pub enum Error {
 
     #[error("IO error: {0}")]
     IoError(#[from] std::io::Error),
+
+    #[error("S3 operation rate limited - backpressure applied")]
+    S3RateLimited,
+
+    #[error("S3 circuit breaker open - service unhealthy")]
+    S3CircuitOpen,
 }

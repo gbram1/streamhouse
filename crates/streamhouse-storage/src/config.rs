@@ -37,6 +37,7 @@
 //! };
 //! ```
 
+use crate::throttle::ThrottleConfig;
 use crate::wal::WALConfig;
 use serde::{Deserialize, Serialize};
 
@@ -70,6 +71,10 @@ pub struct WriteConfig {
     /// WAL configuration (optional - if None, WAL is disabled)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub wal_config: Option<WALConfig>,
+
+    /// Throttle configuration (optional - if None, throttling is disabled)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub throttle_config: Option<ThrottleConfig>,
 }
 
 impl Default for WriteConfig {
@@ -83,6 +88,7 @@ impl Default for WriteConfig {
             block_size_target: default_block_size(),
             s3_upload_retries: default_retries(),
             wal_config: None, // WAL disabled by default
+            throttle_config: None, // Throttling disabled by default
         }
     }
 }

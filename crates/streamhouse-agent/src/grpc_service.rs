@@ -456,6 +456,28 @@ impl ProducerService for ProducerServiceImpl {
                         record_count += 1;
                     }
                     Err(e) => {
+                        // Check for throttle errors and propagate backpressure (Phase 12.4.2)
+                        let error_msg = e.to_string();
+                        if error_msg.contains("S3 operation rate limited") {
+                            warn!(
+                                topic = %req.topic,
+                                partition = req.partition,
+                                "S3 rate limited - rejecting produce request with backpressure"
+                            );
+                            return Err(Status::resource_exhausted(
+                                "S3 rate limit exceeded - please slow down",
+                            ));
+                        } else if error_msg.contains("S3 circuit breaker open") {
+                            error!(
+                                topic = %req.topic,
+                                partition = req.partition,
+                                "S3 circuit breaker open - rejecting produce request"
+                            );
+                            return Err(Status::unavailable(
+                                "S3 service is temporarily unavailable - circuit breaker open",
+                            ));
+                        }
+
                         error!(
                             topic = %req.topic,
                             partition = req.partition,
