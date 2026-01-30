@@ -3455,7 +3455,9 @@ version = "0.1.0"
 dependencies = [
  "bytes",
  "chrono",
+ "clap",
  "criterion",
+ "futures",
  "lz4",
  "object_store",
  "prometheus-client",
@@ -3602,6 +3604,7 @@ dependencies = [
  "bytes",
  "crc32fast",
  "criterion",
+ "futures",
  "lru",
  "lz4_flex",
  "object_store",
