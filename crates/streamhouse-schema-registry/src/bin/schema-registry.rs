@@ -41,8 +41,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .and_then(|p| p.parse::<u16>().ok())
         .unwrap_or(8081);
 
-    let metadata_store_url = std::env::var("METADATA_STORE")
-        .unwrap_or_else(|_| "./data/schema-registry.db".to_string());
+    let metadata_store_url =
+        std::env::var("METADATA_STORE").unwrap_or_else(|_| "./data/schema-registry.db".to_string());
 
     info!("Configuration:");
     info!("  Port: {}", port);

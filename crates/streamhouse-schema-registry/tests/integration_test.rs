@@ -131,7 +131,10 @@ async fn test_multiple_schema_formats() {
         references: vec![],
         metadata: None,
     };
-    let avro_id = registry.register_schema("avro-topic", avro_request).await.unwrap();
+    let avro_id = registry
+        .register_schema("avro-topic", avro_request)
+        .await
+        .unwrap();
     assert!(avro_id > 0);
 
     // JSON Schema
@@ -141,7 +144,10 @@ async fn test_multiple_schema_formats() {
         references: vec![],
         metadata: None,
     };
-    let json_id = registry.register_schema("json-topic", json_request).await.unwrap();
+    let json_id = registry
+        .register_schema("json-topic", json_request)
+        .await
+        .unwrap();
     assert!(json_id > 0);
 
     // Protobuf schema
@@ -151,7 +157,10 @@ async fn test_multiple_schema_formats() {
         references: vec![],
         metadata: None,
     };
-    let proto_id = registry.register_schema("proto-topic", proto_request).await.unwrap();
+    let proto_id = registry
+        .register_schema("proto-topic", proto_request)
+        .await
+        .unwrap();
     assert!(proto_id > 0);
 }
 
@@ -168,7 +177,10 @@ async fn test_invalid_schemas_rejected() {
         references: vec![],
         metadata: None,
     };
-    assert!(registry.register_schema("test", invalid_json).await.is_err());
+    assert!(registry
+        .register_schema("test", invalid_json)
+        .await
+        .is_err());
 
     // Invalid Avro schema
     let invalid_avro = RegisterSchemaRequest {
@@ -177,7 +189,10 @@ async fn test_invalid_schemas_rejected() {
         references: vec![],
         metadata: None,
     };
-    assert!(registry.register_schema("test", invalid_avro).await.is_err());
+    assert!(registry
+        .register_schema("test", invalid_avro)
+        .await
+        .is_err());
 
     // Empty Protobuf schema
     let empty_proto = RegisterSchemaRequest {

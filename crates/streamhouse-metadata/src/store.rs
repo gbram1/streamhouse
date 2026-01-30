@@ -553,7 +553,7 @@ impl MetadataStore for SqliteMetadataStore {
     }
 
     async fn list_consumer_groups(&self) -> Result<Vec<String>> {
-        let rows = sqlx::query!(
+        let rows = sqlx::query_as::<_, (String,)>(
             r#"
             SELECT DISTINCT group_id
             FROM consumer_offsets
@@ -563,7 +563,7 @@ impl MetadataStore for SqliteMetadataStore {
         .fetch_all(&self.pool)
         .await?;
 
-        Ok(rows.into_iter().map(|r| r.group_id).collect())
+        Ok(rows.into_iter().map(|r| r.0).collect())
     }
 
     async fn delete_consumer_group(&self, group_id: &str) -> Result<()> {

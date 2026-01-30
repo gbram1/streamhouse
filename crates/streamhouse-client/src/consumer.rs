@@ -855,11 +855,7 @@ impl Consumer {
 
                 // Update lag metric
                 streamhouse_observability::metrics::CONSUMER_LAG
-                    .with_label_values(&[
-                        &key.topic,
-                        &key.partition_id.to_string(),
-                        group_id,
-                    ])
+                    .with_label_values(&[&key.topic, &key.partition_id.to_string(), group_id])
                     .set(lag_records);
             }
         }

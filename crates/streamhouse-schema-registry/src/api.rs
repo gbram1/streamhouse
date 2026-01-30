@@ -34,10 +34,7 @@ impl SchemaRegistryApi {
             // Subjects
             .route("/subjects", get(list_subjects))
             .route("/subjects/:subject/versions", get(list_versions))
-            .route(
-                "/subjects/:subject/versions",
-                post(register_schema),
-            )
+            .route("/subjects/:subject/versions", post(register_schema))
             .route(
                 "/subjects/:subject/versions/:version",
                 get(get_schema_by_version),
@@ -267,11 +264,7 @@ impl IntoResponse for SchemaError {
                 format!("Schema already exists with ID {}", id),
             ),
             SchemaError::InvalidFormat(msg) => (StatusCode::BAD_REQUEST, 400, msg),
-            _ => (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                50001,
-                self.to_string(),
-            ),
+            _ => (StatusCode::INTERNAL_SERVER_ERROR, 50001, self.to_string()),
         };
 
         let body = serde_json::json!({

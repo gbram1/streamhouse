@@ -50,19 +50,19 @@
 //! # Web Console: http://localhost:8080
 //! ```
 
+use axum::Router;
 use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::Duration;
-use streamhouse_metadata::{MetadataStore, SqliteMetadataStore};
 #[cfg(feature = "postgres")]
 use streamhouse_metadata::PostgresMetadataStore;
+use streamhouse_metadata::{MetadataStore, SqliteMetadataStore};
+use streamhouse_observability;
+use streamhouse_schema_registry::{MemorySchemaStorage, SchemaRegistry, SchemaRegistryApi};
 use streamhouse_server::{pb::stream_house_server::StreamHouseServer, StreamHouseService};
 use streamhouse_storage::{SegmentCache, WriteConfig, WriterPool};
-use streamhouse_schema_registry::{SchemaRegistry, SchemaRegistryApi, MemorySchemaStorage};
-use streamhouse_observability;
 use tonic::transport::Server as GrpcServer;
 use tonic_reflection::server::Builder as ReflectionBuilder;
-use axum::Router;
 use tower_http::services::ServeDir;
 use tower_http::trace::TraceLayer;
 
@@ -110,8 +110,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .unwrap_or_else(|_| "0.0.0.0:8080".to_string())
         .parse()?;
 
-    let web_console_path = std::env::var("WEB_CONSOLE_PATH")
-        .unwrap_or_else(|_| "./web/out".to_string());
+    let web_console_path =
+        std::env::var("WEB_CONSOLE_PATH").unwrap_or_else(|_| "./web/out".to_string());
 
     let metadata_path =
         std::env::var("STREAMHOUSE_METADATA").unwrap_or_else(|_| "./data/metadata.db".to_string());
@@ -148,31 +148,30 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Initialize object store (S3)
     tracing::info!("☁️  Initializing object store (bucket: {})", s3_bucket);
-    let object_store: Arc<dyn object_store::ObjectStore> =
-        if std::env::var("USE_LOCAL_STORAGE").is_ok() {
-            // Use local filesystem for development
-            let local_path = std::env::var("LOCAL_STORAGE_PATH")
-                .unwrap_or_else(|_| "./data/storage".to_string());
-            tracing::info!("   Using local storage at {}", local_path);
-            Arc::new(object_store::local::LocalFileSystem::new_with_prefix(
-                local_path,
-            )?)
-        } else {
-            // Use S3 (or MinIO with custom endpoint)
-            let mut builder = object_store::aws::AmazonS3Builder::from_env()
-                .with_bucket_name(&s3_bucket);
+    let object_store: Arc<dyn object_store::ObjectStore> = if std::env::var("USE_LOCAL_STORAGE")
+        .is_ok()
+    {
+        // Use local filesystem for development
+        let local_path =
+            std::env::var("LOCAL_STORAGE_PATH").unwrap_or_else(|_| "./data/storage".to_string());
+        tracing::info!("   Using local storage at {}", local_path);
+        Arc::new(object_store::local::LocalFileSystem::new_with_prefix(
+            local_path,
+        )?)
+    } else {
+        // Use S3 (or MinIO with custom endpoint)
+        let mut builder =
+            object_store::aws::AmazonS3Builder::from_env().with_bucket_name(&s3_bucket);
 
-            // Set custom endpoint for MinIO
-            if let Ok(endpoint) = std::env::var("S3_ENDPOINT") {
-                tracing::info!("   Using custom S3 endpoint: {}", endpoint);
-                builder = builder
-                    .with_endpoint(endpoint)
-                    .with_allow_http(true); // Allow HTTP for local MinIO
-            }
+        // Set custom endpoint for MinIO
+        if let Ok(endpoint) = std::env::var("S3_ENDPOINT") {
+            tracing::info!("   Using custom S3 endpoint: {}", endpoint);
+            builder = builder.with_endpoint(endpoint).with_allow_http(true); // Allow HTTP for local MinIO
+        }
 
-            let s3 = builder.build()?;
-            Arc::new(s3)
-        };
+        let s3 = builder.build()?;
+        Arc::new(s3)
+    };
 
     // Initialize cache
     tracing::info!(
@@ -227,8 +226,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .start_background_flush(Duration::from_secs(flush_interval_secs));
 
     // Create gRPC service
-    let grpc_service =
-        StreamHouseService::new(metadata.clone(), object_store.clone(), cache.clone(), writer_pool.clone(), config.clone());
+    let grpc_service = StreamHouseService::new(
+        metadata.clone(),
+        object_store.clone(),
+        cache.clone(),
+        writer_pool.clone(),
+        config.clone(),
+    );
 
     // Register unified server as an agent
     tracing::info!("🤖 Registering unified server as agent");
@@ -242,7 +246,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let agent_info = AgentInfo {
         agent_id: agent_id.clone(),
         address: format!("{}:{}", grpc_addr.ip(), grpc_addr.port()),
-        availability_zone: std::env::var("AVAILABILITY_ZONE").unwrap_or_else(|_| "default".to_string()),
+        availability_zone: std::env::var("AVAILABILITY_ZONE")
+            .unwrap_or_else(|_| "default".to_string()),
         agent_group: "default".to_string(),
         last_heartbeat: now_ms,
         started_at: now_ms,
