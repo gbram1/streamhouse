@@ -739,7 +739,7 @@ pub struct Producer {
     /// When provided, the Producer will record throughput, latency, batch sizes,
     /// and errors to Prometheus. Metrics are atomic and lock-free.
     #[cfg(feature = "metrics")]
-    metrics: Option<Arc<ProducerMetrics>>,
+    _metrics: Option<Arc<ProducerMetrics>>,
 }
 
 impl Producer {
@@ -2198,7 +2198,7 @@ impl ProducerBuilder {
             flush_handle,
             pending_records,
             #[cfg(feature = "metrics")]
-            metrics: self.metrics,
+            _metrics: self.metrics,
         })
     }
 }
