@@ -69,13 +69,19 @@ pub mod pb {
     tonic::include_proto!("streamhouse");
 }
 
+mod commands;
+mod config;
+mod format;
+mod repl;
+mod rest_client;
+
 use pb::stream_house_client::StreamHouseClient;
 
 #[derive(Parser)]
 #[command(name = "streamctl")]
 #[command(about = "StreamHouse command-line tool", long_about = None)]
 struct Cli {
-    /// Server address
+    /// Server address (gRPC)
     #[arg(
         short,
         long,
@@ -83,6 +89,14 @@ struct Cli {
         default_value = "http://localhost:9090"
     )]
     server: String,
+
+    /// Schema Registry URL (REST)
+    #[arg(
+        long,
+        env = "SCHEMA_REGISTRY_URL",
+        default_value = "http://localhost:8081"
+    )]
+    schema_registry_url: String,
 
     #[command(subcommand)]
     command: Commands,
@@ -94,6 +108,11 @@ enum Commands {
     Topic {
         #[command(subcommand)]
         command: TopicCommands,
+    },
+    /// Schema registry commands
+    Schema {
+        #[command(subcommand)]
+        command: commands::SchemaCommands,
     },
     /// Produce records to a topic
     Produce {
@@ -131,7 +150,7 @@ enum Commands {
 }
 
 #[derive(Subcommand)]
-enum TopicCommands {
+pub enum TopicCommands {
     /// Create a new topic
     Create {
         /// Topic name
@@ -158,7 +177,7 @@ enum TopicCommands {
 }
 
 #[derive(Subcommand)]
-enum OffsetCommands {
+pub enum OffsetCommands {
     /// Commit consumer group offset
     Commit {
         /// Consumer group name
@@ -193,43 +212,66 @@ enum OffsetCommands {
 /// This function:
 /// 1. Parses command-line arguments using clap
 /// 2. Establishes a gRPC connection to the server
-/// 3. Dispatches to the appropriate command handler
+/// 3. Either enters REPL mode (if no subcommand) or dispatches to command handler
 /// 4. Returns errors with context for better debugging
 #[tokio::main]
 async fn main() -> Result<()> {
-    // Parse command-line arguments
-    let cli = Cli::parse();
+    // Check if running in interactive mode (no arguments)
+    let args: Vec<String> = std::env::args().collect();
+    let is_interactive = args.len() == 1 || (args.len() == 3 && args[1] == "--server");
 
-    // Establish gRPC connection to the server
-    // The server address can be:
-    // - Provided via --server flag
-    // - Set via STREAMHOUSE_ADDR environment variable
-    // - Defaults to http://localhost:9090
-    let channel = Channel::from_shared(cli.server.clone())
-        .context("Invalid server address")?
-        .connect()
-        .await
-        .context("Failed to connect to server")?;
+    if is_interactive {
+        // Interactive REPL mode
+        let server = if args.len() == 3 {
+            args[2].clone()
+        } else {
+            std::env::var("STREAMHOUSE_ADDR")
+                .unwrap_or_else(|_| "http://localhost:9090".to_string())
+        };
 
-    // Create gRPC client from the connected channel
-    let mut client = StreamHouseClient::new(channel);
+        let schema_registry_url = std::env::var("SCHEMA_REGISTRY_URL")
+            .unwrap_or_else(|_| "http://localhost:8081".to_string());
 
-    // Dispatch to appropriate command handler based on user input
-    match cli.command {
-        Commands::Topic { command } => handle_topic_command(&mut client, command).await?,
-        Commands::Produce {
-            topic,
-            partition,
-            key,
-            value,
-        } => handle_produce(&mut client, topic, partition, key, value).await?,
-        Commands::Consume {
-            topic,
-            partition,
-            offset,
-            limit,
-        } => handle_consume(&mut client, topic, partition, offset, limit).await?,
-        Commands::Offset { command } => handle_offset_command(&mut client, command).await?,
+        let channel = Channel::from_shared(server.clone())
+            .context("Invalid server address")?
+            .connect()
+            .await
+            .context("Failed to connect to server")?;
+
+        let client = StreamHouseClient::new(channel);
+        let mut repl = repl::Repl::new(client, schema_registry_url)?;
+        repl.run().await?;
+    } else {
+        // Traditional CLI mode
+        let cli = Cli::parse();
+
+        let channel = Channel::from_shared(cli.server.clone())
+            .context("Invalid server address")?
+            .connect()
+            .await
+            .context("Failed to connect to server")?;
+
+        let mut client = StreamHouseClient::new(channel);
+
+        match cli.command {
+            Commands::Topic { command } => handle_topic_command(&mut client, command).await?,
+            Commands::Schema { command } => {
+                commands::schema::handle_schema_command(command, &cli.schema_registry_url).await?
+            }
+            Commands::Produce {
+                topic,
+                partition,
+                key,
+                value,
+            } => handle_produce(&mut client, topic, partition, key, value).await?,
+            Commands::Consume {
+                topic,
+                partition,
+                offset,
+                limit,
+            } => handle_consume(&mut client, topic, partition, offset, limit).await?,
+            Commands::Offset { command } => handle_offset_command(&mut client, command).await?,
+        }
     }
 
     Ok(())
@@ -244,7 +286,7 @@ async fn main() -> Result<()> {
 /// - Delete: Removes a topic and all its data
 ///
 /// All operations use the gRPC client to communicate with the server.
-async fn handle_topic_command(
+pub async fn handle_topic_command(
     client: &mut StreamHouseClient<Channel>,
     command: TopicCommands,
 ) -> Result<()> {
@@ -335,7 +377,7 @@ async fn handle_topic_command(
 /// ```bash
 /// streamctl produce orders --partition 0 --value '{"amount": 99.99}'
 /// ```
-async fn handle_produce(
+pub async fn handle_produce(
     client: &mut StreamHouseClient<Channel>,
     topic: String,
     partition: u32,
@@ -386,7 +428,7 @@ async fn handle_produce(
 /// ```bash
 /// streamctl consume orders --partition 0 --offset 0 --limit 10
 /// ```
-async fn handle_consume(
+pub async fn handle_consume(
     client: &mut StreamHouseClient<Channel>,
     topic: String,
     partition: u32,
@@ -481,7 +523,7 @@ async fn handle_consume(
 /// # Later, retrieve where we left off
 /// streamctl offset get --group analytics --topic orders --partition 0
 /// ```
-async fn handle_offset_command(
+pub async fn handle_offset_command(
     client: &mut StreamHouseClient<Channel>,
     command: OffsetCommands,
 ) -> Result<()> {
