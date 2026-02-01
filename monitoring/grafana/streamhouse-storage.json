@@ -1,0 +1,392 @@
+{
+  "dashboard": {
+    "title": "Streamhouse Storage & S3",
+    "tags": ["streamhouse", "storage", "s3"],
+    "timezone": "browser",
+    "refresh": "30s",
+    "time": {
+      "from": "now-1h",
+      "to": "now"
+    },
+    "panels": [
+      {
+        "id": 1,
+        "title": "Circuit Breaker State (PUT)",
+        "type": "stat",
+        "gridPos": {"h": 4, "w": 6, "x": 0, "y": 0},
+        "targets": [
+          {
+            "expr": "streamhouse_circuit_breaker_state{operation=\"put\"}",
+            "legendFormat": "PUT Circuit"
+          }
+        ],
+        "options": {
+          "graphMode": "area",
+          "colorMode": "background",
+          "textMode": "value_and_name"
+        },
+        "fieldConfig": {
+          "defaults": {
+            "mappings": [
+              {"value": 0, "text": "✓ Closed"},
+              {"value": 1, "text": "✗ OPEN"},
+              {"value": 2, "text": "⚠ Half-Open"}
+            ],
+            "thresholds": {
+              "mode": "absolute",
+              "steps": [
+                {"value": 0, "color": "green"},
+                {"value": 1, "color": "red"},
+                {"value": 2, "color": "yellow"}
+              ]
+            }
+          }
+        }
+      },
+      {
+        "id": 2,
+        "title": "Current PUT Rate Limit",
+        "type": "gauge",
+        "gridPos": {"h": 4, "w": 6, "x": 6, "y": 0},
+        "targets": [
+          {
+            "expr": "streamhouse_throttle_rate_current{operation=\"put\"}",
+            "legendFormat": "PUT Rate"
+          }
+        ],
+        "options": {
+          "showThresholdLabels": true,
+          "showThresholdMarkers": true
+        },
+        "fieldConfig": {
+          "defaults": {
+            "unit": "ops",
+            "min": 0,
+            "max": 10000,
+            "thresholds": {
+              "mode": "absolute",
+              "steps": [
+                {"value": 0, "color": "red"},
+                {"value": 1000, "color": "yellow"},
+                {"value": 2500, "color": "green"}
+              ]
+            }
+          }
+        }
+      },
+      {
+        "id": 3,
+        "title": "Throttle Decision Rate",
+        "type": "stat",
+        "gridPos": {"h": 4, "w": 6, "x": 12, "y": 0},
+        "targets": [
+          {
+            "expr": "sum(rate(streamhouse_throttle_decisions_total{decision=\"rate_limited\"}[5m])) / sum(rate(streamhouse_throttle_decisions_total[5m])) * 100",
+            "legendFormat": "% Rate Limited"
+          }
+        ],
+        "options": {
+          "graphMode": "area",
+          "colorMode": "value"
+        },
+        "fieldConfig": {
+          "defaults": {
+            "unit": "percent",
+            "thresholds": {
+              "mode": "absolute",
+              "steps": [
+                {"value": null, "color": "green"},
+                {"value": 5, "color": "yellow"},
+                {"value": 10, "color": "red"}
+              ]
+            }
+          }
+        }
+      },
+      {
+        "id": 4,
+        "title": "S3 Error Rate",
+        "type": "stat",
+        "gridPos": {"h": 4, "w": 6, "x": 18, "y": 0},
+        "targets": [
+          {
+            "expr": "sum(rate(streamhouse_s3_errors_total[5m])) / sum(rate(streamhouse_s3_requests_total[5m])) * 100",
+            "legendFormat": "% Errors"
+          }
+        ],
+        "options": {
+          "graphMode": "area",
+          "colorMode": "value"
+        },
+        "fieldConfig": {
+          "defaults": {
+            "unit": "percent",
+            "thresholds": {
+              "mode": "absolute",
+              "steps": [
+                {"value": null, "color": "green"},
+                {"value": 1, "color": "yellow"},
+                {"value": 5, "color": "red"}
+              ]
+            }
+          }
+        }
+      },
+      {
+        "id": 5,
+        "title": "Throttle Decisions Over Time",
+        "type": "graph",
+        "gridPos": {"h": 8, "w": 12, "x": 0, "y": 4},
+        "targets": [
+          {
+            "expr": "sum(rate(streamhouse_throttle_decisions_total{decision=\"allow\"}[5m]))",
+            "legendFormat": "Allowed"
+          },
+          {
+            "expr": "sum(rate(streamhouse_throttle_decisions_total{decision=\"rate_limited\"}[5m]))",
+            "legendFormat": "Rate Limited"
+          },
+          {
+            "expr": "sum(rate(streamhouse_throttle_decisions_total{decision=\"circuit_open\"}[5m]))",
+            "legendFormat": "Circuit Open"
+          }
+        ],
+        "yaxes": [
+          {"label": "Decisions/sec", "show": true},
+          {"show": false}
+        ],
+        "seriesOverrides": [
+          {"alias": "Rate Limited", "color": "orange"},
+          {"alias": "Circuit Open", "color": "red"}
+        ],
+        "legend": {"show": true, "alignAsTable": true, "avg": true, "max": true, "current": true}
+      },
+      {
+        "id": 6,
+        "title": "S3 Request Rate by Operation",
+        "type": "graph",
+        "gridPos": {"h": 8, "w": 12, "x": 12, "y": 4},
+        "targets": [
+          {
+            "expr": "sum(rate(streamhouse_s3_requests_total[5m])) by (operation)",
+            "legendFormat": "{{operation}}"
+          }
+        ],
+        "yaxes": [
+          {"label": "Requests/sec", "show": true},
+          {"show": false}
+        ],
+        "legend": {"show": true, "alignAsTable": true, "avg": true, "max": true, "current": true}
+      },
+      {
+        "id": 7,
+        "title": "S3 Errors by Type",
+        "type": "graph",
+        "gridPos": {"h": 8, "w": 12, "x": 0, "y": 12},
+        "targets": [
+          {
+            "expr": "sum(rate(streamhouse_s3_errors_total[5m])) by (error_type)",
+            "legendFormat": "{{error_type}}"
+          }
+        ],
+        "yaxes": [
+          {"label": "Errors/sec", "show": true},
+          {"show": false}
+        ],
+        "legend": {"show": true, "alignAsTable": true, "avg": true, "max": true, "current": true}
+      },
+      {
+        "id": 8,
+        "title": "S3 Latency Heatmap (PUT)",
+        "type": "heatmap",
+        "gridPos": {"h": 8, "w": 12, "x": 12, "y": 12},
+        "targets": [
+          {
+            "expr": "sum(increase(streamhouse_s3_latency_seconds_bucket{operation=\"put\"}[1m])) by (le)",
+            "format": "heatmap",
+            "legendFormat": "{{le}}"
+          }
+        ],
+        "options": {
+          "calculate": false,
+          "cellGap": 2,
+          "color": {
+            "mode": "spectrum",
+            "scheme": "Spectral"
+          }
+        }
+      },
+      {
+        "id": 9,
+        "title": "Circuit Breaker State Transitions",
+        "type": "graph",
+        "gridPos": {"h": 8, "w": 12, "x": 0, "y": 20},
+        "targets": [
+          {
+            "expr": "sum(rate(streamhouse_circuit_breaker_transitions_total[5m])) by (from_state, to_state)",
+            "legendFormat": "{{from_state}} → {{to_state}}"
+          }
+        ],
+        "yaxes": [
+          {"label": "Transitions/sec", "show": true},
+          {"show": false}
+        ],
+        "legend": {"show": true, "alignAsTable": true}
+      },
+      {
+        "id": 10,
+        "title": "Circuit Breaker Failure/Success Count",
+        "type": "graph",
+        "gridPos": {"h": 8, "w": 12, "x": 12, "y": 20},
+        "targets": [
+          {
+            "expr": "streamhouse_circuit_breaker_failures{operation=\"put\"}",
+            "legendFormat": "Consecutive Failures"
+          },
+          {
+            "expr": "streamhouse_circuit_breaker_successes{operation=\"put\"}",
+            "legendFormat": "Consecutive Successes (HalfOpen)"
+          }
+        ],
+        "yaxes": [
+          {"label": "Count", "show": true},
+          {"show": false}
+        ],
+        "legend": {"show": true}
+      },
+      {
+        "id": 11,
+        "title": "Segment Flush Rate",
+        "type": "graph",
+        "gridPos": {"h": 8, "w": 12, "x": 0, "y": 28},
+        "targets": [
+          {
+            "expr": "sum(rate(streamhouse_segment_flushes_total[5m])) by (topic, partition)",
+            "legendFormat": "{{topic}}-{{partition}}"
+          }
+        ],
+        "yaxes": [
+          {"label": "Flushes/sec", "show": true},
+          {"show": false}
+        ],
+        "legend": {"show": true, "alignAsTable": true, "max": true, "current": true}
+      },
+      {
+        "id": 12,
+        "title": "WAL Size by Partition",
+        "type": "graph",
+        "gridPos": {"h": 8, "w": 12, "x": 12, "y": 28},
+        "targets": [
+          {
+            "expr": "streamhouse_wal_size_bytes",
+            "legendFormat": "{{topic}}-{{partition}}"
+          }
+        ],
+        "yaxes": [
+          {"label": "Size", "format": "bytes", "show": true},
+          {"show": false}
+        ],
+        "alert": {
+          "conditions": [
+            {
+              "evaluator": {"params": [104857600], "type": "gt"},
+              "query": {"params": ["A", "5m", "now"]},
+              "type": "query"
+            }
+          ],
+          "name": "WAL Size > 100MB"
+        },
+        "legend": {"show": true, "alignAsTable": true, "max": true, "current": true}
+      },
+      {
+        "id": 13,
+        "title": "WAL Operations",
+        "type": "graph",
+        "gridPos": {"h": 8, "w": 12, "x": 0, "y": 36},
+        "targets": [
+          {
+            "expr": "sum(rate(streamhouse_wal_appends_total{result=\"success\"}[5m]))",
+            "legendFormat": "Appends (success)"
+          },
+          {
+            "expr": "sum(rate(streamhouse_wal_appends_total{result=\"error\"}[5m]))",
+            "legendFormat": "Appends (error)"
+          },
+          {
+            "expr": "sum(rate(streamhouse_wal_truncates_total{result=\"success\"}[5m]))",
+            "legendFormat": "Truncates"
+          }
+        ],
+        "yaxes": [
+          {"label": "Operations/sec", "show": true},
+          {"show": false}
+        ],
+        "seriesOverrides": [
+          {"alias": "Appends (error)", "color": "red"}
+        ],
+        "legend": {"show": true}
+      },
+      {
+        "id": 14,
+        "title": "WAL Recovery Stats",
+        "type": "graph",
+        "gridPos": {"h": 8, "w": 12, "x": 12, "y": 36},
+        "targets": [
+          {
+            "expr": "sum(increase(streamhouse_wal_records_recovered[1h])) by (topic, partition)",
+            "legendFormat": "{{topic}}-{{partition}} recovered"
+          },
+          {
+            "expr": "sum(increase(streamhouse_wal_records_skipped[1h])) by (topic, partition)",
+            "legendFormat": "{{topic}}-{{partition}} skipped"
+          }
+        ],
+        "yaxes": [
+          {"label": "Records", "show": true},
+          {"show": false}
+        ],
+        "seriesOverrides": [
+          {"alias": "/.*skipped/", "color": "orange"}
+        ],
+        "legend": {"show": true, "alignAsTable": true, "total": true}
+      },
+      {
+        "id": 15,
+        "title": "Adaptive Rate Adjustment",
+        "type": "graph",
+        "gridPos": {"h": 8, "w": 24, "x": 0, "y": 44},
+        "targets": [
+          {
+            "expr": "streamhouse_throttle_rate_current{operation=\"put\"}",
+            "legendFormat": "PUT Rate Limit (ops/sec)"
+          },
+          {
+            "expr": "sum(rate(streamhouse_s3_requests_total{operation=\"put\"}[1m])) * 60",
+            "legendFormat": "Actual PUT Rate (ops/sec)"
+          }
+        ],
+        "yaxes": [
+          {"label": "Operations/sec", "show": true},
+          {"show": false}
+        ],
+        "legend": {"show": true, "alignAsTable": true, "avg": true, "max": true, "current": true}
+      }
+    ],
+    "templating": {
+      "list": [
+        {
+          "name": "datasource",
+          "type": "datasource",
+          "query": "prometheus"
+        },
+        {
+          "name": "topic",
+          "type": "query",
+          "query": "label_values(streamhouse_segment_writes_total, topic)",
+          "multi": true,
+          "includeAll": true
+        }
+      ]
+    }
+  }
+}

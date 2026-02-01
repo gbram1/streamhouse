@@ -192,6 +192,20 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .and_then(|s| s.parse::<u64>().ok())
         .unwrap_or(10 * 1000); // 10 seconds default for dev
 
+    // Throttle configuration (enabled by default for production safety)
+    let throttle_enabled = std::env::var("THROTTLE_ENABLED")
+        .ok()
+        .and_then(|s| s.parse::<bool>().ok())
+        .unwrap_or(true);
+
+    let throttle_config = if throttle_enabled {
+        tracing::info!("S3 throttling protection enabled");
+        Some(streamhouse_storage::ThrottleConfig::default())
+    } else {
+        tracing::warn!("S3 throttling protection DISABLED - not recommended for production");
+        None
+    };
+
     let config = WriteConfig {
         segment_max_size,
         segment_max_age_ms,
@@ -201,6 +215,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         block_size_target: 1024 * 1024, // 1MB
         s3_upload_retries: 3,
         wal_config: None, // WAL disabled by default
+        throttle_config,
     };
 
     // Create writer pool

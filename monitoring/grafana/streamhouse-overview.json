@@ -1,0 +1,374 @@
+{
+  "dashboard": {
+    "title": "Streamhouse Overview",
+    "tags": ["streamhouse", "overview"],
+    "timezone": "browser",
+    "refresh": "30s",
+    "time": {
+      "from": "now-1h",
+      "to": "now"
+    },
+    "panels": [
+      {
+        "id": 1,
+        "title": "System Health",
+        "type": "stat",
+        "gridPos": {"h": 4, "w": 6, "x": 0, "y": 0},
+        "targets": [
+          {
+            "expr": "count(up{job=\"streamhouse-agent\"} == 1)",
+            "legendFormat": "Active Agents"
+          }
+        ],
+        "options": {
+          "graphMode": "none",
+          "colorMode": "value",
+          "textMode": "value_and_name"
+        },
+        "fieldConfig": {
+          "defaults": {
+            "thresholds": {
+              "mode": "absolute",
+              "steps": [
+                {"value": null, "color": "red"},
+                {"value": 1, "color": "yellow"},
+                {"value": 2, "color": "green"}
+              ]
+            }
+          }
+        }
+      },
+      {
+        "id": 2,
+        "title": "Circuit Breaker Status",
+        "type": "stat",
+        "gridPos": {"h": 4, "w": 6, "x": 6, "y": 0},
+        "targets": [
+          {
+            "expr": "streamhouse_circuit_breaker_state{operation=\"put\"}",
+            "legendFormat": "PUT Circuit"
+          }
+        ],
+        "options": {
+          "graphMode": "none",
+          "colorMode": "background",
+          "textMode": "value_and_name"
+        },
+        "fieldConfig": {
+          "defaults": {
+            "mappings": [
+              {"value": 0, "text": "Closed ✓"},
+              {"value": 1, "text": "Open ✗"},
+              {"value": 2, "text": "HalfOpen ⚠"}
+            ],
+            "thresholds": {
+              "mode": "absolute",
+              "steps": [
+                {"value": 0, "color": "green"},
+                {"value": 1, "color": "red"},
+                {"value": 2, "color": "yellow"}
+              ]
+            }
+          }
+        }
+      },
+      {
+        "id": 3,
+        "title": "Throttle Rate (Allow %)",
+        "type": "stat",
+        "gridPos": {"h": 4, "w": 6, "x": 12, "y": 0},
+        "targets": [
+          {
+            "expr": "sum(rate(streamhouse_throttle_decisions_total{decision=\"allow\"}[5m])) / sum(rate(streamhouse_throttle_decisions_total[5m])) * 100",
+            "legendFormat": "Allow Rate"
+          }
+        ],
+        "options": {
+          "graphMode": "area",
+          "colorMode": "value"
+        },
+        "fieldConfig": {
+          "defaults": {
+            "unit": "percent",
+            "thresholds": {
+              "mode": "absolute",
+              "steps": [
+                {"value": null, "color": "red"},
+                {"value": 80, "color": "yellow"},
+                {"value": 95, "color": "green"}
+              ]
+            }
+          }
+        }
+      },
+      {
+        "id": 4,
+        "title": "Active Leases",
+        "type": "stat",
+        "gridPos": {"h": 4, "w": 6, "x": 18, "y": 0},
+        "targets": [
+          {
+            "expr": "count(streamhouse_lease_epoch_current)",
+            "legendFormat": "Leases"
+          }
+        ],
+        "options": {
+          "graphMode": "none",
+          "colorMode": "value"
+        }
+      },
+      {
+        "id": 5,
+        "title": "Request Throughput",
+        "type": "graph",
+        "gridPos": {"h": 8, "w": 12, "x": 0, "y": 4},
+        "targets": [
+          {
+            "expr": "sum(rate(streamhouse_producer_records_total[5m]))",
+            "legendFormat": "Producer Records/sec"
+          },
+          {
+            "expr": "sum(rate(streamhouse_consumer_records_total[5m]))",
+            "legendFormat": "Consumer Records/sec"
+          },
+          {
+            "expr": "sum(rate(streamhouse_s3_requests_total{operation=\"put\"}[5m]))",
+            "legendFormat": "S3 PUT/sec"
+          }
+        ],
+        "yaxes": [
+          {"label": "Records/sec", "show": true},
+          {"show": false}
+        ],
+        "legend": {"show": true, "alignAsTable": true, "avg": true, "max": true, "current": true}
+      },
+      {
+        "id": 6,
+        "title": "Error Rates",
+        "type": "graph",
+        "gridPos": {"h": 8, "w": 12, "x": 12, "y": 4},
+        "targets": [
+          {
+            "expr": "sum(rate(streamhouse_s3_errors_total[5m])) by (error_type)",
+            "legendFormat": "S3: {{error_type}}"
+          },
+          {
+            "expr": "sum(rate(streamhouse_producer_errors_total[5m])) by (error_type)",
+            "legendFormat": "Producer: {{error_type}}"
+          },
+          {
+            "expr": "sum(rate(streamhouse_consumer_errors_total[5m])) by (error_type)",
+            "legendFormat": "Consumer: {{error_type}}"
+          }
+        ],
+        "yaxes": [
+          {"label": "Errors/sec", "show": true},
+          {"show": false}
+        ],
+        "legend": {"show": true, "alignAsTable": true}
+      },
+      {
+        "id": 7,
+        "title": "Latency (p99)",
+        "type": "graph",
+        "gridPos": {"h": 8, "w": 12, "x": 0, "y": 12},
+        "targets": [
+          {
+            "expr": "histogram_quantile(0.99, sum(rate(streamhouse_producer_latency_seconds_bucket[5m])) by (le))",
+            "legendFormat": "Producer p99"
+          },
+          {
+            "expr": "histogram_quantile(0.99, sum(rate(streamhouse_s3_latency_seconds_bucket{operation=\"put\"}[5m])) by (le))",
+            "legendFormat": "S3 PUT p99"
+          }
+        ],
+        "yaxes": [
+          {"label": "Latency", "format": "s", "show": true},
+          {"show": false}
+        ],
+        "legend": {"show": true}
+      },
+      {
+        "id": 8,
+        "title": "Consumer Lag",
+        "type": "graph",
+        "gridPos": {"h": 8, "w": 12, "x": 12, "y": 12},
+        "targets": [
+          {
+            "expr": "streamhouse_consumer_lag",
+            "legendFormat": "{{topic}}-{{partition}} ({{consumer_group}})"
+          }
+        ],
+        "yaxes": [
+          {"label": "Messages Behind", "show": true},
+          {"show": false}
+        ],
+        "legend": {"show": true, "alignAsTable": true, "max": true, "current": true}
+      },
+      {
+        "id": 9,
+        "title": "Memory Usage by Pod",
+        "type": "graph",
+        "gridPos": {"h": 8, "w": 12, "x": 0, "y": 20},
+        "targets": [
+          {
+            "expr": "container_memory_usage_bytes{pod=~\"streamhouse-agent.*\"} / container_spec_memory_limit_bytes{pod=~\"streamhouse-agent.*\"} * 100",
+            "legendFormat": "{{pod}}"
+          }
+        ],
+        "yaxes": [
+          {"label": "Memory %", "format": "percent", "show": true, "max": 100},
+          {"show": false}
+        ],
+        "alert": {
+          "conditions": [
+            {
+              "evaluator": {"params": [85], "type": "gt"},
+              "query": {"params": ["A", "5m", "now"]},
+              "type": "query"
+            }
+          ],
+          "executionErrorState": "alerting",
+          "name": "High Memory Usage"
+        },
+        "legend": {"show": true, "alignAsTable": true, "avg": true, "max": true, "current": true}
+      },
+      {
+        "id": 10,
+        "title": "CPU Usage by Pod",
+        "type": "graph",
+        "gridPos": {"h": 8, "w": 12, "x": 12, "y": 20},
+        "targets": [
+          {
+            "expr": "rate(container_cpu_usage_seconds_total{pod=~\"streamhouse-agent.*\"}[5m])",
+            "legendFormat": "{{pod}}"
+          }
+        ],
+        "yaxes": [
+          {"label": "CPU Cores", "show": true},
+          {"show": false}
+        ],
+        "legend": {"show": true, "alignAsTable": true, "avg": true, "max": true, "current": true}
+      },
+      {
+        "id": 11,
+        "title": "Disk Usage",
+        "type": "graph",
+        "gridPos": {"h": 8, "w": 12, "x": 0, "y": 28},
+        "targets": [
+          {
+            "expr": "(1 - node_filesystem_avail_bytes{mountpoint=\"/data\"} / node_filesystem_size_bytes{mountpoint=\"/data\"}) * 100",
+            "legendFormat": "{{instance}}"
+          }
+        ],
+        "yaxes": [
+          {"label": "Disk Used %", "format": "percent", "show": true, "max": 100},
+          {"show": false}
+        ],
+        "alert": {
+          "conditions": [
+            {
+              "evaluator": {"params": [85], "type": "gt"},
+              "query": {"params": ["A", "5m", "now"]},
+              "type": "query"
+            }
+          ],
+          "name": "High Disk Usage"
+        },
+        "legend": {"show": true, "alignAsTable": true, "avg": true, "max": true, "current": true}
+      },
+      {
+        "id": 12,
+        "title": "WAL Size by Partition",
+        "type": "graph",
+        "gridPos": {"h": 8, "w": 12, "x": 12, "y": 28},
+        "targets": [
+          {
+            "expr": "streamhouse_wal_size_bytes",
+            "legendFormat": "{{topic}}-{{partition}}"
+          }
+        ],
+        "yaxes": [
+          {"label": "WAL Size", "format": "bytes", "show": true},
+          {"show": false}
+        ],
+        "legend": {"show": true, "alignAsTable": true, "max": true, "current": true}
+      },
+      {
+        "id": 13,
+        "title": "Throttle Decisions Breakdown",
+        "type": "piechart",
+        "gridPos": {"h": 8, "w": 8, "x": 0, "y": 36},
+        "targets": [
+          {
+            "expr": "sum(increase(streamhouse_throttle_decisions_total[1h])) by (decision)",
+            "legendFormat": "{{decision}}"
+          }
+        ],
+        "options": {
+          "pieType": "pie",
+          "legend": {"show": true, "values": true}
+        }
+      },
+      {
+        "id": 14,
+        "title": "Lease Acquisition Results",
+        "type": "piechart",
+        "gridPos": {"h": 8, "w": 8, "x": 8, "y": 36},
+        "targets": [
+          {
+            "expr": "sum(increase(streamhouse_lease_acquisitions_total[1h])) by (result)",
+            "legendFormat": "{{result}}"
+          }
+        ],
+        "options": {
+          "pieType": "pie",
+          "legend": {"show": true, "values": true}
+        }
+      },
+      {
+        "id": 15,
+        "title": "Schema Registry Operations",
+        "type": "piechart",
+        "gridPos": {"h": 8, "w": 8, "x": 16, "y": 36},
+        "targets": [
+          {
+            "expr": "sum(increase(streamhouse_schema_registrations_total[1h])) by (result)",
+            "legendFormat": "{{result}}"
+          }
+        ],
+        "options": {
+          "pieType": "pie",
+          "legend": {"show": true, "values": true}
+        }
+      }
+    ],
+    "templating": {
+      "list": [
+        {
+          "name": "datasource",
+          "type": "datasource",
+          "query": "prometheus"
+        },
+        {
+          "name": "agent",
+          "type": "query",
+          "query": "label_values(up{job=\"streamhouse-agent\"}, instance)",
+          "multi": true,
+          "includeAll": true
+        }
+      ]
+    },
+    "annotations": {
+      "list": [
+        {
+          "name": "Deployments",
+          "datasource": "$datasource",
+          "expr": "changes(streamhouse_uptime_seconds[5m]) > 0",
+          "iconColor": "blue",
+          "tagKeys": "deployment"
+        }
+      ]
+    }
+  }
+}
