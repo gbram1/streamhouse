@@ -284,7 +284,29 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Create Schema Registry
     tracing::info!("📋 Initializing Schema Registry");
-    let schema_storage = Arc::new(MemorySchemaStorage::new(metadata.clone()));
+
+    #[cfg(feature = "postgres")]
+    let schema_storage: Arc<dyn streamhouse_schema_registry::SchemaStorage> = {
+        use streamhouse_schema_registry::PostgresSchemaStorage;
+        // Create PostgreSQL pool for schema registry
+        let database_url = std::env::var("DATABASE_URL")
+            .expect("DATABASE_URL must be set when using postgres feature");
+        let pool = sqlx::postgres::PgPoolOptions::new()
+            .max_connections(5)
+            .connect(&database_url)
+            .await
+            .expect("Failed to connect to PostgreSQL for schema registry");
+        tracing::info!("   Using PostgreSQL storage backend");
+        Arc::new(PostgresSchemaStorage::new(pool))
+    };
+
+    #[cfg(not(feature = "postgres"))]
+    let schema_storage: Arc<dyn streamhouse_schema_registry::SchemaStorage> = {
+        use streamhouse_schema_registry::MemorySchemaStorage;
+        tracing::info!("   Using in-memory storage backend");
+        Arc::new(MemorySchemaStorage::new(metadata.clone()))
+    };
+
     let schema_registry = Arc::new(SchemaRegistry::new(schema_storage));
     let schema_api = SchemaRegistryApi::new(schema_registry);
     let schema_router = schema_api.router();

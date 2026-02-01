@@ -31,6 +31,7 @@ async-trait = { workspace = true }
 
 # Storage
 object_store = { workspace = true }
+sqlx = { workspace = true, features = ["postgres", "runtime-tokio"], optional = true }
 
 # Utilities
 bytes = { workspace = true }
@@ -49,7 +50,7 @@ tempfile = { workspace = true }
 tonic-build = { workspace = true }
 
 [features]
-postgres = ["streamhouse-metadata/postgres"]
+postgres = ["streamhouse-metadata/postgres", "dep:sqlx"]
 
 [[bin]]
 name = "unified-server"
