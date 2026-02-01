@@ -1,6 +1,10 @@
 #!/bin/bash
 # StreamHouse startup script with SQLite (simplest setup)
 
+# IMPORTANT: Skip sqlx compile-time verification
+# This allows the build to succeed without a database file at compile time
+export SQLX_OFFLINE=true
+
 # Use SQLite database
 export DATABASE_URL="sqlite://streamhouse.db"
 

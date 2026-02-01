@@ -1,22 +1,213 @@
-# StreamHouse: Complete Roadmap to Production
-**Date:** January 31, 2026
-**Status:** Phase 12.4.2 Complete (S3 Throttling Protection)
-**Next:** Phase 12.4.3 (Operational Runbooks)
+# StreamHouse: Complete Roadmap to Production & Adoption
+**Date:** February 1, 2026
+**Status:** Phase 14 Complete (Enhanced CLI), Phase 12.4.2 Complete (S3 Throttling)
+**Next:** Phase 9 (Schema Persistence) - **CRITICAL GAP**
 
 ---
 
 ## Executive Summary
 
-StreamHouse is a high-performance, cloud-native streaming platform built in Rust. We've completed the core platform and critical safety features. This document outlines the remaining work to achieve a production-ready system with full UI, CLI, and Kubernetes deployment capabilities.
+StreamHouse is a high-performance, cloud-native streaming platform built in Rust. We've completed the core platform and critical safety features. This document outlines the complete roadmap from MVP to real-world adoption, including client libraries, developer experience, and ecosystem integration.
 
 **Current State:**
 - ✅ Core streaming platform (Producer/Consumer APIs)
-- ✅ Schema Registry with PostgreSQL + Avro
+- ⚠️ Schema Registry REST API + Avro validation (in-memory storage only)
 - ✅ Write-Ahead Log (WAL) for durability
 - ✅ S3 throttling protection (rate limiting + circuit breaker)
 - ✅ Basic observability (metrics crate)
+- ✅ Enhanced CLI with REPL mode (Phase 14 complete)
 
-**Remaining to Production:** ~340 hours (8-10 weeks)
+**Roadmap Overview:**
+- **MVP (Production-Ready):** ~340 hours (8-10 weeks) - Phases 9-18
+- **Adoption Features:** ~590 hours (15-20 weeks) - Phases 19-24
+- **Testing & Quality:** ~180 hours (ongoing throughout)
+- **Competitive Parity:** ~340 hours (8-10 weeks) - Phases 25-27
+- **Complete Platform:** ~1,450 hours (9-11 months total)
+
+**Critical for Real-World Usage:**
+- ❌ Multi-language client libraries (Python, JavaScript, Go)
+- ❌ Easy onboarding (Docker Compose, benchmarks, examples)
+- ❌ Kafka protocol compatibility (ecosystem access)
+- ❌ Comprehensive testing (80%+ coverage, chaos tests)
+- ❌ Advanced features (tiering, compression, quotas)
+- ❌ Active community and ecosystem tools
+
+---
+
+## Phase 9: Schema Registry PostgreSQL Persistence
+
+**Priority:** HIGH
+**Effort:** 10 hours
+**Status:** NOT STARTED
+**Current Gap:** Schemas stored in-memory only, lost on restart
+
+### Problem
+
+The Schema Registry REST API is fully functional with Avro compatibility checking, but schemas are **not persisted**. Current implementation uses `MemorySchemaStorage` which logs but doesn't actually store data.
+
+**Evidence:**
+- Server built without `--features postgres` (uses in-memory storage)
+- PostgresSchemaStorage exists at [storage_postgres.rs](crates/streamhouse-schema-registry/src/storage_postgres.rs) (fully implemented)
+- No database migrations for schema registry tables
+- Registered schemas lost on server restart
+
+### Solution
+
+Enable PostgreSQL-backed schema persistence using the existing `PostgresSchemaStorage` implementation.
+
+### Task 1: Create Database Migration (2 hours)
+
+**File:** `crates/streamhouse-metadata/migrations/003_schema_registry.sql` (NEW, ~60 LOC)
+
+Create 4 tables:
+
+```sql
+-- Core schemas table (stores schema content)
+CREATE TABLE schema_registry_schemas (
+    id SERIAL PRIMARY KEY,
+    schema_format VARCHAR(20) NOT NULL,  -- 'avro', 'protobuf', 'json'
+    schema_definition TEXT NOT NULL,
+    schema_hash VARCHAR(64) NOT NULL,    -- SHA-256 for deduplication
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    UNIQUE(schema_hash)
+);
+
+-- Subject-version mapping
+CREATE TABLE schema_registry_versions (
+    id SERIAL PRIMARY KEY,
+    subject VARCHAR(255) NOT NULL,
+    version INTEGER NOT NULL,
+    schema_id INTEGER NOT NULL REFERENCES schema_registry_schemas(id),
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    UNIQUE(subject, version)
+);
+CREATE INDEX idx_versions_subject ON schema_registry_versions(subject);
+CREATE INDEX idx_versions_schema_id ON schema_registry_versions(schema_id);
+
+-- Subject compatibility config
+CREATE TABLE schema_registry_subject_config (
+    subject VARCHAR(255) PRIMARY KEY,
+    compatibility VARCHAR(20) NOT NULL,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+-- Global compatibility config
+CREATE TABLE schema_registry_global_config (
+    id BOOLEAN PRIMARY KEY DEFAULT TRUE,
+    compatibility VARCHAR(20) NOT NULL DEFAULT 'backward',
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    CONSTRAINT single_row CHECK (id = TRUE)
+);
+INSERT INTO schema_registry_global_config (id, compatibility) VALUES (TRUE, 'backward');
+```
+
+### Task 2: Update Build Configuration (1 hour)
+
+**Enable PostgreSQL storage by default:**
+
+1. Update `start-simple.sh` to build with postgres feature:
+   ```bash
+   cargo run -p streamhouse-server --bin unified-server --features postgres
+   ```
+
+2. Update `start-with-postgres-minio.sh` similarly
+
+3. Verify PostgresSchemaStorage is used (check logs: "Using PostgreSQL storage backend")
+
+### Task 3: Testing (2 hours)
+
+**Integration Tests:**
+
+```bash
+# Apply migration
+sqlx migrate run --database-url postgresql://postgres:password@localhost:5432/streamhouse
+
+# Verify tables
+psql -d streamhouse -c "\dt schema_registry*"
+# Expected: 4 tables
+
+# Test schema persistence
+streamctl schema register test-value schema.avsc
+# Restart server
+./start-with-postgres-minio.sh
+# Verify schema still exists
+streamctl schema list
+# Expected: test-value appears
+```
+
+**Unit Tests** (`crates/streamhouse-schema-registry/tests/storage_postgres_test.rs`):
+- Test schema registration
+- Test deduplication (same schema = same ID)
+- Test version incrementing
+- Test subject config management
+
+### Task 4: Documentation (1 hour)
+
+Update documentation:
+
+1. `docs/PHASE_9_SCHEMA_PERSISTENCE_COMPLETE.md` - Implementation notes
+2. `README.md` - Add note about schema persistence
+3. Update Phase 14 docs to clarify CLI works with persistent storage
+
+### Task 5: SQLite Support (4 hours) - OPTIONAL
+
+For development simplicity, add SQLite support for schema registry:
+
+**File:** `crates/streamhouse-schema-registry/src/storage_sqlite.rs` (NEW, ~300 LOC)
+
+Similar to PostgresSchemaStorage but using SQLite-compatible SQL:
+- Replace `SERIAL` with `INTEGER PRIMARY KEY AUTOINCREMENT`
+- Replace `TIMESTAMPTZ` with `TEXT` (ISO 8601 format)
+- Adjust ON CONFLICT syntax
+
+**Enable in unified-server:**
+```rust
+#[cfg(feature = "sqlite")]
+let schema_storage: Arc<dyn SchemaStorage> = {
+    Arc::new(SqliteSchemaStorage::new(metadata.pool().clone()))
+};
+```
+
+### Deliverable
+
+- ✅ Migration `003_schema_registry.sql` with 4 tables
+- ✅ PostgresSchemaStorage enabled in production
+- ✅ Schemas persist across server restarts
+- ✅ Integration tests passing
+- ✅ Documentation updated
+- ✅ (Optional) SQLite storage for dev environment
+
+### Success Criteria
+
+```bash
+# Register schema
+streamctl schema register orders-value schema.avsc
+# Output: ✅ Schema registered: ID 1
+
+# Restart server
+pkill unified-server && ./start-with-postgres-minio.sh
+
+# Verify persistence
+streamctl schema list
+# Output: orders-value (should still exist)
+
+# Verify in database
+psql -d streamhouse -c "SELECT COUNT(*) FROM schema_registry_schemas;"
+# Output: 1
+```
+
+### Breaking Changes
+
+**None**. This only adds persistence - REST API remains unchanged.
+
+### Migration Path
+
+**From in-memory to PostgreSQL:**
+1. Apply migration: `sqlx migrate run`
+2. Rebuild with postgres feature
+3. Re-register schemas via CLI (old schemas in-memory are lost)
+
+**Future:** Add export/import tool to migrate schemas
 
 ---
 
@@ -558,7 +749,7 @@ cargo build --release  # Embeds UI in binary
 
 **Priority:** HIGH
 **Effort:** 20 hours
-**Status:** PARTIAL (basic CLI exists)
+**Status:** ✅ COMPLETE (January 31, 2026)
 
 **Goal:** Improve CLI for better operator productivity.
 
@@ -1148,23 +1339,1519 @@ producer.abort_transaction().await?;
 
 ---
 
+## Phase 19: Client Libraries (Multi-Language Support)
+
+**Priority:** CRITICAL (for adoption)
+**Effort:** 120 hours
+**Status:** NOT STARTED
+**Gap:** Only Rust client exists - blocks 90% of potential users
+
+### Why This Matters
+
+Most teams use multiple languages. Without Python/JavaScript/Go clients, StreamHouse is Rust-only, limiting adoption to <5% of teams.
+
+### Task 1: Python Client (40 hours)
+
+**File:** `clients/python/streamhouse/` (~2,000 LOC)
+
+**Features:**
+- Producer API (sync + async)
+- Consumer API with consumer groups
+- Schema registry integration
+- Avro serialization/deserialization
+- Connection pooling
+- Type hints
+
+**Example:**
+```python
+from streamhouse import Producer, Consumer
+
+# Producer
+producer = Producer(address="localhost:50051")
+producer.send("orders", key=b"order-123", value=b'{"amount": 99.99}')
+producer.close()
+
+# Consumer
+consumer = Consumer(
+    address="localhost:50051",
+    group_id="my-group",
+    topics=["orders"]
+)
+for record in consumer:
+    print(f"Offset {record.offset}: {record.value}")
+```
+
+**Tech Stack:**
+- gRPC Python bindings
+- Protobuf codegen
+- `asyncio` for async support
+- PyPI package
+
+**Deliverable:**
+- PyPI package `streamhouse`
+- Full API documentation
+- Examples and quickstart
+- Integration tests
+
+### Task 2: JavaScript/TypeScript Client (40 hours)
+
+**File:** `clients/javascript/` (~2,000 LOC)
+
+**Features:**
+- Producer/Consumer APIs
+- Promise-based + callback interfaces
+- Node.js and browser support
+- TypeScript definitions
+- Schema registry client
+
+**Example:**
+```typescript
+import { Producer, Consumer } from 'streamhouse';
+
+// Producer
+const producer = new Producer({ address: 'localhost:50051' });
+await producer.send('orders', { key: 'order-123', value: Buffer.from('...') });
+
+// Consumer
+const consumer = new Consumer({
+  address: 'localhost:50051',
+  groupId: 'my-group',
+  topics: ['orders']
+});
+
+consumer.on('message', (record) => {
+  console.log(`Offset ${record.offset}: ${record.value}`);
+});
+```
+
+**Tech Stack:**
+- `@grpc/grpc-js` for Node.js
+- `grpc-web` for browser
+- TypeScript for type safety
+- NPM package
+
+**Deliverable:**
+- NPM package `streamhouse`
+- TypeScript definitions
+- Examples (Node.js + React)
+- Integration tests
+
+### Task 3: Go Client (40 hours)
+
+**File:** `clients/go/streamhouse/` (~2,000 LOC)
+
+**Features:**
+- Producer/Consumer APIs
+- Context-based cancellation
+- Connection pooling
+- Schema registry support
+- Go modules
+
+**Example:**
+```go
+import "github.com/streamhouse/streamhouse-go"
+
+// Producer
+producer, _ := streamhouse.NewProducer("localhost:50051")
+producer.Send(ctx, "orders", &streamhouse.Record{
+    Key:   []byte("order-123"),
+    Value: []byte(`{"amount": 99.99}`),
+})
+
+// Consumer
+consumer, _ := streamhouse.NewConsumer("localhost:50051", streamhouse.ConsumerConfig{
+    GroupID: "my-group",
+    Topics:  []string{"orders"},
+})
+for record := range consumer.Poll(ctx) {
+    fmt.Printf("Offset %d: %s\n", record.Offset, record.Value)
+}
+```
+
+**Tech Stack:**
+- `google.golang.org/grpc`
+- Protocol buffers
+- Go modules
+- Integration with `context.Context`
+
+**Deliverable:**
+- Go module `github.com/streamhouse/streamhouse-go`
+- GoDoc documentation
+- Examples
+- Integration tests
+
+**Success Criteria:**
+- ✅ All 3 languages can produce/consume
+- ✅ Published to PyPI, NPM, Go modules
+- ✅ Documentation complete
+- ✅ <10 GitHub issues in first month
+
+---
+
+## Phase 20: Developer Experience & Onboarding
+
+**Priority:** HIGH (for adoption)
+**Effort:** 50 hours
+**Status:** NOT STARTED
+**Gap:** No easy way to try StreamHouse - high friction
+
+### Task 1: Docker Compose Quickstart (10 hours)
+
+**File:** `docker-compose.yml` (~150 LOC)
+
+**Goal:** Run StreamHouse in 5 minutes with one command.
+
+```yaml
+version: '3.8'
+services:
+  postgres:
+    image: postgres:15
+    environment:
+      POSTGRES_PASSWORD: password
+      POSTGRES_DB: streamhouse
+
+  minio:
+    image: minio/minio:latest
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+
+  streamhouse:
+    image: streamhouse/server:latest
+    ports:
+      - "50051:50051"  # gRPC
+      - "8080:8080"    # REST API
+      - "8081:8081"    # Schema Registry
+    environment:
+      DATABASE_URL: postgresql://postgres:password@postgres/streamhouse
+      S3_ENDPOINT: http://minio:9000
+    depends_on:
+      - postgres
+      - minio
+
+  ui:
+    image: streamhouse/ui:latest
+    ports:
+      - "3000:3000"
+    environment:
+      STREAMHOUSE_API: http://streamhouse:8080
+```
+
+**Quickstart:**
+```bash
+# Clone repo
+git clone https://github.com/streamhouse/streamhouse
+cd streamhouse
+
+# Start everything
+docker-compose up -d
+
+# Verify
+curl http://localhost:8080/health
+# Output: {"status": "healthy"}
+
+# Use CLI
+docker exec -it streamhouse-cli streamctl topic list
+```
+
+**Deliverable:**
+- `docker-compose.yml` for local dev
+- `docker-compose.prod.yml` for production-like setup
+- `Dockerfile` optimized for size (<100MB)
+- Multi-arch builds (amd64, arm64)
+
+### Task 2: Benchmark Suite (20 hours)
+
+**File:** `benchmarks/` (~500 LOC)
+
+**Goal:** Prove performance claims vs. Kafka/Redpanda.
+
+**Benchmarks:**
+1. **Throughput Test**
+   - 10K, 100K, 1M records/sec
+   - 1KB, 10KB, 100KB message sizes
+   - Compare to Kafka, Redpanda
+
+2. **Latency Test**
+   - p50, p95, p99, p999 latencies
+   - End-to-end produce → consume
+   - Compare to competitors
+
+3. **Resource Usage**
+   - CPU, memory, disk, network
+   - Per-throughput efficiency
+   - Cost analysis
+
+**Tools:**
+- Custom Rust benchmark harness
+- Grafana dashboards for visualization
+- CI integration (weekly runs)
+
+**Output:**
+```
+StreamHouse vs Kafka (10KB messages)
+=====================================
+Throughput:  StreamHouse: 1.2M/sec  Kafka: 800K/sec  (+50%)
+Latency p99: StreamHouse: 45ms      Kafka: 120ms     (-62%)
+Memory:      StreamHouse: 2.1GB     Kafka: 4.5GB     (-53%)
+```
+
+**Deliverable:**
+- Benchmark harness
+- Comparison reports (weekly)
+- `docs/BENCHMARKS.md` with results
+- Blog post: "StreamHouse vs Kafka Performance"
+
+### Task 3: Integration Examples (15 hours)
+
+**File:** `examples/integrations/` (~1,000 LOC)
+
+**Goal:** Show how to integrate with common data sources.
+
+**Examples:**
+1. **Postgres CDC** (Change Data Capture)
+   ```rust
+   // Stream Postgres changes to StreamHouse
+   examples/postgres-cdc/
+   ```
+
+2. **MySQL Binlog**
+   ```rust
+   // Stream MySQL binlog to StreamHouse
+   examples/mysql-binlog/
+   ```
+
+3. **HTTP Webhook**
+   ```rust
+   // Receive HTTP webhooks, produce to StreamHouse
+   examples/http-webhook/
+   ```
+
+4. **File Tail**
+   ```rust
+   // Tail log files, stream to StreamHouse
+   examples/file-tail/
+   ```
+
+5. **Kafka Migration**
+   ```rust
+   // Migrate from Kafka to StreamHouse
+   examples/kafka-migration/
+   ```
+
+**Deliverable:**
+- 5 working integration examples
+- README for each with setup instructions
+- Docker Compose for easy testing
+
+### Task 4: Production Deployment Guide (5 hours)
+
+**File:** `docs/PRODUCTION_DEPLOYMENT.md` (~300 LOC)
+
+**Sections:**
+- Hardware sizing (CPU, memory, disk, network)
+- Configuration tuning (retention, segment size, etc.)
+- Security best practices (TLS, authentication)
+- Backup and disaster recovery
+- Monitoring and alerting
+- Troubleshooting common issues
+
+**Deliverable:**
+- Complete production guide
+- Configuration templates
+- Cost calculator spreadsheet
+
+**Success Criteria:**
+- ✅ New users running in <5 minutes (Docker Compose)
+- ✅ Benchmarks show competitive performance
+- ✅ 5+ integration examples
+- ✅ Production deployment guide complete
+
+---
+
+## Phase 21: Kafka Protocol Compatibility
+
+**Priority:** CRITICAL (for ecosystem access)
+**Effort:** 100 hours
+**Status:** NOT STARTED
+**Gap:** Not Kafka-compatible - can't use Kafka ecosystem
+
+### Why This Matters
+
+Kafka protocol compatibility unlocks:
+- **Kafka tools** (Kafka UI, Conduktor, Kafdrop)
+- **Kafka Connect** (100+ connectors)
+- **Migration path** from Kafka
+- **10x larger market** (Kafka-compatible users)
+
+### Strategy: Partial Compatibility
+
+**Phase 1: Core Protocol (60h)**
+- Produce API (metadata, produce requests)
+- Fetch API (metadata, fetch requests)
+- Basic group coordination
+- Wire protocol compatibility
+
+**Phase 2: Advanced Features (40h)**
+- Offset commit/fetch
+- Consumer group protocol
+- Admin operations (create topic, etc.)
+
+### Implementation
+
+**File:** `crates/streamhouse-kafka-compat/` (~3,000 LOC)
+
+**Architecture:**
+```
+Kafka Client → Kafka Protocol (port 9092)
+                ↓
+             Translation Layer
+                ↓
+          StreamHouse gRPC API
+```
+
+**Example:**
+```bash
+# Kafka producer works!
+kafka-console-producer --broker-list localhost:9092 --topic orders
+> {"order_id": 123}
+
+# Kafka consumer works!
+kafka-console-consumer --bootstrap-server localhost:9092 --topic orders
+{"order_id": 123}
+
+# Kafka UI works!
+docker run -p 8080:8080 \
+  -e KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS=localhost:9092 \
+  provectuslabs/kafka-ui
+```
+
+**Deliverable:**
+- Kafka protocol server (partial)
+- Produce/Fetch/Metadata endpoints
+- Consumer group coordination
+- Integration tests with Kafka tools
+- `docs/KAFKA_COMPATIBILITY.md`
+
+**Success Criteria:**
+- ✅ `kafka-console-producer` works
+- ✅ `kafka-console-consumer` works
+- ✅ Kafka UI can connect and view topics
+- ✅ At least 1 Kafka Connect connector works
+
+---
+
+## Phase 22: Community & Ecosystem
+
+**Priority:** MEDIUM (for growth)
+**Effort:** 40 hours
+**Status:** NOT STARTED
+**Gap:** No community, no ecosystem
+
+### Task 1: Community Building (20 hours)
+
+**Goal:** Build active community of users and contributors.
+
+**Activities:**
+1. **Discord Server** (5h)
+   - Channels: #general, #help, #development, #showcase
+   - Moderator guidelines
+   - Welcome bot
+
+2. **Blog & Content** (10h)
+   - Technical blog posts (1/month)
+   - Architecture deep-dives
+   - Use case stories
+   - Performance comparisons
+
+3. **Demos & Talks** (5h)
+   - Conference talk submissions
+   - Meetup presentations
+   - YouTube tutorials
+   - Live coding sessions
+
+**Content Calendar:**
+- Week 1: "Introducing StreamHouse" (blog post)
+- Week 2: "StreamHouse vs Kafka: Architecture Comparison" (blog)
+- Week 3: "Building a Real-Time Analytics Pipeline" (video)
+- Week 4: "How We Achieved 2M Events/Sec" (blog)
+
+### Task 2: Ecosystem Tools (20 hours)
+
+**Goal:** Essential tools for operators.
+
+**Tools:**
+1. **streamhouse-ui** (already planned in Phase 13)
+2. **streamhouse-exporter** - Prometheus exporter
+3. **streamhouse-backup** - Backup/restore tool
+4. **streamhouse-migrate** - Kafka → StreamHouse migration
+5. **streamhouse-connect** - Simple connector framework
+
+**Deliverable:**
+- Active Discord community
+- 4 blog posts published
+- 1 conference talk submitted
+- 5 ecosystem tools
+
+---
+
+## Phase 23: Enterprise Features
+
+**Priority:** LOW (for monetization)
+**Effort:** 80 hours
+**Status:** NOT STARTED
+**Prerequisite:** Stable production deployments
+
+### Features
+
+1. **Authentication & Authorization** (30h)
+   - RBAC (Role-Based Access Control)
+   - API keys and tokens
+   - LDAP/Active Directory integration
+   - OAuth2/OIDC support
+
+2. **Audit Logging** (20h)
+   - Track all operations (produce, consume, admin)
+   - Immutable audit log
+   - Compliance reporting (GDPR, SOC2)
+
+3. **Multi-Tenancy** (30h)
+   - Namespace isolation
+   - Resource quotas per tenant
+   - Billing integration
+   - Tenant-level monitoring
+
+**Deliverable:**
+- Enterprise feature flag (`--features enterprise`)
+- Documentation for enterprise features
+- Compliance certifications (SOC2, GDPR)
+
+---
+
+## Phase 24: Stream Processing & SQL Engine
+
+**Priority:** MEDIUM (for advanced use cases)
+**Effort:** 150 hours
+**Status:** NOT STARTED
+**Gap:** No stream processing, analytics, or SQL query capabilities
+
+### Why This Matters
+
+Stream processing enables real-time analytics and transformations without separate systems:
+- **Kafka Streams equivalent** - Stateful processing, windowing, joins
+- **ksqlDB alternative** - SQL queries on streams
+- **Flink competitor** - Complex event processing
+
+**Use Cases:**
+- Real-time aggregations (counts, sums, averages over time windows)
+- Stream joins (enrich orders with customer data)
+- Filtering and transformations
+- Materialized views
+- Anomaly detection
+
+### Architecture
+
+```
+StreamHouse Topics
+       ↓
+  SQL Processor
+  (continuous queries)
+       ↓
+Result Topics / Tables
+```
+
+### Task 1: Core Stream Processing Engine (60h)
+
+**File:** `crates/streamhouse-processor/` (~2,500 LOC)
+
+**Features:**
+1. **Stateless Operations** (15h)
+   - Map, filter, flatMap
+   - Transformations
+   - Routing
+
+2. **Stateful Operations** (25h)
+   - Aggregations (count, sum, avg, min, max)
+   - Windowing (tumbling, sliding, session)
+   - State management (RocksDB)
+
+3. **Stream Joins** (20h)
+   - Stream-stream joins
+   - Stream-table joins
+   - Time-based joins
+
+**Example (Rust API):**
+```rust
+use streamhouse_processor::*;
+
+// Count orders per customer, 5-minute tumbling window
+let result = stream_builder()
+    .stream("orders")
+    .group_by(|order| order.customer_id)
+    .window(TumblingWindow::of(Duration::from_secs(300)))
+    .count()
+    .to_topic("customer-order-counts");
+```
+
+### Task 2: SQL Query Engine (60h)
+
+**File:** `crates/streamhouse-sql/` (~3,000 LOC)
+
+**SQL Dialect:** Compatible subset of standard SQL + streaming extensions
+
+**Supported Queries:**
+
+**1. Continuous SELECT (20h)**
+```sql
+-- Continuous query on stream
+CREATE STREAM orders_filtered AS
+  SELECT customer_id, order_amount, timestamp
+  FROM orders
+  WHERE order_amount > 100;
+```
+
+**2. Aggregations with Windows (20h)**
+```sql
+-- 5-minute tumbling window
+CREATE TABLE customer_totals AS
+  SELECT
+    customer_id,
+    COUNT(*) as order_count,
+    SUM(order_amount) as total_amount,
+    WINDOW_START() as window_start,
+    WINDOW_END() as window_end
+  FROM orders
+  WINDOW TUMBLING (SIZE 5 MINUTES)
+  GROUP BY customer_id;
+```
+
+**3. Stream Joins (20h)**
+```sql
+-- Join orders with customers
+CREATE STREAM enriched_orders AS
+  SELECT
+    o.order_id,
+    o.order_amount,
+    c.customer_name,
+    c.customer_tier
+  FROM orders o
+  INNER JOIN customers c
+    ON o.customer_id = c.customer_id
+  WITHIN 1 HOUR;
+```
+
+**Tech Stack:**
+- SQL parser: `sqlparser-rs` (Apache DataFusion parser)
+- Query planner: Custom logical → physical plan
+- Execution: Streaming operators
+- State backend: RocksDB
+
+### Task 3: Interactive SQL Shell (15h)
+
+**CLI Integration:**
+```bash
+# Start SQL shell
+streamctl sql
+
+streamhouse-sql> CREATE STREAM orders_by_region AS
+              SELECT region, COUNT(*) as count
+              FROM orders
+              WINDOW TUMBLING (SIZE 1 MINUTE)
+              GROUP BY region;
+Query created: orders_by_region
+
+streamhouse-sql> SELECT * FROM orders_by_region LIMIT 10;
++--------+-------+
+| region | count |
++--------+-------+
+| US-WEST| 1234  |
+| US-EAST| 891   |
++--------+-------+
+
+streamhouse-sql> SHOW STREAMS;
++-------------------+
+| name              |
++-------------------+
+| orders            |
+| orders_filtered   |
+| orders_by_region  |
++-------------------+
+```
+
+**Features:**
+- Query history
+- Auto-completion
+- Result formatting (table, JSON, CSV)
+- Query explain plans
+
+### Task 4: Web UI Integration (15h)
+
+**SQL Workbench in Web UI:**
+- SQL editor with syntax highlighting
+- Query execution and results
+- Query history and saved queries
+- Visual query builder (drag-and-drop)
+
+### Supported SQL Features
+
+**DDL (Data Definition):**
+```sql
+CREATE STREAM stream_name (schema) WITH (properties);
+CREATE TABLE table_name AS SELECT ...;
+DROP STREAM stream_name;
+SHOW STREAMS;
+DESCRIBE stream_name;
+```
+
+**DML (Data Manipulation):**
+```sql
+SELECT ... FROM ... WHERE ... GROUP BY ... HAVING ... ORDER BY ... LIMIT ...;
+INSERT INTO stream_name VALUES (...);
+```
+
+**Streaming Extensions:**
+```sql
+WINDOW TUMBLING (SIZE interval)
+WINDOW SLIDING (SIZE interval, ADVANCE interval)
+WINDOW SESSION (GAP interval)
+WITHIN interval  -- For joins
+EMIT CHANGES      -- Continuous output
+```
+
+**Functions:**
+- Aggregates: COUNT, SUM, AVG, MIN, MAX
+- Time: WINDOW_START(), WINDOW_END(), NOW()
+- String: CONCAT, SUBSTRING, UPPER, LOWER
+- JSON: JSON_EXTRACT, JSON_PARSE
+- Arrays: ARRAY_LENGTH, ARRAY_CONTAINS
+
+### Performance Goals
+
+- **Latency:** <100ms for simple queries
+- **Throughput:** 100K events/sec per query
+- **State size:** Support 1GB+ state per query
+- **Scalability:** Distribute queries across agents
+
+### Comparison to Competitors
+
+| Feature | StreamHouse SQL | ksqlDB | Flink SQL |
+|---------|----------------|---------|-----------|
+| Language | SQL | SQL | SQL |
+| Windowing | ✅ | ✅ | ✅ |
+| Joins | ✅ Stream-stream | ✅ All types | ✅ All types |
+| State backend | RocksDB | RocksDB | RocksDB |
+| Scalability | Multi-agent | Kafka Streams | Flink cluster |
+| Ease of use | ⭐⭐⭐⭐⭐ | ⭐⭐⭐⭐ | ⭐⭐⭐ |
+
+### Example Use Cases
+
+**1. Real-Time Dashboard Metrics:**
+```sql
+CREATE TABLE page_views_per_minute AS
+  SELECT
+    page_url,
+    COUNT(*) as view_count,
+    COUNT(DISTINCT user_id) as unique_users
+  FROM page_views
+  WINDOW TUMBLING (SIZE 1 MINUTE)
+  GROUP BY page_url;
+```
+
+**2. Fraud Detection:**
+```sql
+CREATE STREAM suspicious_transactions AS
+  SELECT
+    user_id,
+    transaction_id,
+    amount
+  FROM transactions
+  WHERE amount > 10000
+    AND country NOT IN (user_countries)
+  EMIT CHANGES;
+```
+
+**3. Session Analytics:**
+```sql
+CREATE TABLE user_sessions AS
+  SELECT
+    user_id,
+    COUNT(*) as event_count,
+    WINDOW_START() as session_start,
+    WINDOW_END() as session_end
+  FROM events
+  WINDOW SESSION (GAP 30 MINUTES)
+  GROUP BY user_id;
+```
+
+### Deliverable
+
+- Stream processing engine (~2,500 LOC)
+- SQL query engine (~3,000 LOC)
+- Interactive SQL shell
+- Web UI SQL workbench
+- Documentation and examples
+- 20+ SQL query examples
+
+**Success Criteria:**
+- ✅ Basic SQL queries work (SELECT, WHERE, GROUP BY)
+- ✅ Windowed aggregations accurate
+- ✅ Stream joins functional
+- ✅ <100ms latency for simple queries
+- ✅ 100K events/sec throughput
+- ✅ SQL shell with auto-completion
+
+---
+
+## Phase 25: Comprehensive Testing & Quality Assurance
+
+**Priority:** HIGH (throughout all phases)
+**Effort:** 180 hours (distributed across phases)
+**Status:** ONGOING
+**Gap:** Limited test coverage, no systematic testing strategy
+
+### Why This Matters
+
+Comprehensive testing is critical for:
+- **Debugging** - Understand how components work and fail
+- **Confidence** - Deploy without fear of regressions
+- **Documentation** - Tests serve as executable docs
+- **Refactoring** - Make changes safely
+
+### Testing Strategy by Component
+
+#### 1. Unit Tests (40h)
+
+**Coverage Goal:** 80%+ for core logic
+
+**Components:**
+- **S3 Throttling** (5h)
+  ```rust
+  #[test]
+  fn test_rate_limiter_allows_under_limit() { }
+
+  #[test]
+  fn test_circuit_breaker_opens_after_failures() { }
+
+  #[test]
+  fn test_adaptive_rate_adjustment() { }
+  ```
+
+- **Schema Validation** (10h)
+  - Avro compatibility (backward, forward, full)
+  - Protobuf validation
+  - JSON schema validation
+  - Schema evolution edge cases
+
+- **WAL** (5h)
+  - CRC validation
+  - Recovery from corruption
+  - Sync policy behavior
+  - Truncation logic
+
+- **Partition Writer** (10h)
+  - Segment creation/rotation
+  - Offset management
+  - Flush triggers
+  - Error handling
+
+- **Consumer Groups** (5h)
+  - Offset tracking
+  - Rebalancing
+  - Heartbeats
+
+- **Stream Processing** (5h)
+  - Window operations
+  - Aggregations
+  - Join logic
+
+#### 2. Integration Tests (60h)
+
+**Goal:** Test component interactions
+
+**Test Suites:**
+
+**S3 Integration** (10h)
+```rust
+#[tokio::test]
+async fn test_produce_flush_to_s3() {
+    // Produce → segment → flush → verify S3 upload
+}
+
+#[tokio::test]
+async fn test_s3_throttling_backpressure() {
+    // Simulate 503 errors → verify circuit breaker
+}
+
+#[tokio::test]
+async fn test_s3_recovery_after_failure() {
+    // S3 down → WAL accumulates → S3 up → flush succeeds
+}
+```
+
+**Schema Registry Integration** (15h)
+```rust
+#[tokio::test]
+async fn test_schema_persistence_across_restart() {
+    // Register schema → restart server → verify exists
+}
+
+#[tokio::test]
+async fn test_incompatible_schema_rejected() {
+    // Register v1 → try incompatible v2 → verify rejected
+}
+
+#[tokio::test]
+async fn test_producer_consumer_with_schema() {
+    // Producer with schema → Consumer resolves → deserialize
+}
+```
+
+**Kafka Compatibility** (15h)
+```rust
+#[tokio::test]
+async fn test_kafka_producer_compatibility() {
+    // Use kafka-console-producer → verify StreamHouse receives
+}
+
+#[tokio::test]
+async fn test_kafka_ui_connection() {
+    // Start Kafka UI → connect → list topics → view messages
+}
+```
+
+**SQL Processing** (10h)
+```rust
+#[tokio::test]
+async fn test_windowed_aggregation() {
+    // Stream events → windowed count → verify results
+}
+
+#[tokio::test]
+async fn test_stream_join() {
+    // Two streams → join → verify enrichment
+}
+```
+
+**Multi-Agent Coordination** (10h)
+```rust
+#[tokio::test]
+async fn test_partition_migration() {
+    // Agent1 owns partition → Agent2 steals → verify handoff
+}
+
+#[tokio::test]
+async fn test_lease_conflict_resolution() {
+    // Simulate split-brain → verify fencing
+}
+```
+
+#### 3. End-to-End Tests (40h)
+
+**Real-world scenarios:**
+
+**E2E Test 1: Complete Produce-Consume Pipeline** (10h)
+```rust
+#[tokio::test]
+async fn test_e2e_basic_pipeline() {
+    // 1. Start server (Postgres + MinIO + Agent)
+    // 2. Create topic via CLI
+    // 3. Register schema
+    // 4. Produce 10K messages with schema
+    // 5. Consume and verify all received
+    // 6. Check S3 for segments
+    // 7. Verify Prometheus metrics
+}
+```
+
+**E2E Test 2: Failover and Recovery** (10h)
+```rust
+#[tokio::test]
+async fn test_e2e_agent_failover() {
+    // 1. Start 3 agents
+    // 2. Produce to partition on Agent1
+    // 3. Kill Agent1
+    // 4. Verify Agent2/3 takes over partition
+    // 5. Continue consuming without data loss
+}
+```
+
+**E2E Test 3: Schema Evolution** (10h)
+```rust
+#[tokio::test]
+async fn test_e2e_schema_evolution() {
+    // 1. Produce with schema v1
+    // 2. Evolve to v2 (backward compatible)
+    // 3. Produce with v2
+    // 4. Old consumer (v1) can still read
+    // 5. New consumer (v2) reads both
+}
+```
+
+**E2E Test 4: SQL Analytics** (10h)
+```rust
+#[tokio::test]
+async fn test_e2e_sql_aggregation() {
+    // 1. Stream events
+    // 2. Create windowed aggregation query
+    // 3. Verify materialized view updates
+    // 4. Query results via SQL shell
+}
+```
+
+#### 4. Performance Tests (20h)
+
+**Benchmarks:**
+
+**Throughput Test** (5h)
+```rust
+#[bench]
+fn bench_produce_throughput() {
+    // Measure: records/sec at 1KB, 10KB, 100KB
+    // Target: 1M records/sec for 1KB messages
+}
+```
+
+**Latency Test** (5h)
+```rust
+#[bench]
+fn bench_end_to_end_latency() {
+    // Measure: p50, p95, p99, p999 produce → consume
+    // Target: p99 < 100ms
+}
+```
+
+**Scalability Test** (5h)
+```rust
+#[test]
+fn test_100_partitions_per_agent() {
+    // Verify agent handles 100+ partitions
+    // Monitor memory/CPU
+}
+```
+
+**Long-Running Stability** (5h)
+```rust
+#[test]
+#[ignore] // Run manually
+fn test_24_hour_stability() {
+    // Produce 1M msgs/sec for 24 hours
+    // Verify no memory leaks, crashes
+}
+```
+
+#### 5. Chaos Engineering (20h)
+
+**Failure Scenarios:**
+
+```rust
+#[tokio::test]
+async fn test_network_partition() {
+    // Simulate network split → verify recovery
+}
+
+#[tokio::test]
+async fn test_s3_intermittent_failures() {
+    // Random 503 errors → verify circuit breaker + WAL
+}
+
+#[tokio::test]
+async fn test_database_connection_loss() {
+    // PostgreSQL down → verify graceful degradation
+}
+
+#[tokio::test]
+async fn test_disk_full() {
+    // WAL disk full → verify backpressure
+}
+
+#[tokio::test]
+async fn test_agent_crash_during_flush() {
+    // Kill agent mid-flush → verify WAL recovery
+}
+```
+
+### Testing Infrastructure
+
+**File:** `tests/test-harness/` (~500 LOC)
+
+**TestCluster Helper:**
+```rust
+struct TestCluster {
+    postgres: PostgresContainer,
+    minio: MinIOContainer,
+    agents: Vec<AgentHandle>,
+}
+
+impl TestCluster {
+    async fn start(num_agents: usize) -> Self { }
+    async fn kill_agent(&mut self, idx: usize) { }
+    async fn simulate_network_partition(&mut self) { }
+    async fn metrics(&self) -> Metrics { }
+}
+```
+
+**Usage:**
+```rust
+#[tokio::test]
+async fn my_test() {
+    let cluster = TestCluster::start(3).await;
+    // ... test logic
+    cluster.shutdown().await;
+}
+```
+
+### Test Automation
+
+**CI Pipeline** (.github/workflows/test.yml):
+```yaml
+jobs:
+  unit-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - run: cargo test --lib
+
+  integration-tests:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:15
+      minio:
+        image: minio/minio
+    steps:
+      - run: cargo test --test '*_integration'
+
+  e2e-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - run: docker-compose up -d
+      - run: cargo test --test e2e
+
+  benchmarks:
+    runs-on: ubuntu-latest
+    steps:
+      - run: cargo bench
+      - run: ./scripts/compare-benchmarks.sh
+```
+
+### Coverage Targets
+
+| Component | Unit Tests | Integration | E2E | Total Coverage |
+|-----------|-----------|-------------|-----|----------------|
+| Core streaming | 85% | ✅ | ✅ | 90%+ |
+| Schema Registry | 80% | ✅ | ✅ | 85%+ |
+| S3 Throttling | 90% | ✅ | ✅ | 95%+ |
+| WAL | 85% | ✅ | ✅ | 90%+ |
+| SQL Processing | 75% | ✅ | ✅ | 80%+ |
+| Kafka Compat | 70% | ✅ | ✅ | 75%+ |
+
+### Documentation Tests
+
+**Ensure all examples work:**
+```rust
+/// ```
+/// use streamhouse::Producer;
+///
+/// let producer = Producer::new("localhost:50051").await?;
+/// producer.send("orders", b"key", b"value").await?;
+/// ```
+```
+
+Run with: `cargo test --doc`
+
+### Deliverable
+
+- **Test harness** - Reusable test infrastructure
+- **500+ tests** - Comprehensive coverage
+- **CI integration** - Automated on every PR
+- **Benchmark baseline** - Performance regression detection
+- **Chaos tests** - Failure scenario coverage
+- **Documentation** - Testing guide for contributors
+
+**Success Criteria:**
+- ✅ 80%+ code coverage
+- ✅ All CI tests pass
+- ✅ E2E tests cover major workflows
+- ✅ Benchmarks show competitive performance
+- ✅ Chaos tests pass (resilience validated)
+- ✅ Can debug any component failure with tests
+
+---
+
+## Phase 26: Advanced Features (WarpStream/Confluent Parity)
+
+**Priority:** MEDIUM (competitive parity)
+**Effort:** 140 hours
+**Status:** NOT STARTED
+**Gap:** Missing key enterprise features from WarpStream/Confluent
+
+### Why This Matters
+
+To compete with WarpStream and Confluent, we need:
+- **Data tiering** (like WarpStream) - Cost optimization
+- **Compression** (like both) - Bandwidth savings
+- **Quotas** (like Confluent) - Multi-tenancy isolation
+- **Data governance** (like Confluent) - Enterprise compliance
+
+### Task 1: Tiered Storage (Hot/Warm/Cold) (40h)
+
+**Goal:** Automatically move old data to cheaper storage tiers.
+
+**Architecture:**
+```
+Recent data (7 days)    → S3 Standard (Hot)
+Older data (30 days)    → S3 IA (Warm)
+Archive data (90+ days) → Glacier (Cold)
+```
+
+**Implementation:**
+
+**File:** `crates/streamhouse-storage/src/tiering.rs` (~1,000 LOC)
+
+```rust
+pub struct TieringPolicy {
+    pub hot_retention: Duration,    // 7 days
+    pub warm_retention: Duration,   // 30 days
+    pub cold_retention: Duration,   // 90 days (or infinite)
+}
+
+pub struct TieringManager {
+    s3_client: S3Client,
+    policy: TieringPolicy,
+}
+
+impl TieringManager {
+    /// Move old segments to appropriate tier
+    pub async fn tier_segments(&self, topic: &str) -> Result<()> {
+        // 1. List all segments
+        // 2. Check age
+        // 3. If > hot_retention, move to S3 IA
+        // 4. If > warm_retention, move to Glacier
+    }
+}
+```
+
+**Configuration:**
+```rust
+// Per-topic tiering policy
+topic.retention.hot=7d
+topic.retention.warm=30d
+topic.retention.cold=90d
+```
+
+**Benefits:**
+- **Cost savings:** 50-80% on storage
+- **Automatic:** No manual intervention
+- **Transparent:** Consumers don't notice
+
+**WarpStream Equivalent:** Automatic data tiering
+
+### Task 2: Compression Support (30h)
+
+**Goal:** Support multiple compression algorithms for bandwidth/storage savings.
+
+**Algorithms:**
+- **LZ4** - Fast, moderate compression (default)
+- **Snappy** - Very fast, light compression
+- **Zstd** - Slower, best compression
+- **None** - No compression
+
+**Implementation:**
+
+**File:** `crates/streamhouse-core/src/compression.rs` (~800 LOC)
+
+```rust
+pub enum CompressionType {
+    None,
+    Lz4,
+    Snappy,
+    Zstd,
+}
+
+pub trait Compressor {
+    fn compress(&self, data: &[u8]) -> Result<Vec<u8>>;
+    fn decompress(&self, data: &[u8]) -> Result<Vec<u8>>;
+}
+
+impl Compressor for Lz4Compressor {
+    fn compress(&self, data: &[u8]) -> Result<Vec<u8>> {
+        lz4::compress(data)
+    }
+
+    fn decompress(&self, data: &[u8]) -> Result<Vec<u8>> {
+        lz4::decompress(data)
+    }
+}
+```
+
+**Wire Format:**
+```
+[Magic Byte: 0x00] [Compression: 1 byte] [Schema ID: 4 bytes] [Compressed Data]
+```
+
+**Configuration:**
+```rust
+// Per-topic compression
+topic.compression.type=lz4
+topic.compression.level=5  // 1-9
+```
+
+**Benchmark:**
+```
+10KB message compression (LZ4):
+  Compression ratio: 3:1
+  Throughput: 2M msgs/sec → 2M msgs/sec (minimal overhead)
+  Bandwidth saved: 67%
+```
+
+**Confluent Equivalent:** Compression codecs
+
+### Task 3: Client Quotas & Rate Limiting (30h)
+
+**Goal:** Per-client throttling to prevent noisy neighbors.
+
+**Features:**
+- **Produce quotas** - Max bytes/sec per client
+- **Consume quotas** - Max bytes/sec per client
+- **Request quotas** - Max requests/sec per client
+- **Quota enforcement** - Reject or delay over-quota requests
+
+**Implementation:**
+
+**File:** `crates/streamhouse-server/src/quotas.rs` (~700 LOC)
+
+```rust
+pub struct QuotaManager {
+    quotas: HashMap<ClientId, ClientQuota>,
+    usage: HashMap<ClientId, UsageTracker>,
+}
+
+pub struct ClientQuota {
+    pub produce_bytes_per_sec: u64,
+    pub consume_bytes_per_sec: u64,
+    pub requests_per_sec: u64,
+}
+
+impl QuotaManager {
+    pub fn check_quota(&mut self, client: &ClientId, operation: Operation) -> QuotaDecision {
+        let quota = self.quotas.get(client);
+        let usage = self.usage.get_mut(client);
+
+        match operation {
+            Operation::Produce(bytes) => {
+                if usage.produce_bytes_last_sec + bytes > quota.produce_bytes_per_sec {
+                    QuotaDecision::Reject
+                } else {
+                    QuotaDecision::Allow
+                }
+            }
+            // ... other operations
+        }
+    }
+}
+```
+
+**Configuration:**
+```yaml
+# Default quotas
+quotas.default.produce-bytes-per-sec: 10MB
+quotas.default.consume-bytes-per-sec: 20MB
+
+# Per-client overrides
+quotas.client.high-priority.produce-bytes-per-sec: 100MB
+```
+
+**gRPC Integration:**
+```rust
+// In produce handler
+if quota_manager.check_quota(&client_id, Operation::Produce(size)) == QuotaDecision::Reject {
+    return Err(Status::resource_exhausted("Quota exceeded"));
+}
+```
+
+**Confluent Equivalent:** Client quotas
+
+### Task 4: Data Governance & Lineage (40h)
+
+**Goal:** Track schema lineage and data flow for compliance.
+
+**Features:**
+- **Schema lineage** - Track schema versions over time
+- **Data flow** - Track topic → transformation → topic
+- **Impact analysis** - "What breaks if I change this schema?"
+- **Compliance reports** - GDPR data audit
+
+**Implementation:**
+
+**File:** `crates/streamhouse-governance/` (~1,200 LOC)
+
+```rust
+pub struct LineageTracker {
+    graph: SchemaGraph,
+}
+
+pub struct SchemaGraph {
+    nodes: Vec<SchemaNode>,
+    edges: Vec<Edge>,
+}
+
+pub struct SchemaNode {
+    pub subject: String,
+    pub version: i32,
+    pub created_at: DateTime<Utc>,
+    pub created_by: String,
+}
+
+pub struct Edge {
+    pub from: SchemaNode,
+    pub to: SchemaNode,
+    pub transformation: String,  // SQL query or processor
+}
+
+impl LineageTracker {
+    /// Track that schema A was used to create schema B
+    pub fn record_lineage(&mut self, from: SchemaId, to: SchemaId, transform: &str) {
+        self.graph.add_edge(from, to, transform);
+    }
+
+    /// Get all downstream schemas affected by this schema
+    pub fn get_downstream(&self, schema_id: SchemaId) -> Vec<SchemaId> {
+        self.graph.descendants(schema_id)
+    }
+}
+```
+
+**Web UI Visualization:**
+- Graphical schema lineage (like Confluent Schema Registry UI)
+- Impact analysis: "Breaking this schema affects 12 downstream topics"
+
+**Example:**
+```
+orders-value-v1 (Avro)
+    ↓ (SQL: SELECT customer_id, SUM(amount) ...)
+customer-totals-value-v1 (Avro)
+    ↓ (Processor: enrich with customer data)
+enriched-orders-value-v1 (Avro)
+```
+
+**Confluent Equivalent:** Stream Lineage, Schema Registry Lineage
+
+### Comparison to Competitors
+
+| Feature | StreamHouse (After Phase 26) | WarpStream | Confluent |
+|---------|------------------------------|------------|-----------|
+| **Tiered Storage** | ✅ Hot/Warm/Cold | ✅ Auto-tiering | ✅ Tiered Storage |
+| **Compression** | ✅ LZ4/Snappy/Zstd | ✅ LZ4 | ✅ All codecs |
+| **Client Quotas** | ✅ Per-client limits | ✅ Rate limiting | ✅ Quotas |
+| **Data Lineage** | ✅ Schema graph | ❌ | ✅ Full lineage |
+| **S3-based** | ✅ | ✅ | ❌ (disk-based) |
+| **Kafka compatible** | ✅ (Phase 21) | ✅ | ✅ (native) |
+| **SQL Processing** | ✅ (Phase 24) | ❌ | ✅ (ksqlDB) |
+| **Cloud-native** | ✅ | ✅ | Partial |
+| **Written in** | Rust | Go | Java/Scala |
+
+### Deliverable
+
+- Tiered storage implementation
+- Compression support (LZ4, Snappy, Zstd)
+- Client quota enforcement
+- Data lineage tracking
+- Web UI for governance
+- Documentation and examples
+
+**Success Criteria:**
+- ✅ Tiering saves 50%+ on storage costs
+- ✅ Compression reduces bandwidth 30-70%
+- ✅ Quotas prevent noisy neighbors
+- ✅ Lineage tracks schema evolution
+- ✅ Competitive with WarpStream/Confluent
+
+---
+
+## Phase 27: Managed Cloud Offering (StreamHouse Cloud)
+
+**Priority:** MEDIUM (for revenue)
+**Effort:** 200 hours
+**Status:** NOT STARTED
+**Prerequisite:** Phase 15 (Kubernetes) + Phase 23 (Enterprise)
+
+### Goal
+
+Fully-managed StreamHouse as a service (SaaS).
+
+### Features
+
+1. **Control Plane** (80h)
+   - Tenant provisioning
+   - Cluster management
+   - Billing and metering
+   - Web dashboard
+
+2. **Infrastructure** (60h)
+   - Multi-region deployment
+   - Auto-scaling
+   - High availability
+   - Disaster recovery
+
+3. **Operations** (60h)
+   - Monitoring and alerting
+   - Automated backups
+   - Security patching
+   - Support ticketing
+
+### Pricing Model
+
+```
+Developer:   $29/month  (10GB storage, 1M events/day)
+Startup:     $99/month  (100GB storage, 10M events/day)
+Business:    $499/month (1TB storage, 100M events/day)
+Enterprise:  Custom     (unlimited, SLA, support)
+```
+
+### Go-to-Market
+
+1. **Beta Program** (3 months)
+   - 10 free beta users
+   - Gather feedback
+   - Fix critical issues
+
+2. **Launch** (Month 4)
+   - Public announcement
+   - Product Hunt launch
+   - Free tier available
+
+3. **Growth** (Months 5-12)
+   - Content marketing
+   - Paid ads
+   - Conference sponsorships
+   - Sales outreach
+
+**Deliverable:**
+- Managed platform at `https://cloud.streamhouse.io`
+- Self-service signup
+- Free tier + paid plans
+- Support portal
+
+---
+
 ## Summary Timeline
 
-### Immediate (1-2 weeks) - Phase 12 Completion
+### Immediate (1-2 weeks) - Critical Gaps & Phase 12 Completion
 | Phase | Effort | Priority | Status |
 |-------|--------|----------|--------|
+| 9: Schema Persistence | 10h | HIGH | ⏭️ NEXT |
 | 12.4.1: WAL | - | - | ✅ DONE |
 | 12.4.2: S3 Throttling | - | - | ✅ DONE |
-| 12.4.3: Runbooks | 30h | HIGH | ⏭️ NEXT |
+| 12.4.3: Runbooks | 30h | HIGH | NOT STARTED |
 | 12.4.4: Monitoring | 40h | HIGH | NOT STARTED |
-| **Total** | **70h** | | |
+| **Total** | **80h** | | |
 
 ### Short-term (2-4 weeks) - UX Improvements
 | Phase | Effort | Priority | Status |
 |-------|--------|----------|--------|
-| 14: Enhanced CLI | 20h | HIGH | NOT STARTED |
+| 14: Enhanced CLI | - | - | ✅ DONE |
 | 13: Web UI | 60h | MEDIUM | NOT STARTED |
-| **Total** | **80h** | | |
+| **Total** | **60h** | | |
 
 ### Medium-term (4-6 weeks) - Cloud Native
 | Phase | Effort | Priority | Status |
@@ -1182,7 +2869,28 @@ producer.abort_transaction().await?;
 | 18: Rebalancing | 30h | MEDIUM | NOT STARTED |
 | **Total** | **140h** | | |
 
-### Grand Total: ~350 hours (8-10 weeks)
+### Adoption-Critical Features (Post-MVP)
+| Phase | Effort | Priority | Status |
+|-------|--------|----------|--------|
+| 19: Client Libraries (Python/JS/Go) | 120h | CRITICAL | NOT STARTED |
+| 20: Developer Experience | 50h | HIGH | NOT STARTED |
+| 21: Kafka Protocol Compatibility | 100h | CRITICAL | NOT STARTED |
+| 22: Community & Ecosystem | 40h | MEDIUM | NOT STARTED |
+| 23: Enterprise Features | 80h | LOW | NOT STARTED |
+| 24: Stream Processing & SQL Engine | 150h | MEDIUM | NOT STARTED |
+| 25: Testing & QA (distributed) | 180h | HIGH | ONGOING |
+| 26: Advanced Features (WarpStream Parity) | 140h | MEDIUM | NOT STARTED |
+| 27: Managed Cloud (StreamHouse Cloud) | 200h | MEDIUM | NOT STARTED |
+| **Total** | **1,060h** | | |
+
+### Grand Total
+**MVP (Production-Ready):** ~340 hours (8-10 weeks) - Phases 9-18
+**Adoption Features:** ~590 hours (15-20 weeks) - Phases 19-24
+**Testing & Quality:** ~180 hours (ongoing throughout)
+**Competitive Parity:** ~340 hours (8-10 weeks) - Phases 25-27
+**Complete Platform:** ~1,450 hours (36-45 weeks / 9-11 months)
+
+**Note:** Phase 14 (Enhanced CLI) complete, added Phase 9 (Schema Persistence) as critical gap
 
 ---
 
@@ -1191,11 +2899,12 @@ producer.abort_transaction().await?;
 ### Track 1: Production Readiness (Weeks 1-4)
 **Goal:** Deploy to production with confidence
 
-1. Week 1: Phase 12.4.3 (Runbooks)
-2. Week 2-3: Phase 12.4.4 (Monitoring)
-3. Week 4: Phase 14 (Enhanced CLI)
+1. Week 1 (Days 1-2): Phase 9 (Schema Persistence) - **CRITICAL**
+2. Week 1 (Days 3-5): Phase 12.4.3 (Runbooks)
+3. Week 2-3: Phase 12.4.4 (Monitoring)
+4. ~~Week 4: Phase 14 (Enhanced CLI)~~ ✅ COMPLETE
 
-**Outcome:** Production-ready with full observability
+**Outcome:** Production-ready with full observability and data persistence
 
 ### Track 2: User Experience (Weeks 5-7)
 **Goal:** Make StreamHouse easy to use
@@ -1221,33 +2930,112 @@ producer.abort_transaction().await?;
 
 **Outcome:** Enterprise-grade streaming platform
 
+### Track 5: Adoption & Growth (Weeks 19-30+)
+**Goal:** Enable real-world adoption and usage
+
+10. **Week 19-21: Phase 20 (Developer Experience)** - CRITICAL
+    - Docker Compose quickstart
+    - Benchmark suite
+    - Integration examples
+    - Production deployment guide
+    - **Outcome:** Easy to try, proven performance
+
+11. **Week 22-27: Phase 19 (Client Libraries)** - CRITICAL
+    - Python client (40h)
+    - JavaScript/TypeScript client (40h)
+    - Go client (40h)
+    - **Outcome:** 90% of teams can use StreamHouse
+
+12. **Week 28-32: Phase 21 (Kafka Compatibility)** - CRITICAL
+    - Core protocol (Produce/Fetch/Metadata)
+    - Consumer group coordination
+    - Kafka tools integration
+    - **Outcome:** Access to Kafka ecosystem
+
+13. **Week 33-35: Phase 22 (Community)** - Important
+    - Discord server
+    - Blog & content
+    - Ecosystem tools
+    - **Outcome:** Active community and contributors
+
+14. **Week 36-40: Phase 23 (Enterprise)** - Optional
+    - RBAC & authentication
+    - Audit logging
+    - Multi-tenancy
+    - **Outcome:** Enterprise-ready features
+
+15. **Week 41-46: Phase 24 (SQL Processing)** - Advanced
+    - Stream processing engine
+    - SQL query engine
+    - Interactive SQL shell
+    - **Outcome:** Real-time analytics with SQL
+
+16. **Week 47-51: Phase 26 (Advanced Features)** - Competitive Parity
+    - Tiered storage (hot/warm/cold)
+    - Compression (LZ4, Snappy, Zstd)
+    - Client quotas & rate limiting
+    - Data governance & lineage
+    - **Outcome:** WarpStream/Confluent feature parity
+
+17. **Week 52-61: Phase 27 (Cloud)** - Revenue
+    - Managed platform
+    - SaaS offering
+    - Billing integration
+    - **Outcome:** Monetization path
+
+### ONGOING: Phase 25 (Testing) - Throughout All Phases
+**Distributed across all phases:**
+- Unit tests with each feature (ongoing)
+- Integration tests after each phase (40h total)
+- E2E tests for workflows (40h total)
+- Performance benchmarks (20h total)
+- Chaos engineering (20h total)
+- **Outcome:** 80%+ coverage, confidence in every feature
+
 ---
 
 ## Success Criteria
 
-### Phase 12 Complete
+### MVP Complete (Phase 9-15)
 - ✅ 6 operational runbooks published
 - ✅ Prometheus metrics exporter working
 - ✅ 5 Grafana dashboards deployed
 - ✅ 10+ alert rules configured
 - ✅ Zero data loss under failure scenarios
 - ✅ MTTR < 10 minutes for common issues
-
-### Production Ready
 - ✅ 99.9%+ uptime over 30 days
 - ✅ < 5% performance overhead from safety features
-- ✅ All monitoring dashboards showing real data
-- ✅ Incident playbooks tested in staging
 - ✅ CLI commands documented and tested
 - ✅ Web UI accessible and functional
-
-### Cloud Native
 - ✅ Helm chart installs cleanly on any k8s cluster
 - ✅ Rolling updates with zero downtime
-- ✅ Horizontal pod autoscaling working
-- ✅ Network policies enforced
-- ✅ Secrets managed securely
+- ✅ Schemas persist in PostgreSQL
+
+### Adoption-Ready (Phase 19-21)
+- ✅ Docker Compose quickstart (<5 min to run)
+- ✅ Benchmarks published (vs Kafka/Redpanda)
+- ✅ Python/JavaScript/Go clients published
+- ✅ 5+ integration examples working
+- ✅ Kafka protocol compatibility (Produce/Fetch)
+- ✅ Kafka UI can connect and view topics
 - ✅ Production deployment guide complete
+- ✅ First production user willing to share story
+
+### Community Growing (Phase 22)
+- ✅ Active Discord with 100+ members
+- ✅ 10+ blog posts published
+- ✅ 1+ conference talk delivered
+- ✅ 50+ GitHub stars
+- ✅ 10+ external contributors
+- ✅ 5+ ecosystem tools available
+
+### Enterprise-Ready (Phase 23-24)
+- ✅ RBAC and authentication working
+- ✅ Audit logging for compliance
+- ✅ Multi-tenancy support
+- ✅ Managed cloud offering live
+- ✅ 10+ paying customers
+- ✅ SOC2/GDPR compliance
 
 ---
 
@@ -1283,24 +3071,58 @@ producer.abort_transaction().await?;
 
 **Immediate Action (This Week):**
 1. ✅ Review this roadmap document
-2. ⏭️ Start Phase 12.4.3: Create first runbook (Circuit Breaker Open)
-3. ⏭️ Set up Grafana staging environment
+2. ✅ Phase 14 (Enhanced CLI) complete
+3. ⏭️ **START IMMEDIATELY: Phase 9 (Schema Persistence)** - Critical gap discovered
+   - Create migration `003_schema_registry.sql`
+   - Enable PostgreSQL storage
+   - Test schema persistence across restarts
+
+**Days 3-5:**
+4. ⏭️ Phase 12.4.3: Create first runbook (Circuit Breaker Open)
+5. ⏭️ Set up Grafana staging environment
 
 **Week 2:**
-4. Complete remaining 5 runbooks
-5. Begin Prometheus exporter implementation
+6. Complete remaining 5 runbooks
+7. Begin Prometheus exporter implementation
 
 **Week 3-4:**
-6. Build Grafana dashboards
-7. Configure alert rules
-8. Test monitoring in staging
+8. Build Grafana dashboards
+9. Configure alert rules
+10. Test monitoring in staging
 
-**After Phase 12:**
-- Decide: Enhanced CLI (quick win) vs. Web UI (bigger impact) vs. K8s (deployment focus)
-- My recommendation: CLI → K8s Helm → Web UI → Advanced features
+**After Phase 12 (MVP Complete):**
+
+**Critical Path to Adoption:**
+1. Phase 20 (Developer Experience) - Make it easy to try
+2. Phase 19 (Client Libraries) - Enable multi-language usage
+3. Phase 21 (Kafka Compatibility) - Access ecosystem
+4. Phase 22 (Community) - Build awareness and contributors
+
+**Why This Order:**
+- Can't get users without easy onboarding (Phase 20)
+- Can't scale users without Python/JS clients (Phase 19)
+- Can't compete with Kafka without compatibility (Phase 21)
+- Need community for long-term sustainability (Phase 22)
+
+**Revenue Path:**
+- Phase 23 (Enterprise Features) - Enable enterprise sales
+- Phase 24 (Cloud) - SaaS monetization
+
+**Alternative Strategy (if limited resources):**
+- Option A: Focus on **niche** (Rust-native teams)
+  - Skip Phase 21 (Kafka compatibility)
+  - Focus on Phase 19 (client libs) + Phase 20 (DX)
+  - Smaller market, less competition
+
+- Option B: Focus on **Kafka replacement**
+  - Phase 21 (Kafka compatibility) FIRST
+  - Prove performance with Phase 20 (benchmarks)
+  - Larger market, more competition
+
+**Recommended:** Start with Phase 20 (DX) regardless - need to prove value before scaling
 
 ---
 
-**Document Version:** 1.0
-**Last Updated:** January 31, 2026
-**Next Review:** After Phase 12.4.3 completion
+**Document Version:** 2.0
+**Last Updated:** February 1, 2026
+**Next Review:** After Phase 9 completion
