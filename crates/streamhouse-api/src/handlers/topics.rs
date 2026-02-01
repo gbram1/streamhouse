@@ -1,7 +1,7 @@
 //! Topic management endpoints
 
 use axum::{
-    extract::{Path, State},
+    extract::{Path, Query, State},
     http::StatusCode,
     Json,
 };
@@ -210,4 +210,52 @@ pub async fn list_partitions(
         .collect();
 
     Ok(Json(response))
+}
+
+#[utoipa::path(
+    get,
+    path = "/api/v1/topics/{name}/messages",
+    params(
+        ("name" = String, Path, description = "Topic name"),
+        ("partition" = Option<u32>, Query, description = "Partition ID (optional)"),
+        ("offset" = Option<u64>, Query, description = "Starting offset"),
+        ("limit" = Option<usize>, Query, description = "Max messages to return (default: 50, max: 1000)")
+    ),
+    responses(
+        (status = 200, description = "Messages retrieved", body = Vec<ConsumedRecord>),
+        (status = 404, description = "Topic not found")
+    ),
+    tag = "topics"
+)]
+pub async fn get_topic_messages(
+    State(state): State<AppState>,
+    Path(name): Path<String>,
+    Query(params): Query<MessageQueryParams>,
+) -> Result<Json<Vec<ConsumedRecord>>, StatusCode> {
+    // Validate topic exists
+    state
+        .metadata
+        .get_topic(&name)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+        .ok_or(StatusCode::NOT_FOUND)?;
+
+    // Get partition (default to 0 if not specified)
+    let _partition_id = params.partition.unwrap_or(0);
+
+    // Get starting offset (default to 0)
+    let _start_offset = params.offset.unwrap_or(0);
+
+    // Limit messages (default: 50, max: 1000)
+    let _limit = params.limit.unwrap_or(50).min(1000);
+
+    // TODO: Implement segment reading to fetch actual messages
+    // For MVP, return empty array until segment reader is implemented
+    // This requires:
+    // 1. Query segments from metadata store
+    // 2. Read segment data from cache or S3
+    // 3. Decode messages from segment format
+    // 4. Filter by offset range and limit
+
+    Ok(Json(vec![]))
 }

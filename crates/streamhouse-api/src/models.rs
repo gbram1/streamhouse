@@ -138,3 +138,65 @@ pub struct ConsumerGroupLag {
     pub partition_count: usize,
     pub topics: Vec<String>,
 }
+
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct StorageMetricsResponse {
+    pub total_size_bytes: u64,
+    pub segment_count: u64,
+    pub storage_by_topic: std::collections::HashMap<String, u64>,
+    pub cache_size: u64,
+    pub cache_hit_rate: f64,
+    pub cache_evictions: u64,
+    pub wal_size: u64,
+    pub wal_uncommitted_entries: u64,
+}
+
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct ThroughputMetric {
+    pub timestamp: i64,
+    pub messages_per_second: f64,
+    pub bytes_per_second: f64,
+}
+
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct LatencyMetric {
+    pub timestamp: i64,
+    pub p50: f64,
+    pub p95: f64,
+    pub p99: f64,
+    pub avg: f64,
+}
+
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct ErrorMetric {
+    pub timestamp: i64,
+    pub error_rate: f64,
+    pub error_count: u64,
+}
+
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct AgentMetricsResponse {
+    pub agent_id: String,
+    pub address: String,
+    pub availability_zone: String,
+    pub partition_count: usize,
+    pub last_heartbeat: i64,
+    pub uptime_ms: i64,
+}
+
+#[derive(Debug, Deserialize, ToSchema)]
+pub struct TimeRangeParams {
+    pub time_range: Option<String>,
+}
+
+#[derive(Debug, Deserialize, ToSchema)]
+pub struct MessageQueryParams {
+    pub partition: Option<u32>,
+    pub offset: Option<u64>,
+    pub limit: Option<usize>,
+}

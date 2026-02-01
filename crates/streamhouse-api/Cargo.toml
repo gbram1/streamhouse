@@ -8,10 +8,11 @@ repository.workspace = true
 
 [dependencies]
 # HTTP framework
-axum = { version = "0.7", features = ["macros"] }
+axum = { version = "0.7", features = ["macros", "ws"] }
 tokio = { workspace = true, features = ["full"] }
 tower = "0.4"
 tower-http = { version = "0.5", features = ["cors", "trace"] }
+futures = "0.3"
 
 # Serialization
 serde = { workspace = true }
