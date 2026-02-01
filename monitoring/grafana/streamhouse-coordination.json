@@ -1,0 +1,401 @@
+{
+  "dashboard": {
+    "title": "Streamhouse Coordination & Schema",
+    "tags": ["streamhouse", "coordination", "lease", "schema"],
+    "timezone": "browser",
+    "refresh": "30s",
+    "time": {
+      "from": "now-1h",
+      "to": "now"
+    },
+    "panels": [
+      {
+        "id": 1,
+        "title": "Active Leases",
+        "type": "stat",
+        "gridPos": {"h": 4, "w": 6, "x": 0, "y": 0},
+        "targets": [
+          {
+            "expr": "count(streamhouse_lease_epoch_current)",
+            "legendFormat": "Total Leases"
+          }
+        ],
+        "options": {
+          "graphMode": "none",
+          "colorMode": "value"
+        }
+      },
+      {
+        "id": 2,
+        "title": "Lease Conflicts (5m)",
+        "type": "stat",
+        "gridPos": {"h": 4, "w": 6, "x": 6, "y": 0},
+        "targets": [
+          {
+            "expr": "sum(increase(streamhouse_lease_conflicts_total[5m]))",
+            "legendFormat": "Conflicts"
+          }
+        ],
+        "options": {
+          "graphMode": "area",
+          "colorMode": "value"
+        },
+        "fieldConfig": {
+          "defaults": {
+            "thresholds": {
+              "mode": "absolute",
+              "steps": [
+                {"value": null, "color": "green"},
+                {"value": 1, "color": "yellow"},
+                {"value": 5, "color": "red"}
+              ]
+            }
+          }
+        }
+      },
+      {
+        "id": 3,
+        "title": "Lease Renewal Success Rate",
+        "type": "gauge",
+        "gridPos": {"h": 4, "w": 6, "x": 12, "y": 0},
+        "targets": [
+          {
+            "expr": "sum(rate(streamhouse_lease_renewals_total{result=\"success\"}[5m])) / sum(rate(streamhouse_lease_renewals_total[5m])) * 100",
+            "legendFormat": "Success %"
+          }
+        ],
+        "options": {
+          "showThresholdLabels": true,
+          "showThresholdMarkers": true
+        },
+        "fieldConfig": {
+          "defaults": {
+            "unit": "percent",
+            "min": 0,
+            "max": 100,
+            "thresholds": {
+              "mode": "absolute",
+              "steps": [
+                {"value": 0, "color": "red"},
+                {"value": 80, "color": "yellow"},
+                {"value": 95, "color": "green"}
+              ]
+            }
+          }
+        }
+      },
+      {
+        "id": 4,
+        "title": "Registered Schemas",
+        "type": "stat",
+        "gridPos": {"h": 4, "w": 6, "x": 18, "y": 0},
+        "targets": [
+          {
+            "expr": "streamhouse_schemas_total",
+            "legendFormat": "Total Schemas"
+          }
+        ],
+        "options": {
+          "graphMode": "none",
+          "colorMode": "value"
+        }
+      },
+      {
+        "id": 5,
+        "title": "Lease Acquisition Results",
+        "type": "graph",
+        "gridPos": {"h": 8, "w": 12, "x": 0, "y": 4},
+        "targets": [
+          {
+            "expr": "sum(rate(streamhouse_lease_acquisitions_total{result=\"success\"}[5m]))",
+            "legendFormat": "Success"
+          },
+          {
+            "expr": "sum(rate(streamhouse_lease_acquisitions_total{result=\"conflict\"}[5m]))",
+            "legendFormat": "Conflict"
+          },
+          {
+            "expr": "sum(rate(streamhouse_lease_acquisitions_total{result=\"error\"}[5m]))",
+            "legendFormat": "Error"
+          }
+        ],
+        "yaxes": [
+          {"label": "Acquisitions/sec", "show": true},
+          {"show": false}
+        ],
+        "seriesOverrides": [
+          {"alias": "Conflict", "color": "orange"},
+          {"alias": "Error", "color": "red"}
+        ],
+        "legend": {"show": true, "alignAsTable": true, "avg": true, "current": true}
+      },
+      {
+        "id": 6,
+        "title": "Lease Renewal Results",
+        "type": "graph",
+        "gridPos": {"h": 8, "w": 12, "x": 12, "y": 4},
+        "targets": [
+          {
+            "expr": "sum(rate(streamhouse_lease_renewals_total{result=\"success\"}[5m]))",
+            "legendFormat": "Success"
+          },
+          {
+            "expr": "sum(rate(streamhouse_lease_renewals_total{result=\"failure\"}[5m]))",
+            "legendFormat": "Failure"
+          }
+        ],
+        "yaxes": [
+          {"label": "Renewals/sec", "show": true},
+          {"show": false}
+        ],
+        "seriesOverrides": [
+          {"alias": "Failure", "color": "red"}
+        ],
+        "legend": {"show": true, "alignAsTable": true, "avg": true, "current": true}
+      },
+      {
+        "id": 7,
+        "title": "Lease Conflicts by Partition",
+        "type": "graph",
+        "gridPos": {"h": 8, "w": 12, "x": 0, "y": 12},
+        "targets": [
+          {
+            "expr": "sum(rate(streamhouse_lease_conflicts_total[5m])) by (topic, partition)",
+            "legendFormat": "{{topic}}-{{partition}}"
+          }
+        ],
+        "yaxes": [
+          {"label": "Conflicts/sec", "show": true},
+          {"show": false}
+        ],
+        "legend": {"show": true, "alignAsTable": true, "avg": true, "max": true, "current": true}
+      },
+      {
+        "id": 8,
+        "title": "Lease Epoch by Partition",
+        "type": "graph",
+        "gridPos": {"h": 8, "w": 12, "x": 12, "y": 12},
+        "targets": [
+          {
+            "expr": "streamhouse_lease_epoch_current",
+            "legendFormat": "{{topic}}-{{partition}} ({{agent_id}})"
+          }
+        ],
+        "yaxes": [
+          {"label": "Epoch", "show": true},
+          {"show": false}
+        ],
+        "legend": {"show": true, "alignAsTable": true, "current": true}
+      },
+      {
+        "id": 9,
+        "title": "Lease Time to Expiration",
+        "type": "graph",
+        "gridPos": {"h": 8, "w": 24, "x": 0, "y": 20},
+        "targets": [
+          {
+            "expr": "streamhouse_lease_expires_at - time()",
+            "legendFormat": "{{topic}}-{{partition}} ({{agent_id}})"
+          }
+        ],
+        "yaxes": [
+          {"label": "Seconds Until Expiration", "show": true},
+          {"show": false}
+        ],
+        "alert": {
+          "conditions": [
+            {
+              "evaluator": {"params": [5], "type": "lt"},
+              "query": {"params": ["A", "1m", "now"]},
+              "type": "query"
+            }
+          ],
+          "name": "Lease Expiring Soon"
+        },
+        "legend": {"show": true, "alignAsTable": true, "min": true, "current": true}
+      },
+      {
+        "id": 10,
+        "title": "Schema Registrations",
+        "type": "graph",
+        "gridPos": {"h": 8, "w": 12, "x": 0, "y": 28},
+        "targets": [
+          {
+            "expr": "sum(rate(streamhouse_schema_registrations_total{result=\"success\"}[5m]))",
+            "legendFormat": "Success"
+          },
+          {
+            "expr": "sum(rate(streamhouse_schema_registrations_total{result=\"incompatible\"}[5m]))",
+            "legendFormat": "Incompatible"
+          },
+          {
+            "expr": "sum(rate(streamhouse_schema_registrations_total{result=\"error\"}[5m]))",
+            "legendFormat": "Error"
+          }
+        ],
+        "yaxes": [
+          {"label": "Registrations/sec", "show": true},
+          {"show": false}
+        ],
+        "seriesOverrides": [
+          {"alias": "Incompatible", "color": "orange"},
+          {"alias": "Error", "color": "red"}
+        ],
+        "legend": {"show": true, "alignAsTable": true, "avg": true, "current": true}
+      },
+      {
+        "id": 11,
+        "title": "Schema Compatibility Checks",
+        "type": "graph",
+        "gridPos": {"h": 8, "w": 12, "x": 12, "y": 28},
+        "targets": [
+          {
+            "expr": "sum(rate(streamhouse_schema_compatibility_checks_total{result=\"compatible\"}[5m]))",
+            "legendFormat": "Compatible"
+          },
+          {
+            "expr": "sum(rate(streamhouse_schema_compatibility_checks_total{result=\"incompatible\"}[5m]))",
+            "legendFormat": "Incompatible"
+          }
+        ],
+        "yaxes": [
+          {"label": "Checks/sec", "show": true},
+          {"show": false}
+        ],
+        "seriesOverrides": [
+          {"alias": "Incompatible", "color": "orange"}
+        ],
+        "legend": {"show": true, "alignAsTable": true, "avg": true, "current": true}
+      },
+      {
+        "id": 12,
+        "title": "Schema Registry Errors by Type",
+        "type": "graph",
+        "gridPos": {"h": 8, "w": 12, "x": 0, "y": 36},
+        "targets": [
+          {
+            "expr": "sum(rate(streamhouse_schema_registry_errors_total[5m])) by (type)",
+            "legendFormat": "{{type}}"
+          }
+        ],
+        "yaxes": [
+          {"label": "Errors/sec", "show": true},
+          {"show": false}
+        ],
+        "legend": {"show": true, "alignAsTable": true, "avg": true, "max": true, "current": true}
+      },
+      {
+        "id": 13,
+        "title": "Schema Cache Performance",
+        "type": "graph",
+        "gridPos": {"h": 8, "w": 12, "x": 12, "y": 36},
+        "targets": [
+          {
+            "expr": "sum(rate(streamhouse_schema_lookups_total{result=\"hit\"}[5m]))",
+            "legendFormat": "Cache Hits"
+          },
+          {
+            "expr": "sum(rate(streamhouse_schema_lookups_total{result=\"miss\"}[5m]))",
+            "legendFormat": "Cache Misses"
+          },
+          {
+            "expr": "streamhouse_schema_cache_entries",
+            "legendFormat": "Cache Entries (right axis)"
+          }
+        ],
+        "yaxes": [
+          {"label": "Lookups/sec", "show": true},
+          {"label": "Entries", "show": true}
+        ],
+        "seriesOverrides": [
+          {"alias": "Cache Entries (right axis)", "yaxis": 2}
+        ],
+        "legend": {"show": true, "alignAsTable": true, "avg": true, "current": true}
+      },
+      {
+        "id": 14,
+        "title": "Schema Cache Hit Rate",
+        "type": "gauge",
+        "gridPos": {"h": 8, "w": 8, "x": 0, "y": 44},
+        "targets": [
+          {
+            "expr": "sum(rate(streamhouse_schema_lookups_total{result=\"hit\"}[5m])) / sum(rate(streamhouse_schema_lookups_total[5m])) * 100",
+            "legendFormat": "Hit Rate %"
+          }
+        ],
+        "options": {
+          "showThresholdLabels": true,
+          "showThresholdMarkers": true
+        },
+        "fieldConfig": {
+          "defaults": {
+            "unit": "percent",
+            "min": 0,
+            "max": 100,
+            "thresholds": {
+              "mode": "absolute",
+              "steps": [
+                {"value": 0, "color": "red"},
+                {"value": 80, "color": "yellow"},
+                {"value": 95, "color": "green"}
+              ]
+            }
+          }
+        }
+      },
+      {
+        "id": 15,
+        "title": "Subjects and Schemas",
+        "type": "stat",
+        "gridPos": {"h": 8, "w": 8, "x": 8, "y": 44},
+        "targets": [
+          {
+            "expr": "streamhouse_subjects_total",
+            "legendFormat": "Subjects"
+          },
+          {
+            "expr": "streamhouse_schemas_total",
+            "legendFormat": "Schemas"
+          }
+        ],
+        "options": {
+          "graphMode": "none",
+          "colorMode": "value",
+          "textMode": "value_and_name"
+        }
+      },
+      {
+        "id": 16,
+        "title": "Lease Assignment by Agent",
+        "type": "piechart",
+        "gridPos": {"h": 8, "w": 8, "x": 16, "y": 44},
+        "targets": [
+          {
+            "expr": "count(streamhouse_lease_epoch_current) by (agent_id)",
+            "legendFormat": "{{agent_id}}"
+          }
+        ],
+        "options": {
+          "pieType": "pie",
+          "legend": {"show": true, "values": true}
+        }
+      }
+    ],
+    "templating": {
+      "list": [
+        {
+          "name": "datasource",
+          "type": "datasource",
+          "query": "prometheus"
+        },
+        {
+          "name": "agent",
+          "type": "query",
+          "query": "label_values(streamhouse_lease_epoch_current, agent_id)",
+          "multi": true,
+          "includeAll": true
+        }
+      ]
+    }
+  }
+}

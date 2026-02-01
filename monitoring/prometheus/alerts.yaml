@@ -1,0 +1,545 @@
+# Streamhouse Prometheus Alert Rules
+#
+# Import into Prometheus with:
+#   kubectl create configmap prometheus-alerts --from-file=alerts.yaml
+#   kubectl label configmap prometheus-alerts prometheus=kube-prometheus
+#
+# Or reference in Prometheus config:
+#   rule_files:
+#     - /etc/prometheus/alerts.yaml
+
+groups:
+# =============================================================================
+# S3 & Storage Alerts
+# =============================================================================
+- name: s3-storage
+  interval: 30s
+  rules:
+  - alert: CircuitBreakerOpen
+    expr: streamhouse_circuit_breaker_state{operation="put"} == 1
+    for: 2m
+    labels:
+      severity: high
+      component: storage
+      team: platform
+    annotations:
+      summary: "S3 circuit breaker is open for {{ $labels.operation }}"
+      description: |
+        Circuit breaker for S3 {{ $labels.operation }} operations has been open for 2 minutes.
+        This indicates sustained S3 failures. Writes are being rejected with UNAVAILABLE errors.
+
+        Auto-recovery will attempt in 30 seconds (HalfOpen transition).
+
+        Runbook: https://github.com/YOUR_ORG/streamhouse/blob/main/docs/runbooks/circuit-breaker-open.md
+      dashboard: https://grafana.example.com/d/streamhouse-storage
+
+  - alert: CircuitBreakerFlapping
+    expr: rate(streamhouse_circuit_breaker_transitions_total[5m]) > 0.1
+    for: 5m
+    labels:
+      severity: medium
+      component: storage
+      team: platform
+    annotations:
+      summary: "Circuit breaker is flapping (frequent state changes)"
+      description: |
+        Circuit breaker is transitioning states {{ $value }} times per second.
+        This indicates instability - circuit is opening and closing repeatedly.
+
+        Likely cause: S3 intermittent failures or borderline throttling.
+
+        Runbook: https://github.com/YOUR_ORG/streamhouse/blob/main/docs/runbooks/circuit-breaker-open.md
+
+  - alert: HighS3ThrottlingRate
+    expr: |
+      sum(rate(streamhouse_throttle_decisions_total{decision="rate_limited"}[5m])) /
+      sum(rate(streamhouse_throttle_decisions_total[5m])) > 0.10
+    for: 5m
+    labels:
+      severity: medium
+      component: storage
+      team: platform
+    annotations:
+      summary: "S3 throttling rate >10%"
+      description: |
+        {{ $value | humanizePercentage }} of S3 requests are being rate limited.
+        Producers are experiencing backpressure (RESOURCE_EXHAUSTED errors).
+
+        This is expected during traffic bursts but sustained throttling indicates
+        rate limits may be too low for current workload.
+
+        Runbook: https://github.com/YOUR_ORG/streamhouse/blob/main/docs/runbooks/high-s3-throttling-rate.md
+
+  - alert: S3ErrorRateHigh
+    expr: |
+      sum(rate(streamhouse_s3_errors_total[5m])) /
+      sum(rate(streamhouse_s3_requests_total[5m])) > 0.05
+    for: 5m
+    labels:
+      severity: high
+      component: storage
+      team: platform
+    annotations:
+      summary: "S3 error rate >5%"
+      description: |
+        {{ $value | humanizePercentage }} of S3 requests are failing.
+        Circuit breaker may open soon if this continues.
+
+        Check S3 service health and throttling errors.
+
+        Runbook: https://github.com/YOUR_ORG/streamhouse/blob/main/docs/runbooks/circuit-breaker-open.md
+
+  - alert: S3LatencyHigh
+    expr: |
+      histogram_quantile(0.99,
+        sum(rate(streamhouse_s3_latency_seconds_bucket{operation="put"}[5m])) by (le)
+      ) > 5.0
+    for: 10m
+    labels:
+      severity: medium
+      component: storage
+      team: platform
+    annotations:
+      summary: "S3 PUT p99 latency >5s"
+      description: |
+        99th percentile S3 PUT latency is {{ $value | humanizeDuration }}.
+        This may indicate S3 performance degradation or network issues.
+
+        Slow uploads can cause memory accumulation as segments queue up.
+
+# =============================================================================
+# Lease Coordination Alerts
+# =============================================================================
+- name: lease-coordination
+  interval: 30s
+  rules:
+  - alert: PartitionLeaseConflicts
+    expr: rate(streamhouse_lease_conflicts_total[5m]) > 0.01
+    for: 2m
+    labels:
+      severity: high
+      component: coordination
+      team: platform
+    annotations:
+      summary: "Partition lease conflicts detected"
+      description: |
+        {{ $value }} lease conflicts per second on {{ $labels.topic }}-{{ $labels.partition }}.
+        This indicates split-brain scenario where multiple agents think they own the partition.
+
+        Common causes: clock skew, network partitions, agent restarts.
+
+        Runbook: https://github.com/YOUR_ORG/streamhouse/blob/main/docs/runbooks/partition-lease-conflicts.md
+
+  - alert: LeaseRenewalFailures
+    expr: |
+      sum(rate(streamhouse_lease_renewals_total{result="failure"}[5m])) /
+      sum(rate(streamhouse_lease_renewals_total[5m])) > 0.10
+    for: 5m
+    labels:
+      severity: medium
+      component: coordination
+      team: platform
+    annotations:
+      summary: "Lease renewal failure rate >10%"
+      description: |
+        {{ $value | humanizePercentage }} of lease renewals are failing.
+        If renewals continue to fail, leases will expire and partitions will become unavailable.
+
+        Check database connectivity and clock synchronization.
+
+        Runbook: https://github.com/YOUR_ORG/streamhouse/blob/main/docs/runbooks/partition-lease-conflicts.md
+
+  - alert: LeaseAcquisitionFailures
+    expr: |
+      sum(rate(streamhouse_lease_acquisitions_total{result=~"conflict|error"}[5m])) /
+      sum(rate(streamhouse_lease_acquisitions_total[5m])) > 0.20
+    for: 5m
+    labels:
+      severity: high
+      component: coordination
+      team: platform
+    annotations:
+      summary: "Lease acquisition failure rate >20%"
+      description: |
+        {{ $value | humanizePercentage }} of lease acquisitions are failing.
+        Agents unable to acquire partition ownership.
+
+        Check for conflicting agents or database issues.
+
+        Runbook: https://github.com/YOUR_ORG/streamhouse/blob/main/docs/runbooks/partition-lease-conflicts.md
+
+# =============================================================================
+# WAL & Durability Alerts
+# =============================================================================
+- name: wal-durability
+  interval: 30s
+  rules:
+  - alert: WALRecoveryFailures
+    expr: rate(streamhouse_wal_recoveries_total{result="error"}[5m]) > 0.01
+    for: 1m
+    labels:
+      severity: high
+      component: storage
+      team: platform
+    annotations:
+      summary: "WAL recovery failures detected"
+      description: |
+        WAL recovery is failing for {{ $labels.topic }}-{{ $labels.partition }}.
+        Agent unable to start due to corrupted WAL file.
+
+        This may cause partition unavailability and data loss.
+
+        Runbook: https://github.com/YOUR_ORG/streamhouse/blob/main/docs/runbooks/wal-recovery-failures.md
+
+  - alert: WALCorruptionRate
+    expr: |
+      sum(rate(streamhouse_wal_records_skipped[5m])) /
+      (sum(rate(streamhouse_wal_records_recovered[5m])) + sum(rate(streamhouse_wal_records_skipped[5m]))) > 0.05
+    for: 2m
+    labels:
+      severity: medium
+      component: storage
+      team: platform
+    annotations:
+      summary: "WAL corruption rate >5%"
+      description: |
+        {{ $value | humanizePercentage }} of WAL records are being skipped due to corruption.
+        This indicates disk issues or crashes during WAL writes.
+
+        Data loss: {{ $value | humanizePercentage }} of unflushed records.
+
+        Runbook: https://github.com/YOUR_ORG/streamhouse/blob/main/docs/runbooks/wal-recovery-failures.md
+
+  - alert: WALSizeGrowing
+    expr: |
+      rate(streamhouse_wal_size_bytes[10m]) > 10485760
+    for: 15m
+    labels:
+      severity: medium
+      component: storage
+      team: platform
+    annotations:
+      summary: "WAL size growing continuously (not being truncated)"
+      description: |
+        WAL for {{ $labels.topic }}-{{ $labels.partition }} is growing by {{ $value | humanize1024 }}/s.
+        This indicates WAL truncation is not working (S3 uploads may be failing).
+
+        Eventually will lead to disk full.
+
+        Runbook: https://github.com/YOUR_ORG/streamhouse/blob/main/docs/runbooks/wal-recovery-failures.md
+
+# =============================================================================
+# Schema Registry Alerts
+# =============================================================================
+- name: schema-registry
+  interval: 30s
+  rules:
+  - alert: SchemaRegistrationFailures
+    expr: rate(streamhouse_schema_registrations_total{result=~"error|incompatible"}[5m]) > 0.01
+    for: 2m
+    labels:
+      severity: medium
+      component: schema-registry
+      team: platform
+    annotations:
+      summary: "Schema registration failures detected"
+      description: |
+        Schema registrations failing for subject {{ $labels.subject }}.
+
+        Result: {{ $labels.result }}
+        - incompatible: Breaking schema change (compatibility violation)
+        - error: Database or validation error
+
+        Producers unable to register new schemas.
+
+        Runbook: https://github.com/YOUR_ORG/streamhouse/blob/main/docs/runbooks/schema-registry-errors.md
+
+  - alert: SchemaNotFoundErrors
+    expr: rate(streamhouse_schema_registry_errors_total{type="not_found"}[5m]) > 0.05
+    for: 5m
+    labels:
+      severity: medium
+      component: schema-registry
+      team: platform
+    annotations:
+      summary: "High rate of schema not found errors"
+      description: |
+        {{ $value }} schema lookup failures per second.
+        Consumers receiving unknown schema IDs.
+
+        Likely cause: Producer sent messages without registering schema first,
+        or schema registry cache inconsistency.
+
+        Runbook: https://github.com/YOUR_ORG/streamhouse/blob/main/docs/runbooks/schema-registry-errors.md
+
+  - alert: SchemaCompatibilityCheckFailures
+    expr: |
+      sum(rate(streamhouse_schema_compatibility_checks_total{result="incompatible"}[5m])) /
+      sum(rate(streamhouse_schema_compatibility_checks_total[5m])) > 0.20
+    for: 5m
+    labels:
+      severity: low
+      component: schema-registry
+      team: platform
+    annotations:
+      summary: "High schema compatibility check failure rate"
+      description: |
+        {{ $value | humanizePercentage }} of compatibility checks are failing.
+        Indicates frequent attempts to register breaking schema changes.
+
+        Review schema evolution practices with development teams.
+
+# =============================================================================
+# Resource Pressure Alerts
+# =============================================================================
+- name: resource-pressure
+  interval: 30s
+  rules:
+  - alert: HighMemoryUsage
+    expr: |
+      (container_memory_usage_bytes{pod=~"streamhouse-agent.*"} /
+       container_spec_memory_limit_bytes{pod=~"streamhouse-agent.*"}) > 0.85
+    for: 5m
+    labels:
+      severity: high
+      component: resources
+      team: platform
+    annotations:
+      summary: "Agent memory usage >85%"
+      description: |
+        Pod {{ $labels.pod }} using {{ $value | humanizePercentage }} of memory limit.
+        Risk of OOMKill if memory continues to grow.
+
+        Check for:
+        - Large segment buffers
+        - Too many partitions assigned
+        - Schema cache growth
+        - Memory leaks
+
+        Runbook: https://github.com/YOUR_ORG/streamhouse/blob/main/docs/runbooks/resource-pressure.md
+
+  - alert: AgentOOMKilled
+    expr: |
+      rate(kube_pod_container_status_restarts_total{pod=~"streamhouse-agent.*"}[15m]) > 0
+      and
+      kube_pod_container_status_last_terminated_reason{pod=~"streamhouse-agent.*", reason="OOMKilled"} == 1
+    for: 1m
+    labels:
+      severity: critical
+      component: resources
+      team: platform
+    annotations:
+      summary: "Agent pod was OOMKilled"
+      description: |
+        Pod {{ $labels.pod }} was killed due to out-of-memory.
+
+        This causes:
+        - Partition unavailability during restart
+        - Potential data loss (unflushed WAL)
+        - Lease conflicts during recovery
+
+        Immediate action: Increase memory limits or scale horizontally.
+
+        Runbook: https://github.com/YOUR_ORG/streamhouse/blob/main/docs/runbooks/resource-pressure.md
+
+  - alert: DiskSpaceLow
+    expr: |
+      (node_filesystem_avail_bytes{mountpoint="/data"} /
+       node_filesystem_size_bytes{mountpoint="/data"}) < 0.15
+    for: 5m
+    labels:
+      severity: high
+      component: resources
+      team: platform
+    annotations:
+      summary: "Disk space <15% on {{ $labels.instance }}"
+      description: |
+        Only {{ $value | humanizePercentage }} disk space available on /data mount.
+
+        WAL writes will fail when disk is full, causing:
+        - Data loss (unflushed records)
+        - Agent crashes
+        - Partition unavailability
+
+        Immediate action: Clean up old WAL files or resize PVC.
+
+        Runbook: https://github.com/YOUR_ORG/streamhouse/blob/main/docs/runbooks/resource-pressure.md
+
+  - alert: DiskSpaceCritical
+    expr: |
+      (node_filesystem_avail_bytes{mountpoint="/data"} /
+       node_filesystem_size_bytes{mountpoint="/data"}) < 0.05
+    for: 1m
+    labels:
+      severity: critical
+      component: resources
+      team: platform
+    annotations:
+      summary: "Disk space <5% on {{ $labels.instance }}"
+      description: |
+        CRITICAL: Only {{ $value | humanizePercentage }} disk space remaining!
+
+        Disk will be full in minutes. WAL writes already failing.
+
+        IMMEDIATE ACTION REQUIRED: Delete old WAL files or resize disk NOW.
+
+        Runbook: https://github.com/YOUR_ORG/streamhouse/blob/main/docs/runbooks/resource-pressure.md
+
+  - alert: HighCPUUsage
+    expr: |
+      (rate(container_cpu_usage_seconds_total{pod=~"streamhouse-agent.*"}[5m])) > 3.5
+    for: 10m
+    labels:
+      severity: medium
+      component: resources
+      team: platform
+    annotations:
+      summary: "Agent CPU usage >3.5 cores"
+      description: |
+        Pod {{ $labels.pod }} using {{ $value | humanize }} CPU cores (sustained).
+
+        High CPU can cause:
+        - Slow request processing
+        - Lease renewal timeouts
+        - Increased latency
+
+        Consider scaling horizontally or optimizing hot paths.
+
+        Runbook: https://github.com/YOUR_ORG/streamhouse/blob/main/docs/runbooks/resource-pressure.md
+
+# =============================================================================
+# Performance & Throughput Alerts
+# =============================================================================
+- name: performance
+  interval: 30s
+  rules:
+  - alert: ProducerLatencyHigh
+    expr: |
+      histogram_quantile(0.99,
+        sum(rate(streamhouse_producer_latency_seconds_bucket[5m])) by (le, topic)
+      ) > 1.0
+    for: 10m
+    labels:
+      severity: medium
+      component: producer
+      team: platform
+    annotations:
+      summary: "Producer p99 latency >1s for topic {{ $labels.topic }}"
+      description: |
+        99th percentile producer latency is {{ $value | humanizeDuration }}.
+
+        This may indicate:
+        - S3 throttling or slow uploads
+        - High CPU usage
+        - Network issues
+
+        Check storage and resource alerts.
+
+  - alert: ConsumerLagIncreasing
+    expr: |
+      deriv(streamhouse_consumer_lag[10m]) > 100
+    for: 10m
+    labels:
+      severity: medium
+      component: consumer
+      team: application
+    annotations:
+      summary: "Consumer lag increasing for {{ $labels.consumer_group }} on {{ $labels.topic }}"
+      description: |
+        Consumer lag growing by {{ $value }} messages per second.
+        Consumer is not keeping up with producer throughput.
+
+        Check consumer performance and scale if needed.
+
+  - alert: SegmentFlushFailures
+    expr: |
+      rate(streamhouse_s3_errors_total{operation="put"}[5m]) > 0.05
+    for: 5m
+    labels:
+      severity: high
+      component: storage
+      team: platform
+    annotations:
+      summary: "Segment flush failures detected"
+      description: |
+        {{ $value }} S3 PUT failures per second.
+        Segments not being persisted to S3.
+
+        This leads to:
+        - Memory accumulation
+        - WAL growth
+        - Potential data loss on crashes
+
+        Check S3 alerts and circuit breaker status.
+
+# =============================================================================
+# Availability & Health Alerts
+# =============================================================================
+- name: availability
+  interval: 30s
+  rules:
+  - alert: AgentDown
+    expr: up{job="streamhouse-agent"} == 0
+    for: 2m
+    labels:
+      severity: critical
+      component: agent
+      team: platform
+    annotations:
+      summary: "Agent {{ $labels.instance }} is down"
+      description: |
+        Agent instance {{ $labels.instance }} is not responding to health checks.
+
+        Partitions assigned to this agent are unavailable.
+
+        Check pod status and logs.
+
+  - alert: NoActiveAgents
+    expr: count(up{job="streamhouse-agent"} == 1) == 0
+    for: 1m
+    labels:
+      severity: critical
+      component: agent
+      team: platform
+    annotations:
+      summary: "No active agents available"
+      description: |
+        CRITICAL: All agent instances are down!
+
+        Streamhouse is completely unavailable. No writes or reads possible.
+
+        Immediate escalation required.
+
+  - alert: InsufficientAgents
+    expr: count(up{job="streamhouse-agent"} == 1) < 2
+    for: 5m
+    labels:
+      severity: high
+      component: agent
+      team: platform
+    annotations:
+      summary: "Only {{ $value }} agent(s) available (expected ≥2 for HA)"
+      description: |
+        Running with insufficient agent redundancy.
+        Single point of failure - if remaining agent fails, system is down.
+
+        Scale up agent deployment immediately.
+
+  - alert: DatabaseConnectionFailures
+    expr: rate(streamhouse_database_errors_total[5m]) > 0.05
+    for: 5m
+    labels:
+      severity: high
+      component: database
+      team: platform
+    annotations:
+      summary: "High database error rate"
+      description: |
+        {{ $value }} database errors per second.
+
+        This affects:
+        - Lease acquisitions/renewals
+        - Schema registry operations
+        - Metadata operations
+
+        Check PostgreSQL health and connection pool settings.

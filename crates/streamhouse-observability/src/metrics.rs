@@ -160,6 +160,166 @@ lazy_static! {
         "streamhouse_uptime_seconds",
         "Server uptime in seconds"
     ).expect("metric can be created");
+
+    // ============================================================================
+    // Throttle & Circuit Breaker Metrics (Phase 12.4.2)
+    // ============================================================================
+
+    /// Throttle decisions by type (allow, rate_limited, circuit_open)
+    pub static ref THROTTLE_DECISIONS_TOTAL: IntCounterVec = IntCounterVec::new(
+        Opts::new("streamhouse_throttle_decisions_total", "Total throttle decisions"),
+        &["operation", "decision"] // operation=put/get/delete, decision=allow/rate_limited/circuit_open
+    ).expect("metric can be created");
+
+    /// Current rate limit for S3 operations (ops/sec)
+    pub static ref THROTTLE_RATE_CURRENT: IntGaugeVec = IntGaugeVec::new(
+        Opts::new("streamhouse_throttle_rate_current", "Current rate limit in operations per second"),
+        &["operation"] // put, get, delete
+    ).expect("metric can be created");
+
+    /// Circuit breaker state (0=Closed, 1=Open, 2=HalfOpen)
+    pub static ref CIRCUIT_BREAKER_STATE: IntGaugeVec = IntGaugeVec::new(
+        Opts::new("streamhouse_circuit_breaker_state", "Circuit breaker state (0=Closed, 1=Open, 2=HalfOpen)"),
+        &["operation"] // put, get, delete
+    ).expect("metric can be created");
+
+    /// Circuit breaker state transitions
+    pub static ref CIRCUIT_BREAKER_TRANSITIONS_TOTAL: IntCounterVec = IntCounterVec::new(
+        Opts::new("streamhouse_circuit_breaker_transitions_total", "Total circuit breaker state transitions"),
+        &["operation", "from_state", "to_state"] // from_state/to_state: closed/open/half_open
+    ).expect("metric can be created");
+
+    /// Circuit breaker failure count
+    pub static ref CIRCUIT_BREAKER_FAILURES: IntGaugeVec = IntGaugeVec::new(
+        Opts::new("streamhouse_circuit_breaker_failures", "Current consecutive failure count"),
+        &["operation"]
+    ).expect("metric can be created");
+
+    /// Circuit breaker success count (in half-open state)
+    pub static ref CIRCUIT_BREAKER_SUCCESSES: IntGaugeVec = IntGaugeVec::new(
+        Opts::new("streamhouse_circuit_breaker_successes", "Current consecutive success count in half-open"),
+        &["operation"]
+    ).expect("metric can be created");
+
+    // ============================================================================
+    // Lease Manager Metrics (Phase 4.2)
+    // ============================================================================
+
+    /// Partition lease acquisitions
+    pub static ref LEASE_ACQUISITIONS_TOTAL: IntCounterVec = IntCounterVec::new(
+        Opts::new("streamhouse_lease_acquisitions_total", "Total partition lease acquisitions"),
+        &["topic", "partition", "result"] // result=success/conflict/error
+    ).expect("metric can be created");
+
+    /// Partition lease renewals
+    pub static ref LEASE_RENEWALS_TOTAL: IntCounterVec = IntCounterVec::new(
+        Opts::new("streamhouse_lease_renewals_total", "Total partition lease renewals"),
+        &["topic", "partition", "result"] // result=success/failure
+    ).expect("metric can be created");
+
+    /// Lease conflicts (stale epoch rejections)
+    pub static ref LEASE_CONFLICTS_TOTAL: IntCounterVec = IntCounterVec::new(
+        Opts::new("streamhouse_lease_conflicts_total", "Total lease conflicts"),
+        &["topic", "partition"]
+    ).expect("metric can be created");
+
+    /// Current lease epoch
+    pub static ref LEASE_EPOCH_CURRENT: IntGaugeVec = IntGaugeVec::new(
+        Opts::new("streamhouse_lease_epoch_current", "Current lease epoch for partition"),
+        &["topic", "partition", "agent_id"]
+    ).expect("metric can be created");
+
+    /// Lease expiration time (Unix timestamp)
+    pub static ref LEASE_EXPIRES_AT: IntGaugeVec = IntGaugeVec::new(
+        Opts::new("streamhouse_lease_expires_at", "Lease expiration timestamp"),
+        &["topic", "partition", "agent_id"]
+    ).expect("metric can be created");
+
+    // ============================================================================
+    // WAL Metrics (Phase 10)
+    // ============================================================================
+
+    /// WAL append operations
+    pub static ref WAL_APPENDS_TOTAL: IntCounterVec = IntCounterVec::new(
+        Opts::new("streamhouse_wal_appends_total", "Total WAL append operations"),
+        &["topic", "partition", "result"] // result=success/error
+    ).expect("metric can be created");
+
+    /// WAL recovery operations
+    pub static ref WAL_RECOVERIES_TOTAL: IntCounterVec = IntCounterVec::new(
+        Opts::new("streamhouse_wal_recoveries_total", "Total WAL recovery operations"),
+        &["topic", "partition", "result"] // result=success/error
+    ).expect("metric can be created");
+
+    /// WAL records recovered
+    pub static ref WAL_RECORDS_RECOVERED: IntCounterVec = IntCounterVec::new(
+        Opts::new("streamhouse_wal_records_recovered", "Number of records recovered from WAL"),
+        &["topic", "partition"]
+    ).expect("metric can be created");
+
+    /// WAL records skipped (corruption)
+    pub static ref WAL_RECORDS_SKIPPED: IntCounterVec = IntCounterVec::new(
+        Opts::new("streamhouse_wal_records_skipped", "Number of corrupted WAL records skipped"),
+        &["topic", "partition"]
+    ).expect("metric can be created");
+
+    /// WAL file size in bytes
+    pub static ref WAL_SIZE_BYTES: IntGaugeVec = IntGaugeVec::new(
+        Opts::new("streamhouse_wal_size_bytes", "WAL file size in bytes"),
+        &["topic", "partition"]
+    ).expect("metric can be created");
+
+    /// WAL truncate operations
+    pub static ref WAL_TRUNCATES_TOTAL: IntCounterVec = IntCounterVec::new(
+        Opts::new("streamhouse_wal_truncates_total", "Total WAL truncate operations"),
+        &["topic", "partition", "result"] // result=success/error
+    ).expect("metric can be created");
+
+    // ============================================================================
+    // Schema Registry Metrics (Phase 9)
+    // ============================================================================
+
+    /// Schema registration operations
+    pub static ref SCHEMA_REGISTRATIONS_TOTAL: IntCounterVec = IntCounterVec::new(
+        Opts::new("streamhouse_schema_registrations_total", "Total schema registrations"),
+        &["subject", "result"] // result=success/error/incompatible
+    ).expect("metric can be created");
+
+    /// Schema registry errors by type
+    pub static ref SCHEMA_REGISTRY_ERRORS_TOTAL: IntCounterVec = IntCounterVec::new(
+        Opts::new("streamhouse_schema_registry_errors_total", "Total schema registry errors"),
+        &["type"] // not_found, incompatible, invalid, storage_error, etc.
+    ).expect("metric can be created");
+
+    /// Schema compatibility checks
+    pub static ref SCHEMA_COMPATIBILITY_CHECKS_TOTAL: IntCounterVec = IntCounterVec::new(
+        Opts::new("streamhouse_schema_compatibility_checks_total", "Total schema compatibility checks"),
+        &["subject", "result"] // result=compatible/incompatible/error
+    ).expect("metric can be created");
+
+    /// Schema cache entries
+    pub static ref SCHEMA_CACHE_ENTRIES: IntGauge = IntGauge::new(
+        "streamhouse_schema_cache_entries",
+        "Number of entries in schema cache"
+    ).expect("metric can be created");
+
+    /// Schema lookups by ID
+    pub static ref SCHEMA_LOOKUPS_TOTAL: IntCounterVec = IntCounterVec::new(
+        Opts::new("streamhouse_schema_lookups_total", "Total schema lookups by ID"),
+        &["result"] // result=hit/miss
+    ).expect("metric can be created");
+
+    /// Total schemas registered
+    pub static ref SCHEMAS_TOTAL: IntGauge = IntGauge::new(
+        "streamhouse_schemas_total",
+        "Total number of registered schemas"
+    ).expect("metric can be created");
+
+    /// Total subjects
+    pub static ref SUBJECTS_TOTAL: IntGauge = IntGauge::new(
+        "streamhouse_subjects_total",
+        "Total number of schema subjects"
+    ).expect("metric can be created");
 }
 
 /// Initialize metrics registry
@@ -239,6 +399,86 @@ pub fn init() {
         REGISTRY
             .register(Box::new(UPTIME_SECONDS.clone()))
             .expect("uptime_seconds can be registered");
+
+        // Throttle & Circuit Breaker metrics
+        REGISTRY
+            .register(Box::new(THROTTLE_DECISIONS_TOTAL.clone()))
+            .expect("throttle_decisions_total can be registered");
+        REGISTRY
+            .register(Box::new(THROTTLE_RATE_CURRENT.clone()))
+            .expect("throttle_rate_current can be registered");
+        REGISTRY
+            .register(Box::new(CIRCUIT_BREAKER_STATE.clone()))
+            .expect("circuit_breaker_state can be registered");
+        REGISTRY
+            .register(Box::new(CIRCUIT_BREAKER_TRANSITIONS_TOTAL.clone()))
+            .expect("circuit_breaker_transitions_total can be registered");
+        REGISTRY
+            .register(Box::new(CIRCUIT_BREAKER_FAILURES.clone()))
+            .expect("circuit_breaker_failures can be registered");
+        REGISTRY
+            .register(Box::new(CIRCUIT_BREAKER_SUCCESSES.clone()))
+            .expect("circuit_breaker_successes can be registered");
+
+        // Lease Manager metrics
+        REGISTRY
+            .register(Box::new(LEASE_ACQUISITIONS_TOTAL.clone()))
+            .expect("lease_acquisitions_total can be registered");
+        REGISTRY
+            .register(Box::new(LEASE_RENEWALS_TOTAL.clone()))
+            .expect("lease_renewals_total can be registered");
+        REGISTRY
+            .register(Box::new(LEASE_CONFLICTS_TOTAL.clone()))
+            .expect("lease_conflicts_total can be registered");
+        REGISTRY
+            .register(Box::new(LEASE_EPOCH_CURRENT.clone()))
+            .expect("lease_epoch_current can be registered");
+        REGISTRY
+            .register(Box::new(LEASE_EXPIRES_AT.clone()))
+            .expect("lease_expires_at can be registered");
+
+        // WAL metrics
+        REGISTRY
+            .register(Box::new(WAL_APPENDS_TOTAL.clone()))
+            .expect("wal_appends_total can be registered");
+        REGISTRY
+            .register(Box::new(WAL_RECOVERIES_TOTAL.clone()))
+            .expect("wal_recoveries_total can be registered");
+        REGISTRY
+            .register(Box::new(WAL_RECORDS_RECOVERED.clone()))
+            .expect("wal_records_recovered can be registered");
+        REGISTRY
+            .register(Box::new(WAL_RECORDS_SKIPPED.clone()))
+            .expect("wal_records_skipped can be registered");
+        REGISTRY
+            .register(Box::new(WAL_SIZE_BYTES.clone()))
+            .expect("wal_size_bytes can be registered");
+        REGISTRY
+            .register(Box::new(WAL_TRUNCATES_TOTAL.clone()))
+            .expect("wal_truncates_total can be registered");
+
+        // Schema Registry metrics
+        REGISTRY
+            .register(Box::new(SCHEMA_REGISTRATIONS_TOTAL.clone()))
+            .expect("schema_registrations_total can be registered");
+        REGISTRY
+            .register(Box::new(SCHEMA_REGISTRY_ERRORS_TOTAL.clone()))
+            .expect("schema_registry_errors_total can be registered");
+        REGISTRY
+            .register(Box::new(SCHEMA_COMPATIBILITY_CHECKS_TOTAL.clone()))
+            .expect("schema_compatibility_checks_total can be registered");
+        REGISTRY
+            .register(Box::new(SCHEMA_CACHE_ENTRIES.clone()))
+            .expect("schema_cache_entries can be registered");
+        REGISTRY
+            .register(Box::new(SCHEMA_LOOKUPS_TOTAL.clone()))
+            .expect("schema_lookups_total can be registered");
+        REGISTRY
+            .register(Box::new(SCHEMAS_TOTAL.clone()))
+            .expect("schemas_total can be registered");
+        REGISTRY
+            .register(Box::new(SUBJECTS_TOTAL.clone()))
+            .expect("subjects_total can be registered");
     });
 }
 
