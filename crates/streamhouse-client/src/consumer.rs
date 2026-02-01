@@ -194,6 +194,12 @@ pub struct Consumer {
 
     // Observability
     last_lag_update: tokio::time::Instant,
+
+    // Schema Registry (Phase 9+)
+    /// Optional schema registry client for resolving schemas
+    schema_registry: Option<Arc<crate::schema_registry_client::SchemaRegistryClient>>,
+    /// Schema cache: schema_id -> Schema
+    schema_cache: Arc<RwLock<HashMap<i32, crate::schema_registry_client::Schema>>>,
 }
 
 /// Key for identifying a partition in the readers map.
@@ -223,6 +229,8 @@ pub struct ConsumerConfig {
     pub offset_reset: OffsetReset,
     /// Maximum records to fetch per partition per poll (Phase 8.3b)
     pub max_poll_records: usize,
+    /// Optional schema registry URL for schema resolution (Phase 9+)
+    pub schema_registry_url: Option<String>,
 }
 
 /// Strategy for resetting offsets when no committed offset exists.
@@ -245,6 +253,10 @@ pub struct ConsumedRecord {
     pub timestamp: u64,
     pub key: Option<Bytes>,
     pub value: Bytes,
+    /// Schema ID if message was encoded with schema (Phase 9+)
+    pub schema_id: Option<i32>,
+    /// Resolved schema if schema registry is configured (Phase 9+)
+    pub schema: Option<crate::schema_registry_client::Schema>,
 }
 
 /// Builder for constructing a Consumer.
@@ -261,6 +273,7 @@ pub struct ConsumerBuilder {
     max_poll_records: usize,
     #[cfg(feature = "metrics")]
     metrics: Option<Arc<ConsumerMetrics>>,
+    schema_registry_url: Option<String>,
 }
 
 impl ConsumerBuilder {
@@ -279,6 +292,7 @@ impl ConsumerBuilder {
             max_poll_records: 100, // Phase 8.3b: default 100 records per partition
             #[cfg(feature = "metrics")]
             metrics: None,
+            schema_registry_url: None,
         }
     }
 
@@ -406,6 +420,35 @@ impl ConsumerBuilder {
         self
     }
 
+    /// Enable schema registry integration for automatic schema resolution (Phase 9+).
+    ///
+    /// When configured, the consumer will automatically:
+    /// - Extract schema IDs from message payloads (Confluent wire format)
+    /// - Resolve schemas by ID from the registry
+    /// - Cache resolved schemas for performance
+    /// - Populate schema_id and schema fields in ConsumedRecord
+    ///
+    /// # Arguments
+    ///
+    /// * `url` - Base URL of the schema registry (e.g., "http://localhost:8080")
+    ///
+    /// # Examples
+    ///
+    /// ```ignore
+    /// let consumer = Consumer::builder()
+    ///     .group_id("my-group")
+    ///     .topics(vec!["orders".to_string()])
+    ///     .metadata_store(metadata)
+    ///     .object_store(object_store)
+    ///     .schema_registry("http://localhost:8080")
+    ///     .build()
+    ///     .await?;
+    /// ```
+    pub fn schema_registry(mut self, url: impl Into<String>) -> Self {
+        self.schema_registry_url = Some(url.into());
+        self
+    }
+
     /// Build the Consumer.
     ///
     /// # Errors
@@ -439,6 +482,13 @@ impl ConsumerBuilder {
             metadata_store.ensure_consumer_group(group_id).await?;
         }
 
+        // Initialize schema registry client if URL provided (Phase 9+)
+        let schema_registry = self.schema_registry_url.as_ref().map(|url| {
+            Arc::new(crate::schema_registry_client::SchemaRegistryClient::new(url.clone()))
+        });
+
+        let schema_cache = Arc::new(RwLock::new(HashMap::new()));
+
         // Create consumer
         let consumer = Consumer {
             config: ConsumerConfig {
@@ -452,6 +502,7 @@ impl ConsumerBuilder {
                 auto_commit_interval: self.auto_commit_interval,
                 offset_reset: self.offset_reset,
                 max_poll_records: self.max_poll_records,
+                schema_registry_url: self.schema_registry_url,
             },
             group_id: self.group_id,
             readers: Arc::new(RwLock::new(HashMap::new())),
@@ -463,6 +514,8 @@ impl ConsumerBuilder {
             auto_commit_interval: self.auto_commit_interval,
             last_commit: tokio::time::Instant::now(),
             last_lag_update: tokio::time::Instant::now(),
+            schema_registry,
+            schema_cache,
         };
 
         // Initialize partition readers for subscribed topics
@@ -643,7 +696,24 @@ impl Consumer {
                     timestamp: record.timestamp,
                     key: record.key,
                     value: record.value,
+                    schema_id: None, // Will be populated if schema registry is configured
+                    schema: None,     // Will be populated if schema registry is configured
                 });
+            }
+        }
+
+        // Phase 9: Resolve schemas if schema registry is configured
+        if self.schema_registry.is_some() {
+            for record in &mut all_records {
+                if let Some((schema_id, payload)) = Self::extract_schema_id(&record.value) {
+                    // Get schema from cache or fetch from registry
+                    if let Ok(schema) = self.get_schema(schema_id).await {
+                        record.schema_id = Some(schema_id);
+                        record.schema = Some(schema);
+                        // Strip magic byte + schema ID from value
+                        record.value = Bytes::copy_from_slice(payload);
+                    }
+                }
             }
         }
 
@@ -876,5 +946,58 @@ impl Consumer {
         }
 
         Ok(())
+    }
+
+    /// Extract schema ID from message payload (Phase 9+).
+    ///
+    /// Messages encoded with schema registry have the wire format:
+    /// - Byte 0: Magic byte (0x00)
+    /// - Bytes 1-4: Schema ID (big-endian int32)
+    /// - Bytes 5+: Actual payload
+    ///
+    /// Returns (schema_id, payload) if message has schema ID, None otherwise.
+    fn extract_schema_id(data: &[u8]) -> Option<(i32, &[u8])> {
+        if data.len() < 5 || data[0] != 0x00 {
+            return None; // Not a schema-encoded message
+        }
+
+        let schema_id = i32::from_be_bytes([data[1], data[2], data[3], data[4]]);
+        Some((schema_id, &data[5..]))
+    }
+
+    /// Get schema from cache or fetch from registry (Phase 9+).
+    ///
+    /// This method checks the local cache first, and if not found,
+    /// fetches the schema from the registry and caches it.
+    async fn get_schema(&self, schema_id: i32) -> Result<crate::schema_registry_client::Schema> {
+        // Check cache
+        {
+            let cache = self.schema_cache.read().await;
+            if let Some(schema) = cache.get(&schema_id) {
+                return Ok(schema.clone());
+            }
+        }
+
+        // Fetch from registry
+        let registry = self.schema_registry.as_ref().ok_or_else(|| {
+            ClientError::ConfigError("Schema registry not configured".to_string())
+        })?;
+
+        let schema = registry.get_schema_by_id(schema_id).await?;
+
+        // Cache it
+        {
+            let mut cache = self.schema_cache.write().await;
+            cache.insert(schema_id, schema.clone());
+        }
+
+        tracing::debug!(
+            schema_id = schema_id,
+            subject = %schema.subject,
+            version = schema.version,
+            "Schema resolved and cached"
+        );
+
+        Ok(schema)
     }
 }
