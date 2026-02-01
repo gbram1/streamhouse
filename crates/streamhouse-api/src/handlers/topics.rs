@@ -10,8 +10,12 @@ use chrono::{DateTime, Utc};
 use crate::{models::*, AppState};
 use streamhouse_metadata::TopicConfig;
 
-fn format_timestamp(timestamp: i64) -> String {
-    DateTime::from_timestamp(timestamp, 0)
+fn format_timestamp(timestamp_millis: i64) -> String {
+    // Convert milliseconds to seconds
+    let timestamp_secs = timestamp_millis / 1000;
+    let nanos = ((timestamp_millis % 1000) * 1_000_000) as u32;
+
+    DateTime::from_timestamp(timestamp_secs, nanos)
         .unwrap_or_else(Utc::now)
         .to_rfc3339()
 }
