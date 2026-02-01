@@ -1,260 +1,275 @@
 # StreamHouse Web Console
 
-Modern web interface for managing StreamHouse clusters, built with Next.js 15 and shadcn/ui.
+A comprehensive web dashboard for monitoring and managing StreamHouse streaming infrastructure, built with Next.js 14 and shadcn/ui.
 
-## Features
+## Features Implemented
 
-- **Dashboard**: Real-time overview of topics, agents, throughput, and storage
-- **Topic Management**: Create, view, and monitor topics and partitions
-- **Agent Monitoring**: View agent health, leases, and availability zones
-- **Consumer Groups**: Monitor consumer lag and offsets
-- **Web Console**: Interactive producer/consumer for testing (coming soon)
+### 📊 10 Comprehensive Dashboards
 
-## Tech Stack
+1. **Overview** - System health, throughput, latency, consumer lag with real-time charts
+2. **Topics** - Topic management, search, favorites, message browser
+3. **Consumers** - Consumer group monitoring, lag tracking, trend indicators
+4. **Producers** - Producer monitoring and management
+5. **Partitions** - Partition distribution and health
+6. **Performance** - 5 interactive charts (throughput, latency, errors)
+7. **Storage** - S3/MinIO metrics, WAL status, cache performance with charts
+8. **Agents** - Agent health, resource usage, partition assignments
+9. **Schemas** - Schema registry with Avro/Protobuf/JSON support
+10. **Monitoring** - System-wide monitoring and alerts
 
-- **Next.js 15**: React framework with App Router
-- **TypeScript**: Type-safe development
-- **Tailwind CSS 4**: Utility-first styling
-- **shadcn/ui**: High-quality React components
-- **lucide-react**: Beautiful icons
+### 🎨 UI Components
+
+- **Sidebar Navigation** - Persistent navigation with active route highlighting
+- **Theme Support** - Light/Dark/System theme with persistent preferences
+- **Responsive Design** - Mobile-friendly layout with Tailwind CSS
+- **Interactive Charts** - 4 chart types (Line, Area, Bar, Pie) using Recharts
+- **Message Browser** - Full-featured message viewer with search, pagination, detail view
+- **Real-time Updates** - WebSocket support for live metric streaming
+
+### 🛠️ Technical Stack
+
+- **Framework**: Next.js 14 (App Router)
+- **Language**: TypeScript (strict mode)
+- **State Management**: Zustand with persistence
+- **Data Fetching**: React Query (@tanstack/react-query)
+- **Charts**: Recharts
+- **UI Components**: shadcn/ui + Radix UI
+- **Styling**: Tailwind CSS v4
+- **Icons**: Lucide React
 
 ## Getting Started
+
+### Installation
+
+```bash
+cd web
+npm install
+```
 
 ### Development
 
 ```bash
-# Install dependencies
-npm install
-
-# Run development server
 npm run dev
-
-# Open http://localhost:3000
 ```
+
+Open [http://localhost:3000](http://localhost:3000) in your browser.
 
 ### Environment Variables
 
-Create `.env.local`:
+Create a `.env.local` file:
 
-```bash
-# StreamHouse API URL (REST API backend - Phase 10)
-NEXT_PUBLIC_API_URL=http://localhost:3001
+```env
+NEXT_PUBLIC_API_URL=http://localhost:8080
+NEXT_PUBLIC_WS_URL=ws://localhost:8080
 ```
 
-### Build for Production
+### Production Build
 
 ```bash
-# Build
 npm run build
-
-# Start production server
-npm start
+npm run start
 ```
 
 ## Project Structure
 
 ```
 web/
-├── app/
-│   ├── page.tsx              # Landing page
-│   ├── dashboard/            # Main dashboard
-│   ├── topics/               # Topic management
-│   ├── agents/               # Agent monitoring
-│   └── console/              # Web console (producer/consumer)
+├── app/                          # Next.js App Router pages
+│   ├── dashboard/                # Overview dashboard
+│   ├── topics/                   # Topics list and detail pages
+│   │   └── [name]/              # Topic detail with message browser
+│   ├── consumers/                # Consumer groups monitoring
+│   ├── producers/                # Producer monitoring
+│   ├── partitions/               # Partition health
+│   ├── performance/              # Performance metrics with charts
+│   ├── storage/                  # Storage & cache metrics
+│   ├── agents/                   # Agent monitoring
+│   ├── schemas/                  # Schema registry
+│   └── monitoring/               # System monitoring
 ├── components/
-│   ├── ui/                   # shadcn/ui components
-│   └── layout/               # Shared layout components
+│   ├── charts/                   # Reusable chart components
+│   │   ├── line-chart.tsx       # Time-series line charts
+│   │   ├── area-chart.tsx       # Area charts with gradients
+│   │   ├── bar-chart.tsx        # Bar charts
+│   │   └── pie-chart.tsx        # Pie charts
+│   ├── layout/                   # Layout components
+│   │   ├── sidebar.tsx          # Navigation sidebar
+│   │   ├── header.tsx           # Dashboard header
+│   │   └── dashboard-layout.tsx # Unified layout wrapper
+│   ├── message-browser.tsx       # Message browsing component
+│   └── ui/                       # shadcn/ui components
 ├── lib/
-│   ├── api/                  # API client
-│   └── utils.ts              # Utilities
-└── public/                   # Static assets
+│   ├── api-client.ts            # Centralized HTTP client
+│   ├── store.ts                 # Zustand global state
+│   ├── types.ts                 # TypeScript type definitions
+│   ├── utils.ts                 # Utility functions
+│   ├── query-provider.tsx       # React Query configuration
+│   └── hooks/                    # Custom React hooks
+│       ├── use-topics.ts        # Topic operations
+│       ├── use-consumer-groups.ts
+│       ├── use-schemas.ts
+│       ├── use-metrics.ts
+│       ├── use-websocket.ts     # WebSocket client
+│       └── use-realtime-metrics.ts
+└── README.md                     # This file
 ```
 
-## API Integration
+## Key Features
 
-The web console communicates with the StreamHouse REST API backend (to be implemented in Phase 10).
+### Message Browser
+- Search messages by key, value, partition, or offset
+- Pagination (50 messages per page)
+- Message detail view with JSON formatting
+- Copy message value to clipboard
+- Export messages to JSON
 
-### API Client
+### Real-time Updates
+- WebSocket connection status indicator
+- Live metric streaming when auto-refresh enabled
+- Configurable time ranges (5m, 15m, 1h, 6h, 24h, 7d, 30d)
+- Auto-reconnect with exponential backoff
 
-TypeScript API client located at `lib/api/client.ts`:
+### Chart Visualizations
+- **Performance Dashboard**: 5 charts
+  - Message throughput (24h)
+  - Latency percentiles (p50, p95, p99)
+  - Error rate over time
+  - Error types distribution
+  - Network throughput
+- **Storage Dashboard**: 2 charts
+  - Cache hit rate (24h)
+  - Cache evictions (12h)
+- **Consumers Dashboard**: 1 chart
+  - Consumer lag over time (24h, multi-series)
+- **Overview Dashboard**: 2 charts
+  - Message throughput
+  - Consumer lag by group
 
-```typescript
-import { apiClient } from '@/lib/api/client';
+### Persistent User Preferences
+- Theme selection (light/dark/system)
+- Favorite topics
+- Favorite consumer groups
+- Auto-refresh toggle
+- Time range selection
 
-// List topics
-const topics = await apiClient.listTopics();
+## Current Status
 
-// Create topic
-await apiClient.createTopic('orders', 6, 1);
+### ✅ Completed
+- All 10 dashboards with full UI implementation
+- 4 reusable chart components (Line, Area, Bar, Pie)
+- Message browser with search and pagination
+- WebSocket hooks for real-time updates
+- Theme provider with persistence
+- Sidebar navigation
+- React Query data fetching setup
+- Comprehensive TypeScript types
 
-// Get metrics
-const metrics = await apiClient.getMetrics();
-```
+### 🚧 Pending Backend Integration
 
-### Mock Data
+The UI is **fully functional with mock data**. To connect to the real StreamHouse backend, the following REST API endpoints need to be implemented:
 
-Currently uses mock data for development. Will connect to real API once REST backend is implemented.
+#### Required API Endpoints
 
-## Phase 10 Integration
+**Topics**
+- `GET /api/v1/topics` - List all topics
+- `GET /api/v1/topics/:name` - Get topic details
+- `GET /api/v1/topics/:name/messages` - Get topic messages
+- `GET /api/v1/topics/:name/partitions` - Get topic partitions
+- `POST /api/v1/topics` - Create topic
+- `DELETE /api/v1/topics/:name` - Delete topic
 
-This web console is part of **Phase 10: REST API + Web Console** from the production roadmap:
+**Consumer Groups**
+- `GET /api/v1/consumer-groups` - List consumer groups
+- `GET /api/v1/consumer-groups/:id` - Get group details
+- `GET /api/v1/consumer-groups/:id/lag` - Get consumer lag
 
-### Week 11-12: REST API Backend (Rust)
-- Axum-based HTTP server
-- REST endpoints for topics, agents, partitions
-- OpenAPI/Swagger docs
-- CORS configuration
+**Agents**
+- `GET /api/v1/agents` - List all agents
+- `GET /api/v1/agents/:id` - Get agent details
+- `GET /api/v1/agents/:id/metrics` - Get agent metrics
 
-### Week 13-18: Web Console Features
-- **Week 13**: Dashboard with real-time metrics
-- **Week 14**: Topic management (create, delete, configure)
-- **Week 15**: Agent monitoring and health checks
-- **Week 16**: Consumer group monitoring
-- **Week 17**: Web-based producer/consumer
-- **Week 18**: Authentication and multi-tenancy
+**Metrics**
+- `GET /api/v1/metrics/overview` - System overview metrics
+- `GET /api/v1/metrics/throughput` - Throughput metrics
+- `GET /api/v1/metrics/latency` - Latency metrics
+- `GET /api/v1/metrics/errors` - Error metrics
+- `GET /api/v1/metrics/storage` - Storage metrics
 
-## Components
+**WebSocket**
+- `WS /ws/metrics` - Real-time metrics stream
+- `WS /ws/topics/:name` - Real-time topic metrics
+- `WS /ws/consumers/:id` - Real-time consumer metrics
 
-### shadcn/ui Components Used
+**Schema Registry** (already implemented in backend)
+- `GET /schemas/subjects` - List schema subjects
+- `GET /schemas/subjects/:subject/versions` - Get schema versions
+- `GET /schemas/ids/:id` - Get schema by ID
 
-- **Button**: Actions and navigation
-- **Card**: Content containers
-- **Table**: Data display
-- **Badge**: Status indicators
-- **Input/Label**: Form controls
-- **Select**: Dropdowns
-- **Dialog**: Modals
-- **Dropdown Menu**: Context menus
-- **Separator**: Visual dividers
-- **Tabs**: Content organization
-- **Avatar**: User display (coming soon)
+## Mock Data
 
-### Adding New Components
+The application currently uses mock data generators for demonstration purposes. Mock data is used for:
 
-```bash
-# Add shadcn components
-npx shadcn@latest add [component-name]
+- Topic lists and details
+- Consumer group lag
+- Performance metrics (throughput, latency, errors)
+- Storage metrics (cache hit rate, evictions)
+- Agent health and resource usage
 
-# Example: Add chart component
-npx shadcn@latest add chart
-```
+Mock data is generated in:
+- Individual dashboard pages (e.g., `app/performance/page.tsx`)
+- Custom hooks (e.g., `lib/hooks/use-metrics.ts`)
 
-## Styling
+To switch to real data, the backend API endpoints listed above need to be implemented.
 
-Uses Tailwind CSS 4 with shadcn/ui theme:
+## Integration Checklist
 
-- **Primary Color**: Blue (configurable via CSS variables)
-- **Theme**: Neutral gray scale
-- **Dark Mode**: Automatic via `dark:` prefix
+To connect the web console to a running StreamHouse cluster:
 
-### Customization
+- [ ] Implement REST API endpoints in StreamHouse agent or separate web API service
+- [ ] Add CORS headers to allow web console origin
+- [ ] Implement WebSocket endpoints for real-time updates
+- [ ] Update `.env.local` with correct API URLs
+- [ ] Remove or conditionally use mock data generators
+- [ ] Test with real StreamHouse cluster
 
-Edit `app/globals.css` to customize theme colors:
+## Architecture Decisions
 
-```css
-@theme {
-  --color-primary: oklch(0.5 0.2 250);
-  --color-secondary: oklch(0.7 0.15 280);
-}
-```
+### Why Mock Data First?
+Building the UI with mock data allows rapid iteration on user experience without blocking on backend API development. Once the backend APIs are ready, switching to real data requires minimal changes.
 
-## Development Notes
+### State Management
+- **Zustand**: Simple, performant global state for UI preferences
+- **React Query**: Server state caching, automatic refetching, optimistic updates
+- **Local State**: Component-specific state (search queries, pagination)
 
-### TypeScript Strict Mode
+### Chart Library
+Recharts was chosen for:
+- React-first API
+- Responsive by default
+- Composable chart components
+- Good TypeScript support
+- Extensive customization options
 
-Project uses strict TypeScript. All API types are defined in `lib/api/client.ts`.
+### Component Organization
+- `components/ui/`: Generic UI primitives (shadcn/ui)
+- `components/charts/`: Reusable chart wrappers
+- `components/layout/`: Layout components (Sidebar, Header)
+- `components/*.tsx`: Feature-specific components (MessageBrowser)
 
-### Server Components
+## Performance Considerations
 
-Most pages are Server Components for optimal performance. Use `"use client"` only when needed (forms, state, events).
+- **Code Splitting**: Next.js automatically splits routes
+- **Image Optimization**: Using Next.js Image component
+- **React Query Caching**: 5s stale time, 10s refetch interval
+- **WebSocket Throttling**: Only connect when auto-refresh enabled
+- **Pagination**: Limit table rows to 50 per page
+- **Chart Data**: Limit time-series data to 100 points max
 
-### Data Fetching
+## Browser Support
 
-Uses React Server Components for data fetching:
-
-```typescript
-// app/topics/page.tsx
-export default async function TopicsPage() {
-  const topics = await apiClient.listTopics();
-  return <TopicsList topics={topics} />;
-}
-```
-
-## Deployment
-
-### Docker
-
-```dockerfile
-FROM node:20-alpine AS base
-
-# Install dependencies
-FROM base AS deps
-WORKDIR /app
-COPY package*.json ./
-RUN npm ci
-
-# Build
-FROM base AS builder
-WORKDIR /app
-COPY --from=deps /app/node_modules ./node_modules
-COPY . .
-RUN npm run build
-
-# Production
-FROM base AS runner
-WORKDIR /app
-ENV NODE_ENV=production
-COPY --from=builder /app/public ./public
-COPY --from=builder /app/.next/standalone ./
-COPY --from=builder /app/.next/static ./.next/static
-EXPOSE 3000
-CMD ["node", "server.js"]
-```
-
-### Kubernetes
-
-```yaml
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: streamhouse-web
-spec:
-  replicas: 2
-  template:
-    spec:
-      containers:
-      - name: web
-        image: streamhouse/web:latest
-        ports:
-        - containerPort: 3000
-        env:
-        - name: NEXT_PUBLIC_API_URL
-          value: "http://streamhouse-api:3001"
-```
-
-## Next Steps
-
-1. **Implement REST API Backend** (Phase 10, Week 11-12)
-   - Create `crates/streamhouse-api` Rust crate
-   - Axum HTTP server
-   - REST endpoints
-   - OpenAPI docs
-
-2. **Connect to Real API** (Week 13)
-   - Replace mock data with API calls
-   - Add loading states
-   - Error handling
-
-3. **Real-time Updates** (Week 14)
-   - WebSocket for live metrics
-   - Auto-refresh dashboard
-   - Toast notifications
-
-4. **Authentication** (Week 18)
-   - User login/signup
-   - JWT tokens
-   - Protected routes
-   - Multi-tenant isolation
+- Chrome/Edge: ✅ Latest 2 versions
+- Firefox: ✅ Latest 2 versions
+- Safari: ✅ Latest 2 versions
 
 ## License
 

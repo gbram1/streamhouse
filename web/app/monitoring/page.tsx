@@ -19,7 +19,7 @@ import { formatRelativeTime } from '@/lib/utils';
 const mockAlerts = [
   {
     id: '1',
-    severity: 'warning' as const,
+    severity: 'warning' as 'warning' | 'info' | 'critical',
     title: 'High consumer lag detected',
     message: 'Consumer group "analytics-workers" has lag > 10000 messages',
     timestamp: Date.now() - 300000,
@@ -27,7 +27,7 @@ const mockAlerts = [
   },
   {
     id: '2',
-    severity: 'info' as const,
+    severity: 'info' as 'warning' | 'info' | 'critical',
     title: 'New schema registered',
     message: 'Schema "orders-value" v2 registered successfully',
     timestamp: Date.now() - 600000,

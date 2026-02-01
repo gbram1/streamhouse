@@ -3,9 +3,31 @@
 import { DashboardLayout } from '@/components/layout/dashboard-layout';
 import { MetricCard } from '@/components/ui/metric-card';
 import { Card } from '@/components/ui/card';
+import { LineChart } from '@/components/charts/line-chart';
+import { AreaChart } from '@/components/charts/area-chart';
 import { Database, Users, Activity, HardDrive, Heart, Server, FileCode2 } from 'lucide-react';
+import { useMemo } from 'react';
+
+// Generate mock data
+function generateMockThroughputData() {
+  const now = Date.now();
+  return Array.from({ length: 24 }, (_, i) => ({
+    time: new Date(now - (24 - i) * 3600000).toLocaleTimeString('en-US', { hour: '2-digit' }),
+    messages: Math.floor(Math.random() * 3000 + 500),
+  }));
+}
+
+function generateMockLagData() {
+  const now = Date.now();
+  return Array.from({ length: 24 }, (_, i) => ({
+    time: new Date(now - (24 - i) * 3600000).toLocaleTimeString('en-US', { hour: '2-digit' }),
+    lag: Math.floor(Math.random() * 5000 + 100),
+  }));
+}
 
 export default function Dashboard() {
+  const mockThroughputData = useMemo(() => generateMockThroughputData(), []);
+  const mockLagData = useMemo(() => generateMockLagData(), []);
   return (
     <DashboardLayout
       title="Overview"
@@ -75,18 +97,28 @@ export default function Dashboard() {
       <div className="mt-6 grid grid-cols-1 gap-6 lg:grid-cols-2">
         {/* Message Throughput Chart */}
         <Card className="p-6">
-          <h3 className="text-lg font-semibold">Message Throughput (24h)</h3>
-          <div className="mt-4 flex h-64 items-center justify-center text-muted-foreground">
-            <p>Chart will be rendered here with Recharts</p>
-          </div>
+          <h3 className="text-lg font-semibold mb-4">Message Throughput (24h)</h3>
+          <LineChart
+            data={mockThroughputData}
+            xKey="time"
+            lines={[
+              { key: 'messages', color: '#3b82f6', name: 'Messages/sec' },
+            ]}
+            height={250}
+          />
         </Card>
 
         {/* Consumer Lag Summary */}
         <Card className="p-6">
-          <h3 className="text-lg font-semibold">Consumer Lag Summary</h3>
-          <div className="mt-4 flex h-64 items-center justify-center text-muted-foreground">
-            <p>Lag chart will be rendered here</p>
-          </div>
+          <h3 className="text-lg font-semibold mb-4">Consumer Lag Summary</h3>
+          <AreaChart
+            data={mockLagData}
+            xKey="time"
+            areas={[
+              { key: 'lag', color: '#ef4444', name: 'Total Lag' },
+            ]}
+            height={250}
+          />
         </Card>
       </div>
 
