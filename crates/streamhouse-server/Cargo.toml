@@ -50,7 +50,7 @@ tempfile = { workspace = true }
 tonic-build = { workspace = true }
 
 [features]
-postgres = ["streamhouse-metadata/postgres", "dep:sqlx"]
+postgres = ["dep:sqlx"]
 
 [[bin]]
 name = "unified-server"

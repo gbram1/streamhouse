@@ -17,6 +17,9 @@ unset USE_LOCAL_STORAGE
 # Optional: Logging
 export RUST_LOG="info"
 
+# Use offline mode for sqlx (metadata queries use cached SQLite schema)
+export SQLX_OFFLINE=true
+
 # Start the unified server
 echo "🚀 Starting StreamHouse Unified Server with PostgreSQL and MinIO..."
 echo "   PostgreSQL: localhost:5432 (database: streamhouse_metadata)"

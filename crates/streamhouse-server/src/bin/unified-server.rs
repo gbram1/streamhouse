@@ -54,10 +54,8 @@ use axum::Router;
 use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::Duration;
-#[cfg(feature = "postgres")]
-use streamhouse_metadata::PostgresMetadataStore;
 use streamhouse_metadata::{MetadataStore, SqliteMetadataStore};
-use streamhouse_schema_registry::{MemorySchemaStorage, SchemaRegistry, SchemaRegistryApi};
+use streamhouse_schema_registry::{SchemaRegistry, SchemaRegistryApi};
 use streamhouse_server::{pb::stream_house_server::StreamHouseServer, StreamHouseService};
 use streamhouse_storage::{SegmentCache, WriteConfig, WriterPool};
 use tonic::transport::Server as GrpcServer;
@@ -127,22 +125,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let _s3_prefix = std::env::var("STREAMHOUSE_PREFIX").unwrap_or_else(|_| "data".to_string());
 
-    // Initialize metadata store
+    // Initialize metadata store (SQLite for topics, partitions, offsets)
     let metadata: Arc<dyn MetadataStore> = {
-        #[cfg(feature = "postgres")]
-        if let Ok(database_url) = std::env::var("DATABASE_URL") {
-            tracing::info!("📦 Initializing PostgreSQL metadata store");
-            Arc::new(PostgresMetadataStore::new(&database_url).await?)
-        } else {
-            tracing::info!("📦 Initializing SQLite metadata store at {}", metadata_path);
-            Arc::new(SqliteMetadataStore::new(&metadata_path).await?)
-        }
-
-        #[cfg(not(feature = "postgres"))]
-        {
-            tracing::info!("📦 Initializing SQLite metadata store at {}", metadata_path);
-            Arc::new(SqliteMetadataStore::new(&metadata_path).await?)
-        }
+        tracing::info!("📦 Initializing SQLite metadata store at {}", metadata_path);
+        Arc::new(SqliteMetadataStore::new(&metadata_path).await?)
     };
 
     // Initialize object store (S3)
