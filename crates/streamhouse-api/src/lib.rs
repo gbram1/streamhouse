@@ -43,9 +43,14 @@ pub fn create_router(state: AppState) -> Router {
             "/topics/:name/partitions",
             get(handlers::topics::list_partitions),
         )
+        .route(
+            "/topics/:name/messages",
+            get(handlers::topics::get_topic_messages),
+        )
         // Agents
         .route("/agents", get(handlers::agents::list_agents))
         .route("/agents/:id", get(handlers::agents::get_agent))
+        .route("/agents/:id/metrics", get(handlers::metrics::get_agent_metrics))
         // Produce
         .route("/produce", post(handlers::produce::produce))
         // Consume
@@ -65,14 +70,26 @@ pub fn create_router(state: AppState) -> Router {
         )
         // Metrics
         .route("/metrics", get(handlers::metrics::get_metrics))
+        .route("/metrics/throughput", get(handlers::metrics::get_throughput_metrics))
+        .route("/metrics/latency", get(handlers::metrics::get_latency_metrics))
+        .route("/metrics/errors", get(handlers::metrics::get_error_metrics))
+        .route("/metrics/storage", get(handlers::metrics::get_storage_metrics))
         .with_state(state.clone());
 
     // OpenAPI documentation
     let swagger = SwaggerUi::new("/swagger-ui").url("/api-docs/openapi.json", ApiDoc::openapi());
 
+    // WebSocket routes
+    let ws_routes = Router::new()
+        .route("/metrics", get(handlers::websocket::metrics_websocket))
+        .route("/topics/:name", get(handlers::websocket::topic_websocket))
+        .route("/consumers/:id", get(handlers::websocket::consumer_websocket))
+        .with_state(state.clone());
+
     // Main router with CORS
     Router::new()
         .nest("/api/v1", api_routes)
+        .nest("/ws", ws_routes)
         .merge(swagger)
         .route("/health", get(handlers::metrics::health_check))
         .route("/live", get(handlers::metrics::liveness_check))
@@ -104,6 +121,7 @@ pub async fn serve(router: Router, port: u16) -> Result<(), Box<dyn std::error::
         handlers::topics::get_topic,
         handlers::topics::delete_topic,
         handlers::topics::list_partitions,
+        handlers::topics::get_topic_messages,
         handlers::agents::list_agents,
         handlers::agents::get_agent,
         handlers::produce::produce,
@@ -112,6 +130,11 @@ pub async fn serve(router: Router, port: u16) -> Result<(), Box<dyn std::error::
         handlers::consumer_groups::get_consumer_group,
         handlers::consumer_groups::get_consumer_group_lag,
         handlers::metrics::get_metrics,
+        handlers::metrics::get_storage_metrics,
+        handlers::metrics::get_throughput_metrics,
+        handlers::metrics::get_latency_metrics,
+        handlers::metrics::get_error_metrics,
+        handlers::metrics::get_agent_metrics,
         handlers::metrics::health_check,
     ),
     components(schemas(
@@ -129,6 +152,13 @@ pub async fn serve(router: Router, port: u16) -> Result<(), Box<dyn std::error::
         models::ConsumerOffsetInfo,
         models::MetricsSnapshot,
         models::HealthResponse,
+        models::StorageMetricsResponse,
+        models::ThroughputMetric,
+        models::LatencyMetric,
+        models::ErrorMetric,
+        models::AgentMetricsResponse,
+        models::TimeRangeParams,
+        models::MessageQueryParams,
     )),
     tags(
         (name = "topics", description = "Topic management"),

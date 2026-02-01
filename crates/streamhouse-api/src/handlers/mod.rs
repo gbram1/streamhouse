@@ -6,3 +6,4 @@ pub mod consumer_groups;
 pub mod metrics;
 pub mod produce;
 pub mod topics;
+pub mod websocket;

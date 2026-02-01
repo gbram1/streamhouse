@@ -1,6 +1,11 @@
 //! Metrics and health endpoints
 
-use axum::{extract::State, http::StatusCode, Json};
+use axum::{
+    extract::{Path, Query, State},
+    http::StatusCode,
+    Json,
+};
+use std::collections::HashMap;
 
 use crate::{models::*, AppState};
 
@@ -117,4 +122,160 @@ pub async fn readiness_check(
             Err(StatusCode::SERVICE_UNAVAILABLE)
         }
     }
+}
+
+/// Get storage metrics (cache, segments, WAL)
+#[utoipa::path(
+    get,
+    path = "/api/v1/metrics/storage",
+    responses(
+        (status = 200, description = "Storage metrics", body = StorageMetricsResponse)
+    ),
+    tag = "metrics"
+)]
+pub async fn get_storage_metrics(
+    State(state): State<AppState>,
+) -> Result<Json<StorageMetricsResponse>, StatusCode> {
+    // Get total storage from all segments
+    let topics = state
+        .metadata
+        .list_topics()
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    let mut total_size = 0u64;
+    let mut storage_by_topic = HashMap::new();
+    let mut segment_count = 0u64;
+
+    for topic in topics {
+        let mut topic_size = 0u64;
+        for partition_id in 0..topic.partition_count {
+            let segments = state
+                .metadata
+                .get_segments(&topic.name, partition_id)
+                .await
+                .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+            for segment in segments {
+                total_size += segment.size_bytes;
+                topic_size += segment.size_bytes;
+                segment_count += 1;
+            }
+        }
+        storage_by_topic.insert(topic.name, topic_size);
+    }
+
+    // Get cache stats
+    let cache_stats = state.segment_cache.stats().await;
+
+    Ok(Json(StorageMetricsResponse {
+        total_size_bytes: total_size,
+        segment_count,
+        storage_by_topic,
+        cache_size: cache_stats.current_size,
+        cache_hit_rate: 0.0, // TODO: Track cache hit rate
+        cache_evictions: 0,  // TODO: Track cache evictions
+        wal_size: 0,         // TODO: Get from WAL if enabled
+        wal_uncommitted_entries: 0,
+    }))
+}
+
+/// Get throughput metrics over time
+#[utoipa::path(
+    get,
+    path = "/api/v1/metrics/throughput",
+    params(
+        ("time_range" = Option<String>, Query, description = "Time range: 5m, 1h, 24h, 7d (default: 1h)")
+    ),
+    responses(
+        (status = 200, description = "Throughput metrics", body = Vec<ThroughputMetric>)
+    ),
+    tag = "metrics"
+)]
+pub async fn get_throughput_metrics(
+    Query(_params): Query<TimeRangeParams>,
+) -> Result<Json<Vec<ThroughputMetric>>, StatusCode> {
+    // For MVP: Return empty array (metrics collection not implemented yet)
+    // In production: Query time-series database or aggregate from logs
+    Ok(Json(vec![]))
+}
+
+/// Get latency metrics over time
+#[utoipa::path(
+    get,
+    path = "/api/v1/metrics/latency",
+    params(
+        ("time_range" = Option<String>, Query, description = "Time range: 5m, 1h, 24h, 7d (default: 1h)")
+    ),
+    responses(
+        (status = 200, description = "Latency metrics", body = Vec<LatencyMetric>)
+    ),
+    tag = "metrics"
+)]
+pub async fn get_latency_metrics(
+    Query(_params): Query<TimeRangeParams>,
+) -> Result<Json<Vec<LatencyMetric>>, StatusCode> {
+    // For MVP: Return empty array
+    Ok(Json(vec![]))
+}
+
+/// Get error metrics over time
+#[utoipa::path(
+    get,
+    path = "/api/v1/metrics/errors",
+    params(
+        ("time_range" = Option<String>, Query, description = "Time range: 5m, 1h, 24h, 7d (default: 1h)")
+    ),
+    responses(
+        (status = 200, description = "Error metrics", body = Vec<ErrorMetric>)
+    ),
+    tag = "metrics"
+)]
+pub async fn get_error_metrics(
+    Query(_params): Query<TimeRangeParams>,
+) -> Result<Json<Vec<ErrorMetric>>, StatusCode> {
+    // For MVP: Return empty array
+    Ok(Json(vec![]))
+}
+
+/// Get agent-specific metrics
+#[utoipa::path(
+    get,
+    path = "/api/v1/agents/{id}/metrics",
+    params(
+        ("id" = String, Path, description = "Agent ID")
+    ),
+    responses(
+        (status = 200, description = "Agent metrics", body = AgentMetricsResponse),
+        (status = 404, description = "Agent not found")
+    ),
+    tag = "agents"
+)]
+pub async fn get_agent_metrics(
+    State(state): State<AppState>,
+    Path(agent_id): Path<String>,
+) -> Result<Json<AgentMetricsResponse>, StatusCode> {
+    // Get agent info
+    let agent = state
+        .metadata
+        .get_agent(&agent_id)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+        .ok_or(StatusCode::NOT_FOUND)?;
+
+    // Get partition assignments for this agent
+    let leases = state
+        .metadata
+        .list_partition_leases(None, Some(&agent_id))
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    Ok(Json(AgentMetricsResponse {
+        agent_id: agent.agent_id,
+        address: agent.address,
+        availability_zone: agent.availability_zone,
+        partition_count: leases.len(),
+        last_heartbeat: agent.last_heartbeat,
+        uptime_ms: chrono::Utc::now().timestamp_millis() - agent.started_at,
+    }))
 }
