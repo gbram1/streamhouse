@@ -3,11 +3,34 @@
 import { DashboardLayout } from '@/components/layout/dashboard-layout';
 import { Card } from '@/components/ui/card';
 import { HardDrive, Database, Zap, Cloud, Activity } from 'lucide-react';
+import { LineChart } from '@/components/charts/line-chart';
+import { BarChart } from '@/components/charts/bar-chart';
 import { useStorageMetrics } from '@/lib/hooks/use-metrics';
 import { formatBytes, formatCompactNumber, formatPercent } from '@/lib/utils';
+import { useMemo } from 'react';
+
+// Generate mock cache performance data
+function generateCacheHitRateData(points: number = 24) {
+  const now = Date.now();
+  return Array.from({ length: points }, (_, i) => ({
+    time: new Date(now - (points - i) * 3600000).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }),
+    hitRate: 0.85 + Math.random() * 0.12, // 85-97% hit rate
+  }));
+}
+
+function generateCacheEvictionsData(points: number = 12) {
+  const now = Date.now();
+  return Array.from({ length: points }, (_, i) => ({
+    time: new Date(now - (points - i) * 3600000).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }),
+    evictions: Math.floor(Math.random() * 500 + 100),
+  }));
+}
 
 export default function StoragePage() {
   const { data: storage, isLoading } = useStorageMetrics();
+
+  const cacheHitRateData = useMemo(() => generateCacheHitRateData(24), []);
+  const cacheEvictionsData = useMemo(() => generateCacheEvictionsData(12), []);
 
   return (
     <DashboardLayout
@@ -128,18 +151,28 @@ export default function StoragePage() {
         <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
           {/* Hit Rate Chart */}
           <div>
-            <h4 className="text-sm font-medium text-muted-foreground mb-4">Cache Hit Rate Over Time</h4>
-            <div className="flex h-48 items-center justify-center text-muted-foreground">
-              <p>Recharts line chart will be rendered here</p>
-            </div>
+            <h4 className="text-sm font-medium text-muted-foreground mb-4">Cache Hit Rate Over Time (24h)</h4>
+            <LineChart
+              data={cacheHitRateData}
+              xKey="time"
+              lines={[
+                { key: 'hitRate', color: '#10b981', name: 'Hit Rate' },
+              ]}
+              height={200}
+            />
           </div>
 
           {/* Eviction Rate */}
           <div>
-            <h4 className="text-sm font-medium text-muted-foreground mb-4">Cache Evictions</h4>
-            <div className="flex h-48 items-center justify-center text-muted-foreground">
-              <p>Recharts bar chart will be rendered here</p>
-            </div>
+            <h4 className="text-sm font-medium text-muted-foreground mb-4">Cache Evictions (12h)</h4>
+            <BarChart
+              data={cacheEvictionsData}
+              xKey="time"
+              bars={[
+                { key: 'evictions', color: '#f59e0b', name: 'Evictions' },
+              ]}
+              height={200}
+            />
           </div>
         </div>
       </Card>

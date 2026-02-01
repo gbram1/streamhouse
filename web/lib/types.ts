@@ -22,6 +22,7 @@ export interface Topic {
   sizeBytes: number;
   messagesPerSecond: number;
   config: Record<string, string>;
+  createdAt: number;
 }
 
 export interface TopicDetail extends Topic {
@@ -35,6 +36,7 @@ export interface Partition {
   replicas: string[];
   lowWatermark: number;
   highWatermark: number;
+  messageCount: number;
   sizeBytes: number;
 }
 
@@ -42,9 +44,9 @@ export interface Message {
   offset: number;
   partition: number;
   timestamp: number;
-  key?: string;
-  value: string;
-  headers: Record<string, string>;
+  key?: number[] | null;
+  value: number[] | null;
+  headers?: Record<string, string>;
   schemaId?: number;
 }
 
