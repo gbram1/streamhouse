@@ -2563,7 +2563,17 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "deb1435c188b76130da55f17a466d252ff7b1418b2ad3e037d127b94e3411f29"
 dependencies = [
  "bytes",
- "prost-derive",
+ "prost-derive 0.12.6",
+]
+
+[[package]]
+name = "prost"
+version = "0.13.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2796faa41db3ec313a31f7624d9286acf277b52de526150b7e69f3debf891ee5"
+dependencies = [
+ "bytes",
+ "prost-derive 0.13.5",
 ]
 
 [[package]]
@@ -2580,8 +2590,8 @@ dependencies = [
  "once_cell",
  "petgraph",
  "prettyplease",
- "prost",
- "prost-types",
+ "prost 0.12.6",
+ "prost-types 0.12.6",
  "regex",
  "syn 2.0.114",
  "tempfile",
@@ -2601,12 +2611,45 @@ dependencies = [
 ]
 
 [[package]]
+name = "prost-derive"
+version = "0.13.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8a56d757972c98b346a9b766e3f02746cde6dd1cd1d1d563472929fdd74bec4d"
+dependencies = [
+ "anyhow",
+ "itertools 0.12.1",
+ "proc-macro2",
+ "quote",
+ "syn 2.0.114",
+]
+
+[[package]]
+name = "prost-reflect"
+version = "0.14.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7b5edd582b62f5cde844716e66d92565d7faf7ab1445c8cebce6e00fba83ddb2"
+dependencies = [
+ "once_cell",
+ "prost 0.13.5",
+ "prost-types 0.13.5",
+]
+
+[[package]]
 name = "prost-types"
 version = "0.12.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9091c90b0a32608e984ff2fa4091273cbdd755d54935c51d520887f4a1dbd5b0"
 dependencies = [
- "prost",
+ "prost 0.12.6",
+]
+
+[[package]]
+name = "prost-types"
+version = "0.13.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "52c2c1bf36ddb1a1c396b3601a3cec27c2462e45f07c386894ec3ccf5332bd16"
+dependencies = [
+ "prost 0.13.5",
 ]
 
 [[package]]
@@ -3655,7 +3698,7 @@ dependencies = [
  "hostname",
  "object_store",
  "prometheus-client",
- "prost",
+ "prost 0.12.6",
  "serde",
  "serde_json",
  "streamhouse-core",
@@ -3702,7 +3745,7 @@ dependencies = [
  "bytes",
  "clap",
  "colored",
- "prost",
+ "prost 0.12.6",
  "reqwest 0.12.28",
  "rustyline",
  "rustyline-derive",
@@ -3728,7 +3771,7 @@ dependencies = [
  "lz4",
  "object_store",
  "prometheus-client",
- "prost",
+ "prost 0.12.6",
  "rand 0.8.5",
  "reqwest 0.12.28",
  "serde",
@@ -3800,7 +3843,7 @@ name = "streamhouse-proto"
 version = "0.1.0"
 dependencies = [
  "bytes",
- "prost",
+ "prost 0.12.6",
  "tonic",
  "tonic-build",
 ]
@@ -3815,7 +3858,9 @@ dependencies = [
  "bytes",
  "jsonschema",
  "moka",
- "prost",
+ "prost 0.13.5",
+ "prost-reflect",
+ "prost-types 0.13.5",
  "serde",
  "serde_json",
  "sha2",
@@ -3840,7 +3885,7 @@ dependencies = [
  "bytes",
  "chrono",
  "object_store",
- "prost",
+ "prost 0.12.6",
  "serde",
  "serde_json",
  "sqlx",
@@ -4350,7 +4395,7 @@ dependencies = [
  "hyper-timeout",
  "percent-encoding",
  "pin-project",
- "prost",
+ "prost 0.12.6",
  "tokio",
  "tokio-stream",
  "tower 0.4.13",
@@ -4378,8 +4423,8 @@ version = "0.11.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "548c227bd5c0fae5925812c4ec6c66ffcfced23ea370cb823f4d18f0fc1cb6a7"
 dependencies = [
- "prost",
- "prost-types",
+ "prost 0.12.6",
+ "prost-types 0.12.6",
  "tokio",
  "tokio-stream",
  "tonic",

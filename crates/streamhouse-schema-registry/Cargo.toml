@@ -20,7 +20,9 @@ sha2 = "0.10"
 
 # Schema format support
 apache-avro = "0.16"
-prost = { workspace = true }
+prost = "0.13"  # Use 0.13 to match prost-types
+prost-reflect = "0.14"
+prost-types = "0.13"
 jsonschema = "0.18"
 
 # REST API
