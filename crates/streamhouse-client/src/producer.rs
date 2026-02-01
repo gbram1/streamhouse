@@ -202,6 +202,16 @@ pub struct ProducerConfig {
     /// ## Phase 5.2+
     /// Currently unused (Phase 5.1 doesn't retry). Will be used in Phase 5.2.
     pub retry_backoff: Duration,
+
+    /// Optional schema registry URL for schema validation.
+    ///
+    /// If provided, schemas will be registered and validated before sending.
+    /// The schema ID is prepended to each message (Confluent wire format).
+    ///
+    /// Default: None (no schema validation)
+    ///
+    /// ## Phase 9+
+    pub schema_registry_url: Option<String>,
 }
 
 impl Default for ProducerConfig {
@@ -2360,6 +2370,7 @@ impl ProducerBuilder {
             agent_refresh_interval: self.agent_refresh_interval,
             max_retries: self.max_retries,
             retry_backoff: self.retry_backoff,
+            schema_registry_url: self.schema_registry_url.clone(),
         };
 
         let agents = Arc::new(RwLock::new(HashMap::new()));
