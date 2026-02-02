@@ -17,6 +17,7 @@
 //! cargo run -p analytics-service
 //! ```
 
+use apache_avro::{from_value, Reader, Schema};
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -27,6 +28,7 @@ use tokio::sync::RwLock;
 use tonic::transport::Channel;
 
 const GRPC_ADDR: &str = "http://localhost:50051";
+const SCHEMA_REGISTRY_URL: &str = "http://localhost:8080";
 const TOPIC_NAME: &str = "orders";
 const CONSUMER_GROUP: &str = "analytics-pipeline";
 const POLL_INTERVAL_MS: u64 = 500;
@@ -38,19 +40,118 @@ const POLL_INTERVAL_MS: u64 = 500;
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct OrderItem {
     pub sku: String,
-    pub quantity: u32,
+    pub quantity: i32,  // Avro uses i32
     pub price: f64,
 }
 
+// Schema v1: order_id, customer_id, amount, status, created_at
+// For simplicity, we'll just extract the key fields we need
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct OrderEvent {
     pub order_id: String,
     pub customer_id: String,
-    pub items: Vec<OrderItem>,
-    pub total_amount: f64,
-    pub shipping_address: Option<String>,
+    pub amount: f64,
     pub status: String,
-    pub created_at: DateTime<Utc>,
+    #[serde(default)]
+    pub created_at: i64,  // May fail due to logicalType, use default
+}
+
+// ============================================================================
+// Schema Registry Client
+// ============================================================================
+
+struct SchemaCache {
+    schemas: HashMap<i32, Schema>,
+    http_client: reqwest::Client,
+}
+
+impl SchemaCache {
+    fn new() -> Self {
+        Self {
+            schemas: HashMap::new(),
+            http_client: reqwest::Client::new(),
+        }
+    }
+
+    async fn get_schema(&mut self, schema_id: i32) -> Option<Schema> {
+        if let Some(schema) = self.schemas.get(&schema_id) {
+            return Some(schema.clone());
+        }
+
+        // Fetch from Schema Registry (note: schema registry is nested under /schemas)
+        let url = format!("{}/schemas/schemas/ids/{}", SCHEMA_REGISTRY_URL, schema_id);
+        if let Ok(resp) = self.http_client.get(&url).send().await {
+            if let Ok(body) = resp.json::<serde_json::Value>().await {
+                if let Some(schema_str) = body.get("schema").and_then(|s| s.as_str()) {
+                    if let Ok(schema) = Schema::parse_str(schema_str) {
+                        self.schemas.insert(schema_id, schema.clone());
+                        return Some(schema);
+                    }
+                }
+            }
+        }
+        None
+    }
+}
+
+fn decode_avro_container(data: &[u8]) -> Option<OrderEvent> {
+    use apache_avro::types::Value;
+
+    // Check for Avro Object Container magic bytes "Obj\x01"
+    if data.len() < 4 || &data[0..3] != b"Obj" {
+        return None;
+    }
+
+    // Decode using Avro Reader (schema is embedded in container)
+    let reader = Reader::new(data).ok()?;
+    for value in reader {
+        if let Ok(Value::Record(fields)) = value {
+            // Extract fields manually
+            let mut order_id = String::new();
+            let mut customer_id = String::new();
+            let mut amount = 0.0f64;
+            let mut status = String::new();
+
+            for (name, val) in fields {
+                match (name.as_str(), val) {
+                    ("order_id", Value::String(s)) => order_id = s,
+                    ("customer_id", Value::String(s)) => customer_id = s,
+                    ("amount", Value::Double(d)) => amount = d,
+                    ("status", Value::String(s)) => status = s,
+                    _ => {}
+                }
+            }
+
+            if !order_id.is_empty() {
+                return Some(OrderEvent {
+                    order_id,
+                    customer_id,
+                    amount,
+                    status,
+                    created_at: 0,
+                });
+            }
+        }
+    }
+    None
+}
+
+fn decode_confluent_avro(data: &[u8], schema: &Schema) -> Option<OrderEvent> {
+    // Skip 5-byte Confluent wire format header (magic byte + 4-byte schema ID)
+    if data.len() < 5 || data[0] != 0 {
+        return None;
+    }
+    let avro_data = &data[5..];
+
+    // Decode Avro
+    let reader = Reader::with_schema(schema, avro_data).ok()?;
+    for value in reader {
+        if let Ok(v) = value {
+            // Convert Avro value to OrderEvent
+            return from_value::<OrderEvent>(&v).ok();
+        }
+    }
+    None
 }
 
 // ============================================================================
@@ -70,20 +171,18 @@ pub struct AnalyticsState {
 
 impl AnalyticsState {
     pub fn process_order(&mut self, order: &OrderEvent) {
-        self.total_revenue += order.total_amount;
+        self.total_revenue += order.amount;
         self.order_count += 1;
 
         // Track by customer
         *self.orders_by_customer.entry(order.customer_id.clone()).or_insert(0) += 1;
-        *self.revenue_by_customer.entry(order.customer_id.clone()).or_insert(0.0) += order.total_amount;
+        *self.revenue_by_customer.entry(order.customer_id.clone()).or_insert(0.0) += order.amount;
 
-        // Track product quantities
-        for item in &order.items {
-            *self.product_quantities.entry(item.sku.clone()).or_insert(0) += item.quantity as u64;
-        }
+        // Note: v1 schema doesn't include items, so product tracking is limited
+        // In production, you'd handle both v1 and v2 schemas differently
 
         self.last_order_id = Some(order.order_id.clone());
-        self.last_updated = Some(Utc::now());
+        self.last_updated = Some(chrono::Utc::now());
     }
 
     pub fn average_order_value(&self) -> f64 {
@@ -204,6 +303,9 @@ async fn main() -> anyhow::Result<()> {
     // Analytics state
     let state = Arc::new(RwLock::new(AnalyticsState::default()));
 
+    // Schema cache for Avro decoding
+    let mut schema_cache = SchemaCache::new();
+
     // Track offsets per partition
     let mut partition_offsets: HashMap<u32, u64> = HashMap::new();
     let num_partitions = 6; // orders topic has 6 partitions
@@ -232,17 +334,52 @@ async fn main() -> anyhow::Result<()> {
                     let consume_response = response.into_inner();
                     let records_count = consume_response.records.len() as u64;
 
+                    if records_count > 0 {
+                        eprintln!("Got {} records from partition {}", records_count, partition);
+                    }
+
                     for record in consume_response.records {
-                        // Deserialize order event
-                        match serde_json::from_slice::<OrderEvent>(&record.value) {
-                            Ok(order) => {
-                                let mut state = state.write().await;
-                                state.process_order(&order);
-                                orders_received += 1;
+                        let mut order_opt: Option<OrderEvent> = None;
+
+                        // Check for Confluent wire format with embedded Avro container
+                        // Format: [0x00][4-byte schema ID][Avro Object Container]
+                        if record.value.len() >= 9 && record.value[0] == 0 {
+                            // Skip 5-byte Confluent header, check for "Obj"
+                            if &record.value[5..8] == b"Obj" {
+                                order_opt = decode_avro_container(&record.value[5..]);
+                            } else {
+                                // Try standard Confluent format (raw Avro, not container)
+                                let schema_id = i32::from_be_bytes([
+                                    record.value[1],
+                                    record.value[2],
+                                    record.value[3],
+                                    record.value[4],
+                                ]);
+                                if let Some(schema) = schema_cache.get_schema(schema_id).await {
+                                    order_opt = decode_confluent_avro(&record.value, &schema);
+                                }
                             }
-                            Err(e) => {
-                                tracing::warn!("Failed to deserialize order: {}", e);
-                            }
+                        }
+                        // Try standalone Avro Object Container (starts with "Obj")
+                        else if record.value.len() >= 4 && &record.value[0..3] == b"Obj" {
+                            order_opt = decode_avro_container(&record.value);
+                        }
+
+                        // Fallback to JSON
+                        if order_opt.is_none() {
+                            order_opt = serde_json::from_slice::<OrderEvent>(&record.value).ok();
+                        }
+
+                        // Debug: show first bytes if decode failed
+                        if order_opt.is_none() && record.value.len() > 0 {
+                            eprintln!("Failed to decode. First 10 bytes: {:?}", &record.value[..record.value.len().min(10)]);
+                        }
+
+                        // Process order if decoded
+                        if let Some(order) = order_opt {
+                            let mut state = state.write().await;
+                            state.process_order(&order);
+                            orders_received += 1;
                         }
                     }
 
@@ -252,11 +389,9 @@ async fn main() -> anyhow::Result<()> {
                     }
                 }
                 Err(e) => {
-                    // Ignore "no records" errors, log others
+                    // Log all errors for debugging
                     let msg = e.message();
-                    if !msg.contains("No records") && !msg.contains("not found") {
-                        tracing::debug!("Consume error on partition {}: {}", partition, msg);
-                    }
+                    eprintln!("Consume error on partition {}: {}", partition, msg);
                 }
             }
         }

@@ -24,7 +24,7 @@ const timeRanges: { value: TimeRange; label: string }[] = [
 ];
 
 interface HeaderProps {
-  title: string;
+  title: React.ReactNode;
   description?: string;
 }
 

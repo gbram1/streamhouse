@@ -1,10 +1,17 @@
 'use client';
 
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useCallback } from 'react';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import {
   Table,
   TableBody,
@@ -20,9 +27,10 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
-import { Search, Download, ChevronLeft, ChevronRight, Eye, Copy, Check } from 'lucide-react';
+import { Search, Download, ChevronLeft, ChevronRight, Eye, Copy, Check, Loader2, RefreshCw } from 'lucide-react';
 import { formatBytes, formatDate, downloadJSON } from '@/lib/utils';
 import { Message } from '@/lib/types';
+import { useTopicMessagesInfinite, useTopicPartitions } from '@/lib/hooks/use-topics';
 
 // Helper to decode value that could be string or byte array
 function decodeValue(value: string | number[] | null | undefined): string {
@@ -48,23 +56,49 @@ function getValueSize(value: string | number[] | null | undefined): number {
 
 interface MessageBrowserProps {
   topicName: string;
-  messages: Message[];
+  messages?: Message[];  // Optional - for backward compatibility
   isLoading?: boolean;
 }
 
-export function MessageBrowser({ topicName, messages, isLoading }: MessageBrowserProps) {
+export function MessageBrowser({ topicName, messages: initialMessages, isLoading: initialLoading }: MessageBrowserProps) {
   const [searchQuery, setSearchQuery] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
   const [selectedMessage, setSelectedMessage] = useState<Message | null>(null);
   const [copied, setCopied] = useState(false);
+  const [selectedPartition, setSelectedPartition] = useState<string>('all');
   const pageSize = 50;
+
+  // Get partitions for filter dropdown
+  const { data: partitions } = useTopicPartitions(topicName);
+
+  // Use infinite query for server-side pagination
+  const partitionFilter = selectedPartition === 'all' ? undefined : parseInt(selectedPartition);
+  const {
+    data,
+    fetchNextPage,
+    hasNextPage,
+    isFetchingNextPage,
+    isLoading: queryLoading,
+    refetch,
+  } = useTopicMessagesInfinite(topicName, { partition: partitionFilter, pageSize: 200 });
+
+  // Combine all pages of messages
+  const allMessages = useMemo(() => {
+    if (data?.pages) {
+      return data.pages.flatMap(page => page.messages);
+    }
+    return initialMessages || [];
+  }, [data, initialMessages]);
+
+  const isLoading = queryLoading || initialLoading;
+  const totalLoaded = allMessages.length;
 
   // Filter messages by search query
   const filteredMessages = useMemo(() => {
-    if (!searchQuery) return messages;
+    if (!searchQuery) return allMessages;
 
     const query = searchQuery.toLowerCase();
-    return messages.filter((msg) => {
+    return allMessages.filter((msg) => {
       const keyStr = decodeValue(msg.key);
       const valueStr = decodeValue(msg.value);
 
@@ -75,7 +109,7 @@ export function MessageBrowser({ topicName, messages, isLoading }: MessageBrowse
         msg.offset.toString().includes(query)
       );
     });
-  }, [messages, searchQuery]);
+  }, [allMessages, searchQuery]);
 
   // Paginate messages
   const paginatedMessages = useMemo(() => {
@@ -125,11 +159,20 @@ export function MessageBrowser({ topicName, messages, isLoading }: MessageBrowse
     return str.length > maxLength ? str.substring(0, maxLength) + '...' : str;
   };
 
+  const handlePartitionChange = (value: string) => {
+    setSelectedPartition(value);
+    setCurrentPage(1);
+  };
+
+  const handleRefresh = useCallback(() => {
+    refetch();
+  }, [refetch]);
+
   return (
     <div className="space-y-4">
-      {/* Search and Actions */}
-      <div className="flex items-center gap-4">
-        <div className="relative flex-1">
+      {/* Search, Filter, and Actions */}
+      <div className="flex items-center gap-4 flex-wrap">
+        <div className="relative flex-1 min-w-[200px]">
           <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
           <Input
             placeholder="Search messages by key, value, partition, or offset..."
@@ -141,10 +184,60 @@ export function MessageBrowser({ topicName, messages, isLoading }: MessageBrowse
             className="pl-10"
           />
         </div>
+
+        {/* Partition Filter */}
+        <Select value={selectedPartition} onValueChange={handlePartitionChange}>
+          <SelectTrigger className="w-[180px]">
+            <SelectValue placeholder="All Partitions" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All Partitions</SelectItem>
+            {partitions?.map((p) => (
+              <SelectItem key={p.id} value={p.id.toString()}>
+                Partition {p.id}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+
+        <Button variant="outline" size="icon" onClick={handleRefresh} disabled={isLoading}>
+          <RefreshCw className={`h-4 w-4 ${isLoading ? 'animate-spin' : ''}`} />
+        </Button>
+
         <Button variant="outline" onClick={handleDownloadMessages} disabled={filteredMessages.length === 0}>
           <Download className="mr-2 h-4 w-4" />
           Export ({filteredMessages.length})
         </Button>
+      </div>
+
+      {/* Stats Bar */}
+      <div className="flex items-center gap-4 text-sm text-muted-foreground">
+        <span>
+          <strong>{totalLoaded.toLocaleString()}</strong> messages loaded
+        </span>
+        {searchQuery && (
+          <span>
+            <strong>{filteredMessages.length.toLocaleString()}</strong> matching search
+          </span>
+        )}
+        {hasNextPage && (
+          <Button
+            variant="link"
+            size="sm"
+            onClick={() => fetchNextPage()}
+            disabled={isFetchingNextPage}
+            className="text-primary"
+          >
+            {isFetchingNextPage ? (
+              <>
+                <Loader2 className="mr-2 h-3 w-3 animate-spin" />
+                Loading more...
+              </>
+            ) : (
+              'Load more messages'
+            )}
+          </Button>
+        )}
       </div>
 
       {/* Messages Table */}
@@ -164,18 +257,21 @@ export function MessageBrowser({ topicName, messages, isLoading }: MessageBrowse
           <TableBody>
             {isLoading ? (
               <TableRow>
-                <TableCell colSpan={7} className="text-center">
-                  Loading messages...
+                <TableCell colSpan={7} className="text-center py-8">
+                  <div className="flex items-center justify-center gap-2">
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    Loading messages...
+                  </div>
                 </TableCell>
               </TableRow>
             ) : paginatedMessages.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={7} className="text-center text-muted-foreground">
+                <TableCell colSpan={7} className="text-center text-muted-foreground py-8">
                   {searchQuery ? 'No messages match your search' : 'No messages found'}
                 </TableCell>
               </TableRow>
             ) : (
-              paginatedMessages.map((message, idx) => (
+              paginatedMessages.map((message) => (
                 <TableRow key={`${message.partition}-${message.offset}`}>
                   <TableCell>
                     <Badge variant="outline">{message.partition}</Badge>
@@ -239,6 +335,26 @@ export function MessageBrowser({ topicName, messages, isLoading }: MessageBrowse
               <ChevronRight className="h-4 w-4" />
             </Button>
           </div>
+        </div>
+      )}
+
+      {/* Load More at End */}
+      {hasNextPage && currentPage === totalPages && filteredMessages.length > 0 && (
+        <div className="flex justify-center pt-4">
+          <Button
+            variant="outline"
+            onClick={() => fetchNextPage()}
+            disabled={isFetchingNextPage}
+          >
+            {isFetchingNextPage ? (
+              <>
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                Loading more...
+              </>
+            ) : (
+              'Load more messages'
+            )}
+          </Button>
         </div>
       )}
 

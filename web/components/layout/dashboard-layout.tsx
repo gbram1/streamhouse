@@ -5,7 +5,7 @@ import { Header } from './header';
 
 interface DashboardLayoutProps {
   children: React.ReactNode;
-  title: string;
+  title: React.ReactNode;
   description?: string;
 }
 
