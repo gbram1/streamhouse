@@ -1,6 +1,6 @@
 # StreamHouse: Complete Roadmap to Production & Adoption
 **Date:** February 2, 2026
-**Status:** Phase 14 Complete (Enhanced CLI), Phase 12.4.2 Complete (S3 Throttling), UI Demo Complete
+**Status:** ✅ Phase 9 (Schema Persistence), ✅ Phase 12.4.1-2 (WAL, S3 Throttling), ⚠️ Phase 13 (Web UI - working), ✅ Phase 14 (CLI)
 **Next:** Phase 18.5 (Native Rust Client High-Performance Mode) - **Critical for Production Throughput**
 
 ---
@@ -38,8 +38,8 @@ StreamHouse is a high-performance, cloud-native streaming platform built in Rust
 
 **Priority:** HIGH
 **Effort:** 10 hours
-**Status:** NOT STARTED
-**Current Gap:** Schemas stored in-memory only, lost on restart
+**Status:** ✅ COMPLETE (February 2, 2026)
+**Verified:** Schemas persist to `schema_registry_versions` table in PostgreSQL
 
 ### Problem
 
@@ -571,7 +571,19 @@ groups:
 
 **Priority:** MEDIUM
 **Effort:** 60 hours
-**Status:** NOT STARTED
+**Status:** ⚠️ MOSTLY COMPLETE (February 2, 2026)
+
+**Completed:**
+- ✅ Next.js + TypeScript + Tailwind CSS setup (`web/` directory)
+- ✅ Dashboard with real metrics from API
+- ✅ Topics list and detail pages with message browser
+- ✅ Consumer groups page with lag visualization
+- ✅ Partitions page with per-topic breakdown
+- ✅ Schemas page with registry integration
+- ✅ Agents page with partition assignments
+- ✅ React Query hooks for all API endpoints
+- ⚠️ Real-time WebSocket updates (not yet implemented)
+- ⚠️ Performance charts over time (needs metrics collection)
 
 **Goal:** Build a web-based management UI for operators and developers.
 
