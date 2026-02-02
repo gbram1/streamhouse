@@ -31,6 +31,12 @@ tracing-subscriber = "0.3"
 # Time
 chrono = "0.4"
 
+# HTTP client for Prometheus queries
+reqwest = { version = "0.12", features = ["json"] }
+
+# Error handling
+thiserror = "1.0"
+
 # StreamHouse dependencies
 streamhouse-metadata = { path = "../streamhouse-metadata" }
 streamhouse-client = { path = "../streamhouse-client" }

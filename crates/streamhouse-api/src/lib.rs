@@ -15,6 +15,9 @@ use utoipa_swagger_ui::SwaggerUi;
 
 pub mod handlers;
 pub mod models;
+pub mod prometheus;
+
+pub use prometheus::PrometheusClient;
 
 /// Application state shared across handlers
 #[derive(Clone)]
@@ -24,6 +27,8 @@ pub struct AppState {
     pub writer_pool: Option<Arc<streamhouse_storage::writer_pool::WriterPool>>,
     pub object_store: Arc<dyn object_store::ObjectStore>,
     pub segment_cache: Arc<streamhouse_storage::SegmentCache>,
+    /// Optional Prometheus client for real metrics (falls back to simulated if None)
+    pub prometheus: Option<Arc<PrometheusClient>>,
 }
 
 /// Create the API router with all endpoints
