@@ -40,7 +40,7 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
-use streamhouse_proto::producer::producer_service_client::ProducerServiceClient;
+use streamhouse_proto::streamhouse::stream_house_client::StreamHouseClient;
 use tokio::sync::RwLock;
 use tonic::transport::{Channel, Endpoint};
 use tracing::{debug, warn};
@@ -49,7 +49,7 @@ use tracing::{debug, warn};
 #[derive(Clone)]
 struct PooledConnection {
     /// The gRPC client
-    client: ProducerServiceClient<Channel>,
+    client: StreamHouseClient<Channel>,
 
     /// Last time this connection was used
     last_used: Instant,
@@ -157,7 +157,7 @@ impl ConnectionPool {
     pub async fn get_connection(
         &self,
         address: &str,
-    ) -> Result<ProducerServiceClient<Channel>, Box<dyn std::error::Error + Send + Sync>> {
+    ) -> Result<StreamHouseClient<Channel>, Box<dyn std::error::Error + Send + Sync>> {
         let now = Instant::now();
 
         // Fast path: Try to get an existing healthy connection (read lock only)
@@ -282,7 +282,7 @@ impl ConnectionPool {
     async fn create_connection(
         &self,
         address: &str,
-    ) -> Result<ProducerServiceClient<Channel>, Box<dyn std::error::Error + Send + Sync>> {
+    ) -> Result<StreamHouseClient<Channel>, Box<dyn std::error::Error + Send + Sync>> {
         let endpoint = Endpoint::from_shared(address.to_string())?
             // Reduced timeouts for faster failure detection (Phase 8.2a)
             .timeout(Duration::from_secs(10)) // Overall request timeout (was 30s)
@@ -301,7 +301,7 @@ impl ConnectionPool {
         let channel = endpoint.connect().await?;
 
         // Create client with max concurrent streams hint
-        let mut client = ProducerServiceClient::new(channel);
+        let mut client = StreamHouseClient::new(channel);
 
         // Set max concurrent streams (HTTP/2 multiplexing)
         // This allows 100 in-flight requests on a single connection

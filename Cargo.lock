@@ -3905,6 +3905,7 @@ dependencies = [
  "streamhouse-core",
  "streamhouse-metadata",
  "streamhouse-observability",
+ "streamhouse-proto",
  "streamhouse-schema-registry",
  "streamhouse-storage",
  "tempfile",

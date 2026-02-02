@@ -1,0 +1,157 @@
+syntax = "proto3";
+
+package streamhouse;
+
+// StreamHouse gRPC API
+//
+// This defines the core API for producing and consuming records,
+// as well as managing topics and partitions.
+
+service StreamHouse {
+  // Admin Operations
+  rpc CreateTopic(CreateTopicRequest) returns (CreateTopicResponse);
+  rpc GetTopic(GetTopicRequest) returns (GetTopicResponse);
+  rpc ListTopics(ListTopicsRequest) returns (ListTopicsResponse);
+  rpc DeleteTopic(DeleteTopicRequest) returns (DeleteTopicResponse);
+
+  // Producer Operations
+  rpc Produce(ProduceRequest) returns (ProduceResponse);
+  rpc ProduceBatch(ProduceBatchRequest) returns (ProduceBatchResponse);
+
+  // Consumer Operations
+  rpc Consume(ConsumeRequest) returns (ConsumeResponse);
+  rpc CommitOffset(CommitOffsetRequest) returns (CommitOffsetResponse);
+  rpc GetOffset(GetOffsetRequest) returns (GetOffsetResponse);
+}
+
+// ============================================================================
+// Admin Messages
+// ============================================================================
+
+message CreateTopicRequest {
+  string name = 1;
+  uint32 partition_count = 2;
+  optional uint64 retention_ms = 3;
+  map<string, string> config = 4;
+}
+
+message CreateTopicResponse {
+  string topic_id = 1;
+  uint32 partition_count = 2;
+}
+
+message GetTopicRequest {
+  string name = 1;
+}
+
+message GetTopicResponse {
+  Topic topic = 1;
+}
+
+message ListTopicsRequest {
+  // Empty - lists all topics
+}
+
+message ListTopicsResponse {
+  repeated Topic topics = 1;
+}
+
+message DeleteTopicRequest {
+  string name = 1;
+}
+
+message DeleteTopicResponse {
+  bool success = 1;
+}
+
+message Topic {
+  string name = 1;
+  uint32 partition_count = 2;
+  optional uint64 retention_ms = 3;
+  map<string, string> config = 4;
+  uint64 created_at = 5;
+}
+
+// ============================================================================
+// Producer Messages
+// ============================================================================
+
+message ProduceRequest {
+  string topic = 1;
+  uint32 partition = 2;
+  bytes key = 3;
+  bytes value = 4;
+  map<string, string> headers = 5;
+}
+
+message ProduceResponse {
+  uint64 offset = 1;
+  uint64 timestamp = 2;
+}
+
+message ProduceBatchRequest {
+  string topic = 1;
+  uint32 partition = 2;
+  repeated Record records = 3;
+}
+
+message ProduceBatchResponse {
+  uint64 first_offset = 1;
+  uint64 last_offset = 2;
+  uint32 count = 3;
+}
+
+message Record {
+  bytes key = 1;
+  bytes value = 2;
+  map<string, string> headers = 3;
+}
+
+// ============================================================================
+// Consumer Messages
+// ============================================================================
+
+message ConsumeRequest {
+  string topic = 1;
+  uint32 partition = 2;
+  uint64 offset = 3;
+  uint32 max_records = 4;
+  optional string consumer_group = 5;
+}
+
+message ConsumeResponse {
+  repeated ConsumedRecord records = 1;
+  uint64 high_watermark = 2;
+  bool has_more = 3;
+}
+
+message ConsumedRecord {
+  uint64 offset = 1;
+  uint64 timestamp = 2;
+  bytes key = 3;
+  bytes value = 4;
+  map<string, string> headers = 5;
+}
+
+message CommitOffsetRequest {
+  string consumer_group = 1;
+  string topic = 2;
+  uint32 partition = 3;
+  uint64 offset = 4;
+  optional string metadata = 5;
+}
+
+message CommitOffsetResponse {
+  bool success = 1;
+}
+
+message GetOffsetRequest {
+  string consumer_group = 1;
+  string topic = 2;
+  uint32 partition = 3;
+}
+
+message GetOffsetResponse {
+  uint64 offset = 1;
+  optional string metadata = 2;
+}
