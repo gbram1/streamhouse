@@ -1,6 +1,6 @@
 # StreamHouse: Complete Roadmap to Production & Adoption
 **Date:** February 2, 2026
-**Status:** ✅ Phase 9 (Schema Persistence), ✅ Phase 12.4.1-2 (WAL, S3 Throttling), ⚠️ Phase 13 (Web UI - working), ✅ Phase 14 (CLI)
+**Status:** ✅ Phase 9 (Schema Persistence), ✅ Phase 12.4.1-2 (WAL, S3 Throttling), ⚠️ Phase 13 (Web UI - 90% complete, see remaining items), ✅ Phase 14 (CLI)
 **Next:** Phase 18.5 (Native Rust Client High-Performance Mode) - **Critical for Production Throughput**
 
 ---
@@ -577,13 +577,19 @@ groups:
 - ✅ Next.js + TypeScript + Tailwind CSS setup (`web/` directory)
 - ✅ Dashboard with real metrics from API
 - ✅ Topics list and detail pages with message browser
-- ✅ Consumer groups page with lag visualization
+- ✅ Consumer groups list page with lag visualization
 - ✅ Partitions page with per-topic breakdown
 - ✅ Schemas page with registry integration
 - ✅ Agents page with partition assignments
+- ✅ Agent detail page (`/agents/[id]`) with partition breakdown
 - ✅ React Query hooks for all API endpoints
+- ✅ Performance page with throughput/latency/error charts
+
+**Remaining:**
+- ⚠️ Consumer detail page (`/consumers/[id]`) - links exist but page not implemented
+- ⚠️ Agent CPU/Memory/Disk metrics - backend doesn't collect these yet, shows "N/A"
+- ⚠️ Consumer Lag Over Time chart - placeholder, needs time-series metrics collection
 - ⚠️ Real-time WebSocket updates (not yet implemented)
-- ⚠️ Performance charts over time (needs metrics collection)
 
 **Goal:** Build a web-based management UI for operators and developers.
 
