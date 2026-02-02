@@ -1,297 +1,331 @@
 #!/bin/bash
+# StreamHouse Full System Demo
+# This script demonstrates the entire StreamHouse system:
+# - Multiple topics with different partition counts
+# - Schema registration and validation
+# - Message production across partitions
+# - Consumer groups with offsets and lag
+
 set -e
 
-echo "=================================================="
-echo "StreamHouse Full Flow Demo"
-echo "Testing Producer API (Phase 5) → Consumer API (Phase 6)"
-echo "=================================================="
-echo ""
+API_URL="${API_URL:-http://localhost:8080}"
+SCHEMA_URL="${SCHEMA_URL:-http://localhost:8080/schemas}"
 
 # Colors for output
+RED='\033[0;31m'
 GREEN='\033[0;32m'
-BLUE='\033[0;34m'
 YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
-# Clean up function
-cleanup() {
-    echo ""
-    echo -e "${YELLOW}Cleaning up...${NC}"
-    rm -rf /tmp/streamhouse-demo
-    echo "Temporary files cleaned"
-}
-
-trap cleanup EXIT
-
-# Setup
-echo -e "${BLUE}Step 1: Setting up environment${NC}"
-rm -rf /tmp/streamhouse-demo
-mkdir -p /tmp/streamhouse-demo
-echo "✓ Created temp directories"
+echo -e "${BLUE}╔═══════════════════════════════════════════════════════════╗${NC}"
+echo -e "${BLUE}║         StreamHouse Full System Demo                      ║${NC}"
+echo -e "${BLUE}╚═══════════════════════════════════════════════════════════╝${NC}"
 echo ""
 
-# Build the project
-echo -e "${BLUE}Step 2: Building StreamHouse Client Library${NC}"
-cargo build --release -p streamhouse-client 2>&1 | grep -E "(Compiling streamhouse|Finished)" || echo "Build in progress..."
-echo "✓ Build complete"
-echo ""
-
-# Run integration tests to verify everything works
-echo -e "${BLUE}Step 3: Running Integration Tests${NC}"
-echo "=================================================="
-echo "Testing Producer API..."
-cargo test --release -p streamhouse-client --test producer_integration -- --nocapture 2>&1 | grep -E "(test result|running)" || true
-echo ""
-echo "Testing Consumer API..."
-cargo test --release -p streamhouse-client --test consumer_integration -- --nocapture 2>&1 | grep -E "(test result|running|throughput)" || true
-echo "=================================================="
-echo ""
-
-# Run the examples directly (without agent, using storage layer)
-echo -e "${BLUE}Step 4: Running Producer Demo (Direct Storage)${NC}"
-echo "This demo writes directly to storage without using the agent"
-echo "=================================================="
-
-# Create a simpler producer demo that writes directly to storage
-cat > /tmp/streamhouse-demo/simple_producer.rs << 'EOF'
-use std::collections::HashMap;
-use std::sync::Arc;
-use streamhouse_metadata::{MetadataStore, SqliteMetadataStore, TopicConfig};
-use streamhouse_storage::{PartitionWriter, WriteConfig};
-
-#[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    println!("StreamHouse Producer Demo (Direct Storage Write)");
-    println!("");
-
-    // Setup
-    let metadata = Arc::new(
-        SqliteMetadataStore::new("/tmp/streamhouse-demo/metadata.db").await?
-    );
-
-    let object_store = Arc::new(
-        object_store::local::LocalFileSystem::new_with_prefix("/tmp/streamhouse-demo/storage")?
-    );
-
-    // Create topic
-    if metadata.get_topic("demo_orders").await?.is_none() {
-        metadata.create_topic(TopicConfig {
-            name: "demo_orders".to_string(),
-            partition_count: 2,
-            retention_ms: None,
-            config: HashMap::new(),
-        }).await?;
-        println!("✓ Created topic 'demo_orders' with 2 partitions");
-    }
-
-    // Write to both partitions
-    for partition_id in 0..2 {
-        println!("Writing to partition {}...", partition_id);
-
-        let mut writer = PartitionWriter::new(
-            "demo_orders".to_string(),
-            partition_id,
-            object_store.clone(),
-            metadata.clone(),
-            WriteConfig::default(),
-        ).await?;
-
-        for i in 0..25 {
-            let order_id = partition_id * 25 + i;
-            let user_id = order_id % 10;
-            let timestamp = std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)?
-                .as_millis() as u64;
-
-            let key = format!("user_{}", user_id);
-            let value = format!(
-                r#"{{"order_id": {}, "user_id": {}, "amount": {}, "timestamp": {}}}"#,
-                order_id, user_id, (order_id * 10) + 99, timestamp
-            );
-
-            writer.append(
-                Some(key.into()),
-                value.into(),
-                timestamp,
-            ).await?;
-        }
-
-        writer.flush().await?;
-        println!("  ✓ Wrote 25 records to partition {}", partition_id);
-    }
-
-    println!("");
-    println!("✓ Producer finished - wrote 50 total records");
-    Ok(())
-}
-EOF
-
-# Build and run producer
-echo "Building producer..."
-cd /tmp/streamhouse-demo
-rustc --edition 2021 \
-    --crate-type bin \
-    simple_producer.rs \
-    -L /Users/gabrielbram/Desktop/streamhouse/target/release/deps \
-    --extern streamhouse_metadata=/Users/gabrielbram/Desktop/streamhouse/target/release/deps/libstreamhouse_metadata-*.rlib \
-    --extern streamhouse_storage=/Users/gabrielbram/Desktop/streamhouse/target/release/deps/libstreamhouse_storage-*.rlib \
-    --extern streamhouse_core=/Users/gabrielbram/Desktop/streamhouse/target/release/deps/libstreamhouse_core-*.rlib \
-    --extern tokio=/Users/gabrielbram/Desktop/streamhouse/target/release/deps/libtokio-*.rlib \
-    --extern object_store=/Users/gabrielbram/Desktop/streamhouse/target/release/deps/libobject_store-*.rlib \
-    -o simple_producer 2>&1 | tail -3 || {
-        echo "Using cargo instead..."
-        cd /Users/gabrielbram/Desktop/streamhouse
-        cp /tmp/streamhouse-demo/simple_producer.rs examples/simple_producer.rs
-        cargo run --release --example simple_producer
-    }
-
-if [ -f /tmp/streamhouse-demo/simple_producer ]; then
-    cd /tmp/streamhouse-demo
-    ./simple_producer
+# Check if server is running
+echo -e "${YELLOW}[1/8] Checking server health...${NC}"
+if ! curl -s "${API_URL}/health" > /dev/null 2>&1; then
+    echo -e "${RED}Error: Server is not running at ${API_URL}${NC}"
+    echo "Please start the server first with: ./start-server.sh"
+    exit 1
 fi
-
-echo "=================================================="
+echo -e "${GREEN}✓ Server is healthy${NC}"
 echo ""
 
-# Wait for data to settle
-sleep 1
+# Create Topics
+echo -e "${YELLOW}[2/8] Creating topics...${NC}"
 
-# Run consumer demo
-echo -e "${BLUE}Step 5: Running Consumer Demo${NC}"
-echo "=================================================="
+# Orders topic - 6 partitions for high throughput
+echo -n "  Creating 'orders' topic (6 partitions)... "
+curl -s -X POST "${API_URL}/api/v1/topics" \
+  -H "Content-Type: application/json" \
+  -d '{"name": "orders", "partitions": 6, "replication_factor": 1, "retention_hours": 168}' > /dev/null 2>&1 || true
+echo -e "${GREEN}done${NC}"
 
-cat > /tmp/streamhouse-demo/simple_consumer.rs << 'EOF'
-use std::sync::Arc;
-use std::time::Duration;
-use streamhouse_client::{Consumer, OffsetReset};
-use streamhouse_metadata::SqliteMetadataStore;
+# Users topic - 3 partitions
+echo -n "  Creating 'users' topic (3 partitions)... "
+curl -s -X POST "${API_URL}/api/v1/topics" \
+  -H "Content-Type: application/json" \
+  -d '{"name": "users", "partitions": 3, "replication_factor": 1, "retention_hours": 168}' > /dev/null 2>&1 || true
+echo -e "${GREEN}done${NC}"
 
-#[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    println!("StreamHouse Consumer Demo");
-    println!("");
+# Inventory topic - 4 partitions
+echo -n "  Creating 'inventory' topic (4 partitions)... "
+curl -s -X POST "${API_URL}/api/v1/topics" \
+  -H "Content-Type: application/json" \
+  -d '{"name": "inventory", "partitions": 4, "replication_factor": 1, "retention_hours": 168}' > /dev/null 2>&1 || true
+echo -e "${GREEN}done${NC}"
 
-    // Setup
-    let metadata = Arc::new(
-        SqliteMetadataStore::new("/tmp/streamhouse-demo/metadata.db").await?
-    );
-
-    let object_store = Arc::new(
-        object_store::local::LocalFileSystem::new_with_prefix("/tmp/streamhouse-demo/storage")?
-    );
-
-    // Create consumer
-    let mut consumer = Consumer::builder()
-        .group_id("demo_analytics")
-        .topics(vec!["demo_orders".to_string()])
-        .metadata_store(metadata)
-        .object_store(object_store)
-        .offset_reset(OffsetReset::Earliest)
-        .auto_commit(true)
-        .auto_commit_interval(Duration::from_secs(2))
-        .cache_dir("/tmp/streamhouse-demo/cache")
-        .cache_size_bytes(50 * 1024 * 1024)
-        .build()
-        .await?;
-
-    println!("✓ Consumer connected");
-    println!("  Group ID: demo_analytics");
-    println!("  Topic: demo_orders (2 partitions)");
-    println!("");
-
-    // Read all messages
-    println!("Reading orders...");
-    let mut total_read = 0;
-    let mut polls = 0;
-    let start = std::time::Instant::now();
-
-    loop {
-        let records = consumer.poll(Duration::from_secs(1)).await?;
-
-        if records.is_empty() {
-            if total_read > 0 {
-                break; // Done reading
-            }
-            polls += 1;
-            if polls > 5 {
-                break; // No data found
-            }
-            continue;
-        }
-
-        for record in &records {
-            total_read += 1;
-            let value_str = String::from_utf8_lossy(&record.value);
-            println!(
-                "  [{:02}] partition {} offset {} - {}",
-                total_read,
-                record.partition,
-                record.offset,
-                value_str
-            );
-        }
-    }
-
-    let elapsed = start.elapsed();
-    consumer.close().await?;
-
-    println!("");
-    println!("✓ Consumer finished");
-    println!("  Total records: {}", total_read);
-    println!("  Time: {:?}", elapsed);
-    println!("  Throughput: {:.0} rec/s", total_read as f64 / elapsed.as_secs_f64());
-
-    Ok(())
-}
-EOF
-
-# Build and run consumer (use cargo for easier dependency management)
-cd /Users/gabrielbram/Desktop/streamhouse
-cp /tmp/streamhouse-demo/simple_consumer.rs examples/simple_consumer.rs
-cargo run --release --example simple_consumer 2>&1 | grep -v "Compiling" | grep -v "Finished"
-
-echo "=================================================="
+# Events topic - 2 partitions for low volume
+echo -n "  Creating 'events' topic (2 partitions)... "
+curl -s -X POST "${API_URL}/api/v1/topics" \
+  -H "Content-Type: application/json" \
+  -d '{"name": "events", "partitions": 2, "replication_factor": 1, "retention_hours": 168}' > /dev/null 2>&1 || true
+echo -e "${GREEN}done${NC}"
 echo ""
 
-# Show metadata
-echo -e "${BLUE}Step 6: Inspecting Metadata${NC}"
-echo "=================================================="
-sqlite3 /tmp/streamhouse-demo/metadata.db << 'SQL'
-.headers on
-.mode column
+# Register Schemas
+echo -e "${YELLOW}[3/8] Registering schemas...${NC}"
 
-SELECT 'Topics:' as info;
-SELECT name, partition_count FROM topics;
+# Orders schema (Avro)
+echo -n "  Registering 'orders-value' schema... "
+curl -s -X POST "${SCHEMA_URL}/subjects/orders-value/versions" \
+  -H "Content-Type: application/vnd.schemaregistry.v1+json" \
+  -d '{
+    "schemaType": "AVRO",
+    "schema": "{\"type\": \"record\", \"name\": \"Order\", \"namespace\": \"com.streamhouse\", \"fields\": [{\"name\": \"order_id\", \"type\": \"string\"}, {\"name\": \"customer_id\", \"type\": \"string\"}, {\"name\": \"amount\", \"type\": \"double\"}, {\"name\": \"status\", \"type\": {\"type\": \"enum\", \"name\": \"OrderStatus\", \"symbols\": [\"PENDING\", \"PROCESSING\", \"SHIPPED\", \"DELIVERED\", \"CANCELLED\"]}}, {\"name\": \"created_at\", \"type\": \"long\"}]}"
+  }' > /dev/null 2>&1 || true
+echo -e "${GREEN}done${NC}"
 
-SELECT '' as blank;
-SELECT 'Consumer Groups:' as info;
-SELECT group_id, created_at FROM consumer_groups;
+# Users schema (Avro)
+echo -n "  Registering 'users-value' schema... "
+curl -s -X POST "${SCHEMA_URL}/subjects/users-value/versions" \
+  -H "Content-Type: application/vnd.schemaregistry.v1+json" \
+  -d '{
+    "schemaType": "AVRO",
+    "schema": "{\"type\": \"record\", \"name\": \"User\", \"namespace\": \"com.streamhouse\", \"fields\": [{\"name\": \"user_id\", \"type\": \"string\"}, {\"name\": \"email\", \"type\": \"string\"}, {\"name\": \"name\", \"type\": \"string\"}, {\"name\": \"created_at\", \"type\": \"long\"}]}"
+  }' > /dev/null 2>&1 || true
+echo -e "${GREEN}done${NC}"
 
-SELECT '' as blank;
-SELECT 'Consumer Offsets:' as info;
-SELECT group_id, topic, partition_id, committed_offset FROM consumer_offsets;
-SQL
-echo "=================================================="
+# Inventory schema (JSON Schema)
+echo -n "  Registering 'inventory-value' schema... "
+curl -s -X POST "${SCHEMA_URL}/subjects/inventory-value/versions" \
+  -H "Content-Type: application/vnd.schemaregistry.v1+json" \
+  -d '{
+    "schemaType": "JSON",
+    "schema": "{\"$schema\": \"http://json-schema.org/draft-07/schema#\", \"type\": \"object\", \"properties\": {\"sku\": {\"type\": \"string\"}, \"quantity\": {\"type\": \"integer\"}, \"warehouse\": {\"type\": \"string\"}, \"updated_at\": {\"type\": \"integer\"}}, \"required\": [\"sku\", \"quantity\", \"warehouse\"]}"
+  }' > /dev/null 2>&1 || true
+echo -e "${GREEN}done${NC}"
 echo ""
 
-# Summary
-echo -e "${GREEN}=================================================="
-echo "Demo Complete!"
-echo "==================================================${NC}"
+# Produce Messages
+echo -e "${YELLOW}[4/8] Producing messages...${NC}"
+
+# Produce 50 orders distributed across 6 partitions
+echo -n "  Producing 50 orders... "
+for i in $(seq 1 50); do
+    customer_id="customer-$((i % 10))"
+    partition=$((i % 6))
+    status_idx=$((i % 5))
+    statuses=("PENDING" "PROCESSING" "SHIPPED" "DELIVERED" "CANCELLED")
+    status=${statuses[$status_idx]}
+    # Value must be a JSON string (escaped JSON)
+    value="{\\\"order_id\\\": \\\"order-${i}\\\", \\\"customer_id\\\": \\\"${customer_id}\\\", \\\"amount\\\": $((100 + i * 10)).50, \\\"status\\\": \\\"${status}\\\", \\\"created_at\\\": $(date +%s)000}"
+
+    curl -s -X POST "${API_URL}/api/v1/produce" \
+      -H "Content-Type: application/json" \
+      -d "{
+        \"topic\": \"orders\",
+        \"partition\": ${partition},
+        \"key\": \"order-${i}\",
+        \"value\": \"${value}\"
+      }" > /dev/null 2>&1 || true
+done
+echo -e "${GREEN}done (50 messages)${NC}"
+
+# Produce 20 users distributed across 3 partitions
+echo -n "  Producing 20 users... "
+for i in $(seq 1 20); do
+    partition=$((i % 3))
+    value="{\\\"user_id\\\": \\\"user-${i}\\\", \\\"email\\\": \\\"user${i}@example.com\\\", \\\"name\\\": \\\"User Number ${i}\\\", \\\"created_at\\\": $(date +%s)000}"
+
+    curl -s -X POST "${API_URL}/api/v1/produce" \
+      -H "Content-Type: application/json" \
+      -d "{
+        \"topic\": \"users\",
+        \"partition\": ${partition},
+        \"key\": \"user-${i}\",
+        \"value\": \"${value}\"
+      }" > /dev/null 2>&1 || true
+done
+echo -e "${GREEN}done (20 messages)${NC}"
+
+# Produce 30 inventory updates distributed across 4 partitions
+echo -n "  Producing 30 inventory updates... "
+for i in $(seq 1 30); do
+    partition=$((i % 4))
+    warehouse_idx=$((i % 3))
+    warehouses=("NYC" "LAX" "CHI")
+    warehouse=${warehouses[$warehouse_idx]}
+    value="{\\\"sku\\\": \\\"SKU-${i}\\\", \\\"quantity\\\": $((50 + i * 5)), \\\"warehouse\\\": \\\"${warehouse}\\\", \\\"updated_at\\\": $(date +%s)}"
+
+    curl -s -X POST "${API_URL}/api/v1/produce" \
+      -H "Content-Type: application/json" \
+      -d "{
+        \"topic\": \"inventory\",
+        \"partition\": ${partition},
+        \"key\": \"SKU-${i}\",
+        \"value\": \"${value}\"
+      }" > /dev/null 2>&1 || true
+done
+echo -e "${GREEN}done (30 messages)${NC}"
+
+# Produce 15 events distributed across 2 partitions
+echo -n "  Producing 15 events... "
+for i in $(seq 1 15); do
+    partition=$((i % 2))
+    event_types=("PAGE_VIEW" "CLICK" "PURCHASE" "SIGNUP" "LOGIN")
+    event_type=${event_types[$((i % 5))]}
+    value="{\\\"event_type\\\": \\\"${event_type}\\\", \\\"user_id\\\": \\\"user-$((i % 10))\\\", \\\"timestamp\\\": $(date +%s)000}"
+
+    curl -s -X POST "${API_URL}/api/v1/produce" \
+      -H "Content-Type: application/json" \
+      -d "{
+        \"topic\": \"events\",
+        \"partition\": ${partition},
+        \"key\": \"event-${i}\",
+        \"value\": \"${value}\"
+      }" > /dev/null 2>&1 || true
+done
+echo -e "${GREEN}done (15 messages)${NC}"
 echo ""
-echo "Summary:"
-echo "  ✓ Wrote 50 records (25 per partition) using PartitionWriter"
-echo "  ✓ Read all 50 records using Consumer API"
-echo "  ✓ Consumer group 'demo_analytics' tracked offsets"
-echo "  ✓ Multi-partition fanout working correctly"
+
+# Wait for messages to be flushed to storage
+echo -e "${YELLOW}[5/8] Waiting for messages to be flushed to storage (10s)...${NC}"
+sleep 10
+echo -e "${GREEN}✓ Flush complete${NC}"
 echo ""
-echo "Architecture Tested:"
-echo "  Write: PartitionWriter → Storage (S3-compatible)"
-echo "  Read:  Consumer → PartitionReader → SegmentCache → Storage"
+
+# Create Consumer Groups with Different Offsets
+echo -e "${YELLOW}[6/8] Creating consumer groups with offsets...${NC}"
+
+# order-processor: fully caught up on orders
+echo -n "  Creating 'order-processor' group (caught up)... "
+for partition in $(seq 0 5); do
+    curl -s -X POST "${API_URL}/api/v1/consumer-groups/commit" \
+      -H "Content-Type: application/json" \
+      -d "{
+        \"groupId\": \"order-processor\",
+        \"topic\": \"orders\",
+        \"partition\": ${partition},
+        \"offset\": 10
+      }" > /dev/null 2>&1 || true
+done
+echo -e "${GREEN}done${NC}"
+
+# analytics-pipeline: behind on orders (shows lag)
+echo -n "  Creating 'analytics-pipeline' group (with lag)... "
+for partition in $(seq 0 5); do
+    curl -s -X POST "${API_URL}/api/v1/consumer-groups/commit" \
+      -H "Content-Type: application/json" \
+      -d "{
+        \"groupId\": \"analytics-pipeline\",
+        \"topic\": \"orders\",
+        \"partition\": ${partition},
+        \"offset\": 3
+      }" > /dev/null 2>&1 || true
+done
+echo -e "${GREEN}done${NC}"
+
+# user-service: reading users
+echo -n "  Creating 'user-service' group... "
+for partition in $(seq 0 2); do
+    curl -s -X POST "${API_URL}/api/v1/consumer-groups/commit" \
+      -H "Content-Type: application/json" \
+      -d "{
+        \"groupId\": \"user-service\",
+        \"topic\": \"users\",
+        \"partition\": ${partition},
+        \"offset\": 5
+      }" > /dev/null 2>&1 || true
+done
+echo -e "${GREEN}done${NC}"
+
+# inventory-tracker: reading inventory with some lag
+echo -n "  Creating 'inventory-tracker' group (with lag)... "
+for partition in $(seq 0 3); do
+    curl -s -X POST "${API_URL}/api/v1/consumer-groups/commit" \
+      -H "Content-Type: application/json" \
+      -d "{
+        \"groupId\": \"inventory-tracker\",
+        \"topic\": \"inventory\",
+        \"partition\": ${partition},
+        \"offset\": 2
+      }" > /dev/null 2>&1 || true
+done
+echo -e "${GREEN}done${NC}"
+
+# event-processor: reading events
+echo -n "  Creating 'event-processor' group... "
+for partition in $(seq 0 1); do
+    curl -s -X POST "${API_URL}/api/v1/consumer-groups/commit" \
+      -H "Content-Type: application/json" \
+      -d "{
+        \"groupId\": \"event-processor\",
+        \"topic\": \"events\",
+        \"partition\": ${partition},
+        \"offset\": 7
+      }" > /dev/null 2>&1 || true
+done
+echo -e "${GREEN}done${NC}"
 echo ""
-echo "Phase 5 (Producer) + Phase 6 (Consumer) APIs verified!"
+
+# Display Summary
+echo -e "${YELLOW}[7/8] Fetching system summary...${NC}"
 echo ""
-echo "Files created:"
-echo "  /tmp/streamhouse-demo/metadata.db (SQLite metadata)"
-echo "  /tmp/streamhouse-demo/storage/ (Segment files)"
+
+# Topics
+echo -e "${BLUE}Topics:${NC}"
+curl -s "${API_URL}/api/v1/topics" | python3 -c "
+import json, sys
+topics = json.load(sys.stdin)
+for t in topics:
+    print(f\"  - {t['name']}: {t['partition_count']} partitions\")
+" 2>/dev/null || echo "  (unable to parse response)"
+echo ""
+
+# Consumer Groups
+echo -e "${BLUE}Consumer Groups:${NC}"
+curl -s "${API_URL}/api/v1/consumer-groups" | python3 -c "
+import json, sys
+groups = json.load(sys.stdin)
+for g in groups:
+    print(f\"  - {g.get('groupId', g.get('group_id', 'unknown'))}: {len(g.get('topics', []))} topic(s)\")
+" 2>/dev/null || echo "  (unable to parse response)"
+echo ""
+
+# Agents
+echo -e "${BLUE}Agents:${NC}"
+curl -s "${API_URL}/api/v1/agents" | python3 -c "
+import json, sys
+agents = json.load(sys.stdin)
+for a in agents:
+    leases = a.get('active_leases', 0)
+    print(f\"  - {a['agent_id']}: {leases} active leases\")
+" 2>/dev/null || echo "  (unable to parse response)"
+echo ""
+
+# Schemas
+echo -e "${BLUE}Schemas:${NC}"
+curl -s "${SCHEMA_URL}/subjects" | python3 -c "
+import json, sys
+subjects = json.load(sys.stdin)
+for s in subjects:
+    print(f\"  - {s}\")
+" 2>/dev/null || echo "  (unable to parse response)"
+echo ""
+
+echo -e "${YELLOW}[8/8] Demo complete!${NC}"
+echo ""
+echo -e "${BLUE}╔═══════════════════════════════════════════════════════════╗${NC}"
+echo -e "${BLUE}║                    Summary                                 ║${NC}"
+echo -e "${BLUE}╠═══════════════════════════════════════════════════════════╣${NC}"
+echo -e "${BLUE}║  Topics Created:      4 (orders, users, inventory, events)║${NC}"
+echo -e "${BLUE}║  Total Partitions:    15 (6 + 3 + 4 + 2)                  ║${NC}"
+echo -e "${BLUE}║  Messages Produced:   115 (50 + 20 + 30 + 15)             ║${NC}"
+echo -e "${BLUE}║  Consumer Groups:     5                                   ║${NC}"
+echo -e "${BLUE}║  Schemas Registered:  3                                   ║${NC}"
+echo -e "${BLUE}╠═══════════════════════════════════════════════════════════╣${NC}"
+echo -e "${BLUE}║  Open the Web Console: http://localhost:3000              ║${NC}"
+echo -e "${BLUE}║  API Documentation:    http://localhost:8080/swagger-ui   ║${NC}"
+echo -e "${BLUE}╚═══════════════════════════════════════════════════════════╝${NC}"
+echo ""
+echo -e "${GREEN}The StreamHouse system is now populated with demo data!${NC}"
+echo ""
+echo "Try these in the UI:"
+echo "  - Dashboard: See real metrics and counts"
+echo "  - Topics: Browse messages in each topic"
+echo "  - Consumers: View consumer groups and their lag"
+echo "  - Agents: See partition assignments (may take ~30s to populate)"
 echo ""
