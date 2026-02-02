@@ -5,7 +5,7 @@ import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { MessageBrowser } from '@/components/message-browser';
-import { useTopic, useTopicMessages, useTopicPartitions } from '@/lib/hooks/use-topics';
+import { useTopic, useTopicPartitions } from '@/lib/hooks/use-topics';
 import { useRealtimeTopicMetrics } from '@/lib/hooks/use-realtime-metrics';
 import { formatBytes, formatCompactNumber, formatDate } from '@/lib/utils';
 import { Activity, HardDrive, Layers, Clock, TrendingUp } from 'lucide-react';
@@ -23,7 +23,6 @@ export default function TopicDetailPage({ params }: TopicDetailPageProps) {
   const { name } = use(params);  // Unwrap the async params
   const topicName = decodeURIComponent(name);
   const { data: topic, isLoading } = useTopic(topicName);
-  const { data: messages, isLoading: loadingMessages } = useTopicMessages(topicName);
   const { data: partitions, isLoading: loadingPartitions } = useTopicPartitions(topicName);
   const { throughput, isConnected } = useRealtimeTopicMetrics(topicName);
 
@@ -165,11 +164,7 @@ export default function TopicDetailPage({ params }: TopicDetailPageProps) {
         </TabsList>
 
         <TabsContent value="messages" className="mt-6">
-          <MessageBrowser
-            topicName={topicName}
-            messages={messages || []}
-            isLoading={loadingMessages}
-          />
+          <MessageBrowser topicName={topicName} />
         </TabsContent>
 
         <TabsContent value="partitions" className="mt-6">

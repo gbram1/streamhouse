@@ -2,7 +2,7 @@
  * React Query hooks for Topics
  */
 
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useQuery, useMutation, useQueryClient, useInfiniteQuery } from '@tanstack/react-query';
 import { apiClient, API_ENDPOINTS } from '../api-client';
 import type { Topic, TopicDetail, TopicCreateRequest, Message } from '../types';
 
@@ -77,7 +77,7 @@ export function useTopicPartitions(name: string) {
   });
 }
 
-// Fetch topic messages
+// Fetch topic messages with pagination support
 export function useTopicMessages(
   name: string,
   options: { offset?: number; limit?: number; partition?: number } = {}
@@ -93,6 +93,36 @@ export function useTopicMessages(
           ...(options.partition !== undefined && { partition: String(options.partition) }),
         }
       ),
+    enabled: !!name,
+  });
+}
+
+// Fetch topic messages with infinite scrolling / load more support
+export function useTopicMessagesInfinite(
+  name: string,
+  options: { partition?: number; pageSize?: number } = {}
+) {
+  const pageSize = options.pageSize || 100;
+
+  return useInfiniteQuery({
+    queryKey: ['topic-messages-infinite', name, options.partition],
+    queryFn: async ({ pageParam = 0 }) => {
+      const messages = await apiClient.get<Message[]>(
+        API_ENDPOINTS.topicMessages(name),
+        {
+          offset: String(pageParam),
+          limit: String(pageSize),
+          ...(options.partition !== undefined && { partition: String(options.partition) }),
+        }
+      );
+      return {
+        messages,
+        nextOffset: pageParam + messages.length,
+        hasMore: messages.length === pageSize,
+      };
+    },
+    getNextPageParam: (lastPage) => lastPage.hasMore ? lastPage.nextOffset : undefined,
+    initialPageParam: 0,
     enabled: !!name,
   });
 }

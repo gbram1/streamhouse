@@ -28,7 +28,9 @@ name = "analytics-service"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "apache-avro",
  "chrono",
+ "reqwest",
  "serde",
  "serde_json",
  "streamhouse-proto",
