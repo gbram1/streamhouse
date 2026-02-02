@@ -559,6 +559,62 @@ groups:
 - `prometheus/alerts.yml` with 10+ alert rules
 - `docs/MONITORING.md` setup guide
 
+#### Task 4: Web UI Real Metrics Integration (10 hours)
+**Status:** TODO
+**Current State:** Web UI Performance page shows simulated/mock metrics (7-13 msg/sec based on total_messages/3600)
+
+**Problem:** The web UI metrics endpoints return fake data:
+```rust
+// Current implementation - SIMULATED
+let base_rate = (total_messages as f64 / 3600.0).max(10.0);
+let variation = 1.0 + ((i as f64 * 0.5).sin() * 0.3); // Fake sine wave
+```
+
+**Options to implement real metrics:**
+
+1. **Prometheus Integration (Recommended)**
+   - Query Prometheus from the REST API
+   - Add `prometheus` crate to streamhouse-api
+   - Endpoints query `rate(producer_records_total[5m])` etc.
+   - Pro: Single source of truth, works with Grafana
+   - Con: Requires Prometheus running
+
+2. **Built-in Time-Series Storage**
+   - Store metrics in PostgreSQL with TimescaleDB extension
+   - Or use a lightweight in-memory ring buffer per metric
+   - Pro: No external dependencies
+   - Con: More code to maintain, data not shared with Grafana
+
+3. **InfluxDB/Victoria Metrics**
+   - Dedicated time-series database
+   - Pro: Optimized for metrics, good query language
+   - Con: Another service to deploy
+
+**Implementation (Option 1 - Prometheus):**
+```rust
+// crates/streamhouse-api/src/handlers/metrics.rs
+use prometheus_http_query::Client;
+
+pub async fn get_throughput_metrics(
+    State(state): State<AppState>,
+    Query(params): Query<TimeRangeParams>,
+) -> Result<Json<Vec<ThroughputMetric>>, StatusCode> {
+    let client = Client::try_from("http://prometheus:9090").unwrap();
+    let query = format!(
+        "rate(producer_records_total[{}])",
+        params.time_range.unwrap_or("5m".to_string())
+    );
+    let response = client.query(query).get().await?;
+    // Transform to ThroughputMetric format
+}
+```
+
+**Deliverable:**
+- Update `crates/streamhouse-api/src/handlers/metrics.rs` to query Prometheus
+- Add `prometheus-http-query` crate dependency
+- Update Web UI to show real throughput, latency, error rates
+- Fallback to "no data" message when Prometheus unavailable
+
 **Testing:**
 - Deploy to staging environment
 - Verify all metrics are collected
