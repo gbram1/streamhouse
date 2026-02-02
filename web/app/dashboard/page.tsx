@@ -3,31 +3,71 @@
 import { DashboardLayout } from '@/components/layout/dashboard-layout';
 import { MetricCard } from '@/components/ui/metric-card';
 import { Card } from '@/components/ui/card';
-import { LineChart } from '@/components/charts/line-chart';
-import { AreaChart } from '@/components/charts/area-chart';
 import { Database, Users, Activity, HardDrive, Heart, Server, FileCode2 } from 'lucide-react';
-import { useMemo } from 'react';
+import { useEffect, useState } from 'react';
+import { formatBytes } from '@/lib/utils';
 
-// Generate mock data
-function generateMockThroughputData() {
-  const now = Date.now();
-  return Array.from({ length: 24 }, (_, i) => ({
-    time: new Date(now - (24 - i) * 3600000).toLocaleTimeString('en-US', { hour: '2-digit' }),
-    messages: Math.floor(Math.random() * 3000 + 500),
-  }));
-}
+const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080';
 
-function generateMockLagData() {
-  const now = Date.now();
-  return Array.from({ length: 24 }, (_, i) => ({
-    time: new Date(now - (24 - i) * 3600000).toLocaleTimeString('en-US', { hour: '2-digit' }),
-    lag: Math.floor(Math.random() * 5000 + 100),
-  }));
+interface DashboardMetrics {
+  topicsCount: number;
+  agentsCount: number;
+  consumerGroupsCount: number;
+  totalStorageBytes: number;
+  partitionsCount: number;
+  schemasCount: number;
+  messagesPerSecond: number;
 }
 
 export default function Dashboard() {
-  const mockThroughputData = useMemo(() => generateMockThroughputData(), []);
-  const mockLagData = useMemo(() => generateMockLagData(), []);
+  const [metrics, setMetrics] = useState<DashboardMetrics>({
+    topicsCount: 0,
+    agentsCount: 0,
+    consumerGroupsCount: 0,
+    totalStorageBytes: 0,
+    partitionsCount: 0,
+    schemasCount: 0,
+    messagesPerSecond: 0,
+  });
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const fetchMetrics = async () => {
+      try {
+        // Fetch all metrics in parallel
+        const [topics, agents, consumerGroups, storage, schemas] = await Promise.all([
+          fetch(`${API_URL}/api/v1/topics`).then(r => r.json()),
+          fetch(`${API_URL}/api/v1/agents`).then(r => r.json()),
+          fetch(`${API_URL}/api/v1/consumer-groups`).then(r => r.json()),
+          fetch(`${API_URL}/api/v1/metrics/storage`).then(r => r.json()),
+          fetch(`${API_URL}/schemas/schemas`).then(r => r.json()).catch(() => []),
+        ]);
+
+        // Calculate partitions count from topics
+        const partitionsCount = topics.reduce((acc: number, topic: any) =>
+          acc + (topic.partition_count || topic.partitions || 0), 0);
+
+        setMetrics({
+          topicsCount: topics.length,
+          agentsCount: agents.length,
+          consumerGroupsCount: consumerGroups.length,
+          totalStorageBytes: storage.totalSizeBytes || 0,
+          partitionsCount,
+          schemasCount: schemas.length || 0,
+          messagesPerSecond: 0, // TODO: Calculate from recent write activity
+        });
+      } catch (error) {
+        console.error('Failed to fetch dashboard metrics:', error);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchMetrics();
+    const interval = setInterval(fetchMetrics, 5000); // Refresh every 5 seconds
+    return () => clearInterval(interval);
+  }, []);
+
   return (
     <DashboardLayout
       title="Overview"
@@ -37,28 +77,28 @@ export default function Dashboard() {
       <div className="grid grid-cols-1 gap-6 md:grid-cols-2 lg:grid-cols-4">
         <MetricCard
           title="Messages/sec"
-          value="0"
+          value={loading ? '...' : metrics.messagesPerSecond.toString()}
           description="Real-time throughput"
           icon={Activity}
         />
 
         <MetricCard
           title="Active Topics"
-          value="0"
+          value={loading ? '...' : metrics.topicsCount.toString()}
           description="Event streams"
           icon={Database}
         />
 
         <MetricCard
           title="Active Consumers"
-          value="0"
+          value={loading ? '...' : metrics.consumerGroupsCount.toString()}
           description="Consumer groups"
           icon={Users}
         />
 
         <MetricCard
           title="Total Storage"
-          value="0 MB"
+          value={loading ? '...' : formatBytes(metrics.totalStorageBytes)}
           description="Across all topics"
           icon={HardDrive}
         />
@@ -73,21 +113,21 @@ export default function Dashboard() {
 
         <MetricCard
           title="Active Agents"
-          value="0"
+          value={loading ? '...' : metrics.agentsCount.toString()}
           description="Stateless brokers"
           icon={Server}
         />
 
         <MetricCard
           title="Schemas"
-          value="0"
+          value={loading ? '...' : metrics.schemasCount.toString()}
           description="Registered schemas"
           icon={FileCode2}
         />
 
         <MetricCard
           title="Partitions"
-          value="0"
+          value={loading ? '...' : metrics.partitionsCount.toString()}
           description="Total partitions"
           icon={Database}
         />
@@ -98,27 +138,17 @@ export default function Dashboard() {
         {/* Message Throughput Chart */}
         <Card className="p-6">
           <h3 className="text-lg font-semibold mb-4">Message Throughput (24h)</h3>
-          <LineChart
-            data={mockThroughputData}
-            xKey="time"
-            lines={[
-              { key: 'messages', color: '#3b82f6', name: 'Messages/sec' },
-            ]}
-            height={250}
-          />
+          <div className="flex h-64 items-center justify-center text-muted-foreground">
+            <p>Time-series metrics not yet implemented</p>
+          </div>
         </Card>
 
         {/* Consumer Lag Summary */}
         <Card className="p-6">
           <h3 className="text-lg font-semibold mb-4">Consumer Lag Summary</h3>
-          <AreaChart
-            data={mockLagData}
-            xKey="time"
-            areas={[
-              { key: 'lag', color: '#ef4444', name: 'Total Lag' },
-            ]}
-            height={250}
-          />
+          <div className="flex h-64 items-center justify-center text-muted-foreground">
+            <p>Time-series metrics not yet implemented</p>
+          </div>
         </Card>
       </div>
 

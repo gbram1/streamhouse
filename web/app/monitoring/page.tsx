@@ -15,28 +15,10 @@ import {
 import { Bell, AlertTriangle, AlertCircle, Info, Plus } from 'lucide-react';
 import { formatRelativeTime } from '@/lib/utils';
 
-// Mock alerts data
-const mockAlerts = [
-  {
-    id: '1',
-    severity: 'warning' as 'warning' | 'info' | 'critical',
-    title: 'High consumer lag detected',
-    message: 'Consumer group "analytics-workers" has lag > 10000 messages',
-    timestamp: Date.now() - 300000,
-    status: 'active',
-  },
-  {
-    id: '2',
-    severity: 'info' as 'warning' | 'info' | 'critical',
-    title: 'New schema registered',
-    message: 'Schema "orders-value" v2 registered successfully',
-    timestamp: Date.now() - 600000,
-    status: 'resolved',
-  },
-];
-
 export default function MonitoringPage() {
-  const activeAlerts = mockAlerts.filter((a) => a.status === 'active');
+  // TODO: Fetch real alerts from API
+  const alerts: any[] = [];
+  const activeAlerts = alerts.filter((a) => a.status === 'active');
 
   return (
     <DashboardLayout
@@ -106,45 +88,53 @@ export default function MonitoringPage() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {mockAlerts.map((alert) => (
-                <TableRow key={alert.id}>
-                  <TableCell>
-                    <Badge
-                      variant={
-                        alert.severity === 'critical'
-                          ? 'destructive'
-                          : alert.severity === 'warning'
-                          ? 'secondary'
-                          : 'default'
-                      }
-                    >
-                      {alert.severity === 'critical' && (
-                        <AlertCircle className="mr-1 h-3 w-3" />
-                      )}
-                      {alert.severity === 'warning' && (
-                        <AlertTriangle className="mr-1 h-3 w-3" />
-                      )}
-                      {alert.severity === 'info' && <Info className="mr-1 h-3 w-3" />}
-                      {alert.severity}
-                    </Badge>
-                  </TableCell>
-                  <TableCell className="font-medium">{alert.title}</TableCell>
-                  <TableCell className="text-muted-foreground">{alert.message}</TableCell>
-                  <TableCell>{formatRelativeTime(alert.timestamp)}</TableCell>
-                  <TableCell>
-                    <div className="flex gap-2">
-                      <Button variant="ghost" size="sm">
-                        View
-                      </Button>
-                      {alert.status === 'active' && (
-                        <Button variant="ghost" size="sm">
-                          Silence
-                        </Button>
-                      )}
-                    </div>
+              {alerts.length === 0 ? (
+                <TableRow>
+                  <TableCell colSpan={5} className="text-center text-muted-foreground">
+                    No alerts to display
                   </TableCell>
                 </TableRow>
-              ))}
+              ) : (
+                alerts.map((alert) => (
+                  <TableRow key={alert.id}>
+                    <TableCell>
+                      <Badge
+                        variant={
+                          alert.severity === 'critical'
+                            ? 'destructive'
+                            : alert.severity === 'warning'
+                            ? 'secondary'
+                            : 'default'
+                        }
+                      >
+                        {alert.severity === 'critical' && (
+                          <AlertCircle className="mr-1 h-3 w-3" />
+                        )}
+                        {alert.severity === 'warning' && (
+                          <AlertTriangle className="mr-1 h-3 w-3" />
+                        )}
+                        {alert.severity === 'info' && <Info className="mr-1 h-3 w-3" />}
+                        {alert.severity}
+                      </Badge>
+                    </TableCell>
+                    <TableCell className="font-medium">{alert.title}</TableCell>
+                    <TableCell className="text-muted-foreground">{alert.message}</TableCell>
+                    <TableCell>{formatRelativeTime(alert.timestamp)}</TableCell>
+                    <TableCell>
+                      <div className="flex gap-2">
+                        <Button variant="ghost" size="sm">
+                          View
+                        </Button>
+                        {alert.status === 'active' && (
+                          <Button variant="ghost" size="sm">
+                            Silence
+                          </Button>
+                        )}
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                ))
+              )}
             </TableBody>
           </Table>
         </div>

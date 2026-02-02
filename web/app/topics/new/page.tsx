@@ -22,7 +22,8 @@ export default function NewTopicPage() {
     try {
       await createTopic.mutateAsync({
         name,
-        partitionCount,
+        partitions: partitionCount,  // API expects 'partitions' field
+        replication_factor: 1,  // Default replication factor
         retentionMs: retentionMs ? parseInt(retentionMs) : undefined,
       });
 

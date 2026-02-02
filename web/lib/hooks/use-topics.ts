@@ -6,11 +6,29 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { apiClient, API_ENDPOINTS } from '../api-client';
 import type { Topic, TopicDetail, TopicCreateRequest, Message } from '../types';
 
+// Transform API response to frontend format (snake_case to camelCase)
+function transformTopic(apiTopic: any): Topic {
+  return {
+    name: apiTopic.name,
+    partitionCount: apiTopic.partitions || apiTopic.partition_count || apiTopic.partitionCount || 0,
+    replication_factor: apiTopic.replication_factor || 1,
+    retentionMs: apiTopic.retention_ms || apiTopic.retentionMs,
+    messageCount: apiTopic.message_count || apiTopic.messageCount || 0,
+    sizeBytes: apiTopic.size_bytes || apiTopic.sizeBytes || 0,
+    messagesPerSecond: apiTopic.messages_per_second || apiTopic.messagesPerSecond || 0,
+    createdAt: apiTopic.created_at || apiTopic.createdAt,
+    config: apiTopic.config,
+  };
+}
+
 // Fetch all topics
 export function useTopics() {
   return useQuery({
     queryKey: ['topics'],
-    queryFn: () => apiClient.get<Topic[]>(API_ENDPOINTS.topics),
+    queryFn: async () => {
+      const topics = await apiClient.get<any[]>(API_ENDPOINTS.topics);
+      return topics.map(transformTopic);
+    },
   });
 }
 
@@ -18,7 +36,43 @@ export function useTopics() {
 export function useTopic(name: string) {
   return useQuery({
     queryKey: ['topic', name],
-    queryFn: () => apiClient.get<TopicDetail>(API_ENDPOINTS.topic(name)),
+    queryFn: async () => {
+      const topic = await apiClient.get<any>(API_ENDPOINTS.topic(name));
+      return transformTopic(topic);
+    },
+    enabled: !!name,
+  });
+}
+
+// Transform API partition to frontend format
+function transformPartition(apiPartition: any): {
+  id: number;
+  topic: string;
+  leader: string | null;
+  highWatermark: number;
+  lowWatermark: number;
+  messageCount: number;
+  sizeBytes: number;
+} {
+  return {
+    id: apiPartition.partition_id ?? apiPartition.id ?? 0,
+    topic: apiPartition.topic || '',
+    leader: apiPartition.leader_agent_id || apiPartition.leader || null,
+    highWatermark: apiPartition.high_watermark ?? apiPartition.highWatermark ?? 0,
+    lowWatermark: apiPartition.low_watermark ?? apiPartition.lowWatermark ?? 0,
+    messageCount: apiPartition.high_watermark ?? apiPartition.messageCount ?? 0,
+    sizeBytes: apiPartition.size_bytes ?? apiPartition.sizeBytes ?? 0,
+  };
+}
+
+// Fetch topic partitions
+export function useTopicPartitions(name: string) {
+  return useQuery({
+    queryKey: ['topic-partitions', name],
+    queryFn: async () => {
+      const partitions = await apiClient.get<any[]>(API_ENDPOINTS.topicPartitions(name));
+      return partitions.map(transformPartition);
+    },
     enabled: !!name,
   });
 }

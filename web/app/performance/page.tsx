@@ -6,25 +6,9 @@ import { Activity, Clock, AlertCircle, TrendingUp } from 'lucide-react';
 import { LineChart } from '@/components/charts/line-chart';
 import { AreaChart } from '@/components/charts/area-chart';
 import { BarChart } from '@/components/charts/bar-chart';
-import { PieChart } from '@/components/charts/pie-chart';
 import { useThroughputMetrics, useLatencyMetrics, useErrorMetrics } from '@/lib/hooks/use-metrics';
 import { useAppStore } from '@/lib/store';
 import { formatCompactNumber } from '@/lib/utils';
-import { useMemo } from 'react';
-
-// Generate mock time-series data
-function generateMockData(points: number = 24) {
-  const now = Date.now();
-  return Array.from({ length: points }, (_, i) => ({
-    time: new Date(now - (points - i) * 3600000).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }),
-    messagesPerSecond: Math.floor(Math.random() * 5000 + 1000),
-    bytesPerSecond: Math.floor(Math.random() * 50000 + 10000),
-    p50: Math.floor(Math.random() * 20 + 5),
-    p95: Math.floor(Math.random() * 50 + 20),
-    p99: Math.floor(Math.random() * 100 + 50),
-    errorRate: Math.random() * 0.05,
-  }));
-}
 
 export default function PerformancePage() {
   const timeRange = useAppStore((state) => state.timeRange);
@@ -32,22 +16,9 @@ export default function PerformancePage() {
   const { data: latency, isLoading: loadingLatency } = useLatencyMetrics(timeRange);
   const { data: errors, isLoading: loadingErrors } = useErrorMetrics(timeRange);
 
-  // Use mock data if API data not available
-  const mockData = useMemo(() => generateMockData(24), []);
-  const chartData = throughput && throughput.length > 0 ? throughput : mockData;
-
-  // Get latest values
-  const latest = chartData[chartData.length - 1] as any;
-
-  // Mock error types data
-  const errorTypesData = [
-    { name: 'Timeout', value: 45 },
-    { name: 'Network', value: 30 },
-    { name: 'Validation', value: 15 },
-    { name: 'Internal', value: 10 },
-  ];
-
-  const errorColors = ['#ef4444', '#f59e0b', '#3b82f6', '#8b5cf6'];
+  // Get latest values or use 0 if no data
+  const hasData = throughput && throughput.length > 0;
+  const latest = hasData ? throughput[throughput.length - 1] : null;
 
   return (
     <DashboardLayout
@@ -62,7 +33,7 @@ export default function PerformancePage() {
             <Activity className="h-5 w-5 text-muted-foreground" />
           </div>
           <div className="mt-2 text-3xl font-bold">
-            {formatCompactNumber(latest?.messagesPerSecond || 0)}
+            {loadingThroughput ? '...' : formatCompactNumber((latest as any)?.messagesPerSecond || 0)}
           </div>
           <p className="mt-1 text-xs text-muted-foreground">Current throughput</p>
         </Card>
@@ -73,7 +44,7 @@ export default function PerformancePage() {
             <TrendingUp className="h-5 w-5 text-muted-foreground" />
           </div>
           <div className="mt-2 text-3xl font-bold">
-            {formatCompactNumber(latest?.bytesPerSecond || 0)}
+            {loadingThroughput ? '...' : formatCompactNumber((latest as any)?.bytesPerSecond || 0)}
           </div>
           <p className="mt-1 text-xs text-muted-foreground">Network throughput</p>
         </Card>
@@ -83,8 +54,8 @@ export default function PerformancePage() {
             <h3 className="text-sm font-medium text-muted-foreground">Error Rate</h3>
             <AlertCircle className="h-5 w-5 text-muted-foreground" />
           </div>
-          <div className="mt-2 text-3xl font-bold text-red-600">
-            {((latest?.errorRate || 0) * 100).toFixed(2)}%
+          <div className="mt-2 text-3xl font-bold text-green-600">
+            {loadingErrors ? '...' : (((latest as any)?.errorRate || 0) * 100).toFixed(2)}%
           </div>
           <p className="mt-1 text-xs text-muted-foreground">Failed requests</p>
         </Card>
@@ -98,7 +69,7 @@ export default function PerformancePage() {
             <Clock className="h-5 w-5 text-muted-foreground" />
           </div>
           <div className="mt-2 text-2xl font-bold">
-            {latest?.p50 || 0}ms
+            {loadingLatency ? '...' : (latest as any)?.p50 || 0}ms
           </div>
         </Card>
 
@@ -108,7 +79,7 @@ export default function PerformancePage() {
             <Clock className="h-5 w-5 text-muted-foreground" />
           </div>
           <div className="mt-2 text-2xl font-bold">
-            {latest?.p95 || 0}ms
+            {loadingLatency ? '...' : (latest as any)?.p95 || 0}ms
           </div>
         </Card>
 
@@ -118,7 +89,7 @@ export default function PerformancePage() {
             <Clock className="h-5 w-5 text-muted-foreground" />
           </div>
           <div className="mt-2 text-2xl font-bold">
-            {latest?.p99 || 0}ms
+            {loadingLatency ? '...' : (latest as any)?.p99 || 0}ms
           </div>
         </Card>
 
@@ -128,7 +99,7 @@ export default function PerformancePage() {
             <Clock className="h-5 w-5 text-muted-foreground" />
           </div>
           <div className="mt-2 text-2xl font-bold">
-            {Math.floor((latest?.p50 || 0) * 1.2)}ms
+            {loadingLatency ? '...' : Math.floor(((latest as any)?.p50 || 0) * 1.2)}ms
           </div>
         </Card>
       </div>
@@ -138,66 +109,104 @@ export default function PerformancePage() {
         {/* Throughput Chart */}
         <Card className="p-6">
           <h3 className="text-lg font-semibold mb-4">Message Throughput (24h)</h3>
-          <LineChart
-            data={chartData}
-            xKey="time"
-            lines={[
-              { key: 'messagesPerSecond', color: '#3b82f6', name: 'Messages/sec' },
-            ]}
-            height={250}
-          />
+          {loadingThroughput ? (
+            <div className="flex h-64 items-center justify-center text-muted-foreground">
+              <p>Loading...</p>
+            </div>
+          ) : hasData ? (
+            <LineChart
+              data={throughput}
+              xKey="time"
+              lines={[
+                { key: 'messagesPerSecond', color: '#3b82f6', name: 'Messages/sec' },
+              ]}
+              height={250}
+            />
+          ) : (
+            <div className="flex h-64 items-center justify-center text-muted-foreground">
+              <p>No time-series data available</p>
+            </div>
+          )}
         </Card>
 
         {/* Latency Chart */}
         <Card className="p-6">
           <h3 className="text-lg font-semibold mb-4">Latency Percentiles</h3>
-          <AreaChart
-            data={chartData}
-            xKey="time"
-            areas={[
-              { key: 'p50', color: '#10b981', name: 'p50' },
-              { key: 'p95', color: '#f59e0b', name: 'p95' },
-              { key: 'p99', color: '#ef4444', name: 'p99' },
-            ]}
-            height={250}
-          />
+          {loadingLatency ? (
+            <div className="flex h-64 items-center justify-center text-muted-foreground">
+              <p>Loading...</p>
+            </div>
+          ) : latency && latency.length > 0 ? (
+            <AreaChart
+              data={latency}
+              xKey="time"
+              areas={[
+                { key: 'p50', color: '#10b981', name: 'p50' },
+                { key: 'p95', color: '#f59e0b', name: 'p95' },
+                { key: 'p99', color: '#ef4444', name: 'p99' },
+              ]}
+              height={250}
+            />
+          ) : (
+            <div className="flex h-64 items-center justify-center text-muted-foreground">
+              <p>No time-series data available</p>
+            </div>
+          )}
         </Card>
 
         {/* Error Rate Chart */}
         <Card className="p-6">
           <h3 className="text-lg font-semibold mb-4">Error Rate Over Time</h3>
-          <BarChart
-            data={chartData.slice(-12)}
-            xKey="time"
-            bars={[
-              { key: 'errorRate', color: '#ef4444', name: 'Error Rate' },
-            ]}
-            height={250}
-          />
+          {loadingErrors ? (
+            <div className="flex h-64 items-center justify-center text-muted-foreground">
+              <p>Loading...</p>
+            </div>
+          ) : errors && errors.length > 0 ? (
+            <BarChart
+              data={errors.slice(-12)}
+              xKey="time"
+              bars={[
+                { key: 'errorRate', color: '#ef4444', name: 'Error Rate' },
+              ]}
+              height={250}
+            />
+          ) : (
+            <div className="flex h-64 items-center justify-center text-muted-foreground">
+              <p>No time-series data available</p>
+            </div>
+          )}
         </Card>
 
         {/* Error Types Breakdown */}
         <Card className="p-6">
           <h3 className="text-lg font-semibold mb-4">Error Types Distribution</h3>
-          <PieChart
-            data={errorTypesData}
-            colors={errorColors}
-            height={250}
-          />
+          <div className="flex h-64 items-center justify-center text-muted-foreground">
+            <p>No error data available</p>
+          </div>
         </Card>
       </div>
 
       {/* Network Throughput */}
       <Card className="mt-6 p-6">
         <h3 className="text-lg font-semibold mb-4">Network Throughput</h3>
-        <LineChart
-          data={chartData}
-          xKey="time"
-          lines={[
-            { key: 'bytesPerSecond', color: '#8b5cf6', name: 'Bytes/sec' },
-          ]}
-          height={200}
-        />
+        {loadingThroughput ? (
+          <div className="flex h-52 items-center justify-center text-muted-foreground">
+            <p>Loading...</p>
+          </div>
+        ) : hasData ? (
+          <LineChart
+            data={throughput}
+            xKey="time"
+            lines={[
+              { key: 'bytesPerSecond', color: '#8b5cf6', name: 'Bytes/sec' },
+            ]}
+            height={200}
+          />
+        ) : (
+          <div className="flex h-52 items-center justify-center text-muted-foreground">
+            <p>No time-series data available</p>
+          </div>
+        )}
       </Card>
     </DashboardLayout>
   );

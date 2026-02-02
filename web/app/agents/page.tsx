@@ -15,38 +15,44 @@ import {
 import { Server, Cpu, HardDrive, Network, Clock, AlertCircle } from 'lucide-react';
 import { formatRelativeTime, getHealthColor, formatPercent } from '@/lib/utils';
 import Link from 'next/link';
+import { useEffect, useState } from 'react';
 
-// Mock data - replace with actual API call
-const mockAgents = [
-  {
-    id: 'agent-1',
-    address: 'localhost:9090',
-    availabilityZone: 'us-east-1a',
-    health: 'healthy' as const,
-    lastHeartbeat: Date.now() - 5000,
-    cpuUsage: 0.25,
-    memoryUsage: 0.42,
-    diskUsage: 0.18,
-    partitionCount: 8,
-  },
-  {
-    id: 'agent-2',
-    address: 'localhost:9091',
-    availabilityZone: 'us-east-1b',
-    health: 'healthy' as const,
-    lastHeartbeat: Date.now() - 3000,
-    cpuUsage: 0.18,
-    memoryUsage: 0.38,
-    diskUsage: 0.22,
-    partitionCount: 6,
-  },
-];
+const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080';
+
+interface Agent {
+  agent_id: string;
+  address: string;
+  availability_zone: string;
+  agent_group: string;
+  last_heartbeat: number;
+  started_at: number;
+  active_leases: number;
+}
 
 export default function AgentsPage() {
-  const agents = mockAgents;
-  const healthyAgents = agents.filter((a) => a.health === 'healthy').length;
-  const totalPartitions = agents.reduce((acc, a) => acc + a.partitionCount, 0);
-  const avgCpu = agents.reduce((acc, a) => acc + a.cpuUsage, 0) / agents.length;
+  const [agents, setAgents] = useState<Agent[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const fetchAgents = async () => {
+      try {
+        const response = await fetch(`${API_URL}/api/v1/agents`);
+        const data = await response.json();
+        setAgents(data);
+      } catch (error) {
+        console.error('Failed to fetch agents:', error);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchAgents();
+    const interval = setInterval(fetchAgents, 5000); // Refresh every 5 seconds
+    return () => clearInterval(interval);
+  }, []);
+  const healthyAgents = agents.length; // All agents considered healthy if they're in the list
+  const totalPartitions = agents.reduce((acc, a) => acc + a.active_leases, 0);
+  const avgCpu = 0; // CPU metrics not yet implemented
 
   return (
     <DashboardLayout
@@ -91,10 +97,16 @@ export default function AgentsPage() {
             <Network className="h-5 w-5 text-muted-foreground" />
           </div>
           <div className="mt-2 text-3xl font-bold">
-            {new Set(agents.map((a) => a.availabilityZone)).size}
+            {new Set(agents.map((a) => a.availability_zone)).size}
           </div>
         </Card>
       </div>
+
+      {loading && (
+        <div className="mt-6 flex h-32 items-center justify-center">
+          <p className="text-muted-foreground">Loading agents...</p>
+        </div>
+      )}
 
       {/* Agents Table */}
       <Card className="mt-6">
@@ -117,78 +129,72 @@ export default function AgentsPage() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {agents.map((agent) => (
-                <TableRow key={agent.id}>
-                  <TableCell className="font-medium">
-                    <Link href={`/agents/${agent.id}`} className="hover:text-primary">
-                      {agent.id}
-                    </Link>
-                  </TableCell>
-                  <TableCell className="font-mono text-sm">{agent.address}</TableCell>
-                  <TableCell>
-                    <Badge variant="outline">{agent.availabilityZone}</Badge>
-                  </TableCell>
-                  <TableCell>
-                    <Badge
-                      variant={agent.health === 'healthy' ? 'default' : 'destructive'}
-                      className={
-                        agent.health === 'healthy' ? 'bg-green-500' : ''
-                      }
-                    >
-                      {agent.health}
-                    </Badge>
-                  </TableCell>
-                  <TableCell>
-                    <div className="flex items-center gap-2">
-                      <Clock className="h-4 w-4 text-muted-foreground" />
-                      <span className="text-sm">
-                        {formatRelativeTime(agent.lastHeartbeat)}
-                      </span>
-                    </div>
-                  </TableCell>
-                  <TableCell>
-                    <div className="flex items-center gap-2">
-                      <div className="h-2 w-16 bg-secondary rounded-full overflow-hidden">
-                        <div
-                          className="h-full bg-primary"
-                          style={{ width: `${agent.cpuUsage * 100}%` }}
-                        />
-                      </div>
-                      <span className="text-sm">{formatPercent(agent.cpuUsage)}</span>
-                    </div>
-                  </TableCell>
-                  <TableCell>
-                    <div className="flex items-center gap-2">
-                      <div className="h-2 w-16 bg-secondary rounded-full overflow-hidden">
-                        <div
-                          className="h-full bg-primary"
-                          style={{ width: `${agent.memoryUsage * 100}%` }}
-                        />
-                      </div>
-                      <span className="text-sm">{formatPercent(agent.memoryUsage)}</span>
-                    </div>
-                  </TableCell>
-                  <TableCell>
-                    <div className="flex items-center gap-2">
-                      <div className="h-2 w-16 bg-secondary rounded-full overflow-hidden">
-                        <div
-                          className="h-full bg-primary"
-                          style={{ width: `${agent.diskUsage * 100}%` }}
-                        />
-                      </div>
-                      <span className="text-sm">{formatPercent(agent.diskUsage)}</span>
-                    </div>
-                  </TableCell>
-                  <TableCell>{agent.partitionCount}</TableCell>
-                  <TableCell>
-                    <Link href={`/agents/${agent.id}`}>
-                      <Button variant="ghost" size="sm">
-                        Details
-                      </Button>
-                    </Link>
+              {agents.length === 0 && !loading ? (
+                <TableRow>
+                  <TableCell colSpan={10} className="text-center text-muted-foreground">
+                    No agents found
                   </TableCell>
                 </TableRow>
-              ))}
+              ) : (
+                agents.map((agent) => (
+                  <TableRow key={agent.agent_id}>
+                    <TableCell className="font-medium">
+                      <Link href={`/agents/${agent.agent_id}`} className="hover:text-primary">
+                        {agent.agent_id}
+                      </Link>
+                    </TableCell>
+                    <TableCell className="font-mono text-sm">{agent.address}</TableCell>
+                    <TableCell>
+                      <Badge variant="outline">{agent.availability_zone}</Badge>
+                    </TableCell>
+                    <TableCell>
+                      <Badge variant="default" className="bg-green-500">
+                        healthy
+                      </Badge>
+                    </TableCell>
+                    <TableCell>
+                      <div className="flex items-center gap-2">
+                        <Clock className="h-4 w-4 text-muted-foreground" />
+                        <span className="text-sm">
+                          {formatRelativeTime(agent.last_heartbeat)}
+                        </span>
+                      </div>
+                    </TableCell>
+                    <TableCell>
+                      <div className="flex items-center gap-2">
+                        <div className="h-2 w-16 bg-secondary rounded-full overflow-hidden">
+                          <div className="h-full bg-primary" style={{ width: '0%' }} />
+                        </div>
+                        <span className="text-sm">N/A</span>
+                      </div>
+                    </TableCell>
+                    <TableCell>
+                      <div className="flex items-center gap-2">
+                        <div className="h-2 w-16 bg-secondary rounded-full overflow-hidden">
+                          <div className="h-full bg-primary" style={{ width: '0%' }} />
+                        </div>
+                        <span className="text-sm">N/A</span>
+                      </div>
+                    </TableCell>
+                    <TableCell>
+                      <div className="flex items-center gap-2">
+                        <div className="h-2 w-16 bg-secondary rounded-full overflow-hidden">
+                          <div className="h-full bg-primary" style={{ width: '0%' }} />
+                        </div>
+                        <span className="text-sm">N/A</span>
+                      </div>
+                    </TableCell>
+                    <TableCell>{agent.active_leases}</TableCell>
+                    <TableCell>
+                      <Link href={`/agents/${agent.agent_id}`}>
+                        <Button variant="ghost" size="sm">
+                          Details
+                        </Button>
+                      </Link>
+                    </TableCell>
+                  </TableRow>
+                ))
+              )}
             </TableBody>
           </Table>
         </div>

@@ -12,31 +12,16 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
-import { AreaChart } from '@/components/charts/area-chart';
 import { useConsumerGroups } from '@/lib/hooks/use-consumer-groups';
 import { formatCompactNumber, getLagColor } from '@/lib/utils';
 import { Users, TrendingUp, TrendingDown, Minus, AlertTriangle } from 'lucide-react';
 import Link from 'next/link';
-import { useMemo } from 'react';
-
-// Generate mock consumer lag data over time
-function generateConsumerLagData(points: number = 24) {
-  const now = Date.now();
-  return Array.from({ length: points }, (_, i) => ({
-    time: new Date(now - (points - i) * 3600000).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }),
-    'orders-consumer': Math.floor(Math.random() * 500 + 100),
-    'analytics-consumer': Math.floor(Math.random() * 200 + 50),
-    'email-consumer': Math.floor(Math.random() * 100 + 20),
-  }));
-}
 
 export default function ConsumersPage() {
   const { data: consumerGroups, isLoading } = useConsumerGroups();
 
   const totalLag = consumerGroups?.reduce((acc, g) => acc + g.totalLag, 0) || 0;
   const groupsWithLag = consumerGroups?.filter((g) => g.totalLag > 0).length || 0;
-
-  const lagData = useMemo(() => generateConsumerLagData(24), []);
 
   return (
     <DashboardLayout
@@ -187,16 +172,9 @@ export default function ConsumersPage() {
       {/* Consumer Lag Over Time */}
       <Card className="mt-6 p-6">
         <h3 className="text-lg font-semibold mb-4">Consumer Lag Over Time (24h)</h3>
-        <AreaChart
-          data={lagData}
-          xKey="time"
-          areas={[
-            { key: 'orders-consumer', color: '#3b82f6', name: 'Orders Consumer' },
-            { key: 'analytics-consumer', color: '#8b5cf6', name: 'Analytics Consumer' },
-            { key: 'email-consumer', color: '#10b981', name: 'Email Consumer' },
-          ]}
-          height={250}
-        />
+        <div className="flex h-64 items-center justify-center text-muted-foreground">
+          <p>Time-series lag metrics not yet implemented</p>
+        </div>
       </Card>
     </DashboardLayout>
   );

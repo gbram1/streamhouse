@@ -24,6 +24,28 @@ import { Search, Download, ChevronLeft, ChevronRight, Eye, Copy, Check } from 'l
 import { formatBytes, formatDate, downloadJSON } from '@/lib/utils';
 import { Message } from '@/lib/types';
 
+// Helper to decode value that could be string or byte array
+function decodeValue(value: string | number[] | null | undefined): string {
+  if (value === null || value === undefined) return '';
+  if (typeof value === 'string') return value;
+  if (Array.isArray(value)) {
+    try {
+      return new TextDecoder().decode(new Uint8Array(value));
+    } catch {
+      return '';
+    }
+  }
+  return String(value);
+}
+
+// Helper to get byte length of value
+function getValueSize(value: string | number[] | null | undefined): number {
+  if (value === null || value === undefined) return 0;
+  if (typeof value === 'string') return new TextEncoder().encode(value).length;
+  if (Array.isArray(value)) return value.length;
+  return 0;
+}
+
 interface MessageBrowserProps {
   topicName: string;
   messages: Message[];
@@ -43,8 +65,8 @@ export function MessageBrowser({ topicName, messages, isLoading }: MessageBrowse
 
     const query = searchQuery.toLowerCase();
     return messages.filter((msg) => {
-      const keyStr = msg.key ? new TextDecoder().decode(new Uint8Array(msg.key)) : '';
-      const valueStr = msg.value ? new TextDecoder().decode(new Uint8Array(msg.value)) : '';
+      const keyStr = decodeValue(msg.key);
+      const valueStr = decodeValue(msg.value);
 
       return (
         keyStr.toLowerCase().includes(query) ||
@@ -65,7 +87,7 @@ export function MessageBrowser({ topicName, messages, isLoading }: MessageBrowse
   const totalPages = Math.ceil(filteredMessages.length / pageSize);
 
   const handleCopyMessage = (message: Message) => {
-    const valueStr = message.value ? new TextDecoder().decode(new Uint8Array(message.value)) : '';
+    const valueStr = decodeValue(message.value);
     navigator.clipboard.writeText(valueStr);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
@@ -76,17 +98,17 @@ export function MessageBrowser({ topicName, messages, isLoading }: MessageBrowse
       partition: msg.partition,
       offset: msg.offset,
       timestamp: new Date(msg.timestamp).toISOString(),
-      key: msg.key ? new TextDecoder().decode(new Uint8Array(msg.key)) : null,
-      value: msg.value ? new TextDecoder().decode(new Uint8Array(msg.value)) : null,
+      key: decodeValue(msg.key) || null,
+      value: decodeValue(msg.value) || null,
       headers: msg.headers,
     }));
 
     downloadJSON(exportData, `${topicName}-messages-${Date.now()}.json`);
   };
 
-  const formatMessageValue = (value: number[] | null) => {
-    if (!value) return '-';
-    const str = new TextDecoder().decode(new Uint8Array(value));
+  const formatMessageValue = (value: string | number[] | null | undefined) => {
+    const str = decodeValue(value);
+    if (!str) return '-';
 
     // Try to parse as JSON for pretty display
     try {
@@ -97,9 +119,9 @@ export function MessageBrowser({ topicName, messages, isLoading }: MessageBrowse
     }
   };
 
-  const truncateValue = (value: number[] | null, maxLength: number = 100) => {
-    if (!value) return '-';
-    const str = new TextDecoder().decode(new Uint8Array(value));
+  const truncateValue = (value: string | number[] | null | undefined, maxLength: number = 100) => {
+    const str = decodeValue(value);
+    if (!str) return '-';
     return str.length > maxLength ? str.substring(0, maxLength) + '...' : str;
   };
 
@@ -169,7 +191,7 @@ export function MessageBrowser({ topicName, messages, isLoading }: MessageBrowse
                     {truncateValue(message.value, 80)}
                   </TableCell>
                   <TableCell className="text-xs">
-                    {formatBytes(message.value?.length || 0)}
+                    {formatBytes(getValueSize(message.value))}
                   </TableCell>
                   <TableCell>
                     <Button
@@ -243,7 +265,7 @@ export function MessageBrowser({ topicName, messages, isLoading }: MessageBrowse
                 <div>
                   <p className="text-sm font-medium text-muted-foreground">Size</p>
                   <p className="mt-1 font-mono text-sm">
-                    {formatBytes(selectedMessage.value?.length || 0)}
+                    {formatBytes(getValueSize(selectedMessage.value))}
                   </p>
                 </div>
               </div>
@@ -253,9 +275,7 @@ export function MessageBrowser({ topicName, messages, isLoading }: MessageBrowse
                 <p className="text-sm font-medium text-muted-foreground mb-2">Key</p>
                 <Card className="p-4">
                   <pre className="font-mono text-xs overflow-x-auto">
-                    {selectedMessage.key
-                      ? new TextDecoder().decode(new Uint8Array(selectedMessage.key))
-                      : 'null'}
+                    {decodeValue(selectedMessage.key) || 'null'}
                   </pre>
                 </Card>
               </div>

@@ -5,24 +5,26 @@ import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { MessageBrowser } from '@/components/message-browser';
-import { useTopic, useTopicMessages } from '@/lib/hooks/use-topics';
+import { useTopic, useTopicMessages, useTopicPartitions } from '@/lib/hooks/use-topics';
 import { useRealtimeTopicMetrics } from '@/lib/hooks/use-realtime-metrics';
 import { formatBytes, formatCompactNumber, formatDate } from '@/lib/utils';
 import { Activity, HardDrive, Layers, Clock, TrendingUp } from 'lucide-react';
 import Link from 'next/link';
 import { LineChart } from '@/components/charts/line-chart';
-import { useMemo } from 'react';
+import { useMemo, use } from 'react';
 
 interface TopicDetailPageProps {
-  params: {
+  params: Promise<{
     name: string;
-  };
+  }>;
 }
 
 export default function TopicDetailPage({ params }: TopicDetailPageProps) {
-  const topicName = decodeURIComponent(params.name);
+  const { name } = use(params);  // Unwrap the async params
+  const topicName = decodeURIComponent(name);
   const { data: topic, isLoading } = useTopic(topicName);
   const { data: messages, isLoading: loadingMessages } = useTopicMessages(topicName);
+  const { data: partitions, isLoading: loadingPartitions } = useTopicPartitions(topicName);
   const { throughput, isConnected } = useRealtimeTopicMetrics(topicName);
 
   // Generate chart data from realtime throughput
@@ -70,10 +72,13 @@ export default function TopicDetailPage({ params }: TopicDetailPageProps) {
     );
   }
 
+  const partitionCount = topic.partitionCount || topic.partition_count || topic.partitions || 0;
+  const createdAt = topic.createdAt || topic.created_at;
+
   return (
     <DashboardLayout
       title={topicName}
-      description={`Topic with ${topic.partitionCount} partitions`}
+      description={`Topic with ${partitionCount} partitions`}
     >
       {/* Real-time Connection Status */}
       {isConnected && (
@@ -95,7 +100,7 @@ export default function TopicDetailPage({ params }: TopicDetailPageProps) {
             <h3 className="text-sm font-medium text-muted-foreground">Partitions</h3>
             <Layers className="h-5 w-5 text-muted-foreground" />
           </div>
-          <div className="mt-2 text-3xl font-bold">{topic.partitionCount}</div>
+          <div className="mt-2 text-3xl font-bold">{partitionCount}</div>
         </Card>
 
         <Card className="p-6">
@@ -104,7 +109,7 @@ export default function TopicDetailPage({ params }: TopicDetailPageProps) {
             <Activity className="h-5 w-5 text-muted-foreground" />
           </div>
           <div className="mt-2 text-3xl font-bold">
-            {formatCompactNumber(topic.messageCount)}
+            {formatCompactNumber(topic.messageCount || 0)}
           </div>
         </Card>
 
@@ -114,7 +119,7 @@ export default function TopicDetailPage({ params }: TopicDetailPageProps) {
             <HardDrive className="h-5 w-5 text-muted-foreground" />
           </div>
           <div className="mt-2 text-3xl font-bold">
-            {formatBytes(topic.sizeBytes)}
+            {formatBytes(topic.sizeBytes || 0)}
           </div>
         </Card>
 
@@ -124,7 +129,7 @@ export default function TopicDetailPage({ params }: TopicDetailPageProps) {
             <Clock className="h-5 w-5 text-muted-foreground" />
           </div>
           <div className="mt-2 text-lg font-bold">
-            {formatDate(topic.createdAt)}
+            {formatDate(createdAt)}
           </div>
         </Card>
       </div>
@@ -135,12 +140,20 @@ export default function TopicDetailPage({ params }: TopicDetailPageProps) {
           <h3 className="text-lg font-semibold">Message Throughput</h3>
           <TrendingUp className="h-5 w-5 text-muted-foreground" />
         </div>
-        <LineChart
-          data={throughputData}
-          xKey="time"
-          lines={[{ key: 'throughput', color: '#3b82f6', name: 'Messages/sec' }]}
-          height={200}
-        />
+        {isConnected ? (
+          <LineChart
+            data={throughputData}
+            xKey="time"
+            lines={[{ key: 'throughput', color: '#3b82f6', name: 'Messages/sec' }]}
+            height={200}
+          />
+        ) : (
+          <div className="flex flex-col items-center justify-center h-[200px] text-muted-foreground">
+            <TrendingUp className="h-8 w-8 mb-2 opacity-50" />
+            <p className="text-sm">Real-time throughput metrics</p>
+            <p className="text-xs mt-1">Enable auto-refresh to see live data</p>
+          </div>
+        )}
       </Card>
 
       {/* Tabs for Messages and Configuration */}
@@ -163,27 +176,37 @@ export default function TopicDetailPage({ params }: TopicDetailPageProps) {
           <Card className="p-6">
             <h3 className="text-lg font-semibold mb-4">Partition Details</h3>
             <div className="space-y-4">
-              {topic.partitions?.map((partition) => (
-                <div
-                  key={partition.id}
-                  className="flex items-center justify-between border-b pb-4 last:border-b-0"
-                >
-                  <div>
-                    <p className="font-medium">Partition {partition.id}</p>
-                    <p className="text-sm text-muted-foreground">
-                      Leader: {partition.leader || 'None'}
-                    </p>
+              {loadingPartitions ? (
+                <p className="text-center text-muted-foreground py-8">
+                  Loading partitions...
+                </p>
+              ) : partitions && partitions.length > 0 ? (
+                partitions.map((partition) => (
+                  <div
+                    key={partition.id}
+                    className="flex items-center justify-between border-b pb-4 last:border-b-0"
+                  >
+                    <div>
+                      <p className="font-medium">Partition {partition.id}</p>
+                      <p className="text-sm text-muted-foreground">
+                        Leader: {partition.leader || 'None'}
+                      </p>
+                    </div>
+                    <div className="text-right">
+                      <p className="text-sm">
+                        High watermark: {formatCompactNumber(partition.highWatermark)}
+                      </p>
+                      <p className="text-xs text-muted-foreground">
+                        Low: {partition.lowWatermark}
+                      </p>
+                    </div>
                   </div>
-                  <div className="text-right">
-                    <p className="text-sm">
-                      {formatCompactNumber(partition.messageCount)} messages
-                    </p>
-                    <p className="text-xs text-muted-foreground">
-                      {formatBytes(partition.sizeBytes)}
-                    </p>
-                  </div>
-                </div>
-              ))}
+                ))
+              ) : (
+                <p className="text-center text-muted-foreground py-8">
+                  No partition data available. Topic has {partitionCount} partitions.
+                </p>
+              )}
             </div>
           </Card>
         </TabsContent>

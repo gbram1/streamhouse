@@ -576,6 +576,44 @@ stream
 - [ ] Quota management
 - [ ] Audit log viewer
 
+### UI.8: Consumer Simulator (Day 7-8 - 1 day)
+**Goal**: Allow users to create and manage consumer groups directly in the UI without writing code
+**Priority**: MEDIUM (great for demos, learning, and testing)
+
+**Sub-tasks**:
+- [ ] **UI.8a**: Create Consumer Group form (group ID, topic selection, starting offset)
+- [ ] **UI.8b**: Consumer simulation panel (consume messages, commit offsets via UI)
+- [ ] **UI.8c**: Lag visualization (real-time lag tracking per partition)
+- [ ] **UI.8d**: Offset reset controls (reset to earliest/latest/specific offset)
+- [ ] **UI.8e**: Multi-consumer simulation (simulate multiple consumers in a group)
+
+**Features**:
+```
+Create Consumer Group:
+  - Group ID: [my-analytics-group]
+  - Topic: [orders] (dropdown)
+  - Starting Offset: [earliest/latest/specific]
+  - [Create]
+
+Consumer Simulator Panel:
+  - Current Offset: 150 / High Watermark: 400
+  - Lag: 250 messages
+  - [Consume Next 10] [Consume All] [Reset Offset]
+
+  Message Preview:
+  | Offset | Key      | Value                    |
+  | 150    | user-123 | {"action": "purchase"... |
+  | 151    | user-456 | {"action": "view"...     |
+
+  [Commit Offset: 152]
+```
+
+**Value**:
+- Users can learn how consumer groups work visually
+- Demo StreamHouse without writing code
+- Debug consumer lag issues interactively
+- Test offset management strategies
+
 ---
 
 ## 🧪 PHASE 15: TESTING & QUALITY (Week 17)
