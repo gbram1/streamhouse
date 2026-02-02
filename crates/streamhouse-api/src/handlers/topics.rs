@@ -234,12 +234,25 @@ pub async fn list_partitions(
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
+    // Get partition leases to find leaders
+    let leases = state
+        .metadata
+        .list_partition_leases(Some(&name), None)
+        .await
+        .unwrap_or_default();
+
+    // Create a map of partition_id -> leader_agent_id
+    let lease_map: std::collections::HashMap<u32, String> = leases
+        .into_iter()
+        .map(|l| (l.partition_id, l.leader_agent_id))
+        .collect();
+
     let response = partitions
         .into_iter()
         .map(|p| Partition {
-            topic: p.topic,
+            topic: p.topic.clone(),
             partition_id: p.partition_id,
-            leader_agent_id: None, // Will query from partition_leases
+            leader_agent_id: lease_map.get(&p.partition_id).cloned(),
             high_watermark: p.high_watermark,
             low_watermark: 0, // Not tracked yet
         })
