@@ -400,6 +400,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
     tracing::info!("🔄 Partition assignment background task started");
 
+    // Create Prometheus client for real metrics (optional)
+    let prometheus_client = std::env::var("PROMETHEUS_URL")
+        .ok()
+        .map(|url| {
+            tracing::info!("📊 Prometheus metrics enabled: {}", url);
+            std::sync::Arc::new(streamhouse_api::PrometheusClient::new(&url))
+        });
+
     // Create REST API state (use WriterPool directly in unified server)
     let api_state = streamhouse_api::AppState {
         metadata: metadata.clone(),
@@ -407,6 +415,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         writer_pool: Some(writer_pool.clone()),
         object_store: object_store.clone(),
         segment_cache: cache.clone(),
+        prometheus: prometheus_client,
     };
 
     // Create REST API router

@@ -271,6 +271,45 @@ curl -G http://localhost:9090/api/v1/query \
   --data-urlencode 'query=streamhouse_producer_records_sent_total'
 ```
 
+## Web UI Real Metrics Integration
+
+The StreamHouse Web UI can display real metrics from Prometheus instead of simulated data.
+
+### Enabling Real Metrics
+
+Set the `PROMETHEUS_URL` environment variable when starting the unified server:
+
+```bash
+# Enable real metrics from Prometheus
+PROMETHEUS_URL=http://localhost:9090 cargo run --release -p streamhouse-server
+
+# Or in Docker
+docker run -e PROMETHEUS_URL=http://prometheus:9090 streamhouse-server
+```
+
+### API Endpoints
+
+The following endpoints return real Prometheus data when enabled, with fallback to simulated data:
+
+| Endpoint | Description | Prometheus Query |
+|----------|-------------|------------------|
+| `/api/v1/metrics/throughput` | Messages/bytes per second | `rate(streamhouse_producer_records_total[1m])` |
+| `/api/v1/metrics/latency` | P50/P95/P99 latencies | `histogram_quantile(0.xx, ...)` |
+| `/api/v1/metrics/errors` | Error rate and count | `rate(streamhouse_producer_errors_total[1m])` |
+
+### Time Range Support
+
+All metrics endpoints support time range query parameters:
+- `5m` - Last 5 minutes (10-second resolution)
+- `1h` - Last 1 hour (1-minute resolution)
+- `24h` - Last 24 hours (15-minute resolution)
+- `7d` - Last 7 days (1-hour resolution)
+
+Example:
+```bash
+curl "http://localhost:8080/api/v1/metrics/throughput?time_range=24h"
+```
+
 ## Grafana Dashboards
 
 ### 1. Add Prometheus Data Source
@@ -412,15 +451,34 @@ rate(streamhouse_agent_records_written_total[5m])
 histogram_quantile(0.99, rate(streamhouse_agent_grpc_request_duration_seconds_bucket[5m]))
 ```
 
-### 4. Pre-built Dashboard JSON
+### 4. Pre-built Dashboards
 
-Complete dashboard available at: [grafana/streamhouse-dashboard.json](../grafana/streamhouse-dashboard.json)
+StreamHouse includes 8 pre-built Grafana dashboards:
 
-Import steps:
+| Dashboard | File | Description |
+|-----------|------|-------------|
+| **Overview** | `streamhouse-overview.json` | High-level cluster metrics |
+| **Producer** | `streamhouse-producer.json` | Producer throughput, latency, errors |
+| **Consumer** | `streamhouse-consumer.json` | Consumer throughput, lag, offsets |
+| **Storage** | `streamhouse-storage.json` | Segment writes, S3 operations |
+| **Cache** | `streamhouse-cache.json` | Cache hit rates, memory usage |
+| **WAL** | `streamhouse-wal.json` | Write-ahead log health, recovery |
+| **Schema Registry** | `streamhouse-schema-registry.json` | Schema operations, compatibility |
+| **S3 & Throttling** | `streamhouse-s3-throttling.json` | Circuit breaker, rate limiting |
+
+**Import steps:**
 1. Go to Grafana → Dashboards → Import
-2. Upload `streamhouse-dashboard.json`
+2. Upload any dashboard from `grafana/dashboards/`
 3. Select Prometheus data source
 4. Click "Import"
+
+**Auto-provisioning (Docker Compose):**
+
+The dashboards are automatically loaded when using `docker-compose.observability.yml`:
+```bash
+docker-compose -f docker-compose.observability.yml up -d
+# Grafana available at http://localhost:3000 (admin/admin)
+```
 
 ## Key Metrics Reference
 
@@ -744,6 +802,7 @@ rate(streamhouse_consumer_records_consumed_total[5m])
 
 ---
 
-**Last Updated**: January 26, 2026
-**StreamHouse Version**: v0.3.0+
+**Last Updated**: February 2, 2026
+**StreamHouse Version**: v0.4.0+
 **Status**: Production Ready
+**Phase**: 12.4.4 Complete

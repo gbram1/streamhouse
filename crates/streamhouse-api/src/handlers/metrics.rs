@@ -7,7 +7,7 @@ use axum::{
 };
 use std::collections::HashMap;
 
-use crate::{models::*, AppState};
+use crate::{models::*, prometheus::PrometheusClient, AppState};
 
 #[utoipa::path(
     get,
@@ -196,6 +196,48 @@ pub async fn get_throughput_metrics(
     State(state): State<AppState>,
     Query(params): Query<TimeRangeParams>,
 ) -> Result<Json<Vec<ThroughputMetric>>, StatusCode> {
+    let time_range = params.time_range.as_deref().unwrap_or("1h");
+
+    // Try to get real metrics from Prometheus
+    if let Some(prometheus) = &state.prometheus {
+        if let Ok(metrics) = get_real_throughput_metrics(prometheus, time_range).await {
+            if !metrics.is_empty() {
+                return Ok(Json(metrics));
+            }
+        }
+    }
+
+    // Fall back to simulated metrics
+    get_simulated_throughput_metrics(&state, time_range).await
+}
+
+/// Fetch real throughput metrics from Prometheus
+async fn get_real_throughput_metrics(
+    prometheus: &PrometheusClient,
+    time_range: &str,
+) -> Result<Vec<ThroughputMetric>, ()> {
+    let msgs_per_sec = prometheus.get_throughput(time_range).await.map_err(|_| ())?;
+    let bytes_per_sec = prometheus.get_bytes_throughput(time_range).await.map_err(|_| ())?;
+
+    // Combine the two series
+    let metrics: Vec<ThroughputMetric> = msgs_per_sec
+        .iter()
+        .zip(bytes_per_sec.iter())
+        .map(|(msg, bytes)| ThroughputMetric {
+            timestamp: msg.timestamp,
+            messages_per_second: msg.value,
+            bytes_per_second: bytes.value,
+        })
+        .collect();
+
+    Ok(metrics)
+}
+
+/// Generate simulated throughput metrics (fallback)
+async fn get_simulated_throughput_metrics(
+    state: &AppState,
+    time_range: &str,
+) -> Result<Json<Vec<ThroughputMetric>>, StatusCode> {
     // Get current message count to base simulated data on
     let topics = state
         .metadata
@@ -216,7 +258,6 @@ pub async fn get_throughput_metrics(
     }
 
     // Generate simulated time-series data based on time range
-    let time_range = params.time_range.as_deref().unwrap_or("1h");
     let (points, interval_secs) = match time_range {
         "5m" => (30, 10),      // 30 points, 10 seconds apart
         "1h" => (60, 60),      // 60 points, 1 minute apart
@@ -258,10 +299,57 @@ pub async fn get_throughput_metrics(
     tag = "metrics"
 )]
 pub async fn get_latency_metrics(
+    State(state): State<AppState>,
     Query(params): Query<TimeRangeParams>,
 ) -> Result<Json<Vec<LatencyMetric>>, StatusCode> {
-    // Generate simulated latency data
     let time_range = params.time_range.as_deref().unwrap_or("1h");
+
+    // Try to get real metrics from Prometheus
+    if let Some(prometheus) = &state.prometheus {
+        if let Ok(metrics) = get_real_latency_metrics(prometheus, time_range).await {
+            if !metrics.is_empty() {
+                return Ok(Json(metrics));
+            }
+        }
+    }
+
+    // Fall back to simulated metrics
+    get_simulated_latency_metrics(time_range)
+}
+
+/// Fetch real latency metrics from Prometheus
+async fn get_real_latency_metrics(
+    prometheus: &PrometheusClient,
+    time_range: &str,
+) -> Result<Vec<LatencyMetric>, ()> {
+    let percentiles = prometheus.get_latency_percentiles(time_range).await.map_err(|_| ())?;
+
+    // Combine percentiles into latency metrics
+    // Convert from seconds to milliseconds for UI
+    let metrics: Vec<LatencyMetric> = percentiles
+        .p50
+        .iter()
+        .enumerate()
+        .map(|(i, p50_point)| {
+            let p95 = percentiles.p95.get(i).map(|p| p.value * 1000.0).unwrap_or(p50_point.value * 2.5 * 1000.0);
+            let p99 = percentiles.p99.get(i).map(|p| p.value * 1000.0).unwrap_or(p50_point.value * 4.0 * 1000.0);
+            let p50_ms = p50_point.value * 1000.0;
+
+            LatencyMetric {
+                timestamp: p50_point.timestamp,
+                p50: p50_ms,
+                p95,
+                p99,
+                avg: p50_ms * 1.2, // Approximate average
+            }
+        })
+        .collect();
+
+    Ok(metrics)
+}
+
+/// Generate simulated latency metrics (fallback)
+fn get_simulated_latency_metrics(time_range: &str) -> Result<Json<Vec<LatencyMetric>>, StatusCode> {
     let (points, interval_secs) = match time_range {
         "5m" => (30, 10),
         "1h" => (60, 60),
@@ -275,7 +363,7 @@ pub async fn get_latency_metrics(
     let metrics: Vec<LatencyMetric> = (0..points)
         .map(|i| {
             let timestamp = now - ((points - 1 - i) * interval_secs);
-            // Simulate realistic latency patterns
+            // Simulate realistic latency patterns (in milliseconds)
             let base_p50 = 2.0 + ((i as f64 * 0.3).sin() * 0.5);
             let base_p95 = base_p50 * 2.5;
             let base_p99 = base_p50 * 4.0;
@@ -305,10 +393,48 @@ pub async fn get_latency_metrics(
     tag = "metrics"
 )]
 pub async fn get_error_metrics(
+    State(state): State<AppState>,
     Query(params): Query<TimeRangeParams>,
 ) -> Result<Json<Vec<ErrorMetric>>, StatusCode> {
-    // Generate simulated error data (very low error rates for healthy system)
     let time_range = params.time_range.as_deref().unwrap_or("1h");
+
+    // Try to get real metrics from Prometheus
+    if let Some(prometheus) = &state.prometheus {
+        if let Ok(metrics) = get_real_error_metrics(prometheus, time_range).await {
+            if !metrics.is_empty() {
+                return Ok(Json(metrics));
+            }
+        }
+    }
+
+    // Fall back to simulated metrics
+    get_simulated_error_metrics(time_range)
+}
+
+/// Fetch real error metrics from Prometheus
+async fn get_real_error_metrics(
+    prometheus: &PrometheusClient,
+    time_range: &str,
+) -> Result<Vec<ErrorMetric>, ()> {
+    let error_rates = prometheus.get_error_rate(time_range).await.map_err(|_| ())?;
+    let error_counts = prometheus.get_error_count(time_range).await.map_err(|_| ())?;
+
+    // Combine the two series
+    let metrics: Vec<ErrorMetric> = error_rates
+        .iter()
+        .zip(error_counts.iter())
+        .map(|(rate, count)| ErrorMetric {
+            timestamp: rate.timestamp,
+            error_rate: rate.value / 100.0, // Convert from percentage to ratio
+            error_count: count.value as u64,
+        })
+        .collect();
+
+    Ok(metrics)
+}
+
+/// Generate simulated error metrics (fallback)
+fn get_simulated_error_metrics(time_range: &str) -> Result<Json<Vec<ErrorMetric>>, StatusCode> {
     let (points, interval_secs) = match time_range {
         "5m" => (30, 10),
         "1h" => (60, 60),

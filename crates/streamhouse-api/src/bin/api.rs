@@ -113,6 +113,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     info!("✓ Segment cache initialized ({})", cache_dir);
 
+    // Create Prometheus client for real metrics (optional)
+    let prometheus_client = std::env::var("PROMETHEUS_URL")
+        .ok()
+        .map(|url| {
+            info!("📊 Prometheus metrics enabled: {}", url);
+            Arc::new(streamhouse_api::PrometheusClient::new(&url))
+        });
+
     // Create app state
     let state = AppState {
         metadata,
@@ -120,6 +128,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         writer_pool: None,
         object_store,
         segment_cache,
+        prometheus: prometheus_client,
     };
 
     // Create router

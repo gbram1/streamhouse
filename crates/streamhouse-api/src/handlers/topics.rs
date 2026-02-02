@@ -13,7 +13,7 @@ use streamhouse_metadata::TopicConfig;
 /// Decode message value, handling Avro Object Container format
 /// Returns JSON string if Avro, otherwise returns raw string
 fn decode_message_value(data: &[u8]) -> String {
-    use apache_avro::{types::Value, Reader};
+    use apache_avro::Reader;
 
     // Check for Confluent wire format: [0x00][4-byte schema ID][payload]
     let payload = if data.len() >= 5 && data[0] == 0 {

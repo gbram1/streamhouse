@@ -161,6 +161,12 @@ lazy_static! {
         "Server uptime in seconds"
     ).expect("metric can be created");
 
+    /// Database errors (connection failures, query errors)
+    pub static ref DATABASE_ERRORS_TOTAL: IntCounterVec = IntCounterVec::new(
+        Opts::new("streamhouse_database_errors_total", "Total database errors"),
+        &["operation", "error_type"] // operation=query/connect, error_type=timeout/connection_refused/etc.
+    ).expect("metric can be created");
+
     // ============================================================================
     // Throttle & Circuit Breaker Metrics (Phase 12.4.2)
     // ============================================================================
@@ -399,6 +405,9 @@ pub fn init() {
         REGISTRY
             .register(Box::new(UPTIME_SECONDS.clone()))
             .expect("uptime_seconds can be registered");
+        REGISTRY
+            .register(Box::new(DATABASE_ERRORS_TOTAL.clone()))
+            .expect("database_errors_total can be registered");
 
         // Throttle & Circuit Breaker metrics
         REGISTRY
