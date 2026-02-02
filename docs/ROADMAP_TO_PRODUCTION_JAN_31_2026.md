@@ -1,7 +1,7 @@
 # StreamHouse: Complete Roadmap to Production & Adoption
-**Date:** February 1, 2026
-**Status:** Phase 14 Complete (Enhanced CLI), Phase 12.4.2 Complete (S3 Throttling)
-**Next:** Phase 9 (Schema Persistence) - **CRITICAL GAP**
+**Date:** February 2, 2026
+**Status:** Phase 14 Complete (Enhanced CLI), Phase 12.4.2 Complete (S3 Throttling), UI Demo Complete
+**Next:** Phase 18.5 (Native Rust Client High-Performance Mode) - **Critical for Production Throughput**
 
 ---
 
@@ -1336,6 +1336,107 @@ producer.abort_transaction().await?;
 - Consumer group coordinator (~600 LOC)
 - Consumer changes (~400 LOC)
 - Rebalancing tests
+
+---
+
+## Phase 18.5: Native Rust Client (High-Performance Mode)
+
+**Priority:** CRITICAL (for production workloads)
+**Effort:** 40 hours
+**Status:** PARTIALLY COMPLETE
+**Gap:** Current client writes directly to storage; gRPC mode incomplete
+
+### Problem
+
+The `streamhouse-client` crate exists with Producer/Consumer APIs, batching, connection pooling, and schema registry integration. However:
+
+- **Phase 5.1 (Current):** Writes directly to storage (~5 records/sec)
+- **Phase 5.2 (Target):** gRPC communication with agents (50K+ records/sec)
+
+### Why This Matters
+
+HTTP REST API: ~80 msg/s (individual) → 15K msg/s (batched)
+gRPC (grpcurl): ~0.6 msg/s (individual) - **connection per call is the problem**
+**Native Rust Client:** Target 100K+ msg/s (persistent connections + batching)
+
+### Current State
+
+**Existing code in `crates/streamhouse-client/`:**
+- ✅ Producer API with builder pattern
+- ✅ Consumer API with consumer groups
+- ✅ BatchManager for batching records
+- ✅ ConnectionPool for managing gRPC connections
+- ✅ Schema registry client
+- ✅ Retry logic with exponential backoff
+- ✅ Error handling
+- ⚠️ gRPC mode (Phase 5.2) - stubs exist but incomplete
+
+### Task 1: Complete gRPC Producer (20 hours)
+
+**File:** `crates/streamhouse-client/src/producer.rs`
+
+**Current:** Writes directly to PartitionWriter (bypasses agents)
+**Target:** Send via gRPC to agents holding partition leases
+
+```rust
+// Current (Phase 5.1) - Direct write
+let writer = PartitionWriter::new(...);
+writer.append(key, value, timestamp).await?;
+
+// Target (Phase 5.2) - gRPC to agent
+let agent = self.find_agent_for_partition(topic, partition).await?;
+let channel = self.connection_pool.get_channel(&agent.address).await?;
+let mut client = ProducerServiceClient::new(channel);
+let response = client.produce(request).await?;
+```
+
+**Changes:**
+1. Implement `find_agent_for_partition()` using metadata store
+2. Use ConnectionPool for persistent gRPC connections
+3. Implement automatic retry on agent failover
+4. Add batch flushing to gRPC endpoint
+
+### Task 2: Complete gRPC Consumer (15 hours)
+
+**File:** `crates/streamhouse-client/src/consumer.rs`
+
+**Current:** Reads from storage segments directly
+**Target:** Consume via gRPC from agents
+
+```rust
+// Current - Direct segment read
+let reader = SegmentReader::new(...);
+let records = reader.read(offset, count).await?;
+
+// Target - gRPC from agent
+let agent = self.find_agent_for_partition(topic, partition).await?;
+let mut client = StreamHouseClient::new(channel);
+let response = client.consume(ConsumeRequest { topic, partition, offset, max_records }).await?;
+```
+
+### Task 3: Benchmark & Optimize (5 hours)
+
+**File:** `crates/streamhouse-client/benches/`
+
+Create comprehensive benchmarks:
+- Single message produce latency
+- Batch produce throughput
+- Connection pool efficiency
+- Comparison with direct storage writes
+
+**Target Metrics:**
+- Produce latency: < 1ms p99
+- Throughput: 100K+ msg/s per client
+- Connection reuse: 100% (no new connections per request)
+
+### Success Criteria
+
+- ✅ Native Rust client achieves 100K+ msg/s
+- ✅ Persistent gRPC connections (no handshake per message)
+- ✅ Automatic batching (configurable batch size/timeout)
+- ✅ Transparent agent failover
+- ✅ Schema validation integration
+- ✅ Published to crates.io
 
 ---
 

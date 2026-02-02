@@ -2,6 +2,7 @@
 
 use axum::{extract::State, http::StatusCode, Json};
 use bytes::Bytes;
+use std::collections::HashMap;
 
 use crate::{models::*, AppState};
 
@@ -92,6 +93,80 @@ pub async fn produce(
         return Ok(Json(ProduceResponse {
             offset,
             partition: result.partition,
+        }));
+    }
+
+    Err(StatusCode::INTERNAL_SERVER_ERROR)
+}
+
+/// Batch produce - send many messages in a single request for high throughput
+#[utoipa::path(
+    post,
+    path = "/api/v1/produce/batch",
+    request_body = BatchProduceRequest,
+    responses(
+        (status = 200, description = "Messages produced", body = BatchProduceResponse),
+        (status = 400, description = "Invalid request"),
+        (status = 404, description = "Topic not found"),
+        (status = 500, description = "Internal server error")
+    ),
+    tag = "produce"
+)]
+pub async fn produce_batch(
+    State(state): State<AppState>,
+    Json(req): Json<BatchProduceRequest>,
+) -> Result<Json<BatchProduceResponse>, StatusCode> {
+    // Validate topic exists
+    let topic = state
+        .metadata
+        .get_topic(&req.topic)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+        .ok_or(StatusCode::NOT_FOUND)?;
+
+    // If WriterPool is available, write directly (unified server mode)
+    if let Some(writer_pool) = &state.writer_pool {
+        let mut results = Vec::with_capacity(req.records.len());
+
+        // Group records by partition for efficient batching
+        let mut by_partition: HashMap<u32, Vec<(usize, &BatchRecord)>> = HashMap::new();
+        for (idx, record) in req.records.iter().enumerate() {
+            let partition = record.partition.unwrap_or(idx as u32 % topic.partition_count);
+            if partition >= topic.partition_count {
+                return Err(StatusCode::BAD_REQUEST);
+            }
+            by_partition.entry(partition).or_default().push((idx, record));
+        }
+
+        // Write to each partition
+        for (partition, records) in by_partition {
+            let writer = writer_pool
+                .get_writer(&req.topic, partition)
+                .await
+                .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+            let mut writer_guard = writer.lock().await;
+            let timestamp = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_millis() as u64;
+
+            for (_idx, record) in records {
+                let key = record.key.as_deref().map(|k| Bytes::from(k.to_string()));
+                let value = Bytes::from(record.value.clone());
+
+                let offset = writer_guard
+                    .append(key, value, timestamp)
+                    .await
+                    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+                results.push(BatchRecordResult { partition, offset });
+            }
+        }
+
+        return Ok(Json(BatchProduceResponse {
+            count: results.len(),
+            offsets: results,
         }));
     }
 

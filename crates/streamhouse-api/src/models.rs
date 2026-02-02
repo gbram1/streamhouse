@@ -219,3 +219,31 @@ pub struct CommitOffsetRequest {
 pub struct CommitOffsetResponse {
     pub success: bool,
 }
+
+// Batch produce models
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct BatchProduceRequest {
+    pub topic: String,
+    pub records: Vec<BatchRecord>,
+}
+
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct BatchRecord {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub key: Option<String>,
+    pub value: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub partition: Option<u32>,
+}
+
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct BatchProduceResponse {
+    pub count: usize,
+    pub offsets: Vec<BatchRecordResult>,
+}
+
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct BatchRecordResult {
+    pub partition: u32,
+    pub offset: u64,
+}
