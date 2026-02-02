@@ -2691,3 +2691,5 @@
 [2m2026-02-02T03:01:27.630200Z[0m [32m INFO[0m [2mstreamhouse_storage::writer_pool[0m[2m:[0m Background flush completed [3mflushed[0m[2m=[0m1 [3merrors[0m[2m=[0m0 [3mtotal_writers[0m[2m=[0m1
 [2m2026-02-02T03:01:32.629315Z[0m [34mDEBUG[0m [2mstreamhouse_storage::writer_pool[0m[2m:[0m Flushing partition writer [3mtopic[0m[2m=[0mevents [3mpartition[0m[2m=[0m0
 [2m2026-02-02T03:01:32.629368Z[0m [32m INFO[0m [2mstreamhouse_storage::writer_pool[0m[2m:[0m Background flush completed [3mflushed[0m[2m=[0m1 [3merrors[0m[2m=[0m0 [3mtotal_writers[0m[2m=[0m1
+[2m2026-02-02T03:01:37.630823Z[0m [34mDEBUG[0m [2mstreamhouse_storage::writer_pool[0m[2m:[0m Flushing partition writer [3mtopic[0m[2m=[0mevents [3mpartition[0m[2m=[0m0
+[2m2026-02-02T03:01:37.630854Z[0m [32m INFO[0m [2mstreamhouse_storage::writer_pool[0m[2m:[0m Background flush completed [3mflushed[0m[2m=[0m1 [3merrors[0m[2m=[0m0 [3mtotal_writers[0m[2m=[0m1
