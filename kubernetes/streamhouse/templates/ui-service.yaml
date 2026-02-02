@@ -1,0 +1,17 @@
+{{- if .Values.ui.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "streamhouse.fullname" . }}-ui
+  labels:
+    {{- include "streamhouse.ui.labels" . | nindent 4 }}
+spec:
+  type: {{ .Values.ui.service.type }}
+  ports:
+    - port: {{ .Values.ui.config.port }}
+      targetPort: http
+      protocol: TCP
+      name: http
+  selector:
+    {{- include "streamhouse.ui.selectorLabels" . | nindent 4 }}
+{{- end }}

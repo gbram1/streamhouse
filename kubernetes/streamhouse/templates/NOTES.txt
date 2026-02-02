@@ -1,0 +1,42 @@
+🏠 StreamHouse has been deployed!
+
+{{- if .Values.ingress.enabled }}
+1. Access the StreamHouse UI at:
+{{- range .Values.ingress.hosts }}
+   http{{ if $.Values.ingress.tls }}s{{ end }}://{{ .host }}
+{{- end }}
+
+{{- else }}
+1. Get the application URLs by running these commands:
+
+   # StreamHouse API
+   kubectl port-forward svc/{{ include "streamhouse.fullname" . }}-agent {{ .Values.agent.config.httpPort }}:{{ .Values.agent.config.httpPort }} -n {{ .Release.Namespace }}
+   echo "API available at http://localhost:{{ .Values.agent.config.httpPort }}/api/v1"
+
+   # StreamHouse UI
+   kubectl port-forward svc/{{ include "streamhouse.fullname" . }}-ui 3000:{{ .Values.ui.config.port }} -n {{ .Release.Namespace }}
+   echo "UI available at http://localhost:3000"
+
+   {{- if .Values.schemaRegistry.enabled }}
+   # Schema Registry
+   kubectl port-forward svc/{{ include "streamhouse.fullname" . }}-schema-registry {{ .Values.schemaRegistry.config.port }}:{{ .Values.schemaRegistry.config.port }} -n {{ .Release.Namespace }}
+   echo "Schema Registry available at http://localhost:{{ .Values.schemaRegistry.config.port }}"
+   {{- end }}
+{{- end }}
+
+2. Check the status of your deployment:
+   kubectl get pods -n {{ .Release.Namespace }}
+
+3. View agent logs:
+   kubectl logs -f {{ include "streamhouse.fullname" . }}-agent-0 -n {{ .Release.Namespace }}
+
+4. Health check:
+   kubectl exec -it {{ include "streamhouse.fullname" . }}-agent-0 -n {{ .Release.Namespace }} -- curl -s localhost:{{ .Values.agent.config.httpPort }}/health
+
+{{- if .Values.monitoring.serviceMonitor.enabled }}
+
+📊 Prometheus ServiceMonitor is enabled.
+   Ensure Prometheus Operator is installed and configured to scrape the {{ .Release.Namespace }} namespace.
+{{- end }}
+
+📚 Documentation: https://github.com/streamhouse/streamhouse/blob/main/docs/KUBERNETES.md

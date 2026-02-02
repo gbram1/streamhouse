@@ -1,0 +1,35 @@
+{{- if .Values.agent.pdb.enabled }}
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "streamhouse.fullname" . }}-agent
+  labels:
+    {{- include "streamhouse.agent.labels" . | nindent 4 }}
+spec:
+  {{- if .Values.agent.pdb.minAvailable }}
+  minAvailable: {{ .Values.agent.pdb.minAvailable }}
+  {{- else }}
+  maxUnavailable: {{ .Values.agent.pdb.maxUnavailable | default 1 }}
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "streamhouse.agent.selectorLabels" . | nindent 6 }}
+{{- end }}
+---
+{{- if and .Values.schemaRegistry.enabled .Values.schemaRegistry.pdb.enabled }}
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "streamhouse.fullname" . }}-schema-registry
+  labels:
+    {{- include "streamhouse.schemaRegistry.labels" . | nindent 4 }}
+spec:
+  {{- if .Values.schemaRegistry.pdb.minAvailable }}
+  minAvailable: {{ .Values.schemaRegistry.pdb.minAvailable }}
+  {{- else }}
+  maxUnavailable: {{ .Values.schemaRegistry.pdb.maxUnavailable | default 1 }}
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "streamhouse.schemaRegistry.selectorLabels" . | nindent 6 }}
+{{- end }}

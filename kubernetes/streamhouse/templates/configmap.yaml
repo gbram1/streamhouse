@@ -1,0 +1,37 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "streamhouse.fullname" . }}-config
+  labels:
+    {{- include "streamhouse.labels" . | nindent 4 }}
+data:
+  # Agent configuration
+  AGENT_GROUP: {{ .Values.agent.config.agentGroup | quote }}
+  GRPC_PORT: {{ .Values.agent.config.grpcPort | quote }}
+  HTTP_PORT: {{ .Values.agent.config.httpPort | quote }}
+  RUST_LOG: {{ .Values.agent.config.logLevel | quote }}
+
+  # S3 configuration
+  S3_BUCKET: {{ include "streamhouse.s3.bucket" . | quote }}
+  S3_REGION: {{ .Values.agent.storage.region | quote }}
+  {{- if or .Values.minio.enabled .Values.agent.storage.endpoint }}
+  S3_ENDPOINT: {{ include "streamhouse.s3.endpoint" . | quote }}
+  {{- end }}
+  S3_PATH_STYLE: {{ .Values.agent.storage.pathStyle | quote }}
+
+  # WAL configuration
+  WAL_ENABLED: {{ .Values.agent.wal.enabled | quote }}
+  WAL_SYNC_POLICY: {{ .Values.agent.wal.syncPolicy | quote }}
+  WAL_SYNC_INTERVAL_MS: {{ .Values.agent.wal.syncIntervalMs | quote }}
+
+  # Throttling configuration
+  THROTTLE_ENABLED: {{ .Values.agent.throttle.enabled | quote }}
+  THROTTLE_PUT_RATE: {{ .Values.agent.throttle.putRate | quote }}
+  THROTTLE_GET_RATE: {{ .Values.agent.throttle.getRate | quote }}
+  THROTTLE_DELETE_RATE: {{ .Values.agent.throttle.deleteRate | quote }}
+
+  # Schema Registry configuration
+  {{- if .Values.schemaRegistry.enabled }}
+  SCHEMA_REGISTRY_URL: "http://{{ include "streamhouse.fullname" . }}-schema-registry:{{ .Values.schemaRegistry.config.port }}"
+  SCHEMA_REGISTRY_COMPATIBILITY: {{ .Values.schemaRegistry.config.compatibilityLevel | quote }}
+  {{- end }}

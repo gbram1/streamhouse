@@ -1,0 +1,174 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ include "streamhouse.fullname" . }}-agent
+  labels:
+    {{- include "streamhouse.agent.labels" . | nindent 4 }}
+  {{- with .Values.commonAnnotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  serviceName: {{ include "streamhouse.fullname" . }}-agent-headless
+  replicas: {{ .Values.agent.replicaCount }}
+  podManagementPolicy: Parallel
+  selector:
+    matchLabels:
+      {{- include "streamhouse.agent.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "streamhouse.agent.selectorLabels" . | nindent 8 }}
+      annotations:
+        checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+        checksum/secret: {{ include (print $.Template.BasePath "/secret.yaml") . | sha256sum }}
+    spec:
+      {{- with .Values.global.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      serviceAccountName: {{ include "streamhouse.serviceAccountName" . }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      containers:
+        - name: agent
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          image: {{ include "streamhouse.image" (dict "repository" .Values.agent.image.repository "tag" .Values.agent.image.tag "Chart" .Chart) }}
+          imagePullPolicy: {{ .Values.agent.image.pullPolicy }}
+          ports:
+            - name: grpc
+              containerPort: {{ .Values.agent.config.grpcPort }}
+              protocol: TCP
+            - name: http
+              containerPort: {{ .Values.agent.config.httpPort }}
+              protocol: TCP
+          env:
+            # Agent identity (uses pod name for uniqueness)
+            - name: AGENT_ID
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: AGENT_ADDRESS
+              value: "$(AGENT_ID).{{ include "streamhouse.fullname" . }}-agent-headless:{{ .Values.agent.config.grpcPort }}"
+            - name: AGENT_GROUP
+              value: {{ .Values.agent.config.agentGroup | quote }}
+            # Database connection
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "streamhouse.fullname" . }}-secret
+                  key: database-url
+            # S3 configuration
+            - name: S3_BUCKET
+              value: {{ include "streamhouse.s3.bucket" . | quote }}
+            - name: S3_REGION
+              value: {{ .Values.agent.storage.region | quote }}
+            {{- if or .Values.minio.enabled .Values.agent.storage.endpoint }}
+            - name: S3_ENDPOINT
+              value: {{ include "streamhouse.s3.endpoint" . | quote }}
+            {{- end }}
+            {{- if .Values.agent.storage.pathStyle }}
+            - name: S3_PATH_STYLE
+              value: "true"
+            {{- end }}
+            # AWS credentials (from secret)
+            - name: AWS_ACCESS_KEY_ID
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "streamhouse.fullname" . }}-secret
+                  key: aws-access-key-id
+            - name: AWS_SECRET_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "streamhouse.fullname" . }}-secret
+                  key: aws-secret-access-key
+            # WAL configuration
+            - name: WAL_ENABLED
+              value: {{ .Values.agent.wal.enabled | quote }}
+            - name: WAL_SYNC_POLICY
+              value: {{ .Values.agent.wal.syncPolicy | quote }}
+            - name: WAL_SYNC_INTERVAL_MS
+              value: {{ .Values.agent.wal.syncIntervalMs | quote }}
+            - name: WAL_DIR
+              value: "/data/wal"
+            # Throttling configuration
+            - name: THROTTLE_ENABLED
+              value: {{ .Values.agent.throttle.enabled | quote }}
+            - name: THROTTLE_PUT_RATE
+              value: {{ .Values.agent.throttle.putRate | quote }}
+            - name: THROTTLE_GET_RATE
+              value: {{ .Values.agent.throttle.getRate | quote }}
+            - name: THROTTLE_DELETE_RATE
+              value: {{ .Values.agent.throttle.deleteRate | quote }}
+            # Ports
+            - name: GRPC_PORT
+              value: {{ .Values.agent.config.grpcPort | quote }}
+            - name: HTTP_PORT
+              value: {{ .Values.agent.config.httpPort | quote }}
+            # Logging
+            - name: RUST_LOG
+              value: {{ .Values.agent.config.logLevel | quote }}
+            # Prometheus metrics
+            {{- if .Values.monitoring.serviceMonitor.enabled }}
+            - name: PROMETHEUS_URL
+              value: "http://prometheus-operated:9090"
+            {{- end }}
+          livenessProbe:
+            httpGet:
+              path: /live
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 3
+          resources:
+            {{- toYaml .Values.agent.resources | nindent 12 }}
+          volumeMounts:
+            - name: wal-data
+              mountPath: /data/wal
+            - name: tmp
+              mountPath: /tmp
+        {{- with .Values.agent.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.agent.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.agent.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      volumes:
+        - name: tmp
+          emptyDir: {}
+  {{- if .Values.agent.persistence.enabled }}
+  volumeClaimTemplates:
+    - metadata:
+        name: wal-data
+        labels:
+          {{- include "streamhouse.agent.labels" . | nindent 10 }}
+      spec:
+        accessModes:
+          - {{ .Values.agent.persistence.accessMode }}
+        {{- if .Values.agent.persistence.storageClass }}
+        storageClassName: {{ .Values.agent.persistence.storageClass }}
+        {{- end }}
+        resources:
+          requests:
+            storage: {{ .Values.agent.persistence.size }}
+  {{- else }}
+      volumes:
+        - name: wal-data
+          emptyDir: {}
+  {{- end }}
