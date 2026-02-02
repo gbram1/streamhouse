@@ -10,6 +10,101 @@ use chrono::{DateTime, Utc};
 use crate::{models::*, AppState};
 use streamhouse_metadata::TopicConfig;
 
+/// Decode message value, handling Avro Object Container format
+/// Returns JSON string if Avro, otherwise returns raw string
+fn decode_message_value(data: &[u8]) -> String {
+    use apache_avro::{types::Value, Reader};
+
+    // Check for Confluent wire format: [0x00][4-byte schema ID][payload]
+    let payload = if data.len() >= 5 && data[0] == 0 {
+        &data[5..] // Skip Confluent header
+    } else {
+        data
+    };
+
+    // Check for Avro Object Container magic bytes "Obj"
+    if payload.len() >= 4 && &payload[0..3] == b"Obj" {
+        if let Ok(reader) = Reader::new(payload) {
+            let mut records: Vec<serde_json::Value> = Vec::new();
+            for value in reader {
+                if let Ok(avro_value) = value {
+                    if let Some(json) = avro_to_json(&avro_value) {
+                        records.push(json);
+                    }
+                }
+            }
+            // Return first record if single, otherwise array
+            if records.len() == 1 {
+                return serde_json::to_string_pretty(&records[0]).unwrap_or_default();
+            } else if !records.is_empty() {
+                return serde_json::to_string_pretty(&records).unwrap_or_default();
+            }
+        }
+    }
+
+    // Try parsing as JSON
+    if let Ok(json) = serde_json::from_slice::<serde_json::Value>(data) {
+        return serde_json::to_string_pretty(&json).unwrap_or_default();
+    }
+
+    // Fallback to lossy UTF-8
+    String::from_utf8_lossy(data).to_string()
+}
+
+/// Convert Avro Value to JSON Value
+fn avro_to_json(value: &apache_avro::types::Value) -> Option<serde_json::Value> {
+    use apache_avro::types::Value;
+
+    match value {
+        Value::Null => Some(serde_json::Value::Null),
+        Value::Boolean(b) => Some(serde_json::Value::Bool(*b)),
+        Value::Int(i) => Some(serde_json::Value::Number((*i).into())),
+        Value::Long(l) => Some(serde_json::Value::Number((*l).into())),
+        Value::Float(f) => serde_json::Number::from_f64(*f as f64).map(serde_json::Value::Number),
+        Value::Double(d) => serde_json::Number::from_f64(*d).map(serde_json::Value::Number),
+        Value::String(s) => Some(serde_json::Value::String(s.clone())),
+        Value::Bytes(b) => Some(serde_json::Value::String(hex_encode(b))),
+        Value::Fixed(_, b) => Some(serde_json::Value::String(hex_encode(b))),
+        Value::Enum(_, s) => Some(serde_json::Value::String(s.clone())),
+        Value::Union(_, inner) => avro_to_json(inner),
+        Value::Array(arr) => {
+            let items: Vec<_> = arr.iter().filter_map(avro_to_json).collect();
+            Some(serde_json::Value::Array(items))
+        }
+        Value::Map(map) => {
+            let obj: serde_json::Map<String, serde_json::Value> = map
+                .iter()
+                .filter_map(|(k, v)| avro_to_json(v).map(|jv| (k.clone(), jv)))
+                .collect();
+            Some(serde_json::Value::Object(obj))
+        }
+        Value::Record(fields) => {
+            let obj: serde_json::Map<String, serde_json::Value> = fields
+                .iter()
+                .filter_map(|(k, v)| avro_to_json(v).map(|jv| (k.clone(), jv)))
+                .collect();
+            Some(serde_json::Value::Object(obj))
+        }
+        Value::Date(d) => Some(serde_json::Value::Number((*d).into())),
+        Value::TimeMillis(t) => Some(serde_json::Value::Number((*t).into())),
+        Value::TimeMicros(t) => Some(serde_json::Value::Number((*t).into())),
+        Value::TimestampMillis(t) => Some(serde_json::Value::Number((*t).into())),
+        Value::TimestampMicros(t) => Some(serde_json::Value::Number((*t).into())),
+        Value::Decimal(d) => Some(serde_json::Value::String(format!("{:?}", d))),
+        Value::Uuid(u) => Some(serde_json::Value::String(u.to_string())),
+        _ => None,
+    }
+}
+
+fn hex_encode(data: &[u8]) -> String {
+    use std::fmt::Write;
+    let mut s = String::with_capacity(data.len() * 2);
+    for byte in data {
+        write!(s, "{:02x}", byte).unwrap();
+    }
+    s
+}
+
 fn format_timestamp(timestamp_millis: i64) -> String {
     // Convert milliseconds to seconds
     let timestamp_secs = timestamp_millis / 1000;
@@ -364,7 +459,7 @@ pub async fn get_topic_messages(
                 partition: partition_id,
                 offset: record.offset,
                 key: record.key.map(|k| String::from_utf8_lossy(&k).to_string()),
-                value: String::from_utf8_lossy(&record.value).to_string(),
+                value: decode_message_value(&record.value),
                 timestamp: record.timestamp as i64,
             });
         }
