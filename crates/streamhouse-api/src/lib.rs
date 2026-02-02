@@ -53,6 +53,7 @@ pub fn create_router(state: AppState) -> Router {
         .route("/agents/:id/metrics", get(handlers::metrics::get_agent_metrics))
         // Produce
         .route("/produce", post(handlers::produce::produce))
+        .route("/produce/batch", post(handlers::produce::produce_batch))
         // Consume
         .route("/consume", get(handlers::consume::consume))
         // Consumer Groups
@@ -129,6 +130,7 @@ pub async fn serve(router: Router, port: u16) -> Result<(), Box<dyn std::error::
         handlers::agents::list_agents,
         handlers::agents::get_agent,
         handlers::produce::produce,
+        handlers::produce::produce_batch,
         handlers::consume::consume,
         handlers::consumer_groups::list_consumer_groups,
         handlers::consumer_groups::get_consumer_group,
@@ -149,6 +151,10 @@ pub async fn serve(router: Router, port: u16) -> Result<(), Box<dyn std::error::
         models::Partition,
         models::ProduceRequest,
         models::ProduceResponse,
+        models::BatchProduceRequest,
+        models::BatchRecord,
+        models::BatchProduceResponse,
+        models::BatchRecordResult,
         models::ConsumeResponse,
         models::ConsumedRecord,
         models::ConsumerGroupInfo,
