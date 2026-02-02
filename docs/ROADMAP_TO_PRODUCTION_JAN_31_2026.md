@@ -1,7 +1,7 @@
 # StreamHouse: Complete Roadmap to Production & Adoption
 **Date:** February 2, 2026
-**Status:** ✅ Phase 9 (Schema Persistence), ✅ Phase 12.4.1-2 (WAL, S3 Throttling), ⚠️ Phase 13 (Web UI - 90% complete), ✅ Phase 14 (CLI), ✅ Phase 18.5 (High-Perf Client - 162K msg/s)
-**Next:** Phase 18.6 (Production Demo App) or Phase 12.4.3-4 (Runbooks & Monitoring)
+**Status:** ✅ Phase 9 (Schema Persistence), ✅ Phase 12.4.1-2 (WAL, S3 Throttling), ⚠️ Phase 13 (Web UI - 90% complete), ✅ Phase 14 (CLI), ✅ Phase 18.5 (High-Perf Client - 162K msg/s), ✅ Phase 18.6 (Production Demo)
+**Next:** Phase 12.4.3-4 (Runbooks & Monitoring) or Phase 15.1 (Helm Charts)
 
 ---
 
@@ -1796,8 +1796,8 @@ Create comprehensive benchmarks:
 
 **Priority:** HIGH (for documentation and onboarding)
 **Effort:** 8 hours
-**Status:** NOT STARTED
-**Gap:** No realistic example showing how production users would integrate StreamHouse
+**Status:** ✅ COMPLETE (February 2, 2026)
+**Location:** `examples/production-demo/`
 
 ### Why This Matters
 
