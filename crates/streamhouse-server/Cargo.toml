@@ -14,6 +14,7 @@ streamhouse-api = { path = "../streamhouse-api" }
 streamhouse-schema-registry = { path = "../streamhouse-schema-registry" }
 streamhouse-client = { path = "../streamhouse-client" }
 streamhouse-observability = { path = "../streamhouse-observability" }
+streamhouse-agent = { path = "../streamhouse-agent" }
 
 # gRPC
 tonic = { workspace = true }

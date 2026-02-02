@@ -135,3 +135,31 @@ export function useUpdateTopicConfig() {
     },
   });
 }
+
+// Fetch all partitions across all topics
+export function useAllPartitions() {
+  return useQuery({
+    queryKey: ['all-partitions'],
+    queryFn: async () => {
+      // First get all topics
+      const topics = await apiClient.get<any[]>(API_ENDPOINTS.topics);
+
+      // Then fetch partitions for each topic
+      const allPartitions = await Promise.all(
+        topics.map(async (topic) => {
+          try {
+            const partitions = await apiClient.get<any[]>(
+              API_ENDPOINTS.topicPartitions(topic.name)
+            );
+            return partitions.map(transformPartition);
+          } catch {
+            return [];
+          }
+        })
+      );
+
+      // Flatten and return
+      return allPartitions.flat();
+    },
+  });
+}

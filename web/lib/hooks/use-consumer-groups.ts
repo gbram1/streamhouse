@@ -6,11 +6,29 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { apiClient, API_ENDPOINTS } from '../api-client';
 import type { ConsumerGroup, ConsumerGroupDetail, ResetOffsetsRequest } from '../types';
 
+// API response shape (what backend returns)
+interface ConsumerGroupApiResponse {
+  groupId: string;
+  topics: string[];
+  totalLag: number;
+  partitionCount: number;
+}
+
 // Fetch all consumer groups
 export function useConsumerGroups() {
   return useQuery({
     queryKey: ['consumer-groups'],
-    queryFn: () => apiClient.get<ConsumerGroup[]>(API_ENDPOINTS.consumerGroups),
+    queryFn: async () => {
+      const data = await apiClient.get<ConsumerGroupApiResponse[]>(API_ENDPOINTS.consumerGroups);
+      // Transform API response to match UI expected format
+      return data.map((group): ConsumerGroup => ({
+        id: group.groupId,
+        state: 'stable', // API doesn't provide state yet
+        memberCount: group.partitionCount, // Use partition count as proxy
+        totalLag: Math.max(0, group.totalLag), // Ensure non-negative
+        lagTrend: 'stable', // API doesn't provide trend yet
+      }));
+    },
   });
 }
 

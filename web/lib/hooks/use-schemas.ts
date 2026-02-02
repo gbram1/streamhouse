@@ -6,11 +6,60 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { apiClient, API_ENDPOINTS } from '../api-client';
 import type { Schema, SchemaSubject, SchemaRegistrationRequest } from '../types';
 
-// Fetch all subjects
+// API response for schema version
+interface SchemaVersionResponse {
+  subject: string;
+  version: number;
+  id: number;
+  schema: string;
+  schemaType: 'AVRO' | 'PROTOBUF' | 'JSON';
+  references?: unknown[];
+}
+
+// Fetch all subjects with details
 export function useSchemaSubjects() {
   return useQuery({
     queryKey: ['schema-subjects'],
-    queryFn: () => apiClient.get<SchemaSubject[]>(API_ENDPOINTS.schemaSubjects),
+    queryFn: async () => {
+      // First, get all subject names
+      const subjects = await apiClient.get<string[]>(API_ENDPOINTS.schemaSubjects);
+
+      // Then fetch details for each subject
+      const subjectDetails = await Promise.all(
+        subjects.map(async (subject): Promise<SchemaSubject> => {
+          try {
+            // Get latest version details
+            const latest = await apiClient.get<SchemaVersionResponse>(
+              `/schemas/subjects/${encodeURIComponent(subject)}/versions/latest`
+            );
+
+            // Get all versions to count them
+            const versions = await apiClient.get<number[]>(
+              API_ENDPOINTS.schemaSubjectVersions(subject)
+            );
+
+            return {
+              subject: subject,
+              latestVersion: latest.version,
+              schemaType: latest.schemaType,
+              compatibilityMode: 'BACKWARD', // Default, API doesn't return this yet
+              versionCount: versions.length,
+            };
+          } catch (error) {
+            // Return minimal info if fetching details fails
+            return {
+              subject: subject,
+              latestVersion: 1,
+              schemaType: 'AVRO',
+              compatibilityMode: 'BACKWARD',
+              versionCount: 1,
+            };
+          }
+        })
+      );
+
+      return subjectDetails;
+    },
   });
 }
 

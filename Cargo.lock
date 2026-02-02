@@ -3899,6 +3899,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sqlx",
+ "streamhouse-agent",
  "streamhouse-api",
  "streamhouse-client",
  "streamhouse-core",

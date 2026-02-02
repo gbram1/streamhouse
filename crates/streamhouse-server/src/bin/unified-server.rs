@@ -305,6 +305,101 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         });
     }
 
+    // Start partition assignment
+    // This allows the agent to acquire leases for partitions and manage them
+    {
+        let metadata_for_assigner = metadata.clone();
+        let agent_id_for_assigner = agent_id.clone();
+
+        tokio::spawn(async move {
+            // Wait a bit for server to fully start and topics to be created
+            tokio::time::sleep(std::time::Duration::from_secs(10)).await;
+
+            loop {
+                // Get current list of topics
+                let topics = match metadata_for_assigner.list_topics().await {
+                    Ok(t) => t,
+                    Err(e) => {
+                        tracing::warn!("Failed to list topics for partition assignment: {}", e);
+                        tokio::time::sleep(std::time::Duration::from_secs(30)).await;
+                        continue;
+                    }
+                };
+
+                if topics.is_empty() {
+                    tracing::debug!("No topics to manage, waiting...");
+                    tokio::time::sleep(std::time::Duration::from_secs(30)).await;
+                    continue;
+                }
+
+                let managed_topics: Vec<String> = topics.iter().map(|t| t.name.clone()).collect();
+                tracing::info!(
+                    "📋 Managing {} topics for partition assignment: {:?}",
+                    managed_topics.len(),
+                    managed_topics
+                );
+
+                // Create lease manager for this agent (agent_id first, then metadata_store)
+                let lease_manager = std::sync::Arc::new(streamhouse_agent::LeaseManager::new(
+                    agent_id_for_assigner.clone(),
+                    metadata_for_assigner.clone(),
+                ));
+
+                // Start lease renewal in background (spawns its own task)
+                let lease_manager_for_renewal = lease_manager.clone();
+                tokio::spawn(async move {
+                    if let Err(e) = lease_manager_for_renewal.start_renewal_task().await {
+                        tracing::warn!("Lease renewal task ended with error: {}", e);
+                    }
+                });
+
+                // Create partition assigner with all 5 parameters:
+                // (agent_id, agent_group, metadata_store, lease_manager, topics)
+                let assigner = streamhouse_agent::PartitionAssigner::new(
+                    agent_id_for_assigner.clone(),
+                    "default".to_string(), // agent_group
+                    metadata_for_assigner.clone(),
+                    lease_manager.clone(),
+                    managed_topics.clone(),
+                );
+
+                // Start the partition assigner background task
+                if let Err(e) = assigner.start().await {
+                    tracing::warn!("Failed to start partition assigner: {}", e);
+                } else {
+                    tracing::info!(
+                        "✅ Partition assigner started for {} topics",
+                        managed_topics.len()
+                    );
+                    // Keep running - the assigner has its own internal loop
+                    // Just check periodically if new topics were added
+                    loop {
+                        tokio::time::sleep(std::time::Duration::from_secs(60)).await;
+
+                        // Check if there are new topics
+                        let current_topics = match metadata_for_assigner.list_topics().await {
+                            Ok(t) => t,
+                            Err(_) => continue,
+                        };
+
+                        let current_topic_names: Vec<String> =
+                            current_topics.iter().map(|t| t.name.clone()).collect();
+
+                        // If topic list changed, restart assigner with new topics
+                        if current_topic_names != managed_topics {
+                            tracing::info!(
+                                "Topic list changed, restarting partition assigner"
+                            );
+                            let _ = assigner.stop().await;
+                            break;
+                        }
+                    }
+                }
+            }
+        });
+    }
+    tracing::info!("🔄 Partition assignment background task started");
+
     // Create REST API state (use WriterPool directly in unified server)
     let api_state = streamhouse_api::AppState {
         metadata: metadata.clone(),
