@@ -16,16 +16,20 @@ export interface OverviewMetrics {
 // Topics
 export interface Topic {
   name: string;
-  partitionCount: number;
+  partitionCount?: number;  // May come as partition_count from API
+  partition_count?: number;  // API uses snake_case
+  partitions?: number;  // From create request
   retentionMs?: number;
-  messageCount: number;
-  sizeBytes: number;
-  messagesPerSecond: number;
-  config: Record<string, string>;
-  createdAt: number;
+  replication_factor?: number;
+  messageCount?: number;
+  sizeBytes?: number;
+  messagesPerSecond?: number;
+  config?: Record<string, string>;
+  createdAt?: number | string;  // May be timestamp or ISO string
+  created_at?: string;  // API uses snake_case and ISO format
 }
 
-export interface TopicDetail extends Topic {
+export interface TopicDetail extends Omit<Topic, 'partitions'> {
   partitions: Partition[];
 }
 
@@ -44,8 +48,8 @@ export interface Message {
   offset: number;
   partition: number;
   timestamp: number;
-  key?: number[] | null;
-  value: number[] | null;
+  key?: string | number[] | null;
+  value: string | number[] | null;
   headers?: Record<string, string>;
   schemaId?: number;
 }
@@ -186,7 +190,8 @@ export interface WSAlertMessage {
 // API Response Types
 export interface TopicCreateRequest {
   name: string;
-  partitionCount: number;
+  partitions: number;  // Backend expects 'partitions' not 'partitionCount'
+  replication_factor?: number;
   retentionMs?: number;
   config?: Record<string, string>;
 }

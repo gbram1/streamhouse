@@ -3,7 +3,7 @@
 use axum::{extract::State, http::StatusCode, Json};
 use std::collections::HashSet;
 
-use crate::models::{ConsumerGroupDetail, ConsumerGroupInfo, ConsumerGroupLag, ConsumerOffsetInfo};
+use crate::models::{CommitOffsetRequest, CommitOffsetResponse, ConsumerGroupDetail, ConsumerGroupInfo, ConsumerGroupLag, ConsumerOffsetInfo};
 use crate::AppState;
 
 #[utoipa::path(
@@ -177,4 +177,45 @@ pub async fn get_consumer_group_lag(
         partition_count,
         topics: topics.into_iter().collect(),
     }))
+}
+
+#[utoipa::path(
+    post,
+    path = "/api/v1/consumer-groups/commit",
+    request_body = CommitOffsetRequest,
+    responses(
+        (status = 200, description = "Offset committed successfully", body = CommitOffsetResponse),
+        (status = 400, description = "Invalid request"),
+        (status = 404, description = "Topic or partition not found")
+    ),
+    tag = "consumer-groups"
+)]
+pub async fn commit_offset(
+    State(state): State<AppState>,
+    Json(req): Json<CommitOffsetRequest>,
+) -> Result<Json<CommitOffsetResponse>, StatusCode> {
+    // Validate topic exists
+    state
+        .metadata
+        .get_topic(&req.topic)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+        .ok_or(StatusCode::NOT_FOUND)?;
+
+    // Validate partition exists
+    state
+        .metadata
+        .get_partition(&req.topic, req.partition)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+        .ok_or(StatusCode::NOT_FOUND)?;
+
+    // Commit the offset
+    state
+        .metadata
+        .commit_offset(&req.group_id, &req.topic, req.partition, req.offset, None)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    Ok(Json(CommitOffsetResponse { success: true }))
 }

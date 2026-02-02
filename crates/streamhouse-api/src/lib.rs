@@ -68,6 +68,10 @@ pub fn create_router(state: AppState) -> Router {
             "/consumer-groups/:group_id/lag",
             get(handlers::consumer_groups::get_consumer_group_lag),
         )
+        .route(
+            "/consumer-groups/commit",
+            post(handlers::consumer_groups::commit_offset),
+        )
         // Metrics
         .route("/metrics", get(handlers::metrics::get_metrics))
         .route("/metrics/throughput", get(handlers::metrics::get_throughput_metrics))
@@ -129,6 +133,7 @@ pub async fn serve(router: Router, port: u16) -> Result<(), Box<dyn std::error::
         handlers::consumer_groups::list_consumer_groups,
         handlers::consumer_groups::get_consumer_group,
         handlers::consumer_groups::get_consumer_group_lag,
+        handlers::consumer_groups::commit_offset,
         handlers::metrics::get_metrics,
         handlers::metrics::get_storage_metrics,
         handlers::metrics::get_throughput_metrics,
@@ -159,6 +164,8 @@ pub async fn serve(router: Router, port: u16) -> Result<(), Box<dyn std::error::
         models::AgentMetricsResponse,
         models::TimeRangeParams,
         models::MessageQueryParams,
+        models::CommitOffsetRequest,
+        models::CommitOffsetResponse,
     )),
     tags(
         (name = "topics", description = "Topic management"),

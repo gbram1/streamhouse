@@ -53,7 +53,7 @@ export default function TopicsPage() {
             <Activity className="h-5 w-5 text-muted-foreground" />
           </div>
           <div className="mt-2 text-3xl font-bold">
-            {isLoading ? '...' : topics?.reduce((acc, t) => acc + t.partitionCount, 0) || 0}
+            {isLoading ? '...' : topics?.reduce((acc, t) => acc + (t.partitionCount || 0), 0) || 0}
           </div>
         </Card>
 
@@ -65,7 +65,7 @@ export default function TopicsPage() {
           <div className="mt-2 text-3xl font-bold">
             {isLoading
               ? '...'
-              : formatCompactNumber(topics?.reduce((acc, t) => acc + t.messageCount, 0) || 0)}
+              : formatCompactNumber(topics?.reduce((acc, t) => acc + (t.messageCount || 0), 0) || 0)}
           </div>
         </Card>
 
@@ -77,7 +77,7 @@ export default function TopicsPage() {
           <div className="mt-2 text-3xl font-bold">
             {isLoading
               ? '...'
-              : formatBytes(topics?.reduce((acc, t) => acc + t.sizeBytes, 0) || 0)}
+              : formatBytes(topics?.reduce((acc, t) => acc + (t.sizeBytes || 0), 0) || 0)}
           </div>
         </Card>
       </div>
@@ -159,10 +159,10 @@ export default function TopicsPage() {
                           {topic.name}
                         </Link>
                       </TableCell>
-                      <TableCell>{topic.partitionCount}</TableCell>
-                      <TableCell>{formatCompactNumber(topic.messageCount)}</TableCell>
-                      <TableCell>{formatBytes(topic.sizeBytes)}</TableCell>
-                      <TableCell>{formatCompactNumber(topic.messagesPerSecond)}</TableCell>
+                      <TableCell>{topic.partitionCount || 0}</TableCell>
+                      <TableCell>{formatCompactNumber(topic.messageCount || 0)}</TableCell>
+                      <TableCell>{formatBytes(topic.sizeBytes || 0)}</TableCell>
+                      <TableCell>{formatCompactNumber(topic.messagesPerSecond || 0)}</TableCell>
                       <TableCell>
                         {topic.retentionMs
                           ? `${Math.floor(topic.retentionMs / 86400000)}d`

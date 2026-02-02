@@ -9,6 +9,10 @@ pub struct Topic {
     pub partitions: u32,
     pub replication_factor: u32,
     pub created_at: String,
+    #[serde(default)]
+    pub message_count: u64,
+    #[serde(default)]
+    pub size_bytes: u64,
 }
 
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
@@ -199,4 +203,19 @@ pub struct MessageQueryParams {
     pub partition: Option<u32>,
     pub offset: Option<u64>,
     pub limit: Option<usize>,
+}
+
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct CommitOffsetRequest {
+    pub group_id: String,
+    pub topic: String,
+    pub partition: u32,
+    pub offset: u64,
+}
+
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct CommitOffsetResponse {
+    pub success: bool,
 }

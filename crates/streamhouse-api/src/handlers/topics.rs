@@ -35,15 +35,30 @@ pub async fn list_topics(State(state): State<AppState>) -> Result<Json<Vec<Topic
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
-    let response = topics
-        .into_iter()
-        .map(|t| Topic {
+    let mut response = Vec::new();
+    for t in topics {
+        // Calculate message count and size from segments across all partitions
+        let mut total_messages: u64 = 0;
+        let mut total_size: u64 = 0;
+
+        for partition_id in 0..t.partition_count {
+            if let Ok(segments) = state.metadata.get_segments(&t.name, partition_id).await {
+                for seg in segments {
+                    total_messages += seg.record_count as u64;
+                    total_size += seg.size_bytes;
+                }
+            }
+        }
+
+        response.push(Topic {
             name: t.name,
             partitions: t.partition_count,
             replication_factor: 1, // Not stored in metadata yet
             created_at: format_timestamp(t.created_at),
-        })
-        .collect();
+            message_count: total_messages,
+            size_bytes: total_size,
+        });
+    }
 
     Ok(Json(response))
 }
@@ -101,6 +116,8 @@ pub async fn create_topic(
         partitions: req.partitions,
         replication_factor: req.replication_factor,
         created_at: Utc::now().to_rfc3339(),
+        message_count: 0,
+        size_bytes: 0,
     };
 
     Ok((StatusCode::CREATED, Json(topic)))
@@ -129,11 +146,26 @@ pub async fn get_topic(
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
         .ok_or(StatusCode::NOT_FOUND)?;
 
+    // Calculate message count and size from segments across all partitions
+    let mut total_messages: u64 = 0;
+    let mut total_size: u64 = 0;
+
+    for partition_id in 0..topic.partition_count {
+        if let Ok(segments) = state.metadata.get_segments(&topic.name, partition_id).await {
+            for seg in segments {
+                total_messages += seg.record_count as u64;
+                total_size += seg.size_bytes;
+            }
+        }
+    }
+
     Ok(Json(Topic {
         name: topic.name,
         partitions: topic.partition_count,
         replication_factor: 1, // Not stored in metadata yet
         created_at: format_timestamp(topic.created_at),
+        message_count: total_messages,
+        size_bytes: total_size,
     }))
 }
 
@@ -236,6 +268,10 @@ pub async fn get_topic_messages(
     Path(name): Path<String>,
     Query(params): Query<MessageQueryParams>,
 ) -> Result<Json<Vec<ConsumedRecord>>, StatusCode> {
+    use bytes::Bytes;
+    use object_store::path::Path as ObjectPath;
+    use streamhouse_storage::segment::SegmentReader;
+
     // Validate topic exists
     state
         .metadata
@@ -245,21 +281,85 @@ pub async fn get_topic_messages(
         .ok_or(StatusCode::NOT_FOUND)?;
 
     // Get partition (default to 0 if not specified)
-    let _partition_id = params.partition.unwrap_or(0);
+    let partition_id = params.partition.unwrap_or(0);
 
     // Get starting offset (default to 0)
-    let _start_offset = params.offset.unwrap_or(0);
+    let start_offset = params.offset.unwrap_or(0);
 
     // Limit messages (default: 50, max: 1000)
-    let _limit = params.limit.unwrap_or(50).min(1000);
+    let limit = params.limit.unwrap_or(50).min(1000);
 
-    // TODO: Implement segment reading to fetch actual messages
-    // For MVP, return empty array until segment reader is implemented
-    // This requires:
-    // 1. Query segments from metadata store
-    // 2. Read segment data from cache or S3
-    // 3. Decode messages from segment format
-    // 4. Filter by offset range and limit
+    // Get segments for this partition
+    let segments = state
+        .metadata
+        .get_segments(&name, partition_id)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
-    Ok(Json(vec![]))
+    let mut messages = Vec::new();
+
+    // Read messages from segments
+    for segment in segments {
+        // Skip segments that are entirely before our start offset
+        if segment.end_offset < start_offset {
+            continue;
+        }
+
+        // Try to read segment from object store
+        let path = ObjectPath::from(segment.s3_key.clone());
+        let get_result = state
+            .object_store
+            .get(&path)
+            .await
+            .map_err(|e| {
+                tracing::error!("Failed to get segment from S3: {} - {}", segment.s3_key, e);
+                StatusCode::INTERNAL_SERVER_ERROR
+            })?;
+
+        let segment_bytes = get_result
+            .bytes()
+            .await
+            .map_err(|e| {
+                tracing::error!("Failed to read segment bytes: {}", e);
+                StatusCode::INTERNAL_SERVER_ERROR
+            })?;
+
+        // Parse segment and read records
+        let reader = SegmentReader::new(Bytes::from(segment_bytes.to_vec()))
+            .map_err(|e| {
+                tracing::error!("Failed to parse segment: {}", e);
+                StatusCode::INTERNAL_SERVER_ERROR
+            })?;
+
+        let records = if start_offset > segment.base_offset {
+            reader.read_from_offset(start_offset)
+        } else {
+            reader.read_all()
+        }
+        .map_err(|e| {
+            tracing::error!("Failed to read segment records: {}", e);
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?;
+
+        // Convert records to API format
+        for record in records {
+            if messages.len() >= limit {
+                break;
+            }
+
+            messages.push(ConsumedRecord {
+                partition: partition_id,
+                offset: record.offset,
+                key: record.key.map(|k| String::from_utf8_lossy(&k).to_string()),
+                value: String::from_utf8_lossy(&record.value).to_string(),
+                timestamp: record.timestamp as i64,
+            });
+        }
+
+        if messages.len() >= limit {
+            break;
+        }
+    }
+
+    Ok(Json(messages))
 }

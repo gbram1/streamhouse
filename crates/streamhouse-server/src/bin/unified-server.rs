@@ -54,6 +54,8 @@ use axum::Router;
 use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::Duration;
+#[cfg(feature = "postgres")]
+use streamhouse_metadata::PostgresMetadataStore;
 use streamhouse_metadata::{MetadataStore, SqliteMetadataStore};
 use streamhouse_schema_registry::{SchemaRegistry, SchemaRegistryApi};
 use streamhouse_server::{pb::stream_house_server::StreamHouseServer, StreamHouseService};
@@ -125,10 +127,23 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let _s3_prefix = std::env::var("STREAMHOUSE_PREFIX").unwrap_or_else(|_| "data".to_string());
 
-    // Initialize metadata store (SQLite for topics, partitions, offsets)
+    // Initialize metadata store (PostgreSQL in production, SQLite for development)
     let metadata: Arc<dyn MetadataStore> = {
-        tracing::info!("📦 Initializing SQLite metadata store at {}", metadata_path);
-        Arc::new(SqliteMetadataStore::new(&metadata_path).await?)
+        #[cfg(feature = "postgres")]
+        {
+            if let Ok(database_url) = std::env::var("DATABASE_URL") {
+                tracing::info!("📦 Initializing PostgreSQL metadata store");
+                Arc::new(PostgresMetadataStore::new(&database_url).await?)
+            } else {
+                tracing::info!("📦 Initializing SQLite metadata store at {}", metadata_path);
+                Arc::new(SqliteMetadataStore::new(&metadata_path).await?)
+            }
+        }
+        #[cfg(not(feature = "postgres"))]
+        {
+            tracing::info!("📦 Initializing SQLite metadata store at {}", metadata_path);
+            Arc::new(SqliteMetadataStore::new(&metadata_path).await?)
+        }
     };
 
     // Initialize object store (S3)
@@ -255,6 +270,40 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     };
     metadata.register_agent(agent_info).await?;
     tracing::info!("   Registered as agent: {}", agent_id);
+
+    // Spawn heartbeat task to keep agent alive
+    {
+        let metadata = metadata.clone();
+        let agent_id = agent_id.clone();
+        let address = format!("{}:{}", grpc_addr.ip(), grpc_addr.port());
+        let availability_zone = std::env::var("AVAILABILITY_ZONE")
+            .unwrap_or_else(|_| "default".to_string());
+
+        tokio::spawn(async move {
+            let mut interval = tokio::time::interval(std::time::Duration::from_secs(30));
+            loop {
+                interval.tick().await;
+                let now_ms = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap()
+                    .as_millis() as i64;
+
+                let agent_info = AgentInfo {
+                    agent_id: agent_id.clone(),
+                    address: address.clone(),
+                    availability_zone: availability_zone.clone(),
+                    agent_group: "default".to_string(),
+                    last_heartbeat: now_ms,
+                    started_at: now_ms, // Will be ignored by update
+                    metadata: std::collections::HashMap::new(),
+                };
+
+                if let Err(e) = metadata.register_agent(agent_info).await {
+                    tracing::warn!("Failed to update agent heartbeat: {}", e);
+                }
+            }
+        });
+    }
 
     // Create REST API state (use WriterPool directly in unified server)
     let api_state = streamhouse_api::AppState {
