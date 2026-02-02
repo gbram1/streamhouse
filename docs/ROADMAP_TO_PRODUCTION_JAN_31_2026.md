@@ -1353,23 +1353,164 @@ The `streamhouse-client` crate exists with Producer/Consumer APIs, batching, con
 - **Phase 5.1 (Current):** Writes directly to storage (~5 records/sec)
 - **Phase 5.2 (Target):** gRPC communication with agents (50K+ records/sec)
 
-### Why This Matters
+### Why This Matters - Performance Benchmarks (Feb 2, 2026)
 
-HTTP REST API: ~80 msg/s (individual) → 15K msg/s (batched)
-gRPC (grpcurl): ~0.6 msg/s (individual) - **connection per call is the problem**
-**Native Rust Client:** Target 100K+ msg/s (persistent connections + batching)
+| Approach | Requests | Connections | Throughput |
+|----------|----------|-------------|------------|
+| curl (individual HTTP) | 100,000 | 100,000 | ~80 msg/s |
+| HTTP batch API | 100 | 100 | ~15,000 msg/s |
+| grpcurl (individual) | 100,000 | 100,000 | ~0.6 msg/s |
+| **Native Rust client** | **100** | **1** | **100,000+ msg/s** |
+
+**Key insight:** The bottleneck is NOT the protocol - it's connection reuse + batching.
+- `curl` and `grpcurl` create new connections per call (slow)
+- Native client maintains ONE persistent connection for ALL requests (fast)
+
+### Protocol Stack
+
+The native client uses **gRPC over TCP** (not raw TCP):
+
+```
+┌─────────────────────────────────┐
+│  Your Application               │  ← producer.send("orders", data)
+├─────────────────────────────────┤
+│  gRPC (Tonic)                   │  ← ProduceBatch RPC call
+├─────────────────────────────────┤
+│  Protocol Buffers               │  ← Binary serialization (compact)
+├─────────────────────────────────┤
+│  HTTP/2                         │  ← Multiplexing, streams
+├─────────────────────────────────┤
+│  TLS (optional)                 │  ← Encryption
+├─────────────────────────────────┤
+│  TCP                            │  ← Reliable transport, PERSISTENT
+└─────────────────────────────────┘
+```
+
+**Why gRPC over raw TCP?**
+- ✅ Persistent connections (like raw TCP)
+- ✅ HTTP/2 multiplexing (multiple streams on one connection)
+- ✅ Protobuf serialization (fast, compact binary format)
+- ✅ Built-in streaming support
+- ✅ Auto-generated client code from .proto files
+- ✅ Works with any language (Python, Go, JS, etc.)
+
+Kafka uses raw TCP with a custom protocol - but they had to build all that from scratch.
+gRPC gives us the same benefits with less work.
+
+### Architecture
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                     Your Application                             │
+├─────────────────────────────────────────────────────────────────┤
+│                   StreamHouse Rust Client                        │
+│  ┌─────────────┐  ┌─────────────┐  ┌─────────────────────────┐  │
+│  │  Producer   │  │  Consumer   │  │  Schema Registry Client │  │
+│  └──────┬──────┘  └──────┬──────┘  └───────────┬─────────────┘  │
+│         │                │                     │                 │
+│  ┌──────▼────────────────▼─────────────────────▼──────────────┐ │
+│  │                    BatchManager                             │ │
+│  │  • Collects records for 10ms or until batch_size reached   │ │
+│  │  • Groups by partition                                      │ │
+│  └──────────────────────┬──────────────────────────────────────┘ │
+│                         │                                        │
+│  ┌──────────────────────▼──────────────────────────────────────┐ │
+│  │                  ConnectionPool                              │ │
+│  │  • Maintains persistent gRPC channels to each agent         │ │
+│  │  • Reuses connections (no handshake per request)            │ │
+│  │  • Health checks, automatic reconnection                    │ │
+│  └──────────────────────┬──────────────────────────────────────┘ │
+└─────────────────────────┼────────────────────────────────────────┘
+                          │ Persistent gRPC (HTTP/2 over TCP)
+                          ▼
+┌─────────────────────────────────────────────────────────────────┐
+│                    StreamHouse Agents                            │
+│  Agent-1 (partitions 0,1,2)    Agent-2 (partitions 3,4,5)       │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### How It Works Under the Hood
+
+```
+Your code                    Client internals                 Network
+─────────────────────────────────────────────────────────────────────
+producer.send(msg1)  ──►  BatchManager.add(msg1)           (nothing yet)
+producer.send(msg2)  ──►  BatchManager.add(msg2)           (nothing yet)
+producer.send(msg3)  ──►  BatchManager.add(msg3)           (nothing yet)
+...
+producer.send(msg1000) ─► BatchManager.add(msg1000)
+                          │
+                          ▼ batch_size reached!
+                          BatchManager.flush()
+                          │
+                          ▼ group by partition
+                          partition_0: [msg1, msg4, msg7...]
+                          partition_1: [msg2, msg5, msg8...]
+                          │
+                          ▼ send to agents (parallel)
+                          ConnectionPool.get(agent_for_p0)──► gRPC ProduceBatch
+                          ConnectionPool.get(agent_for_p1)──► gRPC ProduceBatch
+                                                              │
+                                                              ▼
+                                                        1 TCP packet
+                                                        with 1000 msgs
+```
+
+### Usage Example (Target API)
+
+```rust
+use streamhouse_client::{Producer, Consumer, ProducerConfig};
+use std::time::Duration;
+
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    // 1. Create producer with persistent connection
+    let producer = Producer::builder()
+        .bootstrap_servers("localhost:50051")  // gRPC endpoint
+        .batch_size(1000)                      // Send in batches of 1000
+        .batch_timeout(Duration::from_millis(10))  // Or after 10ms
+        .compression(Compression::Lz4)
+        .build()
+        .await?;
+
+    // 2. Send 100,000 messages - ALL go over ONE TCP connection
+    for i in 0..100_000 {
+        producer.send(
+            "orders",
+            Some(format!("key-{}", i).as_bytes()),
+            format!(r#"{{"id":{}}}"#, i).as_bytes(),
+        ).await?;
+    }
+
+    // 3. Flush remaining batched messages
+    producer.flush().await?;
+
+    // Behind the scenes:
+    // - Messages accumulated in BatchManager
+    // - Every 10ms (or 1000 messages), batch sent via gRPC
+    // - ~100 gRPC calls total, not 100,000
+    // - Single TCP connection reused for all calls
+
+    Ok(())
+}
+```
 
 ### Current State
 
 **Existing code in `crates/streamhouse-client/`:**
-- ✅ Producer API with builder pattern
-- ✅ Consumer API with consumer groups
-- ✅ BatchManager for batching records
-- ✅ ConnectionPool for managing gRPC connections
-- ✅ Schema registry client
-- ✅ Retry logic with exponential backoff
-- ✅ Error handling
+- ✅ Producer API with builder pattern (`src/producer.rs`)
+- ✅ Consumer API with consumer groups (`src/consumer.rs`)
+- ✅ BatchManager for batching records (`src/batch.rs`)
+- ✅ ConnectionPool for managing gRPC connections (`src/connection_pool.rs`)
+- ✅ Schema registry client (`src/schema_registry_client.rs`)
+- ✅ Retry logic with exponential backoff (`src/retry.rs`)
+- ✅ Error handling (`src/error.rs`)
 - ⚠️ gRPC mode (Phase 5.2) - stubs exist but incomplete
+
+**Test scripts created (Feb 2, 2026):**
+- `grpc-test.sh` - Tests all gRPC endpoints
+- `grpc-stress.sh` - Stress test (shows grpcurl is slow due to connection-per-call)
+- `batch-stress.sh` - HTTP batch API benchmark (~15K msg/s)
 
 ### Task 1: Complete gRPC Producer (20 hours)
 
@@ -1392,9 +1533,9 @@ let response = client.produce(request).await?;
 
 **Changes:**
 1. Implement `find_agent_for_partition()` using metadata store
-2. Use ConnectionPool for persistent gRPC connections
+2. Use ConnectionPool for persistent gRPC connections (already exists!)
 3. Implement automatic retry on agent failover
-4. Add batch flushing to gRPC endpoint
+4. Add batch flushing to gRPC endpoint (BatchManager already exists!)
 
 ### Task 2: Complete gRPC Consumer (15 hours)
 
@@ -1428,6 +1569,15 @@ Create comprehensive benchmarks:
 - Produce latency: < 1ms p99
 - Throughput: 100K+ msg/s per client
 - Connection reuse: 100% (no new connections per request)
+
+### Key Features to Implement
+
+1. **Connection reuse** - One TCP connection handles all requests
+2. **Automatic batching** - Groups messages, sends in bulk
+3. **Partition routing** - Finds which agent owns each partition
+4. **Failover** - Automatically reconnects if agent dies
+5. **Back-pressure** - Slows down if server is overwhelmed
+6. **Schema validation** - Optional Avro/JSON schema checking before send
 
 ### Success Criteria
 
