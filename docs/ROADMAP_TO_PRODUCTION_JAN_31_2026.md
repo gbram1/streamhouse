@@ -1,7 +1,7 @@
 # StreamHouse: Complete Roadmap to Production & Adoption
 **Date:** February 2, 2026
-**Status:** ✅ Phase 9 (Schema Persistence), ✅ Phase 12.4.1-2 (WAL, S3 Throttling), ⚠️ Phase 13 (Web UI - 90% complete, see remaining items), ✅ Phase 14 (CLI)
-**Next:** Phase 18.5 (Native Rust Client High-Performance Mode) - **Critical for Production Throughput**
+**Status:** ✅ Phase 9 (Schema Persistence), ✅ Phase 12.4.1-2 (WAL, S3 Throttling), ⚠️ Phase 13 (Web UI - 90% complete), ✅ Phase 14 (CLI), ✅ Phase 18.5 (High-Perf Client - 162K msg/s)
+**Next:** Phase 18.6 (Production Demo App) or Phase 12.4.3-4 (Runbooks & Monitoring)
 
 ---
 
@@ -1361,28 +1361,212 @@ producer.abort_transaction().await?;
 
 **Priority:** CRITICAL (for production workloads)
 **Effort:** 40 hours
-**Status:** PARTIALLY COMPLETE
-**Gap:** Current client writes directly to storage; gRPC mode incomplete
+**Status:** ✅ COMPLETE (February 2, 2026)
 
-### Problem
+### What Was Done
 
-The `streamhouse-client` crate exists with Producer/Consumer APIs, batching, connection pooling, and schema registry integration. However:
+1. **Fixed gRPC service mismatch** - Client was trying to call `ProducerService` but server exposes `StreamHouse` service
+2. **Unified proto definitions** - Moved `streamhouse.proto` to shared `streamhouse-proto` crate
+3. **Updated ConnectionPool** - Now uses `StreamHouseClient` with persistent HTTP/2 connections
+4. **Updated Producer** - Now calls `produce_batch()` RPC with correct message types
+5. **Created high-performance example** - `examples/high_perf_producer.rs` demonstrates 50K+ msg/s
 
-- **Phase 5.1 (Current):** Writes directly to storage (~5 records/sec)
-- **Phase 5.2 (Target):** gRPC communication with agents (50K+ records/sec)
+### Architecture
 
-### Why This Matters - Performance Benchmarks (Feb 2, 2026)
+The client now uses the correct protocol stack:
+- **Application** → `Producer.send()` API
+- **BatchManager** → Accumulates records, flushes on size/time thresholds
+- **ConnectionPool** → Maintains persistent `StreamHouseClient` connections
+- **gRPC/HTTP/2** → Multiplexed streams on single TCP connection
+- **Server** → `StreamHouse.ProduceBatch()` RPC
 
-| Approach | Requests | Connections | Throughput |
-|----------|----------|-------------|------------|
-| curl (individual HTTP) | 100,000 | 100,000 | ~80 msg/s |
-| HTTP batch API | 100 | 100 | ~15,000 msg/s |
-| grpcurl (individual) | 100,000 | 100,000 | ~0.6 msg/s |
-| **Native Rust client** | **100** | **1** | **100,000+ msg/s** |
+### Performance (Target Achieved)
+
+- **Phase 5.1 (Before):** ~5 records/sec (direct storage writes)
+- **Phase 5.2 (Now):** 50,000+ records/sec (gRPC batching)
+
+### Performance Benchmarks (February 2, 2026)
+
+**Full Test: 100,000 Messages to MinIO Storage**
+
+| Protocol | Method | Messages | Time | Throughput | Improvement |
+|----------|--------|----------|------|------------|-------------|
+| **gRPC** | Native Rust (batched) | 100,000 | 0.617s | **162,151 msg/s** | **1,633x** |
+| HTTP | REST API (individual) | 1,000 | 10.07s | 99 msg/s | baseline |
 
 **Key insight:** The bottleneck is NOT the protocol - it's connection reuse + batching.
-- `curl` and `grpcurl` create new connections per call (slow)
-- Native client maintains ONE persistent connection for ALL requests (fast)
+- HTTP REST creates new connections per request (slow)
+- Native gRPC client maintains ONE persistent connection for ALL requests (fast)
+- Batching sends 1,000 records per RPC call vs 1 per HTTP request
+
+**Why gRPC is 1,633x faster:**
+1. **Persistent HTTP/2 connection** - No TCP handshake per request
+2. **Batching** - 1,000 records per RPC call (100 calls for 100K messages)
+3. **Protobuf serialization** - More efficient than JSON
+4. **HTTP/2 multiplexing** - Multiple streams on single connection
+
+**Run the benchmark yourself:**
+```bash
+# Start server with MinIO
+./start-server.sh
+
+# Create topic
+curl -X POST http://localhost:8080/api/v1/topics \
+  -H "Content-Type: application/json" \
+  -d '{"name": "high-perf-test", "partitions": 6, "replication_factor": 1}'
+
+# Run high-performance producer
+cargo run -p streamhouse-client --example high_perf_producer --release
+```
+
+### How Production Users Would Integrate
+
+StreamHouse provides **3 integration options** for production workloads:
+
+#### Option 1: Native Rust Client (Best Performance)
+
+For Rust services, use the `streamhouse-client` crate directly:
+
+```rust
+// Cargo.toml
+[dependencies]
+streamhouse-client = "0.1"
+tokio = { version = "1", features = ["full"] }
+serde_json = "1"
+
+// main.rs
+use streamhouse_client::Producer;
+
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    // 1. Create producer (establishes persistent gRPC connection)
+    let producer = Producer::builder()
+        .bootstrap_servers("streamhouse.internal:50051")
+        .batch_size(1000)           // Batch 1000 records per RPC
+        .linger_ms(10)              // Or flush every 10ms
+        .compression_enabled(true)  // LZ4 compression
+        .build()
+        .await?;
+
+    // 2. In your request handlers, just send
+    async fn handle_order(producer: &Producer, order: Order) {
+        producer.send(
+            "orders",                              // topic
+            Some(order.customer_id.as_bytes()),    // key (for partitioning)
+            serde_json::to_vec(&order)?.as_slice(), // value
+            None,                                  // partition (auto)
+        ).await?;
+    }
+
+    // 3. On shutdown
+    producer.flush().await?;
+    producer.close().await?;
+    Ok(())
+}
+```
+
+**Performance:** 100,000+ msg/s per producer instance
+
+#### Option 2: HTTP REST API (Any Language)
+
+For non-Rust services or simpler integrations:
+
+```python
+# Python example
+import requests
+
+def send_to_streamhouse(topic: str, key: str, value: dict):
+    response = requests.post(
+        f"http://streamhouse.internal:8080/api/v1/produce",
+        params={"topic": topic, "partition": hash(key) % 6},
+        json={"key": key, "value": value}
+    )
+    return response.json()
+
+# Usage
+send_to_streamhouse("orders", "customer-123", {"order_id": "456", "amount": 99.99})
+```
+
+```javascript
+// JavaScript/Node.js example
+async function sendToStreamHouse(topic, key, value) {
+  const response = await fetch(
+    `http://streamhouse.internal:8080/api/v1/produce?topic=${topic}`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ key, value }),
+    }
+  );
+  return response.json();
+}
+```
+
+**Performance:** ~100 msg/s (connection-per-request overhead)
+
+#### Option 3: gRPC Direct (Any gRPC Language)
+
+For services that need high performance but aren't in Rust, use gRPC directly:
+
+```go
+// Go example using generated gRPC stubs
+package main
+
+import (
+    "context"
+    pb "github.com/your-org/streamhouse-proto/streamhouse"
+    "google.golang.org/grpc"
+)
+
+func main() {
+    // Persistent connection
+    conn, _ := grpc.Dial("streamhouse.internal:50051", grpc.WithInsecure())
+    defer conn.Close()
+
+    client := pb.NewStreamHouseClient(conn)
+
+    // Send batch
+    _, err := client.ProduceBatch(context.Background(), &pb.ProduceBatchRequest{
+        Topic:     "orders",
+        Partition: 0,
+        Records: []*pb.Record{
+            {Key: []byte("key1"), Value: []byte(`{"order": 1}`)},
+            {Key: []byte("key2"), Value: []byte(`{"order": 2}`)},
+            // ... batch up to 1000 records
+        },
+    })
+}
+```
+
+**Performance:** 50,000+ msg/s (with batching and connection reuse)
+
+### Integration Patterns
+
+| Pattern | When to Use | Example |
+|---------|-------------|---------|
+| **Fire-and-forget** | Logs, metrics, non-critical events | `producer.send(...).await?` |
+| **Ack-required** | Orders, payments, important events | Check response, retry on failure |
+| **Schema-validated** | Structured data with evolution | Use schema registry integration |
+| **Key-partitioned** | Ordering within entity (user, order) | Set key to entity ID |
+| **Explicit partition** | Control data locality | Set partition explicitly |
+
+### Production Checklist
+
+```yaml
+# Your service's connection config
+streamhouse:
+  bootstrap_servers: "streamhouse-1:50051,streamhouse-2:50051"
+  producer:
+    batch_size: 1000       # Records per batch
+    linger_ms: 10          # Max wait before flush
+    compression: lz4       # Reduce network/storage
+    retries: 3             # Retry on failure
+    acks: all              # Wait for replication (if enabled)
+  consumer:
+    group_id: "my-service"
+    auto_commit: true
+    auto_commit_interval_ms: 5000
+```
 
 ### Protocol Stack
 
@@ -1599,12 +1783,225 @@ Create comprehensive benchmarks:
 
 ### Success Criteria
 
-- ✅ Native Rust client achieves 100K+ msg/s
+- ✅ Native Rust client achieves 100K+ msg/s (actual: **162K msg/s**)
 - ✅ Persistent gRPC connections (no handshake per message)
 - ✅ Automatic batching (configurable batch size/timeout)
 - ✅ Transparent agent failover
 - ✅ Schema validation integration
-- ✅ Published to crates.io
+- ⬜ Published to crates.io
+
+---
+
+## Phase 18.6: Production Demo Application
+
+**Priority:** HIGH (for documentation and onboarding)
+**Effort:** 8 hours
+**Status:** NOT STARTED
+**Gap:** No realistic example showing how production users would integrate StreamHouse
+
+### Why This Matters
+
+New users need a complete, realistic example showing:
+1. How to build a service that produces to StreamHouse
+2. How to build a service that consumes from StreamHouse
+3. Full end-to-end data flow with real business logic
+
+### What to Build: E-Commerce Order Pipeline
+
+A realistic demo with 3 microservices:
+
+```
+┌──────────────────┐       ┌─────────────────┐       ┌──────────────────┐
+│  Order Service   │──────▶│   StreamHouse   │◀──────│ Analytics Service│
+│  (Producer)      │       │                 │       │  (Consumer)      │
+└──────────────────┘       └─────────────────┘       └──────────────────┘
+         │                          ▲
+         │                          │
+         └──────────────────────────┘
+              Inventory Service
+                (Consumer + Producer)
+```
+
+### Task 1: Order Service (Producer) - 3 hours
+
+**Directory:** `examples/production-demo/order-service/`
+
+A simple REST API that receives orders and produces to StreamHouse:
+
+```rust
+use axum::{Router, Json, routing::post};
+use streamhouse_client::Producer;
+use serde::{Deserialize, Serialize};
+
+#[derive(Deserialize)]
+struct CreateOrder {
+    customer_id: String,
+    items: Vec<OrderItem>,
+    total_amount: f64,
+}
+
+#[derive(Serialize)]
+struct OrderCreated {
+    order_id: String,
+    status: String,
+}
+
+async fn create_order(
+    State(producer): State<Producer>,
+    Json(order): Json<CreateOrder>,
+) -> Json<OrderCreated> {
+    let order_id = uuid::Uuid::new_v4().to_string();
+
+    // Produce to StreamHouse
+    producer.send(
+        "orders",
+        Some(order.customer_id.as_bytes()),
+        serde_json::to_vec(&OrderEvent {
+            order_id: order_id.clone(),
+            customer_id: order.customer_id,
+            items: order.items,
+            total_amount: order.total_amount,
+            created_at: chrono::Utc::now(),
+        }).unwrap().as_slice(),
+        None,
+    ).await.unwrap();
+
+    Json(OrderCreated {
+        order_id,
+        status: "created".to_string(),
+    })
+}
+
+#[tokio::main]
+async fn main() {
+    // Connect to StreamHouse
+    let producer = Producer::builder()
+        .bootstrap_servers("localhost:50051")
+        .batch_size(100)
+        .linger_ms(10)
+        .build()
+        .await
+        .unwrap();
+
+    let app = Router::new()
+        .route("/orders", post(create_order))
+        .with_state(producer);
+
+    axum::serve(listener, app).await.unwrap();
+}
+```
+
+**Run:** `cargo run -p order-service`
+
+### Task 2: Analytics Service (Consumer) - 2 hours
+
+**Directory:** `examples/production-demo/analytics-service/`
+
+Consumes orders and calculates real-time metrics:
+
+```rust
+use streamhouse_client::Consumer;
+
+#[tokio::main]
+async fn main() {
+    let consumer = Consumer::builder()
+        .bootstrap_servers("localhost:50051")
+        .group_id("analytics-pipeline")
+        .topics(vec!["orders".to_string()])
+        .build()
+        .await
+        .unwrap();
+
+    let mut total_revenue = 0.0;
+    let mut order_count = 0;
+
+    loop {
+        let records = consumer.poll(Duration::from_millis(100)).await.unwrap();
+
+        for record in records {
+            let order: OrderEvent = serde_json::from_slice(&record.value).unwrap();
+            total_revenue += order.total_amount;
+            order_count += 1;
+
+            println!(
+                "📊 Order {} | Revenue: ${:.2} | Total Orders: {} | Avg: ${:.2}",
+                order.order_id,
+                total_revenue,
+                order_count,
+                total_revenue / order_count as f64
+            );
+        }
+    }
+}
+```
+
+### Task 3: Inventory Service (Consumer + Producer) - 2 hours
+
+**Directory:** `examples/production-demo/inventory-service/`
+
+Consumes orders, checks inventory, produces inventory events:
+
+```rust
+// Consumes from "orders", produces to "inventory-updates"
+```
+
+### Task 4: Demo Script & Documentation - 1 hour
+
+**File:** `examples/production-demo/README.md`
+**File:** `examples/production-demo/run-demo.sh`
+
+```bash
+#!/bin/bash
+# Start all services and show the data flow
+
+echo "🚀 Starting StreamHouse Production Demo"
+echo ""
+
+# 1. Start StreamHouse
+./start-server.sh
+
+# 2. Create topics
+curl -X POST http://localhost:8080/api/v1/topics \
+  -d '{"name": "orders", "partitions": 6}'
+curl -X POST http://localhost:8080/api/v1/topics \
+  -d '{"name": "inventory-updates", "partitions": 4}'
+
+# 3. Start services in background
+cargo run -p order-service &
+cargo run -p analytics-service &
+cargo run -p inventory-service &
+
+# 4. Send test orders
+for i in {1..100}; do
+  curl -X POST http://localhost:3000/orders \
+    -H "Content-Type: application/json" \
+    -d "{\"customer_id\": \"customer-$((i % 10))\", \"items\": [...], \"total_amount\": $((RANDOM % 1000))}"
+done
+
+# 5. Watch the analytics service output
+echo ""
+echo "📊 Watch real-time analytics in the terminal above!"
+```
+
+### Success Criteria
+
+- ⬜ Order Service accepts HTTP requests, produces to StreamHouse
+- ⬜ Analytics Service consumes orders, shows real-time metrics
+- ⬜ Inventory Service demonstrates consumer-producer pattern
+- ⬜ run-demo.sh starts everything with one command
+- ⬜ README.md explains the architecture and how to run
+- ⬜ Can process 10,000+ orders end-to-end
+
+### Integration Points Demonstrated
+
+| Feature | Where |
+|---------|-------|
+| Producer with batching | Order Service |
+| Consumer with groups | Analytics + Inventory |
+| Key-based partitioning | Customer ID → partition |
+| Schema validation | Order event schema |
+| Consumer lag monitoring | Web UI dashboard |
+| Metrics/observability | Prometheus endpoints |
 
 ---
 

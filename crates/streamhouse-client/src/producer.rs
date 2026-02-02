@@ -106,7 +106,7 @@ use std::hash::{Hash, Hasher};
 use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use streamhouse_metadata::{AgentInfo, MetadataStore, Topic};
-use streamhouse_proto::producer::{produce_request::Record, ProduceRequest, ProduceResponse};
+use streamhouse_proto::streamhouse::{ProduceBatchRequest, ProduceBatchResponse, Record};
 use tokio::sync::{Mutex, RwLock};
 use tracing::{debug, error, info, instrument, warn};
 
@@ -1258,7 +1258,7 @@ impl Producer {
                         &self.pending_records,
                         &topic,
                         partition,
-                        response.base_offset,
+                        response.first_offset,
                         record_count,
                     )
                     .await;
@@ -1511,21 +1511,21 @@ impl Producer {
     /// Notify pending records about their offsets after successful batch flush (Phase 5.4).
     ///
     /// When a batch is successfully flushed to an agent, the agent responds with
-    /// `base_offset` (first record's offset) and `record_count`. We calculate each
-    /// record's offset as `base_offset + index` and notify the pending record.
+    /// `first_offset` (first record's offset) and `record_count`. We calculate each
+    /// record's offset as `first_offset + index` and notify the pending record.
     ///
     /// # Arguments
     ///
     /// * `pending_records` - Map of pending records per partition
     /// * `topic` - Topic name
     /// * `partition` - Partition ID
-    /// * `base_offset` - First record's offset from agent response
+    /// * `first_offset` - First record's offset from agent response
     /// * `record_count` - Number of records that were flushed
     async fn notify_pending_offsets(
         pending_records: &Arc<Mutex<HashMap<(String, u32), PendingQueue>>>,
         topic: &str,
         partition: u32,
-        base_offset: u64,
+        first_offset: u64,
         record_count: usize,
     ) {
         let mut pending = pending_records.lock().await;
@@ -1534,7 +1534,7 @@ impl Producer {
         if let Some(queue) = pending.get_mut(&key) {
             for i in 0..record_count {
                 if let Some(pending_record) = queue.pop_front() {
-                    let offset = base_offset + i as u64;
+                    let offset = first_offset + i as u64;
                     // Send offset (ignore if receiver dropped)
                     let _ = pending_record.offset_sender.send(offset);
                 } else {
@@ -1588,7 +1588,7 @@ impl Producer {
         metadata_store: &Arc<dyn MetadataStore>,
         agents: &Arc<RwLock<HashMap<String, AgentInfo>>>,
         retry_policy: &RetryPolicy,
-    ) -> Result<ProduceResponse> {
+    ) -> Result<ProduceBatchResponse> {
         let start = std::time::Instant::now();
         // Find agent for partition
         let agent =
@@ -1614,20 +1614,20 @@ impl Producer {
                 )
             })?;
 
-        // Build ProduceRequest
+        // Build ProduceBatchRequest
         let record_count = records.len();
         let _byte_count: usize = records.iter().map(|r| r.value.len()).sum();
 
         let proto_records: Vec<Record> = records
             .into_iter()
             .map(|r| Record {
-                key: r.key.map(|k| k.to_vec()),
+                key: r.key.map(|k| k.to_vec()).unwrap_or_default(),
                 value: r.value.to_vec(),
-                timestamp: r.timestamp,
+                headers: Default::default(),
             })
             .collect();
 
-        let request = ProduceRequest {
+        let request = ProduceBatchRequest {
             topic: topic.to_string(),
             partition,
             records: proto_records,
@@ -1637,7 +1637,7 @@ impl Producer {
         let response = retry_with_jittered_backoff(retry_policy, || {
             let mut client = client.clone();
             let request = request.clone();
-            async move { client.produce(request).await }
+            async move { client.produce_batch(request).await }
         })
         .await
         .map_err(|e| {
@@ -1646,7 +1646,7 @@ impl Producer {
                 .inc();
             ClientError::AgentError(
                 agent.agent_id.clone(),
-                format!("Produce request failed: {}", e),
+                format!("ProduceBatch request failed: {}", e),
             )
         })?;
 
@@ -1796,7 +1796,7 @@ impl Producer {
                                 &pending_records,
                                 &topic,
                                 partition,
-                                response.base_offset,
+                                response.first_offset,
                                 record_count,
                             )
                             .await;
