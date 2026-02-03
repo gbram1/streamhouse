@@ -76,6 +76,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         block_size_target: 1024 * 10,
         s3_upload_retries: 3,
         wal_config: None,
+        throttle_config: None,
     };
 
     println!("📤 Step 4: Writing 100 messages across {} partitions", topic_info.partition_count);

@@ -951,6 +951,475 @@ impl MetadataStore for PostgresMetadataStore {
             })
             .collect())
     }
+
+    // ============================================================
+    // ORGANIZATION OPERATIONS (Phase 21.5: Multi-Tenancy)
+    // ============================================================
+
+    async fn create_organization(&self, config: CreateOrganization) -> Result<Organization> {
+        let now_ms = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_millis() as i64;
+        let id = uuid::Uuid::new_v4().to_string();
+        let plan_str = config.plan.to_string();
+        let status_str = OrganizationStatus::Active.to_string();
+        let settings_json = serde_json::to_value(&config.settings)?;
+
+        sqlx::query(
+            "INSERT INTO organizations (id, name, slug, plan, status, created_at, updated_at, settings)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8)"
+        )
+        .bind(&id)
+        .bind(&config.name)
+        .bind(&config.slug)
+        .bind(&plan_str)
+        .bind(&status_str)
+        .bind(now_ms)
+        .bind(now_ms)
+        .bind(&settings_json)
+        .execute(&self.pool)
+        .await
+        .map_err(|e| {
+            if e.to_string().contains("duplicate key") || e.to_string().contains("unique constraint") {
+                MetadataError::ConflictError(format!("Organization with slug '{}' already exists", config.slug))
+            } else {
+                MetadataError::from(e)
+            }
+        })?;
+
+        Ok(Organization {
+            id,
+            name: config.name,
+            slug: config.slug,
+            plan: config.plan,
+            status: OrganizationStatus::Active,
+            created_at: now_ms,
+            settings: config.settings,
+        })
+    }
+
+    async fn get_organization(&self, id: &str) -> Result<Option<Organization>> {
+        let row = sqlx::query(
+            "SELECT id, name, slug, plan, status, created_at, settings
+             FROM organizations WHERE id = $1"
+        )
+        .bind(id)
+        .fetch_optional(&self.pool)
+        .await?;
+
+        Ok(row.map(|r| {
+            let settings: std::collections::HashMap<String, String> =
+                serde_json::from_value(r.get("settings")).unwrap_or_default();
+            let plan: String = r.get("plan");
+            let status: String = r.get("status");
+            Organization {
+                id: r.get("id"),
+                name: r.get("name"),
+                slug: r.get("slug"),
+                plan: plan.parse().unwrap_or_default(),
+                status: status.parse().unwrap_or_default(),
+                created_at: r.get("created_at"),
+                settings,
+            }
+        }))
+    }
+
+    async fn get_organization_by_slug(&self, slug: &str) -> Result<Option<Organization>> {
+        let row = sqlx::query(
+            "SELECT id, name, slug, plan, status, created_at, settings
+             FROM organizations WHERE slug = $1"
+        )
+        .bind(slug)
+        .fetch_optional(&self.pool)
+        .await?;
+
+        Ok(row.map(|r| {
+            let settings: std::collections::HashMap<String, String> =
+                serde_json::from_value(r.get("settings")).unwrap_or_default();
+            let plan: String = r.get("plan");
+            let status: String = r.get("status");
+            Organization {
+                id: r.get("id"),
+                name: r.get("name"),
+                slug: r.get("slug"),
+                plan: plan.parse().unwrap_or_default(),
+                status: status.parse().unwrap_or_default(),
+                created_at: r.get("created_at"),
+                settings,
+            }
+        }))
+    }
+
+    async fn list_organizations(&self) -> Result<Vec<Organization>> {
+        let rows = sqlx::query(
+            "SELECT id, name, slug, plan, status, created_at, settings
+             FROM organizations ORDER BY name"
+        )
+        .fetch_all(&self.pool)
+        .await?;
+
+        Ok(rows.into_iter().map(|r| {
+            let settings: std::collections::HashMap<String, String> =
+                serde_json::from_value(r.get("settings")).unwrap_or_default();
+            let plan: String = r.get("plan");
+            let status: String = r.get("status");
+            Organization {
+                id: r.get("id"),
+                name: r.get("name"),
+                slug: r.get("slug"),
+                plan: plan.parse().unwrap_or_default(),
+                status: status.parse().unwrap_or_default(),
+                created_at: r.get("created_at"),
+                settings,
+            }
+        }).collect())
+    }
+
+    async fn update_organization_status(&self, id: &str, status: OrganizationStatus) -> Result<()> {
+        let now_ms = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_millis() as i64;
+        let status_str = status.to_string();
+
+        let result = sqlx::query(
+            "UPDATE organizations SET status = $1, updated_at = $2 WHERE id = $3"
+        )
+        .bind(&status_str)
+        .bind(now_ms)
+        .bind(id)
+        .execute(&self.pool)
+        .await?;
+
+        if result.rows_affected() == 0 {
+            return Err(MetadataError::NotFoundError(format!("Organization {} not found", id)));
+        }
+        Ok(())
+    }
+
+    async fn update_organization_plan(&self, id: &str, plan: OrganizationPlan) -> Result<()> {
+        let now_ms = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_millis() as i64;
+        let plan_str = plan.to_string();
+
+        let result = sqlx::query(
+            "UPDATE organizations SET plan = $1, updated_at = $2 WHERE id = $3"
+        )
+        .bind(&plan_str)
+        .bind(now_ms)
+        .bind(id)
+        .execute(&self.pool)
+        .await?;
+
+        if result.rows_affected() == 0 {
+            return Err(MetadataError::NotFoundError(format!("Organization {} not found", id)));
+        }
+        Ok(())
+    }
+
+    async fn delete_organization(&self, id: &str) -> Result<()> {
+        self.update_organization_status(id, OrganizationStatus::Deleted).await
+    }
+
+    // ============================================================
+    // API KEY OPERATIONS (Phase 21.5: Multi-Tenancy)
+    // ============================================================
+
+    async fn create_api_key(
+        &self,
+        organization_id: &str,
+        config: CreateApiKey,
+        key_hash: &str,
+        key_prefix: &str,
+    ) -> Result<ApiKey> {
+        let now_ms = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_millis() as i64;
+        let id = uuid::Uuid::new_v4().to_string();
+        let expires_at = config.expires_in_ms.map(|ms| now_ms + ms);
+        let permissions_json = serde_json::to_value(&config.permissions)?;
+        let scopes_json = serde_json::to_value(&config.scopes)?;
+
+        sqlx::query(
+            "INSERT INTO api_keys (id, organization_id, name, key_hash, key_prefix, permissions, scopes, expires_at, created_at)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)"
+        )
+        .bind(&id)
+        .bind(organization_id)
+        .bind(&config.name)
+        .bind(key_hash)
+        .bind(key_prefix)
+        .bind(&permissions_json)
+        .bind(&scopes_json)
+        .bind(expires_at)
+        .bind(now_ms)
+        .execute(&self.pool)
+        .await?;
+
+        Ok(ApiKey {
+            id,
+            organization_id: organization_id.to_string(),
+            name: config.name,
+            key_prefix: key_prefix.to_string(),
+            permissions: config.permissions,
+            scopes: config.scopes,
+            expires_at,
+            last_used_at: None,
+            created_at: now_ms,
+            created_by: None,
+        })
+    }
+
+    async fn get_api_key(&self, id: &str) -> Result<Option<ApiKey>> {
+        let row = sqlx::query(
+            "SELECT id, organization_id, name, key_prefix, permissions, scopes, expires_at, last_used_at, created_at, created_by
+             FROM api_keys WHERE id = $1"
+        )
+        .bind(id)
+        .fetch_optional(&self.pool)
+        .await?;
+
+        Ok(row.map(|r| {
+            let permissions: Vec<String> = serde_json::from_value(r.get("permissions")).unwrap_or_default();
+            let scopes: Vec<String> = serde_json::from_value(r.get("scopes")).unwrap_or_default();
+            ApiKey {
+                id: r.get("id"),
+                organization_id: r.get("organization_id"),
+                name: r.get("name"),
+                key_prefix: r.get("key_prefix"),
+                permissions,
+                scopes,
+                expires_at: r.get("expires_at"),
+                last_used_at: r.get("last_used_at"),
+                created_at: r.get("created_at"),
+                created_by: r.get("created_by"),
+            }
+        }))
+    }
+
+    async fn validate_api_key(&self, key_hash: &str) -> Result<Option<ApiKey>> {
+        let now_ms = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_millis() as i64;
+
+        let row = sqlx::query(
+            "SELECT id, organization_id, name, key_prefix, permissions, scopes, expires_at, last_used_at, created_at, created_by
+             FROM api_keys WHERE key_hash = $1 AND (expires_at IS NULL OR expires_at > $2)"
+        )
+        .bind(key_hash)
+        .bind(now_ms)
+        .fetch_optional(&self.pool)
+        .await?;
+
+        Ok(row.map(|r| {
+            let permissions: Vec<String> = serde_json::from_value(r.get("permissions")).unwrap_or_default();
+            let scopes: Vec<String> = serde_json::from_value(r.get("scopes")).unwrap_or_default();
+            ApiKey {
+                id: r.get("id"),
+                organization_id: r.get("organization_id"),
+                name: r.get("name"),
+                key_prefix: r.get("key_prefix"),
+                permissions,
+                scopes,
+                expires_at: r.get("expires_at"),
+                last_used_at: r.get("last_used_at"),
+                created_at: r.get("created_at"),
+                created_by: r.get("created_by"),
+            }
+        }))
+    }
+
+    async fn list_api_keys(&self, organization_id: &str) -> Result<Vec<ApiKey>> {
+        let rows = sqlx::query(
+            "SELECT id, organization_id, name, key_prefix, permissions, scopes, expires_at, last_used_at, created_at, created_by
+             FROM api_keys WHERE organization_id = $1 ORDER BY created_at DESC"
+        )
+        .bind(organization_id)
+        .fetch_all(&self.pool)
+        .await?;
+
+        Ok(rows.into_iter().map(|r| {
+            let permissions: Vec<String> = serde_json::from_value(r.get("permissions")).unwrap_or_default();
+            let scopes: Vec<String> = serde_json::from_value(r.get("scopes")).unwrap_or_default();
+            ApiKey {
+                id: r.get("id"),
+                organization_id: r.get("organization_id"),
+                name: r.get("name"),
+                key_prefix: r.get("key_prefix"),
+                permissions,
+                scopes,
+                expires_at: r.get("expires_at"),
+                last_used_at: r.get("last_used_at"),
+                created_at: r.get("created_at"),
+                created_by: r.get("created_by"),
+            }
+        }).collect())
+    }
+
+    async fn touch_api_key(&self, id: &str) -> Result<()> {
+        let now_ms = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_millis() as i64;
+
+        sqlx::query("UPDATE api_keys SET last_used_at = $1 WHERE id = $2")
+            .bind(now_ms)
+            .bind(id)
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
+
+    async fn revoke_api_key(&self, id: &str) -> Result<()> {
+        sqlx::query("DELETE FROM api_keys WHERE id = $1")
+            .bind(id)
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
+
+    // ============================================================
+    // QUOTA OPERATIONS (Phase 21.5: Multi-Tenancy)
+    // ============================================================
+
+    async fn get_organization_quota(&self, organization_id: &str) -> Result<OrganizationQuota> {
+        let row = sqlx::query(
+            "SELECT organization_id, max_topics, max_partitions_per_topic, max_total_partitions,
+                    max_storage_bytes, max_retention_days, max_produce_bytes_per_sec, max_consume_bytes_per_sec,
+                    max_requests_per_sec, max_consumer_groups, max_schemas, max_schema_versions_per_subject, max_connections
+             FROM organization_quotas WHERE organization_id = $1"
+        )
+        .bind(organization_id)
+        .fetch_optional(&self.pool)
+        .await?;
+
+        Ok(row.map(|r| OrganizationQuota {
+            organization_id: r.get("organization_id"),
+            max_topics: r.get("max_topics"),
+            max_partitions_per_topic: r.get("max_partitions_per_topic"),
+            max_total_partitions: r.get("max_total_partitions"),
+            max_storage_bytes: r.get("max_storage_bytes"),
+            max_retention_days: r.get("max_retention_days"),
+            max_produce_bytes_per_sec: r.get("max_produce_bytes_per_sec"),
+            max_consume_bytes_per_sec: r.get("max_consume_bytes_per_sec"),
+            max_requests_per_sec: r.get("max_requests_per_sec"),
+            max_consumer_groups: r.get("max_consumer_groups"),
+            max_schemas: r.get("max_schemas"),
+            max_schema_versions_per_subject: r.get("max_schema_versions_per_subject"),
+            max_connections: r.get("max_connections"),
+        }).unwrap_or_else(|| {
+            let mut quota = OrganizationQuota::default();
+            quota.organization_id = organization_id.to_string();
+            quota
+        }))
+    }
+
+    async fn set_organization_quota(&self, quota: OrganizationQuota) -> Result<()> {
+        sqlx::query(
+            "INSERT INTO organization_quotas (
+                organization_id, max_topics, max_partitions_per_topic, max_total_partitions,
+                max_storage_bytes, max_retention_days, max_produce_bytes_per_sec, max_consume_bytes_per_sec,
+                max_requests_per_sec, max_consumer_groups, max_schemas, max_schema_versions_per_subject, max_connections
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+            ON CONFLICT (organization_id) DO UPDATE SET
+                max_topics = EXCLUDED.max_topics,
+                max_partitions_per_topic = EXCLUDED.max_partitions_per_topic,
+                max_total_partitions = EXCLUDED.max_total_partitions,
+                max_storage_bytes = EXCLUDED.max_storage_bytes,
+                max_retention_days = EXCLUDED.max_retention_days,
+                max_produce_bytes_per_sec = EXCLUDED.max_produce_bytes_per_sec,
+                max_consume_bytes_per_sec = EXCLUDED.max_consume_bytes_per_sec,
+                max_requests_per_sec = EXCLUDED.max_requests_per_sec,
+                max_consumer_groups = EXCLUDED.max_consumer_groups,
+                max_schemas = EXCLUDED.max_schemas,
+                max_schema_versions_per_subject = EXCLUDED.max_schema_versions_per_subject,
+                max_connections = EXCLUDED.max_connections"
+        )
+        .bind(&quota.organization_id)
+        .bind(quota.max_topics)
+        .bind(quota.max_partitions_per_topic)
+        .bind(quota.max_total_partitions)
+        .bind(quota.max_storage_bytes)
+        .bind(quota.max_retention_days)
+        .bind(quota.max_produce_bytes_per_sec)
+        .bind(quota.max_consume_bytes_per_sec)
+        .bind(quota.max_requests_per_sec)
+        .bind(quota.max_consumer_groups)
+        .bind(quota.max_schemas)
+        .bind(quota.max_schema_versions_per_subject)
+        .bind(quota.max_connections)
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
+    async fn get_organization_usage(&self, organization_id: &str) -> Result<Vec<OrganizationUsage>> {
+        let rows = sqlx::query(
+            "SELECT organization_id, metric, value, period_start
+             FROM organization_usage WHERE organization_id = $1 ORDER BY metric"
+        )
+        .bind(organization_id)
+        .fetch_all(&self.pool)
+        .await?;
+
+        Ok(rows.into_iter().map(|r| OrganizationUsage {
+            organization_id: r.get("organization_id"),
+            metric: r.get("metric"),
+            value: r.get("value"),
+            period_start: r.get("period_start"),
+        }).collect())
+    }
+
+    async fn update_organization_usage(&self, organization_id: &str, metric: &str, value: i64) -> Result<()> {
+        let now_ms = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_millis() as i64;
+
+        sqlx::query(
+            "INSERT INTO organization_usage (organization_id, metric, value, period_start, updated_at)
+             VALUES ($1, $2, $3, $4, $5)
+             ON CONFLICT (organization_id, metric) DO UPDATE SET
+                value = EXCLUDED.value,
+                updated_at = EXCLUDED.updated_at"
+        )
+        .bind(organization_id)
+        .bind(metric)
+        .bind(value)
+        .bind(now_ms)
+        .bind(now_ms)
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
+    async fn increment_organization_usage(&self, organization_id: &str, metric: &str, delta: i64) -> Result<()> {
+        let now_ms = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_millis() as i64;
+
+        sqlx::query(
+            "INSERT INTO organization_usage (organization_id, metric, value, period_start, updated_at)
+             VALUES ($1, $2, $3, $4, $5)
+             ON CONFLICT (organization_id, metric) DO UPDATE SET
+                value = organization_usage.value + EXCLUDED.value,
+                updated_at = EXCLUDED.updated_at"
+        )
+        .bind(organization_id)
+        .bind(metric)
+        .bind(delta)
+        .bind(now_ms)
+        .bind(now_ms)
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
 }
 
 #[cfg(test)]

@@ -931,6 +931,555 @@ impl MetadataStore for SqliteMetadataStore {
             )
             .collect())
     }
+
+    // ============================================================
+    // ORGANIZATION OPERATIONS (Phase 21.5: Multi-Tenancy)
+    // ============================================================
+
+    async fn create_organization(&self, config: CreateOrganization) -> Result<Organization> {
+        let now = Self::now_ms();
+        let id = uuid::Uuid::new_v4().to_string();
+        let plan_str = config.plan.to_string();
+        let status_str = OrganizationStatus::Active.to_string();
+        let settings_json = serde_json::to_string(&config.settings)?;
+
+        let query = format!(
+            "INSERT INTO organizations (id, name, slug, plan, status, created_at, updated_at, settings) \
+             VALUES ('{}', '{}', '{}', '{}', '{}', {}, {}, '{}')",
+            id,
+            config.name.replace('\'', "''"),
+            config.slug.replace('\'', "''"),
+            plan_str,
+            status_str,
+            now,
+            now,
+            settings_json.replace('\'', "''"),
+        );
+        let result = sqlx::query(&query).execute(&self.pool).await;
+
+        if let Err(e) = result {
+            if e.to_string().contains("UNIQUE constraint failed") {
+                return Err(MetadataError::ConflictError(format!(
+                    "Organization with slug '{}' already exists",
+                    config.slug
+                )));
+            }
+            return Err(e.into());
+        }
+
+        Ok(Organization {
+            id,
+            name: config.name,
+            slug: config.slug,
+            plan: config.plan,
+            status: OrganizationStatus::Active,
+            created_at: now,
+            settings: config.settings,
+        })
+    }
+
+    async fn get_organization(&self, id: &str) -> Result<Option<Organization>> {
+        let query = format!(
+            "SELECT id, name, slug, plan, status, created_at, settings \
+             FROM organizations WHERE id = '{}'",
+            id
+        );
+
+        let row: Option<(String, String, String, String, String, i64, String)> =
+            sqlx::query_as(&query).fetch_optional(&self.pool).await?;
+
+        Ok(row.map(|(id, name, slug, plan, status, created_at, settings_json)| {
+            Organization {
+                id,
+                name,
+                slug,
+                plan: plan.parse().unwrap_or_default(),
+                status: status.parse().unwrap_or_default(),
+                created_at,
+                settings: serde_json::from_str(&settings_json).unwrap_or_default(),
+            }
+        }))
+    }
+
+    async fn get_organization_by_slug(&self, slug: &str) -> Result<Option<Organization>> {
+        let query = format!(
+            "SELECT id, name, slug, plan, status, created_at, settings \
+             FROM organizations WHERE slug = '{}'",
+            slug
+        );
+
+        let row: Option<(String, String, String, String, String, i64, String)> =
+            sqlx::query_as(&query).fetch_optional(&self.pool).await?;
+
+        Ok(row.map(|(id, name, slug, plan, status, created_at, settings_json)| {
+            Organization {
+                id,
+                name,
+                slug,
+                plan: plan.parse().unwrap_or_default(),
+                status: status.parse().unwrap_or_default(),
+                created_at,
+                settings: serde_json::from_str(&settings_json).unwrap_or_default(),
+            }
+        }))
+    }
+
+    async fn list_organizations(&self) -> Result<Vec<Organization>> {
+        let rows: Vec<(String, String, String, String, String, i64, String)> = sqlx::query_as(
+            "SELECT id, name, slug, plan, status, created_at, settings \
+             FROM organizations ORDER BY name",
+        )
+        .fetch_all(&self.pool)
+        .await?;
+
+        Ok(rows
+            .into_iter()
+            .map(|(id, name, slug, plan, status, created_at, settings_json)| Organization {
+                id,
+                name,
+                slug,
+                plan: plan.parse().unwrap_or_default(),
+                status: status.parse().unwrap_or_default(),
+                created_at,
+                settings: serde_json::from_str(&settings_json).unwrap_or_default(),
+            })
+            .collect())
+    }
+
+    async fn update_organization_status(
+        &self,
+        id: &str,
+        status: OrganizationStatus,
+    ) -> Result<()> {
+        let status_str = status.to_string();
+        let now = Self::now_ms();
+
+        let query = format!(
+            "UPDATE organizations SET status = '{}', updated_at = {} WHERE id = '{}'",
+            status_str, now, id
+        );
+        let result = sqlx::query(&query).execute(&self.pool).await?;
+
+        if result.rows_affected() == 0 {
+            return Err(MetadataError::NotFoundError(format!(
+                "Organization {} not found",
+                id
+            )));
+        }
+
+        Ok(())
+    }
+
+    async fn update_organization_plan(&self, id: &str, plan: OrganizationPlan) -> Result<()> {
+        let plan_str = plan.to_string();
+        let now = Self::now_ms();
+
+        let query = format!(
+            "UPDATE organizations SET plan = '{}', updated_at = {} WHERE id = '{}'",
+            plan_str, now, id
+        );
+        let result = sqlx::query(&query).execute(&self.pool).await?;
+
+        if result.rows_affected() == 0 {
+            return Err(MetadataError::NotFoundError(format!(
+                "Organization {} not found",
+                id
+            )));
+        }
+
+        Ok(())
+    }
+
+    async fn delete_organization(&self, id: &str) -> Result<()> {
+        self.update_organization_status(id, OrganizationStatus::Deleted)
+            .await
+    }
+
+    // ============================================================
+    // API KEY OPERATIONS (Phase 21.5: Multi-Tenancy)
+    // ============================================================
+
+    async fn create_api_key(
+        &self,
+        organization_id: &str,
+        config: CreateApiKey,
+        key_hash: &str,
+        key_prefix: &str,
+    ) -> Result<ApiKey> {
+        let now = Self::now_ms();
+        let id = uuid::Uuid::new_v4().to_string();
+        let expires_at = config.expires_in_ms.map(|ms| now + ms);
+        let permissions_json = serde_json::to_string(&config.permissions)?;
+        let scopes_json = serde_json::to_string(&config.scopes)?;
+
+        let expires_at_str = expires_at.map_or("NULL".to_string(), |e| e.to_string());
+        let query = format!(
+            "INSERT INTO api_keys (id, organization_id, name, key_hash, key_prefix, permissions, scopes, expires_at, created_at) \
+             VALUES ('{}', '{}', '{}', '{}', '{}', '{}', '{}', {}, {})",
+            id,
+            organization_id,
+            config.name.replace('\'', "''"),
+            key_hash,
+            key_prefix,
+            permissions_json.replace('\'', "''"),
+            scopes_json.replace('\'', "''"),
+            expires_at_str,
+            now,
+        );
+        sqlx::query(&query).execute(&self.pool).await?;
+
+        Ok(ApiKey {
+            id,
+            organization_id: organization_id.to_string(),
+            name: config.name,
+            key_prefix: key_prefix.to_string(),
+            permissions: config.permissions,
+            scopes: config.scopes,
+            expires_at,
+            last_used_at: None,
+            created_at: now,
+            created_by: None,
+        })
+    }
+
+    async fn get_api_key(&self, id: &str) -> Result<Option<ApiKey>> {
+        let query = format!(
+            "SELECT id, organization_id, name, key_prefix, permissions, scopes, expires_at, last_used_at, created_at, created_by \
+             FROM api_keys WHERE id = '{}'",
+            id
+        );
+
+        let row: Option<(
+            String,
+            String,
+            String,
+            String,
+            String,
+            String,
+            Option<i64>,
+            Option<i64>,
+            i64,
+            Option<String>,
+        )> = sqlx::query_as(&query).fetch_optional(&self.pool).await?;
+
+        Ok(row.map(
+            |(
+                id,
+                organization_id,
+                name,
+                key_prefix,
+                permissions_json,
+                scopes_json,
+                expires_at,
+                last_used_at,
+                created_at,
+                created_by,
+            )| {
+                ApiKey {
+                    id,
+                    organization_id,
+                    name,
+                    key_prefix,
+                    permissions: serde_json::from_str(&permissions_json).unwrap_or_default(),
+                    scopes: serde_json::from_str(&scopes_json).unwrap_or_default(),
+                    expires_at,
+                    last_used_at,
+                    created_at,
+                    created_by,
+                }
+            },
+        ))
+    }
+
+    async fn validate_api_key(&self, key_hash: &str) -> Result<Option<ApiKey>> {
+        let now = Self::now_ms();
+
+        let query = format!(
+            "SELECT id, organization_id, name, key_prefix, permissions, scopes, expires_at, last_used_at, created_at, created_by \
+             FROM api_keys \
+             WHERE key_hash = '{}' AND (expires_at IS NULL OR expires_at > {})",
+            key_hash, now
+        );
+
+        let row: Option<(
+            String,
+            String,
+            String,
+            String,
+            String,
+            String,
+            Option<i64>,
+            Option<i64>,
+            i64,
+            Option<String>,
+        )> = sqlx::query_as(&query).fetch_optional(&self.pool).await?;
+
+        Ok(row.map(
+            |(
+                id,
+                organization_id,
+                name,
+                key_prefix,
+                permissions_json,
+                scopes_json,
+                expires_at,
+                last_used_at,
+                created_at,
+                created_by,
+            )| {
+                ApiKey {
+                    id,
+                    organization_id,
+                    name,
+                    key_prefix,
+                    permissions: serde_json::from_str(&permissions_json).unwrap_or_default(),
+                    scopes: serde_json::from_str(&scopes_json).unwrap_or_default(),
+                    expires_at,
+                    last_used_at,
+                    created_at,
+                    created_by,
+                }
+            },
+        ))
+    }
+
+    async fn list_api_keys(&self, organization_id: &str) -> Result<Vec<ApiKey>> {
+        let query = format!(
+            "SELECT id, organization_id, name, key_prefix, permissions, scopes, expires_at, last_used_at, created_at, created_by \
+             FROM api_keys WHERE organization_id = '{}' ORDER BY created_at DESC",
+            organization_id
+        );
+
+        let rows: Vec<(
+            String,
+            String,
+            String,
+            String,
+            String,
+            String,
+            Option<i64>,
+            Option<i64>,
+            i64,
+            Option<String>,
+        )> = sqlx::query_as(&query).fetch_all(&self.pool).await?;
+
+        Ok(rows
+            .into_iter()
+            .map(
+                |(
+                    id,
+                    organization_id,
+                    name,
+                    key_prefix,
+                    permissions_json,
+                    scopes_json,
+                    expires_at,
+                    last_used_at,
+                    created_at,
+                    created_by,
+                )| {
+                    ApiKey {
+                        id,
+                        organization_id,
+                        name,
+                        key_prefix,
+                        permissions: serde_json::from_str(&permissions_json).unwrap_or_default(),
+                        scopes: serde_json::from_str(&scopes_json).unwrap_or_default(),
+                        expires_at,
+                        last_used_at,
+                        created_at,
+                        created_by,
+                    }
+                },
+            )
+            .collect())
+    }
+
+    async fn touch_api_key(&self, id: &str) -> Result<()> {
+        let now = Self::now_ms();
+
+        let query = format!("UPDATE api_keys SET last_used_at = {} WHERE id = '{}'", now, id);
+        sqlx::query(&query).execute(&self.pool).await?;
+
+        Ok(())
+    }
+
+    async fn revoke_api_key(&self, id: &str) -> Result<()> {
+        let query = format!("DELETE FROM api_keys WHERE id = '{}'", id);
+        sqlx::query(&query).execute(&self.pool).await?;
+
+        Ok(())
+    }
+
+    // ============================================================
+    // QUOTA OPERATIONS (Phase 21.5: Multi-Tenancy)
+    // ============================================================
+
+    async fn get_organization_quota(&self, organization_id: &str) -> Result<OrganizationQuota> {
+        let query = format!(
+            "SELECT organization_id, max_topics, max_partitions_per_topic, max_total_partitions, \
+             max_storage_bytes, max_retention_days, max_produce_bytes_per_sec, max_consume_bytes_per_sec, \
+             max_requests_per_sec, max_consumer_groups, max_schemas, max_schema_versions_per_subject, max_connections \
+             FROM organization_quotas WHERE organization_id = '{}'",
+            organization_id
+        );
+
+        let row: Option<(
+            String,
+            i32,
+            i32,
+            i32,
+            i64,
+            i32,
+            i64,
+            i64,
+            i32,
+            i32,
+            i32,
+            i32,
+            i32,
+        )> = sqlx::query_as(&query).fetch_optional(&self.pool).await?;
+
+        Ok(row
+            .map(
+                |(
+                    organization_id,
+                    max_topics,
+                    max_partitions_per_topic,
+                    max_total_partitions,
+                    max_storage_bytes,
+                    max_retention_days,
+                    max_produce_bytes_per_sec,
+                    max_consume_bytes_per_sec,
+                    max_requests_per_sec,
+                    max_consumer_groups,
+                    max_schemas,
+                    max_schema_versions_per_subject,
+                    max_connections,
+                )| OrganizationQuota {
+                    organization_id,
+                    max_topics,
+                    max_partitions_per_topic,
+                    max_total_partitions,
+                    max_storage_bytes,
+                    max_retention_days,
+                    max_produce_bytes_per_sec,
+                    max_consume_bytes_per_sec,
+                    max_requests_per_sec,
+                    max_consumer_groups,
+                    max_schemas,
+                    max_schema_versions_per_subject,
+                    max_connections,
+                },
+            )
+            .unwrap_or_else(|| {
+                let mut quota = OrganizationQuota::default();
+                quota.organization_id = organization_id.to_string();
+                quota
+            }))
+    }
+
+    async fn set_organization_quota(&self, quota: OrganizationQuota) -> Result<()> {
+        let query = format!(
+            "INSERT INTO organization_quotas (\
+                organization_id, max_topics, max_partitions_per_topic, max_total_partitions, \
+                max_storage_bytes, max_retention_days, max_produce_bytes_per_sec, max_consume_bytes_per_sec, \
+                max_requests_per_sec, max_consumer_groups, max_schemas, max_schema_versions_per_subject, max_connections\
+            ) VALUES ('{}', {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}) \
+            ON CONFLICT(organization_id) DO UPDATE SET \
+                max_topics = excluded.max_topics, \
+                max_partitions_per_topic = excluded.max_partitions_per_topic, \
+                max_total_partitions = excluded.max_total_partitions, \
+                max_storage_bytes = excluded.max_storage_bytes, \
+                max_retention_days = excluded.max_retention_days, \
+                max_produce_bytes_per_sec = excluded.max_produce_bytes_per_sec, \
+                max_consume_bytes_per_sec = excluded.max_consume_bytes_per_sec, \
+                max_requests_per_sec = excluded.max_requests_per_sec, \
+                max_consumer_groups = excluded.max_consumer_groups, \
+                max_schemas = excluded.max_schemas, \
+                max_schema_versions_per_subject = excluded.max_schema_versions_per_subject, \
+                max_connections = excluded.max_connections",
+            quota.organization_id,
+            quota.max_topics,
+            quota.max_partitions_per_topic,
+            quota.max_total_partitions,
+            quota.max_storage_bytes,
+            quota.max_retention_days,
+            quota.max_produce_bytes_per_sec,
+            quota.max_consume_bytes_per_sec,
+            quota.max_requests_per_sec,
+            quota.max_consumer_groups,
+            quota.max_schemas,
+            quota.max_schema_versions_per_subject,
+            quota.max_connections,
+        );
+        sqlx::query(&query).execute(&self.pool).await?;
+
+        Ok(())
+    }
+
+    async fn get_organization_usage(&self, organization_id: &str) -> Result<Vec<OrganizationUsage>> {
+        let query = format!(
+            "SELECT organization_id, metric, value, period_start \
+             FROM organization_usage WHERE organization_id = '{}' ORDER BY metric",
+            organization_id
+        );
+
+        let rows: Vec<(String, String, i64, i64)> =
+            sqlx::query_as(&query).fetch_all(&self.pool).await?;
+
+        Ok(rows
+            .into_iter()
+            .map(|(organization_id, metric, value, period_start)| OrganizationUsage {
+                organization_id,
+                metric,
+                value,
+                period_start,
+            })
+            .collect())
+    }
+
+    async fn update_organization_usage(
+        &self,
+        organization_id: &str,
+        metric: &str,
+        value: i64,
+    ) -> Result<()> {
+        let now = Self::now_ms();
+
+        let query = format!(
+            "INSERT INTO organization_usage (organization_id, metric, value, period_start, updated_at) \
+             VALUES ('{}', '{}', {}, {}, {}) \
+             ON CONFLICT(organization_id, metric) DO UPDATE SET \
+                value = excluded.value, \
+                updated_at = excluded.updated_at",
+            organization_id, metric, value, now, now
+        );
+        sqlx::query(&query).execute(&self.pool).await?;
+
+        Ok(())
+    }
+
+    async fn increment_organization_usage(
+        &self,
+        organization_id: &str,
+        metric: &str,
+        delta: i64,
+    ) -> Result<()> {
+        let now = Self::now_ms();
+
+        let query = format!(
+            "INSERT INTO organization_usage (organization_id, metric, value, period_start, updated_at) \
+             VALUES ('{}', '{}', {}, {}, {}) \
+             ON CONFLICT(organization_id, metric) DO UPDATE SET \
+                value = organization_usage.value + excluded.value, \
+                updated_at = excluded.updated_at",
+            organization_id, metric, delta, now, now
+        );
+        sqlx::query(&query).execute(&self.pool).await?;
+
+        Ok(())
+    }
 }
 
 #[cfg(test)]

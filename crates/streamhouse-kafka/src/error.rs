@@ -60,6 +60,12 @@ pub enum KafkaError {
 
     #[error("Connection closed")]
     ConnectionClosed,
+
+    #[error("Authentication error: {0}")]
+    AuthenticationError(String),
+
+    #[error("Authorization error: {0}")]
+    AuthorizationError(String),
 }
 
 /// Kafka protocol error codes
@@ -178,6 +184,8 @@ impl From<&KafkaError> for ErrorCode {
             KafkaError::InvalidGeneration(_, _) => ErrorCode::IllegalGeneration,
             KafkaError::OffsetOutOfRange(_) => ErrorCode::OffsetOutOfRange,
             KafkaError::Compression(_) => ErrorCode::UnsupportedCompressionType,
+            KafkaError::AuthenticationError(_) => ErrorCode::SaslAuthenticationFailed,
+            KafkaError::AuthorizationError(_) => ErrorCode::ClusterAuthorizationFailed,
             _ => ErrorCode::UnknownServerError,
         }
     }
