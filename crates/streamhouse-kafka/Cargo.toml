@@ -1,6 +1,58 @@
 [package]
 name = "streamhouse-kafka"
-version = "0.1.0"
-edition = "2024"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Kafka protocol compatibility layer for StreamHouse"
 
 [dependencies]
+# Async runtime
+tokio = { workspace = true, features = ["net", "io-util", "sync", "macros", "rt-multi-thread"] }
+tokio-util = { workspace = true, features = ["codec"] }
+futures = { workspace = true }
+async-trait = { workspace = true }
+
+# Data structures
+bytes = { workspace = true }
+dashmap = "6.0"
+
+# Compression
+lz4_flex = { workspace = true }
+zstd = { workspace = true }
+flate2 = "1.0"
+snap = "1.1"
+
+# Checksums
+crc32fast = { workspace = true }
+crc32c = { workspace = true }
+
+# Serialization
+serde = { workspace = true }
+serde_json = { workspace = true }
+
+# Error handling
+thiserror = { workspace = true }
+anyhow = { workspace = true }
+
+# Logging
+tracing = { workspace = true }
+
+# Time
+chrono = { workspace = true }
+
+# UUID for member IDs
+uuid = { version = "1.0", features = ["v4"] }
+
+# StreamHouse dependencies
+streamhouse-core = { path = "../streamhouse-core" }
+streamhouse-metadata = { path = "../streamhouse-metadata" }
+streamhouse-storage = { path = "../streamhouse-storage" }
+object_store = { workspace = true }
+
+[features]
+postgres = ["streamhouse-metadata/postgres"]
+
+[dev-dependencies]
+tempfile = { workspace = true }
