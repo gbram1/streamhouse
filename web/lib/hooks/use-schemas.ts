@@ -41,6 +41,7 @@ export function useSchemaSubjects() {
             return {
               subject: subject,
               latestVersion: latest.version,
+              latestSchemaId: latest.id,
               schemaType: latest.schemaType,
               compatibilityMode: 'BACKWARD', // Default, API doesn't return this yet
               versionCount: versions.length,
@@ -50,6 +51,7 @@ export function useSchemaSubjects() {
             return {
               subject: subject,
               latestVersion: 1,
+              latestSchemaId: 0,
               schemaType: 'AVRO',
               compatibilityMode: 'BACKWARD',
               versionCount: 1,

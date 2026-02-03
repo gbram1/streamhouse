@@ -125,6 +125,7 @@ export interface Schema {
 export interface SchemaSubject {
   subject: string;
   latestVersion: number;
+  latestSchemaId: number;
   schemaType: 'AVRO' | 'PROTOBUF' | 'JSON';
   compatibilityMode: string;
   versionCount: number;
