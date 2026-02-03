@@ -1,0 +1,11 @@
+target
+.git
+web/node_modules
+web/.next
+*.md
+.env*
+.DS_Store
+grafana
+monitoring
+docs
+kubernetes

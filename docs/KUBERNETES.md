@@ -9,6 +9,145 @@ This guide covers deploying StreamHouse on Kubernetes using Helm charts.
 - kubectl configured with cluster access
 - StorageClass for persistent volumes (optional but recommended)
 
+---
+
+## Local Development with Kind
+
+[Kind](https://kind.sigs.k8s.io/) (Kubernetes in Docker) provides a simple way to run Kubernetes locally for development and testing.
+
+### 1. Install Kind
+
+```bash
+# macOS
+brew install kind
+
+# Linux
+curl -Lo ./kind https://kind.sigs.k8s.io/dl/v0.20.0/kind-linux-amd64
+chmod +x ./kind
+sudo mv ./kind /usr/local/bin/kind
+
+# Windows (PowerShell)
+choco install kind
+```
+
+### 2. Create a Cluster
+
+```bash
+# Create a cluster named "streamhouse"
+kind create cluster --name streamhouse
+
+# Verify the cluster is running
+kubectl cluster-info --context kind-streamhouse
+kubectl get nodes
+```
+
+### 3. Build Docker Images
+
+```bash
+# Build the StreamHouse server image
+docker build -t streamhouse/agent:0.1.0 .
+
+# Build the Web UI image
+docker build -t streamhouse/ui:0.1.0 ./web
+
+# Verify images were built
+docker images | grep streamhouse
+```
+
+### 4. Load Images into Kind
+
+Kind runs Kubernetes inside Docker containers, so images need to be loaded into the cluster:
+
+```bash
+# Load server image
+kind load docker-image streamhouse/agent:0.1.0 --name streamhouse
+
+# Load UI image
+kind load docker-image streamhouse/ui:0.1.0 --name streamhouse
+```
+
+### 5. Deploy StreamHouse
+
+```bash
+# Update Helm dependencies (PostgreSQL, MinIO subcharts)
+helm dependency build kubernetes/streamhouse
+
+# Install StreamHouse with development settings
+helm install streamhouse kubernetes/streamhouse \
+  --namespace streamhouse \
+  --create-namespace \
+  --set monitoring.serviceMonitor.enabled=false \
+  --set minio.auth.rootPassword=minioadmin123 \
+  --set postgresql.auth.password=streamhouse123
+
+# Watch pods come up
+kubectl get pods -n streamhouse -w
+```
+
+### 6. Access Services
+
+```bash
+# Forward the API port
+kubectl port-forward svc/streamhouse-agent 8080:8080 -n streamhouse &
+
+# Forward the UI port
+kubectl port-forward svc/streamhouse-ui 3000:80 -n streamhouse &
+
+# Forward MinIO console (optional)
+kubectl port-forward svc/streamhouse-minio 9001:9001 -n streamhouse &
+```
+
+Access the services:
+- **API**: http://localhost:8080
+- **UI**: http://localhost:3000
+- **MinIO Console**: http://localhost:9001 (admin/minioadmin123)
+
+### 7. Cleanup
+
+```bash
+# Uninstall StreamHouse
+helm uninstall streamhouse -n streamhouse
+
+# Delete the namespace
+kubectl delete namespace streamhouse
+
+# Delete the Kind cluster
+kind delete cluster --name streamhouse
+```
+
+### Troubleshooting Kind
+
+**Pods stuck in ImagePullBackOff:**
+```bash
+# Check if images are loaded
+docker exec -it streamhouse-control-plane crictl images | grep streamhouse
+
+# Re-load images if needed
+kind load docker-image streamhouse/agent:0.1.0 --name streamhouse
+```
+
+**Insufficient resources:**
+```bash
+# Increase Docker Desktop resources (Settings > Resources)
+# Recommended: 4 CPU, 8GB RAM
+
+# Or use minimal dev values
+helm install streamhouse kubernetes/streamhouse \
+  -f kubernetes/streamhouse/values-dev.yaml \
+  --namespace streamhouse --create-namespace
+```
+
+**Port conflicts:**
+```bash
+# Check what's using a port
+lsof -i :8080
+
+# Kill existing port-forwards
+pkill -f "kubectl port-forward"
+```
+
+---
+
 ## Quick Start
 
 ### Development/Testing Deployment
@@ -450,3 +589,252 @@ kubectl delete namespace streamhouse --cascade=orphan
 # Update dependencies
 helm dependency update kubernetes/streamhouse
 ```
+
+---
+
+## Cloud Deployment
+
+### AWS EKS
+
+**1. Create EKS Cluster**
+```bash
+# Install eksctl if needed
+brew install eksctl
+
+# Create cluster
+eksctl create cluster \
+  --name streamhouse \
+  --region us-west-2 \
+  --nodegroup-name workers \
+  --node-type t3.medium \
+  --nodes 3 \
+  --nodes-min 1 \
+  --nodes-max 5
+
+# Verify
+kubectl get nodes
+```
+
+**2. Install AWS Load Balancer Controller** (for Ingress)
+```bash
+# Add IAM policy
+eksctl utils associate-iam-oidc-provider --cluster streamhouse --approve
+
+# Install controller
+helm repo add eks https://aws.github.io/eks-charts
+helm install aws-load-balancer-controller eks/aws-load-balancer-controller \
+  -n kube-system \
+  --set clusterName=streamhouse
+```
+
+**3. Deploy StreamHouse with RDS + S3**
+```yaml
+# values-eks.yaml
+agent:
+  replicaCount: 3
+  storage:
+    bucket: "your-streamhouse-bucket"
+    region: "us-west-2"
+    pathStyle: false
+
+# Use AWS RDS instead of bundled PostgreSQL
+postgresql:
+  enabled: false
+  external:
+    host: "your-rds.xxxx.us-west-2.rds.amazonaws.com"
+    port: 5432
+    username: "streamhouse"
+    password: ""  # Use --set
+    database: "streamhouse"
+
+# Use AWS S3 instead of MinIO
+minio:
+  enabled: false
+
+# IAM Roles for Service Accounts (IRSA)
+serviceAccount:
+  annotations:
+    eks.amazonaws.com/role-arn: "arn:aws:iam::ACCOUNT:role/streamhouse-role"
+
+ingress:
+  enabled: true
+  className: alb
+  annotations:
+    alb.ingress.kubernetes.io/scheme: internet-facing
+    alb.ingress.kubernetes.io/target-type: ip
+```
+
+```bash
+helm install streamhouse kubernetes/streamhouse \
+  -n streamhouse --create-namespace \
+  -f values-eks.yaml \
+  --set postgresql.external.password="$DB_PASSWORD"
+```
+
+---
+
+### Azure AKS
+
+**1. Create AKS Cluster**
+```bash
+# Create resource group
+az group create --name streamhouse-rg --location eastus
+
+# Create cluster
+az aks create \
+  --resource-group streamhouse-rg \
+  --name streamhouse \
+  --node-count 3 \
+  --node-vm-size Standard_D2s_v3 \
+  --enable-managed-identity \
+  --generate-ssh-keys
+
+# Get credentials
+az aks get-credentials --resource-group streamhouse-rg --name streamhouse
+```
+
+**2. Deploy with Azure Database + Blob Storage**
+```yaml
+# values-aks.yaml
+agent:
+  replicaCount: 3
+  storage:
+    bucket: "streamhouse"
+    endpoint: "https://youraccount.blob.core.windows.net"
+    region: "eastus"
+
+postgresql:
+  enabled: false
+  external:
+    host: "your-postgres.postgres.database.azure.com"
+    port: 5432
+    username: "streamhouse"
+    database: "streamhouse"
+
+minio:
+  enabled: false
+  external:
+    endpoint: "https://youraccount.blob.core.windows.net"
+    accessKey: ""  # Azure Storage Account name
+    secretKey: ""  # Azure Storage Account key
+
+ingress:
+  enabled: true
+  className: nginx
+  annotations:
+    kubernetes.io/ingress.class: nginx
+```
+
+```bash
+helm install streamhouse kubernetes/streamhouse \
+  -n streamhouse --create-namespace \
+  -f values-aks.yaml \
+  --set postgresql.external.password="$DB_PASSWORD" \
+  --set minio.external.accessKey="$STORAGE_ACCOUNT" \
+  --set minio.external.secretKey="$STORAGE_KEY"
+```
+
+---
+
+### Google GKE
+
+**1. Create GKE Cluster**
+```bash
+# Set project
+gcloud config set project YOUR_PROJECT_ID
+
+# Create cluster
+gcloud container clusters create streamhouse \
+  --zone us-central1-a \
+  --num-nodes 3 \
+  --machine-type e2-standard-2
+
+# Get credentials
+gcloud container clusters get-credentials streamhouse --zone us-central1-a
+```
+
+**2. Deploy with Cloud SQL + GCS**
+```yaml
+# values-gke.yaml
+agent:
+  replicaCount: 3
+  storage:
+    bucket: "your-streamhouse-bucket"
+    region: "us-central1"
+
+postgresql:
+  enabled: false
+  external:
+    host: "INSTANCE_IP"  # Cloud SQL private IP
+    port: 5432
+    username: "streamhouse"
+    database: "streamhouse"
+
+minio:
+  enabled: false
+
+# Workload Identity
+serviceAccount:
+  annotations:
+    iam.gke.io/gcp-service-account: "streamhouse@PROJECT.iam.gserviceaccount.com"
+
+ingress:
+  enabled: true
+  className: gce
+```
+
+```bash
+helm install streamhouse kubernetes/streamhouse \
+  -n streamhouse --create-namespace \
+  -f values-gke.yaml \
+  --set postgresql.external.password="$DB_PASSWORD"
+```
+
+---
+
+### DigitalOcean DOKS
+
+**1. Create Cluster**
+```bash
+doctl kubernetes cluster create streamhouse \
+  --region nyc1 \
+  --size s-2vcpu-4gb \
+  --count 3
+```
+
+**2. Deploy with Managed Database + Spaces**
+```yaml
+# values-doks.yaml
+agent:
+  replicaCount: 2
+  storage:
+    bucket: "streamhouse"
+    endpoint: "https://nyc3.digitaloceanspaces.com"
+    region: "nyc3"
+
+postgresql:
+  enabled: false
+  external:
+    host: "your-db-cluster.db.ondigitalocean.com"
+    port: 25060
+    username: "streamhouse"
+    database: "streamhouse"
+
+minio:
+  enabled: false
+  external:
+    endpoint: "https://nyc3.digitaloceanspaces.com"
+```
+
+---
+
+## Cost Optimization
+
+| Cloud | Minimum Setup | Estimated Cost/Month |
+|-------|---------------|---------------------|
+| AWS EKS | 2x t3.medium + RDS db.t3.micro + S3 | ~$150 |
+| Azure AKS | 2x Standard_B2s + Basic DB + Blob | ~$120 |
+| GKE | 2x e2-small + Cloud SQL basic + GCS | ~$100 |
+| DigitalOcean | 2x s-2vcpu-4gb + Managed DB + Spaces | ~$80 |
+
+For development/testing, use the bundled PostgreSQL and MinIO to avoid managed service costs.
