@@ -49,7 +49,7 @@ Implemented in `streamhouse-kafka` crate:
 - ✅ Protocol version negotiation (ApiVersions API)
 - ✅ 14 Kafka API endpoints (Produce, Fetch, Metadata, etc.)
 - ✅ Compatible with kafka-python, kafkajs (tested)
-- ⚠️ Fetch API returns empty (needs PartitionReader integration)
+- ✅ Full produce/consume working (PartitionReader integrated)
 - 📖 See: `docs/KAFKA_PROTOCOL.md`
 
 #### 2. **REST API** (User Experience Gap)
@@ -322,33 +322,32 @@ GROUP BY user_id, SESSION(event_time, INTERVAL '30' MINUTE);
 
 #### ✅ Week 16: Core APIs
 - ✅ **Produce API (0)**: Write records (RecordBatch v2 format)
-- ⚠️ **Fetch API (1)**: Stubbed (needs PartitionReader integration)
+- ✅ **Fetch API (1)**: Read records with PartitionReader + CRC32C
 - ✅ **Metadata API (3)**: Topic/partition/broker info
 - ✅ **ListOffsets API (2)**: Find start/end offsets
 - ✅ **OffsetCommit/Fetch (8/9)**: Save and retrieve offsets
 - ✅ **Group Coordinator (10-14)**: JoinGroup, SyncGroup, Heartbeat, LeaveGroup
 - ✅ **CreateTopics/DeleteTopics (19/20)**: Topic management
 
-#### Week 17: Testing + Compatibility
-- ✅ Tested with `kafka-python` (produce working)
-- ⚠️ `kcat`/librdkafka has compact protocol issues
-- Remaining: Test with Java, Go, Node.js clients
+#### ✅ Week 17: Testing + Compatibility
+- ✅ Tested with `kafka-python` (produce + consume working)
+- ✅ Full test suite in `scripts/test_kafka_protocol.py`
+- ✅ Examples in `examples/kafka-protocol/` (Python, Node.js, Go, Java)
+- ⚠️ `kcat`/librdkafka has compact protocol issues (use kafka-python instead)
 
 **Deliverables**:
 - ✅ Kafka protocol support (14 APIs)
 - ✅ Server integrated into unified-server.rs (port 9092)
 - 📖 See: `docs/KAFKA_PROTOCOL.md` for usage
 
-#### ⚠️ Known Limitations (Follow-up Work)
+#### ⚠️ Known Limitations
 
-| Limitation | Impact | Fix Required |
-|------------|--------|--------------|
-| **Consume not working** | HIGH | Fetch API returns empty batches - needs PartitionReader/SegmentCache integration to read stored records |
-| **RecordBatch v2 only** | MEDIUM | Only modern clients (Kafka 0.11+) supported - older Message Set format not implemented |
-| **kcat/librdkafka issues** | LOW | Compact protocol encoding causes assertion failures in librdkafka - use kafka-python or kafkajs instead |
-| **No transactions** | LOW | Idempotent producer and transactions not yet implemented (Phase 14) |
-
-**Priority Fix**: Implement Fetch API to read from storage (~1-2 days work)
+| Limitation | Impact | Notes |
+|------------|--------|-------|
+| **RecordBatch v2 only** | LOW | Only modern clients (Kafka 0.11+) supported - older Message Set format not implemented |
+| **kcat/librdkafka issues** | LOW | Compact protocol encoding issues - use kafka-python or kafkajs instead |
+| **No transactions** | MEDIUM | Idempotent producer and transactions planned for Phase 14 |
+| **8s flush delay** | LOW | Records visible after background flush interval (configurable) |
 
 ---
 

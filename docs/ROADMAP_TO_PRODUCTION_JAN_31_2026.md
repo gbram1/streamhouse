@@ -1,7 +1,7 @@
 # StreamHouse: Complete Roadmap to Production & Adoption
 **Date:** February 3, 2026
-**Status:** ✅ Phase 9-14 (Core Complete), ✅ Phase 18.5-18.8 (High-Perf Client + Demo + Consumer Actions + SQL Query), ✅ Phase 20 (Developer Experience)
-**Next:** Phase 19 (Multi-Language SDKs) or Phase 21 (Kafka Protocol Compatibility)
+**Status:** ✅ Phase 9-14 (Core Complete), ✅ Phase 18.5-18.8 (High-Perf Client + Demo + Consumer Actions + SQL Query), ✅ Phase 20 (Developer Experience), ✅ Phase 21 (Kafka Protocol Compatibility)
+**Next:** Phase 21.5 (Multi-Tenancy) or Phase 24 (Stream Processing & SQL Engine)
 **Deferred:** Phase 15 (Kubernetes) - Docker Compose deployment prioritized
 
 ---
@@ -31,9 +31,10 @@ StreamHouse is a high-performance, cloud-native streaming platform built in Rust
 - ✅ Easy onboarding (Docker Compose, benchmarks, examples) - DONE
 - ✅ Consumer management (reset offsets, delete groups, seek) - DONE
 - ✅ Message query/browse (SQL Lite) - DONE
-- ❌ Multi-language client libraries (Python, JavaScript, Go) - NEXT
-- ❌ Kafka protocol compatibility (ecosystem access)
-- ❌ Advanced features (tiering, compression, quotas)
+- ✅ Kafka protocol compatibility (ecosystem access) - DONE
+- ❌ **Multi-Tenancy** (org isolation, quotas, API keys) - CRITICAL FOR SAAS
+- ❌ Multi-language client libraries (Python, JavaScript, Go)
+- ❌ Advanced features (tiering, compression)
 
 ---
 
@@ -2788,8 +2789,17 @@ Memory:      StreamHouse: 2.1GB     Kafka: 4.5GB     (-53%)
 
 **Priority:** CRITICAL (for ecosystem access)
 **Effort:** 100 hours
-**Status:** NOT STARTED
-**Gap:** Not Kafka-compatible - can't use Kafka ecosystem
+**Status:** ✅ COMPLETE (February 3, 2026)
+
+**Completed:**
+- ✅ Kafka wire protocol (port 9092) in `streamhouse-kafka` crate
+- ✅ 14 Kafka APIs (Produce, Fetch, Metadata, ListOffsets, OffsetCommit/Fetch, Group Coordinator, etc.)
+- ✅ Full produce/consume working with kafka-python, kafkajs
+- ✅ Auto-topic creation on metadata requests
+- ✅ RecordBatch v2 format with CRC32C
+- ✅ Test suite: `scripts/test_kafka_protocol.py`
+- ✅ Examples: `examples/kafka-protocol/` (Python, Node.js, Go, Java)
+- ✅ Documentation: `docs/KAFKA_PROTOCOL.md`
 
 ### Why This Matters
 
@@ -2853,6 +2863,686 @@ docker run -p 8080:8080 \
 - ✅ `kafka-console-consumer` works
 - ✅ Kafka UI can connect and view topics
 - ✅ At least 1 Kafka Connect connector works
+
+---
+
+## Phase 21.5: Multi-Tenancy Foundation
+
+**Priority:** CRITICAL (blocker for managed service)
+**Effort:** 80 hours
+**Status:** NOT STARTED
+**Gap:** Single-tenant architecture - cannot offer managed service without tenant isolation
+
+### Why This Matters
+
+Multi-tenancy is **essential** for:
+- **SaaS offering**: Multiple customers on shared infrastructure
+- **Cost efficiency**: Amortize infrastructure across tenants
+- **Security**: Isolation between customers' data
+- **Billing**: Track usage per organization
+- **Compliance**: Data residency and access controls
+
+Without multi-tenancy, StreamHouse can only be deployed as a single-tenant system, requiring separate infrastructure per customer (expensive and unscalable).
+
+### Architecture Overview
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                    StreamHouse Multi-Tenant                  │
+├─────────────────────────────────────────────────────────────┤
+│  API Layer (with org_id context)                            │
+│  ┌─────────┐  ┌─────────┐  ┌─────────┐  ┌─────────┐        │
+│  │ gRPC    │  │ Kafka   │  │ REST    │  │ Web UI  │        │
+│  │ API     │  │ Protocol│  │ API     │  │         │        │
+│  └────┬────┘  └────┬────┘  └────┬────┘  └────┬────┘        │
+│       │            │            │            │              │
+│       └────────────┴────────────┴────────────┘              │
+│                         │                                    │
+│  ┌──────────────────────▼──────────────────────┐            │
+│  │         Tenant Context Middleware           │            │
+│  │   (extracts org_id from API key/JWT)        │            │
+│  └──────────────────────┬──────────────────────┘            │
+│                         │                                    │
+├─────────────────────────┼───────────────────────────────────┤
+│  Storage Layer          │                                    │
+│  ┌──────────────────────▼──────────────────────┐            │
+│  │              PostgreSQL                      │            │
+│  │  ┌─────────────────────────────────────┐    │            │
+│  │  │ topics (org_id, name, ...)          │    │            │
+│  │  │ partitions (org_id, topic, ...)     │    │            │
+│  │  │ consumer_groups (org_id, ...)       │    │            │
+│  │  │ quotas (org_id, limits, ...)        │    │            │
+│  │  └─────────────────────────────────────┘    │            │
+│  │  + Row-Level Security (RLS) policies        │            │
+│  └─────────────────────────────────────────────┘            │
+│                                                              │
+│  ┌─────────────────────────────────────────────┐            │
+│  │                    S3                        │            │
+│  │  org-{uuid}/                                 │            │
+│  │    └── data/                                 │            │
+│  │          └── {topic}/                        │            │
+│  │                └── {partition}/              │            │
+│  │                      └── segments            │            │
+│  └─────────────────────────────────────────────┘            │
+└─────────────────────────────────────────────────────────────┘
+```
+
+---
+
+### Task 1: Database Schema Changes (20 hours)
+
+**Goal:** Add `organization_id` to all tables with proper foreign keys and indexes.
+
+#### 1.1 Create Organizations Table
+
+**File:** `crates/streamhouse-metadata/migrations/004_multi_tenancy.sql`
+
+```sql
+-- Organizations table (root of tenant hierarchy)
+CREATE TABLE organizations (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    name VARCHAR(255) NOT NULL,
+    slug VARCHAR(63) NOT NULL UNIQUE,  -- URL-friendly identifier
+    plan VARCHAR(50) NOT NULL DEFAULT 'free',  -- free, pro, enterprise
+    status VARCHAR(20) NOT NULL DEFAULT 'active',  -- active, suspended, deleted
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    settings JSONB NOT NULL DEFAULT '{}',
+    CONSTRAINT valid_slug CHECK (slug ~ '^[a-z0-9-]+$')
+);
+
+CREATE INDEX idx_organizations_slug ON organizations(slug);
+CREATE INDEX idx_organizations_status ON organizations(status);
+
+-- API Keys for authentication
+CREATE TABLE api_keys (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    organization_id UUID NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+    name VARCHAR(255) NOT NULL,
+    key_hash VARCHAR(64) NOT NULL,  -- SHA-256 of the actual key
+    key_prefix VARCHAR(12) NOT NULL,  -- First 12 chars for identification (sk_live_xxxx)
+    permissions JSONB NOT NULL DEFAULT '["read", "write"]',
+    expires_at TIMESTAMPTZ,
+    last_used_at TIMESTAMPTZ,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    UNIQUE(key_prefix)
+);
+
+CREATE INDEX idx_api_keys_org ON api_keys(organization_id);
+CREATE INDEX idx_api_keys_prefix ON api_keys(key_prefix);
+```
+
+#### 1.2 Add organization_id to Existing Tables
+
+```sql
+-- Add organization_id to topics
+ALTER TABLE topics ADD COLUMN organization_id UUID REFERENCES organizations(id) ON DELETE CASCADE;
+CREATE INDEX idx_topics_org ON topics(organization_id);
+ALTER TABLE topics ADD CONSTRAINT unique_topic_per_org UNIQUE(organization_id, name);
+
+-- Add organization_id to partitions
+ALTER TABLE partitions ADD COLUMN organization_id UUID REFERENCES organizations(id) ON DELETE CASCADE;
+CREATE INDEX idx_partitions_org ON partitions(organization_id);
+
+-- Add organization_id to segments
+ALTER TABLE segments ADD COLUMN organization_id UUID REFERENCES organizations(id) ON DELETE CASCADE;
+CREATE INDEX idx_segments_org ON segments(organization_id);
+
+-- Add organization_id to consumer_groups
+ALTER TABLE consumer_groups ADD COLUMN organization_id UUID REFERENCES organizations(id) ON DELETE CASCADE;
+CREATE INDEX idx_consumer_groups_org ON consumer_groups(organization_id);
+
+-- Add organization_id to consumer_offsets
+ALTER TABLE consumer_offsets ADD COLUMN organization_id UUID REFERENCES organizations(id) ON DELETE CASCADE;
+CREATE INDEX idx_consumer_offsets_org ON consumer_offsets(organization_id);
+
+-- Add organization_id to agents (agents can be shared or per-org)
+ALTER TABLE agents ADD COLUMN organization_id UUID REFERENCES organizations(id) ON DELETE SET NULL;
+CREATE INDEX idx_agents_org ON agents(organization_id);
+
+-- Add organization_id to partition_leases
+ALTER TABLE partition_leases ADD COLUMN organization_id UUID REFERENCES organizations(id) ON DELETE CASCADE;
+CREATE INDEX idx_partition_leases_org ON partition_leases(organization_id);
+
+-- Add organization_id to schema_registry tables
+ALTER TABLE schema_registry_schemas ADD COLUMN organization_id UUID REFERENCES organizations(id) ON DELETE CASCADE;
+ALTER TABLE schema_registry_versions ADD COLUMN organization_id UUID REFERENCES organizations(id) ON DELETE CASCADE;
+ALTER TABLE schema_registry_subject_config ADD COLUMN organization_id UUID REFERENCES organizations(id) ON DELETE CASCADE;
+```
+
+#### 1.3 Backfill Existing Data
+
+```sql
+-- Create a default organization for existing data
+INSERT INTO organizations (id, name, slug, plan)
+VALUES ('00000000-0000-0000-0000-000000000000', 'Default', 'default', 'enterprise');
+
+-- Backfill existing records
+UPDATE topics SET organization_id = '00000000-0000-0000-0000-000000000000' WHERE organization_id IS NULL;
+UPDATE partitions SET organization_id = '00000000-0000-0000-0000-000000000000' WHERE organization_id IS NULL;
+UPDATE segments SET organization_id = '00000000-0000-0000-0000-000000000000' WHERE organization_id IS NULL;
+UPDATE consumer_groups SET organization_id = '00000000-0000-0000-0000-000000000000' WHERE organization_id IS NULL;
+UPDATE consumer_offsets SET organization_id = '00000000-0000-0000-0000-000000000000' WHERE organization_id IS NULL;
+
+-- Make organization_id NOT NULL after backfill
+ALTER TABLE topics ALTER COLUMN organization_id SET NOT NULL;
+ALTER TABLE partitions ALTER COLUMN organization_id SET NOT NULL;
+ALTER TABLE segments ALTER COLUMN organization_id SET NOT NULL;
+ALTER TABLE consumer_groups ALTER COLUMN organization_id SET NOT NULL;
+ALTER TABLE consumer_offsets ALTER COLUMN organization_id SET NOT NULL;
+```
+
+---
+
+### Task 2: Row-Level Security (RLS) (15 hours)
+
+**Goal:** Enforce tenant isolation at the database level so queries automatically filter by organization.
+
+#### 2.1 Enable RLS on All Tables
+
+```sql
+-- Enable RLS
+ALTER TABLE topics ENABLE ROW LEVEL SECURITY;
+ALTER TABLE partitions ENABLE ROW LEVEL SECURITY;
+ALTER TABLE segments ENABLE ROW LEVEL SECURITY;
+ALTER TABLE consumer_groups ENABLE ROW LEVEL SECURITY;
+ALTER TABLE consumer_offsets ENABLE ROW LEVEL SECURITY;
+ALTER TABLE partition_leases ENABLE ROW LEVEL SECURITY;
+ALTER TABLE schema_registry_schemas ENABLE ROW LEVEL SECURITY;
+ALTER TABLE schema_registry_versions ENABLE ROW LEVEL SECURITY;
+
+-- Create policies (using current_setting for org context)
+CREATE POLICY tenant_isolation_topics ON topics
+    USING (organization_id = current_setting('app.current_organization_id')::UUID);
+
+CREATE POLICY tenant_isolation_partitions ON partitions
+    USING (organization_id = current_setting('app.current_organization_id')::UUID);
+
+CREATE POLICY tenant_isolation_segments ON segments
+    USING (organization_id = current_setting('app.current_organization_id')::UUID);
+
+CREATE POLICY tenant_isolation_consumer_groups ON consumer_groups
+    USING (organization_id = current_setting('app.current_organization_id')::UUID);
+
+CREATE POLICY tenant_isolation_consumer_offsets ON consumer_offsets
+    USING (organization_id = current_setting('app.current_organization_id')::UUID);
+
+CREATE POLICY tenant_isolation_partition_leases ON partition_leases
+    USING (organization_id = current_setting('app.current_organization_id')::UUID);
+
+-- Create app role that uses RLS
+CREATE ROLE streamhouse_app;
+GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO streamhouse_app;
+
+-- Admin role bypasses RLS for migrations/maintenance
+CREATE ROLE streamhouse_admin;
+GRANT ALL ON ALL TABLES IN SCHEMA public TO streamhouse_admin;
+ALTER ROLE streamhouse_admin SET row_security = off;
+```
+
+#### 2.2 Update Rust Code to Set Tenant Context
+
+**File:** `crates/streamhouse-metadata/src/tenant_context.rs` (NEW)
+
+```rust
+use sqlx::PgPool;
+use uuid::Uuid;
+
+/// Sets the current organization context for RLS policies
+pub async fn set_tenant_context(pool: &PgPool, org_id: Uuid) -> Result<(), sqlx::Error> {
+    sqlx::query(&format!(
+        "SET LOCAL app.current_organization_id = '{}'",
+        org_id
+    ))
+    .execute(pool)
+    .await?;
+    Ok(())
+}
+
+/// Tenant-aware database connection wrapper
+pub struct TenantConnection {
+    pool: PgPool,
+    organization_id: Uuid,
+}
+
+impl TenantConnection {
+    pub fn new(pool: PgPool, organization_id: Uuid) -> Self {
+        Self { pool, organization_id }
+    }
+
+    /// Execute a query with tenant context set
+    pub async fn execute<'a, E>(&self, query: E) -> Result<sqlx::postgres::PgQueryResult, sqlx::Error>
+    where
+        E: sqlx::Execute<'a, sqlx::Postgres>,
+    {
+        let mut tx = self.pool.begin().await?;
+        set_tenant_context(&self.pool, self.organization_id).await?;
+        let result = query.execute(&mut *tx).await?;
+        tx.commit().await?;
+        Ok(result)
+    }
+}
+```
+
+---
+
+### Task 3: S3 Prefix Isolation (15 hours)
+
+**Goal:** Store each organization's data in isolated S3 prefixes to prevent cross-tenant access.
+
+#### 3.1 S3 Path Structure
+
+```
+s3://streamhouse-data/
+├── org-550e8400-e29b-41d4-a716-446655440000/    # Org 1
+│   └── data/
+│       └── orders/                              # Topic
+│           ├── 0/                               # Partition 0
+│           │   ├── 00000000000000000000.seg
+│           │   └── 00000000000000001000.seg
+│           └── 1/                               # Partition 1
+│               └── 00000000000000000000.seg
+│
+├── org-6ba7b810-9dad-11d1-80b4-00c04fd430c8/    # Org 2
+│   └── data/
+│       └── events/
+│           └── 0/
+│               └── 00000000000000000000.seg
+│
+└── _system/                                      # System data (no org)
+    └── metadata/
+```
+
+#### 3.2 Update Storage Layer
+
+**File:** `crates/streamhouse-storage/src/tenant_storage.rs` (NEW)
+
+```rust
+use object_store::{ObjectStore, path::Path};
+use uuid::Uuid;
+
+/// Tenant-aware storage wrapper
+pub struct TenantStorage {
+    store: Arc<dyn ObjectStore>,
+    organization_id: Uuid,
+}
+
+impl TenantStorage {
+    pub fn new(store: Arc<dyn ObjectStore>, organization_id: Uuid) -> Self {
+        Self { store, organization_id }
+    }
+
+    /// Get the S3 prefix for this tenant
+    pub fn prefix(&self) -> Path {
+        Path::from(format!("org-{}/data", self.organization_id))
+    }
+
+    /// Build full path for a segment
+    pub fn segment_path(&self, topic: &str, partition: u32, segment_id: &str) -> Path {
+        Path::from(format!(
+            "org-{}/data/{}/{}/{}.seg",
+            self.organization_id, topic, partition, segment_id
+        ))
+    }
+
+    /// List segments for a topic/partition (scoped to tenant)
+    pub async fn list_segments(
+        &self,
+        topic: &str,
+        partition: u32,
+    ) -> Result<Vec<Path>, object_store::Error> {
+        let prefix = Path::from(format!(
+            "org-{}/data/{}/{}/",
+            self.organization_id, topic, partition
+        ));
+
+        let mut segments = Vec::new();
+        let mut stream = self.store.list(Some(&prefix));
+
+        while let Some(meta) = stream.next().await {
+            let meta = meta?;
+            if meta.location.as_ref().ends_with(".seg") {
+                segments.push(meta.location);
+            }
+        }
+
+        Ok(segments)
+    }
+}
+```
+
+#### 3.3 S3 Bucket Policy (Optional but Recommended)
+
+For additional security, use S3 bucket policies to enforce prefix isolation:
+
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "EnforceTenantIsolation",
+      "Effect": "Deny",
+      "Principal": "*",
+      "Action": "s3:*",
+      "Resource": [
+        "arn:aws:s3:::streamhouse-data/org-*/*"
+      ],
+      "Condition": {
+        "StringNotEquals": {
+          "s3:prefix": "${aws:PrincipalTag/organization_id}"
+        }
+      }
+    }
+  ]
+}
+```
+
+---
+
+### Task 4: Quota Enforcement (15 hours)
+
+**Goal:** Limit resource usage per organization to prevent abuse and enable tiered pricing.
+
+#### 4.1 Quotas Table
+
+```sql
+CREATE TABLE organization_quotas (
+    organization_id UUID PRIMARY KEY REFERENCES organizations(id) ON DELETE CASCADE,
+
+    -- Topic limits
+    max_topics INTEGER NOT NULL DEFAULT 10,
+    max_partitions_per_topic INTEGER NOT NULL DEFAULT 12,
+
+    -- Storage limits
+    max_storage_bytes BIGINT NOT NULL DEFAULT 10737418240,  -- 10 GB
+    max_retention_days INTEGER NOT NULL DEFAULT 7,
+
+    -- Throughput limits
+    max_produce_bytes_per_sec BIGINT NOT NULL DEFAULT 10485760,  -- 10 MB/s
+    max_consume_bytes_per_sec BIGINT NOT NULL DEFAULT 52428800,  -- 50 MB/s
+    max_requests_per_sec INTEGER NOT NULL DEFAULT 1000,
+
+    -- Consumer limits
+    max_consumer_groups INTEGER NOT NULL DEFAULT 50,
+
+    -- Schema Registry limits
+    max_schemas INTEGER NOT NULL DEFAULT 100,
+
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+-- Usage tracking
+CREATE TABLE organization_usage (
+    organization_id UUID NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+    metric VARCHAR(50) NOT NULL,  -- 'storage_bytes', 'topics', 'produce_bytes', etc.
+    value BIGINT NOT NULL DEFAULT 0,
+    period_start TIMESTAMPTZ NOT NULL,  -- For rate limiting windows
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    PRIMARY KEY (organization_id, metric, period_start)
+);
+
+CREATE INDEX idx_org_usage_period ON organization_usage(organization_id, period_start);
+```
+
+#### 4.2 Quota Enforcement Middleware
+
+**File:** `crates/streamhouse-api/src/middleware/quota.rs` (NEW)
+
+```rust
+use axum::{
+    extract::State,
+    middleware::Next,
+    response::Response,
+    http::{Request, StatusCode},
+};
+
+pub async fn enforce_quotas<B>(
+    State(state): State<AppState>,
+    request: Request<B>,
+    next: Next<B>,
+) -> Result<Response, StatusCode> {
+    let org_id = request
+        .extensions()
+        .get::<OrganizationId>()
+        .ok_or(StatusCode::UNAUTHORIZED)?;
+
+    // Check request rate limit
+    let rate_limit = state.quota_service
+        .check_rate_limit(org_id, "requests_per_sec")
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    if rate_limit.exceeded {
+        return Err(StatusCode::TOO_MANY_REQUESTS);
+    }
+
+    // For produce requests, check throughput quota
+    if request.uri().path().contains("/produce") {
+        let content_length = request
+            .headers()
+            .get("content-length")
+            .and_then(|v| v.to_str().ok())
+            .and_then(|v| v.parse::<u64>().ok())
+            .unwrap_or(0);
+
+        let throughput_ok = state.quota_service
+            .check_throughput(org_id, "produce_bytes_per_sec", content_length)
+            .await
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+        if !throughput_ok {
+            return Err(StatusCode::TOO_MANY_REQUESTS);
+        }
+    }
+
+    Ok(next.run(request).await)
+}
+```
+
+#### 4.3 Quota Plans
+
+| Plan | Topics | Partitions/Topic | Storage | Produce | Consume | Price |
+|------|--------|------------------|---------|---------|---------|-------|
+| **Free** | 3 | 4 | 1 GB | 1 MB/s | 5 MB/s | $0 |
+| **Pro** | 25 | 12 | 100 GB | 10 MB/s | 50 MB/s | $99/mo |
+| **Enterprise** | Unlimited | 128 | 10 TB | 100 MB/s | 500 MB/s | Custom |
+
+---
+
+### Task 5: Tenant Isolation Guarantees (15 hours)
+
+**Goal:** Ensure complete isolation between tenants for security and compliance.
+
+#### 5.1 Isolation Checklist
+
+| Layer | Isolation Method | Status |
+|-------|------------------|--------|
+| **Database** | RLS policies + org_id foreign keys | Task 1-2 |
+| **Object Storage** | S3 prefix isolation | Task 3 |
+| **API** | API key → org_id extraction | Task 5.2 |
+| **Kafka Protocol** | Client ID → org_id mapping | Task 5.3 |
+| **Metrics** | Per-org Prometheus labels | Task 5.4 |
+| **Logs** | org_id in structured logs | Task 5.5 |
+
+#### 5.2 API Key Authentication
+
+**File:** `crates/streamhouse-api/src/middleware/auth.rs` (NEW)
+
+```rust
+use axum::{
+    extract::State,
+    http::{Request, StatusCode, header},
+    middleware::Next,
+    response::Response,
+};
+use sha2::{Sha256, Digest};
+
+pub async fn authenticate<B>(
+    State(state): State<AppState>,
+    mut request: Request<B>,
+    next: Next<B>,
+) -> Result<Response, StatusCode> {
+    // Extract API key from header
+    let api_key = request
+        .headers()
+        .get("X-API-Key")
+        .or_else(|| request.headers().get(header::AUTHORIZATION))
+        .and_then(|v| v.to_str().ok())
+        .map(|v| v.trim_start_matches("Bearer "))
+        .ok_or(StatusCode::UNAUTHORIZED)?;
+
+    // Hash the key to look up in database
+    let key_hash = format!("{:x}", Sha256::digest(api_key.as_bytes()));
+    let key_prefix = &api_key[..12.min(api_key.len())];
+
+    // Look up API key
+    let api_key_record = sqlx::query_as::<_, ApiKeyRecord>(
+        "SELECT organization_id, permissions FROM api_keys
+         WHERE key_prefix = $1 AND key_hash = $2
+         AND (expires_at IS NULL OR expires_at > NOW())"
+    )
+    .bind(key_prefix)
+    .bind(&key_hash)
+    .fetch_optional(&state.pool)
+    .await
+    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+    .ok_or(StatusCode::UNAUTHORIZED)?;
+
+    // Update last_used_at (fire and forget)
+    let _ = sqlx::query("UPDATE api_keys SET last_used_at = NOW() WHERE key_prefix = $1")
+        .bind(key_prefix)
+        .execute(&state.pool)
+        .await;
+
+    // Inject organization context into request
+    request.extensions_mut().insert(OrganizationId(api_key_record.organization_id));
+    request.extensions_mut().insert(Permissions(api_key_record.permissions));
+
+    Ok(next.run(request).await)
+}
+```
+
+#### 5.3 Kafka Protocol Tenant Mapping
+
+For Kafka protocol connections, map client credentials to organization:
+
+**File:** `crates/streamhouse-kafka/src/auth.rs` (NEW)
+
+```rust
+/// Extract organization from SASL credentials or client_id convention
+pub async fn resolve_organization(
+    client_id: &str,
+    sasl_username: Option<&str>,
+    metadata: &dyn MetadataStore,
+) -> Result<Uuid, KafkaError> {
+    // Option 1: SASL PLAIN with API key as password
+    if let Some(username) = sasl_username {
+        // username format: "org-{uuid}" or API key prefix
+        if username.starts_with("org-") {
+            return Uuid::parse_str(&username[4..])
+                .map_err(|_| KafkaError::AuthenticationFailed);
+        }
+
+        // Look up by API key prefix
+        let org_id = metadata.get_org_by_api_key_prefix(username).await?;
+        return Ok(org_id);
+    }
+
+    // Option 2: Client ID convention "streamhouse-{org_slug}-{app_name}"
+    if client_id.starts_with("streamhouse-") {
+        let parts: Vec<&str> = client_id.splitn(3, '-').collect();
+        if parts.len() >= 2 {
+            let org_id = metadata.get_org_by_slug(parts[1]).await?;
+            return Ok(org_id);
+        }
+    }
+
+    // Default organization for backwards compatibility
+    Ok(Uuid::nil())
+}
+```
+
+#### 5.4 Per-Tenant Metrics
+
+```rust
+// Add organization label to all metrics
+let labels = [
+    ("organization_id", org_id.to_string()),
+    ("topic", topic_name.to_string()),
+];
+
+counter!("streamhouse_produce_records_total", &labels).increment(record_count);
+histogram!("streamhouse_produce_latency_seconds", &labels).record(latency);
+```
+
+#### 5.5 Structured Logging with Tenant Context
+
+```rust
+use tracing::{info, instrument};
+
+#[instrument(skip(state), fields(organization_id = %org_id))]
+pub async fn create_topic(
+    State(state): State<AppState>,
+    org_id: Uuid,
+    topic: CreateTopicRequest,
+) -> Result<Json<Topic>, StatusCode> {
+    info!(topic = %topic.name, "Creating topic");
+    // ... implementation
+}
+```
+
+---
+
+### Deliverables
+
+- ✅ Migration `004_multi_tenancy.sql` with all schema changes
+- ✅ Organizations and API keys tables
+- ✅ Row-Level Security (RLS) policies on all tables
+- ✅ Tenant-aware S3 storage wrapper
+- ✅ Quota enforcement middleware
+- ✅ API key authentication middleware
+- ✅ Kafka protocol tenant resolution
+- ✅ Per-tenant metrics and logging
+- ✅ Documentation: `docs/MULTI_TENANCY.md`
+
+### Success Criteria
+
+```bash
+# Create organization
+curl -X POST http://localhost:8080/api/v1/organizations \
+  -H "Content-Type: application/json" \
+  -d '{"name": "Acme Corp", "slug": "acme"}'
+# Returns: {"id": "550e8400-...", "slug": "acme"}
+
+# Create API key for organization
+curl -X POST http://localhost:8080/api/v1/organizations/acme/api-keys \
+  -d '{"name": "Production"}'
+# Returns: {"key": "sk_live_abc123...", "prefix": "sk_live_abc1"}
+
+# Use API key to create topic (scoped to org)
+curl -X POST http://localhost:8080/api/v1/topics \
+  -H "X-API-Key: sk_live_abc123..." \
+  -d '{"name": "orders", "partitions": 3}'
+# Creates topic in org "acme" namespace
+
+# Verify S3 isolation
+aws s3 ls s3://streamhouse-data/org-550e8400-.../data/orders/
+# Only shows data for this organization
+
+# Verify quota enforcement
+# After exceeding quota:
+curl -X POST http://localhost:8080/api/v1/topics \
+  -H "X-API-Key: sk_live_abc123..."
+# Returns: 429 Too Many Requests
+```
+
+### Testing Requirements
+
+1. **Isolation Test**: Create 2 orgs, verify org A cannot see org B's topics
+2. **RLS Test**: Directly query DB without context, verify no rows returned
+3. **S3 Test**: Verify segments are stored in correct org prefix
+4. **Quota Test**: Exceed topic limit, verify 429 response
+5. **Auth Test**: Invalid API key returns 401
 
 ---
 
