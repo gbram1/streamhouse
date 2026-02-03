@@ -16,13 +16,47 @@ StreamHouse is an Apache Kafka alternative that stores events directly in S3, pr
 - 🔒 **Reliable**: 99.999999999% S3 durability, ACID metadata
 - 🎯 **Kafka-Compatible API**: Complete Producer and Consumer with batching, compression, consumer groups
 
-## Quick Start
+## Quick Start (Docker Compose)
 
-### Prerequisites
+Get StreamHouse running in under 5 minutes:
 
-- Rust 1.70+
-- PostgreSQL 14+ or SQLite (for metadata)
-- AWS credentials (for S3 access)
+```bash
+# Clone and start
+git clone https://github.com/streamhouse/streamhouse
+cd streamhouse
+docker compose up -d
+
+# Verify it's running
+curl http://localhost:8080/health
+
+# Create a topic
+curl -X POST http://localhost:8080/api/v1/topics \
+  -H "Content-Type: application/json" \
+  -d '{"name": "events", "partitions": 3}'
+
+# Send a message
+curl -X POST http://localhost:8080/api/v1/produce \
+  -H "Content-Type: application/json" \
+  -d '{"topic": "events", "key": "user-1", "value": "{\"event\": \"signup\"}"}'
+
+# Open the Web UI
+open http://localhost:3000
+```
+
+**Services available after startup:**
+
+| Service | URL |
+|---------|-----|
+| REST API | http://localhost:8080 |
+| Web UI | http://localhost:3000 |
+| Grafana | http://localhost:3001 (admin/admin) |
+| MinIO Console | http://localhost:9001 (minioadmin/minioadmin) |
+
+For detailed instructions, see **[docs/QUICKSTART.md](docs/QUICKSTART.md)**.
+
+---
+
+## Rust Client Examples
 
 ### Producer API Example
 
