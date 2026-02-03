@@ -68,11 +68,20 @@ pub fn create_router(state: AppState) -> Router {
         )
         .route(
             "/consumer-groups/:group_id",
-            get(handlers::consumer_groups::get_consumer_group),
+            get(handlers::consumer_groups::get_consumer_group)
+                .delete(handlers::consumer_groups::delete_consumer_group),
         )
         .route(
             "/consumer-groups/:group_id/lag",
             get(handlers::consumer_groups::get_consumer_group_lag),
+        )
+        .route(
+            "/consumer-groups/:group_id/reset",
+            post(handlers::consumer_groups::reset_offsets),
+        )
+        .route(
+            "/consumer-groups/:group_id/seek",
+            post(handlers::consumer_groups::seek_to_timestamp),
         )
         .route(
             "/consumer-groups/commit",
@@ -84,6 +93,8 @@ pub fn create_router(state: AppState) -> Router {
         .route("/metrics/latency", get(handlers::metrics::get_latency_metrics))
         .route("/metrics/errors", get(handlers::metrics::get_error_metrics))
         .route("/metrics/storage", get(handlers::metrics::get_storage_metrics))
+        // SQL
+        .route("/sql", post(handlers::sql::execute_sql))
         .with_state(state.clone());
 
     // OpenAPI documentation
@@ -141,6 +152,9 @@ pub async fn serve(router: Router, port: u16) -> Result<(), Box<dyn std::error::
         handlers::consumer_groups::get_consumer_group,
         handlers::consumer_groups::get_consumer_group_lag,
         handlers::consumer_groups::commit_offset,
+        handlers::consumer_groups::reset_offsets,
+        handlers::consumer_groups::seek_to_timestamp,
+        handlers::consumer_groups::delete_consumer_group,
         handlers::metrics::get_metrics,
         handlers::metrics::get_storage_metrics,
         handlers::metrics::get_throughput_metrics,
@@ -148,6 +162,7 @@ pub async fn serve(router: Router, port: u16) -> Result<(), Box<dyn std::error::
         handlers::metrics::get_error_metrics,
         handlers::metrics::get_agent_metrics,
         handlers::metrics::health_check,
+        handlers::sql::execute_sql,
     ),
     components(schemas(
         models::Topic,
@@ -177,6 +192,18 @@ pub async fn serve(router: Router, port: u16) -> Result<(), Box<dyn std::error::
         models::MessageQueryParams,
         models::CommitOffsetRequest,
         models::CommitOffsetResponse,
+        models::ResetStrategy,
+        models::ResetOffsetsRequest,
+        models::ResetOffsetsResponse,
+        models::ResetOffsetDetail,
+        models::SeekToTimestampRequest,
+        models::SeekToTimestampResponse,
+        models::SeekOffsetDetail,
+        models::DeleteConsumerGroupResponse,
+        handlers::sql::SqlQueryRequest,
+        handlers::sql::SqlQueryResponse,
+        handlers::sql::SqlErrorResponse,
+        handlers::sql::ColumnInfo,
     )),
     tags(
         (name = "topics", description = "Topic management"),
@@ -186,6 +213,7 @@ pub async fn serve(router: Router, port: u16) -> Result<(), Box<dyn std::error::
         (name = "consumer-groups", description = "Consumer group monitoring"),
         (name = "metrics", description = "Cluster metrics"),
         (name = "health", description = "Health checks"),
+        (name = "sql", description = "SQL query engine"),
     ),
     info(
         title = "StreamHouse API",

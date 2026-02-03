@@ -247,3 +247,95 @@ pub struct BatchRecordResult {
     pub partition: u32,
     pub offset: u64,
 }
+
+// Consumer Actions models
+
+/// Strategy for resetting consumer group offsets
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "lowercase")]
+pub enum ResetStrategy {
+    /// Reset to the earliest available offset
+    Earliest,
+    /// Reset to the latest offset (skip all existing messages)
+    Latest,
+    /// Reset to a specific offset value
+    Specific,
+    /// Reset to the offset at or after a specific timestamp
+    Timestamp,
+}
+
+/// Request to reset consumer group offsets
+#[derive(Debug, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct ResetOffsetsRequest {
+    /// Reset strategy to use
+    pub strategy: ResetStrategy,
+    /// Topic to reset (None = all topics for this group)
+    pub topic: Option<String>,
+    /// Partition to reset (None = all partitions)
+    pub partition: Option<u32>,
+    /// Specific offset (required when strategy = "specific")
+    pub offset: Option<u64>,
+    /// Unix epoch milliseconds (required when strategy = "timestamp")
+    pub timestamp: Option<i64>,
+}
+
+/// Response after resetting offsets
+#[derive(Debug, Serialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct ResetOffsetsResponse {
+    pub success: bool,
+    pub partitions_reset: usize,
+    pub details: Vec<ResetOffsetDetail>,
+}
+
+/// Detail of a single partition offset reset
+#[derive(Debug, Serialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct ResetOffsetDetail {
+    pub topic: String,
+    pub partition: u32,
+    pub old_offset: u64,
+    pub new_offset: u64,
+}
+
+/// Request to seek consumer group to a timestamp
+#[derive(Debug, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct SeekToTimestampRequest {
+    /// Topic to seek
+    pub topic: String,
+    /// Partition to seek (None = all partitions)
+    pub partition: Option<u32>,
+    /// Unix epoch milliseconds to seek to
+    pub timestamp: i64,
+}
+
+/// Response after seeking to timestamp
+#[derive(Debug, Serialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct SeekToTimestampResponse {
+    pub success: bool,
+    pub partitions_updated: usize,
+    pub details: Vec<SeekOffsetDetail>,
+}
+
+/// Detail of a single partition seek result
+#[derive(Debug, Serialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct SeekOffsetDetail {
+    pub topic: String,
+    pub partition: u32,
+    pub old_offset: u64,
+    pub new_offset: u64,
+    pub timestamp_found: i64,
+}
+
+/// Response after deleting a consumer group
+#[derive(Debug, Serialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct DeleteConsumerGroupResponse {
+    pub success: bool,
+    pub group_id: String,
+    pub partitions_deleted: usize,
+}
