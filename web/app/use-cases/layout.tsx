@@ -1,6 +1,6 @@
 import { MarketingLayout } from "@/components/layout/marketing-layout";
 
-export default function BlogLayout({
+export default function UseCasesLayout({
   children,
 }: {
   children: React.ReactNode;

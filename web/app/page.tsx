@@ -42,10 +42,10 @@ export default function Home() {
                   Documentation
                 </Link>
                 <Link
-                  href="/pricing"
+                  href="/use-cases"
                   className="rounded-lg px-3 py-2 text-sm text-[#a0a5b8] transition-colors hover:text-white"
                 >
-                  Pricing
+                  Use Cases
                 </Link>
                 <Link
                   href="/blog"
