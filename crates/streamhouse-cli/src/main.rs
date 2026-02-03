@@ -98,6 +98,14 @@ struct Cli {
     )]
     schema_registry_url: String,
 
+    /// REST API URL
+    #[arg(
+        long,
+        env = "STREAMHOUSE_API_URL",
+        default_value = "http://localhost:8080"
+    )]
+    api_url: String,
+
     #[command(subcommand)]
     command: Commands,
 }
@@ -113,6 +121,16 @@ enum Commands {
     Schema {
         #[command(subcommand)]
         command: commands::SchemaCommands,
+    },
+    /// Consumer group management commands
+    Consumer {
+        #[command(subcommand)]
+        command: commands::ConsumerCommands,
+    },
+    /// SQL query commands
+    Sql {
+        #[command(subcommand)]
+        command: commands::SqlCommands,
     },
     /// Produce records to a topic
     Produce {
@@ -232,6 +250,9 @@ async fn main() -> Result<()> {
         let schema_registry_url = std::env::var("SCHEMA_REGISTRY_URL")
             .unwrap_or_else(|_| "http://localhost:8081".to_string());
 
+        let api_url = std::env::var("STREAMHOUSE_API_URL")
+            .unwrap_or_else(|_| "http://localhost:8080".to_string());
+
         let channel = Channel::from_shared(server.clone())
             .context("Invalid server address")?
             .connect()
@@ -239,7 +260,7 @@ async fn main() -> Result<()> {
             .context("Failed to connect to server")?;
 
         let client = StreamHouseClient::new(channel);
-        let mut repl = repl::Repl::new(client, schema_registry_url)?;
+        let mut repl = repl::Repl::new(client, schema_registry_url, api_url)?;
         repl.run().await?;
     } else {
         // Traditional CLI mode
@@ -271,6 +292,12 @@ async fn main() -> Result<()> {
                 limit,
             } => handle_consume(&mut client, topic, partition, offset, limit).await?,
             Commands::Offset { command } => handle_offset_command(&mut client, command).await?,
+            Commands::Consumer { command } => {
+                commands::consumer::handle_consumer_command(command, &cli.api_url).await?
+            }
+            Commands::Sql { command } => {
+                commands::sql::handle_sql_command(command, &cli.api_url).await?
+            }
         }
     }
 

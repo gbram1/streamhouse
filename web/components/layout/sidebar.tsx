@@ -14,6 +14,7 @@ import {
   BarChart3,
   HardDrive,
   Bell,
+  Terminal,
 } from 'lucide-react';
 
 const navigation = [
@@ -51,6 +52,11 @@ const navigation = [
     name: 'Schemas',
     href: '/schemas',
     icon: FileCode2,
+  },
+  {
+    name: 'SQL Workbench',
+    href: '/sql',
+    icon: Terminal,
   },
   {
     name: 'Performance',

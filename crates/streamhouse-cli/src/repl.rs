@@ -24,11 +24,16 @@ pub struct Repl {
     client: StreamHouseClient<Channel>,
     editor: DefaultEditor,
     schema_registry_url: String,
+    api_url: String,
 }
 
 impl Repl {
     /// Create a new REPL instance
-    pub fn new(client: StreamHouseClient<Channel>, schema_registry_url: String) -> Result<Self> {
+    pub fn new(
+        client: StreamHouseClient<Channel>,
+        schema_registry_url: String,
+        api_url: String,
+    ) -> Result<Self> {
         let mut editor = DefaultEditor::new()?;
 
         // Load history from file if it exists
@@ -41,6 +46,7 @@ impl Repl {
             client,
             editor,
             schema_registry_url,
+            api_url,
         })
     }
 
@@ -125,6 +131,8 @@ impl Repl {
             "produce" => self.handle_produce(&tokens[1..]).await?,
             "consume" => self.handle_consume(&tokens[1..]).await?,
             "offset" => self.handle_offset(&tokens[1..]).await?,
+            "sql" => self.handle_sql(&tokens[1..]).await?,
+            "consumer" => self.handle_consumer(&tokens[1..]).await?,
             _ => {
                 println!("Unknown command: {}", tokens[0]);
                 println!("Type 'help' for available commands");
@@ -411,6 +419,138 @@ impl Repl {
         commands::schema::handle_schema_command(command, &self.schema_registry_url).await
     }
 
+    /// Handle SQL commands
+    async fn handle_sql(&mut self, args: &[&str]) -> Result<()> {
+        if args.is_empty() {
+            println!("Usage: sql <query|shell> [args...]");
+            println!("  sql query \"SELECT * FROM topic LIMIT 10\"");
+            println!("  sql shell");
+            return Ok(());
+        }
+
+        let command = match args[0] {
+            "query" => {
+                if args.len() < 2 {
+                    println!("Usage: sql query \"<SQL query>\" [--timeout MS] [--format table|json|csv]");
+                    return Ok(());
+                }
+                // Join remaining args as the query (handles quoted strings)
+                let query = args[1..].join(" ");
+                // Remove surrounding quotes if present
+                let query = query.trim_matches('"').trim_matches('\'').to_string();
+                let timeout = Self::parse_flag_u64(args, "--timeout").unwrap_or(30000);
+                let format = Self::parse_flag_string(args, "--format")
+                    .unwrap_or_else(|| "table".to_string());
+
+                commands::SqlCommands::Query {
+                    query,
+                    timeout,
+                    format,
+                }
+            }
+            "shell" => commands::SqlCommands::Shell,
+            // Allow direct SQL queries without "query" subcommand
+            _ => {
+                // Treat everything as a SQL query
+                let query = args.join(" ");
+                let query = query.trim_matches('"').trim_matches('\'').to_string();
+
+                commands::SqlCommands::Query {
+                    query,
+                    timeout: 30000,
+                    format: "table".to_string(),
+                }
+            }
+        };
+
+        commands::sql::handle_sql_command(command, &self.api_url).await
+    }
+
+    /// Handle consumer group commands
+    async fn handle_consumer(&mut self, args: &[&str]) -> Result<()> {
+        if args.is_empty() {
+            println!("Usage: consumer <list|get|lag|reset|seek|delete> [args...]");
+            return Ok(());
+        }
+
+        let command = match args[0] {
+            "list" => commands::ConsumerCommands::List,
+            "get" => {
+                if args.len() < 2 {
+                    println!("Usage: consumer get <group_id>");
+                    return Ok(());
+                }
+                commands::ConsumerCommands::Get {
+                    group_id: args[1].to_string(),
+                }
+            }
+            "lag" => {
+                if args.len() < 2 {
+                    println!("Usage: consumer lag <group_id>");
+                    return Ok(());
+                }
+                commands::ConsumerCommands::Lag {
+                    group_id: args[1].to_string(),
+                }
+            }
+            "reset" => {
+                if args.len() < 2 {
+                    println!("Usage: consumer reset <group_id> [--strategy earliest|latest|specific] [--topic T] [--partition P] [--offset O]");
+                    return Ok(());
+                }
+                let strategy = Self::parse_flag_string(args, "--strategy")
+                    .unwrap_or_else(|| "earliest".to_string());
+                let topic = Self::parse_flag_string(args, "--topic");
+                let partition = Self::parse_flag_u32(args, "--partition");
+                let offset = Self::parse_flag_u64(args, "--offset");
+
+                commands::ConsumerCommands::Reset {
+                    group_id: args[1].to_string(),
+                    strategy,
+                    topic,
+                    partition,
+                    offset,
+                }
+            }
+            "seek" => {
+                if args.len() < 2 {
+                    println!("Usage: consumer seek <group_id> --topic <topic> --timestamp <ISO8601> [--partition P]");
+                    return Ok(());
+                }
+                let topic = Self::parse_flag_string(args, "--topic")
+                    .context("Missing --topic flag")?;
+                let timestamp = Self::parse_flag_string(args, "--timestamp")
+                    .context("Missing --timestamp flag")?;
+                let partition = Self::parse_flag_u32(args, "--partition");
+
+                commands::ConsumerCommands::Seek {
+                    group_id: args[1].to_string(),
+                    topic,
+                    timestamp,
+                    partition,
+                }
+            }
+            "delete" => {
+                if args.len() < 2 {
+                    println!("Usage: consumer delete <group_id> [--force]");
+                    return Ok(());
+                }
+                let force = args.contains(&"--force");
+
+                commands::ConsumerCommands::Delete {
+                    group_id: args[1].to_string(),
+                    force,
+                }
+            }
+            _ => {
+                println!("Unknown consumer command: {}", args[0]);
+                return Ok(());
+            }
+        };
+
+        commands::consumer::handle_consumer_command(command, &self.api_url).await
+    }
+
     /// Print help message
     fn print_help() {
         println!("Available commands:");
@@ -430,6 +570,20 @@ impl Repl {
         println!("    schema delete <subject> [--version V]");
         println!("    schema config get [<subject>]");
         println!("    schema config set <subject> --compatibility MODE");
+        println!();
+        println!("  SQL Queries:");
+        println!("    sql query \"SELECT * FROM topic LIMIT 10\" [--format table|json|csv]");
+        println!("    sql SHOW TOPICS");
+        println!("    sql SELECT * FROM orders WHERE partition = 0 LIMIT 50");
+        println!("    sql shell                          (interactive SQL shell)");
+        println!();
+        println!("  Consumer Groups:");
+        println!("    consumer list");
+        println!("    consumer get <group_id>");
+        println!("    consumer lag <group_id>");
+        println!("    consumer reset <group_id> [--strategy earliest|latest|specific] [--topic T] [--partition P] [--offset O]");
+        println!("    consumer seek <group_id> --topic <topic> --timestamp <ISO8601> [--partition P]");
+        println!("    consumer delete <group_id> [--force]");
         println!();
         println!("  Produce/Consume:");
         println!("    produce <topic> --partition N --value <value> [--key <key>]");

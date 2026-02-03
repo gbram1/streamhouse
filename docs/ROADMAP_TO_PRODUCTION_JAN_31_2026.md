@@ -1,7 +1,8 @@
 # StreamHouse: Complete Roadmap to Production & Adoption
 **Date:** February 3, 2026
 **Status:** ✅ Phase 9-14 (Core Complete), ✅ Phase 18.5-18.6 (High-Perf Client + Demo), ✅ Phase 20 (Developer Experience)
-**Next:** Phase 19 (Client Libraries - Python/JS/Go) or Phase 21 (Kafka Protocol Compatibility)
+**Next:** Phase 18.7 (Consumer Actions) → Phase 18.8 (SQL Message Query)
+**Deferred:** Phase 15 (Kubernetes) - Docker Compose deployment prioritized
 
 ---
 
@@ -27,12 +28,12 @@ StreamHouse is a high-performance, cloud-native streaming platform built in Rust
 - **Complete Platform:** ~1,450 hours (9-11 months total)
 
 **Critical for Real-World Usage:**
+- ✅ Easy onboarding (Docker Compose, benchmarks, examples) - DONE
+- ❌ Consumer management (reset offsets, delete groups, seek) - NEXT
+- ❌ Message query/browse (SQL Lite) - NEXT
 - ❌ Multi-language client libraries (Python, JavaScript, Go)
-- ❌ Easy onboarding (Docker Compose, benchmarks, examples)
 - ❌ Kafka protocol compatibility (ecosystem access)
-- ❌ Comprehensive testing (80%+ coverage, chaos tests)
 - ❌ Advanced features (tiering, compression, quotas)
-- ❌ Active community and ecosystem tools
 
 ---
 
@@ -2094,6 +2095,359 @@ echo "📊 Watch real-time analytics in the terminal above!"
 
 ---
 
+## Phase 18.7: Consumer Actions & Management
+
+**Priority:** HIGH (core functionality)
+**Effort:** 15 hours
+**Status:** NOT STARTED
+**Gap:** Cannot manage consumer groups from UI - basic functionality missing
+
+### Why This Matters
+
+Consumer group management is essential for production operations:
+- **Reset offsets** - Reprocess messages after a bug fix or data correction
+- **Delete consumer groups** - Clean up unused groups
+- **Seek to timestamp** - Skip to specific point in time for debugging or recovery
+
+Without these, operators must use raw database commands or CLI tools.
+
+### Task 1: Consumer Group API Endpoints (5h)
+
+**File:** `crates/streamhouse-api/src/handlers/consumer_groups.rs` (~100 LOC)
+
+Add new endpoints:
+
+```rust
+// Reset offsets to earliest/latest/specific offset
+#[utoipa::path(
+    post,
+    path = "/api/v1/consumer-groups/{group_id}/reset",
+    request_body = ResetOffsetsRequest,
+    responses(
+        (status = 200, description = "Offsets reset successfully"),
+        (status = 404, description = "Consumer group not found")
+    ),
+    tag = "consumer-groups"
+)]
+pub async fn reset_offsets(
+    State(state): State<AppState>,
+    Path(group_id): Path<String>,
+    Json(req): Json<ResetOffsetsRequest>,
+) -> Result<Json<ResetOffsetsResponse>, StatusCode> {
+    // Validate group exists
+    // Reset offsets based on strategy (earliest, latest, specific, timestamp)
+}
+
+// Seek to timestamp
+#[utoipa::path(
+    post,
+    path = "/api/v1/consumer-groups/{group_id}/seek",
+    request_body = SeekToTimestampRequest,
+    tag = "consumer-groups"
+)]
+pub async fn seek_to_timestamp(...) { ... }
+
+// Delete consumer group
+#[utoipa::path(
+    delete,
+    path = "/api/v1/consumer-groups/{group_id}",
+    tag = "consumer-groups"
+)]
+pub async fn delete_consumer_group(...) { ... }
+```
+
+**Request Types:**
+```rust
+#[derive(Deserialize)]
+pub struct ResetOffsetsRequest {
+    pub strategy: ResetStrategy,  // earliest, latest, specific, timestamp
+    pub topic: Option<String>,    // None = all topics
+    pub partition: Option<u32>,   // None = all partitions
+    pub offset: Option<u64>,      // For "specific" strategy
+    pub timestamp: Option<i64>,   // For "timestamp" strategy
+}
+
+#[derive(Deserialize)]
+pub struct SeekToTimestampRequest {
+    pub topic: String,
+    pub timestamp: i64,  // Unix epoch ms
+}
+```
+
+### Task 2: Metadata Store Methods (4h)
+
+**File:** `crates/streamhouse-metadata/src/postgres_store.rs` (~80 LOC)
+
+Add methods:
+- `reset_consumer_offsets(group_id, topic, partition, offset)`
+- `delete_consumer_group(group_id)`
+- `find_offset_for_timestamp(topic, partition, timestamp)` - Binary search in segments
+
+### Task 3: UI Consumer Actions (4h)
+
+**File:** `web/app/consumers/[id]/page.tsx` (~100 LOC)
+
+Add action buttons:
+- **Reset Offsets** dropdown (Earliest / Latest / Specific / Timestamp)
+- **Delete Group** button with confirmation dialog
+- **Seek to Time** date/time picker
+
+### Task 4: CLI Commands (2h)
+
+**File:** `crates/streamhouse-cli/src/commands/consumer.rs` (~50 LOC)
+
+```bash
+# Reset to earliest
+streamctl consumer reset my-group --strategy earliest
+
+# Reset to latest
+streamctl consumer reset my-group --strategy latest --topic orders
+
+# Reset to specific offset
+streamctl consumer reset my-group --strategy specific --offset 1000 --topic orders --partition 0
+
+# Seek to timestamp
+streamctl consumer seek my-group --timestamp "2026-01-15T10:00:00Z" --topic orders
+
+# Delete consumer group
+streamctl consumer delete my-group
+```
+
+### Success Criteria
+
+- ✅ Reset offsets endpoint works (all strategies)
+- ✅ Seek to timestamp finds correct offset
+- ✅ Delete consumer group removes all data
+- ✅ UI shows action buttons with confirmations
+- ✅ CLI commands work as documented
+- ✅ OpenAPI docs updated
+
+---
+
+## Phase 18.8: SQL Message Query (Lite)
+
+**Priority:** MEDIUM (useful for debugging)
+**Effort:** 30 hours
+**Status:** NOT STARTED
+**Gap:** No way to query/search messages without consuming them
+
+### Why This Matters
+
+This is a **simplified** version of Phase 24's full SQL engine. Instead of continuous stream processing, this provides:
+- **Point-in-time queries** - Read historical messages with SQL
+- **Message browser** - Search, filter, page through messages
+- **Debugging tool** - Find specific messages by key, time, or content
+
+**NOT included (see Phase 24 for these):**
+- Continuous queries / materialized views
+- Stream joins
+- Windowed aggregations
+- State management
+
+### Architecture
+
+```
+User SQL Query
+     ↓
+SQL Parser (sqlparser-rs)
+     ↓
+Query Planner
+     ↓
+Segment Scanner (reads from S3/cache)
+     ↓
+Filter/Project
+     ↓
+Results (JSON/Table)
+```
+
+### Task 1: SQL Parser & Basic Executor (12h)
+
+**File:** `crates/streamhouse-sql/` (NEW crate, ~800 LOC)
+
+**Dependencies:**
+```toml
+[dependencies]
+sqlparser = "0.41"
+```
+
+**Supported Queries:**
+```sql
+-- Select from topic (treated as a table)
+SELECT * FROM orders LIMIT 100;
+
+-- Filter by key
+SELECT * FROM orders WHERE key = 'customer-123';
+
+-- Filter by offset range
+SELECT * FROM orders
+WHERE partition = 0
+  AND offset >= 1000
+  AND offset < 2000;
+
+-- Filter by timestamp
+SELECT * FROM orders
+WHERE timestamp >= '2026-01-15T00:00:00Z'
+  AND timestamp < '2026-01-16T00:00:00Z';
+
+-- JSON field access (if value is JSON)
+SELECT
+    key,
+    offset,
+    timestamp,
+    json_extract(value, '$.customer_id') as customer_id,
+    json_extract(value, '$.amount') as amount
+FROM orders
+WHERE json_extract(value, '$.amount') > 100
+LIMIT 50;
+
+-- Count messages
+SELECT COUNT(*) FROM orders WHERE partition = 0;
+
+-- Describe topic (shows schema if registered)
+DESCRIBE orders;
+
+-- Show all topics
+SHOW TOPICS;
+```
+
+**Limitations:**
+- No GROUP BY (no aggregations across messages)
+- No JOINs
+- No INSERT/UPDATE/DELETE (read-only)
+- No subqueries
+- Max 10,000 rows per query
+
+### Task 2: API Endpoint (4h)
+
+**File:** `crates/streamhouse-api/src/handlers/sql.rs` (NEW, ~100 LOC)
+
+```rust
+#[utoipa::path(
+    post,
+    path = "/api/v1/sql",
+    request_body = SqlQueryRequest,
+    responses(
+        (status = 200, description = "Query results", body = SqlQueryResponse),
+        (status = 400, description = "Invalid SQL")
+    ),
+    tag = "sql"
+)]
+pub async fn execute_sql(
+    State(state): State<AppState>,
+    Json(req): Json<SqlQueryRequest>,
+) -> Result<Json<SqlQueryResponse>, StatusCode> {
+    // Parse SQL
+    // Build query plan
+    // Execute against segments
+    // Return results
+}
+
+#[derive(Deserialize)]
+pub struct SqlQueryRequest {
+    pub query: String,
+    pub timeout_ms: Option<u64>,  // Default: 30000
+}
+
+#[derive(Serialize)]
+pub struct SqlQueryResponse {
+    pub columns: Vec<ColumnInfo>,
+    pub rows: Vec<Vec<serde_json::Value>>,
+    pub row_count: usize,
+    pub execution_time_ms: u64,
+    pub truncated: bool,  // True if more results exist
+}
+```
+
+### Task 3: Web UI SQL Workbench (10h)
+
+**File:** `web/app/sql/page.tsx` (NEW, ~400 LOC)
+
+**Features:**
+- SQL editor with syntax highlighting (Monaco editor)
+- Execute button (Ctrl+Enter)
+- Results table with sorting/filtering
+- Query history (localStorage)
+- Example queries sidebar
+- Export results (CSV, JSON)
+
+**UI Layout:**
+```
+┌────────────────────────────────────────────────────┐
+│ SQL Workbench                                      │
+├────────────────────────────────────────────────────┤
+│ ┌───────────────────────────────────────┐  Examples │
+│ │ SELECT * FROM orders                  │  ────────│
+│ │ WHERE key = 'customer-123'            │  Basic   │
+│ │ LIMIT 100;                            │  Filter  │
+│ │                                       │  Search  │
+│ └───────────────────────────────────────┘          │
+│ [▶ Execute] [Format] [Clear]                       │
+├────────────────────────────────────────────────────┤
+│ Results (47 rows, 12ms)                 [Export ▾] │
+│ ┌─────┬──────────┬──────────┬─────────────────────┐│
+│ │ key │ offset   │ timestamp│ value               ││
+│ ├─────┼──────────┼──────────┼─────────────────────┤│
+│ │ c-1 │ 1234     │ 10:30:15 │ {"amount": 99.50}   ││
+│ │ c-2 │ 1235     │ 10:30:16 │ {"amount": 150.00}  ││
+│ └─────┴──────────┴──────────┴─────────────────────┘│
+└────────────────────────────────────────────────────┘
+```
+
+### Task 4: CLI Integration (4h)
+
+**File:** `crates/streamhouse-cli/src/commands/sql.rs` (NEW, ~150 LOC)
+
+```bash
+# Execute query
+streamctl sql "SELECT * FROM orders LIMIT 10"
+
+# Interactive SQL shell
+streamctl sql
+streamhouse> SELECT COUNT(*) FROM orders;
++----------+
+| count    |
++----------+
+| 15234    |
++----------+
+(1 row, 5ms)
+
+streamhouse> \d orders
+Topic: orders
+Partitions: 6
+Messages: 15,234
+Schema: orders-value (Avro)
+
+streamhouse> \q
+```
+
+### Success Criteria
+
+- ✅ Basic SELECT queries work on topics
+- ✅ Filter by key, offset, timestamp
+- ✅ JSON field extraction works
+- ✅ Web UI SQL editor functional
+- ✅ CLI sql command works
+- ✅ Query timeout enforced
+- ✅ Results limited to prevent OOM
+
+### Comparison: SQL Lite vs Full SQL (Phase 24)
+
+| Feature | SQL Lite (18.8) | Full SQL (24) |
+|---------|-----------------|---------------|
+| SELECT queries | ✅ | ✅ |
+| WHERE filters | ✅ | ✅ |
+| JSON extraction | ✅ | ✅ |
+| COUNT(*) | ✅ | ✅ |
+| GROUP BY | ❌ | ✅ |
+| JOINs | ❌ | ✅ |
+| Windowed aggregations | ❌ | ✅ |
+| Continuous queries | ❌ | ✅ |
+| Materialized views | ❌ | ✅ |
+| State management | ❌ | ✅ |
+| **Effort** | **30h** | **150h** |
+
+---
+
 ## Phase 19: Client Libraries (Multi-Language Support)
 
 **Priority:** CRITICAL (for adoption)
@@ -3613,15 +3967,22 @@ Enterprise:  Custom     (unlimited, SLA, support)
 | 13: Web UI | 60h | MEDIUM | ✅ DONE |
 | **Total** | **60h** | | ✅ COMPLETE |
 
-### Medium-term (4-6 weeks) - Cloud Native
+### 🎯 Next Up: Core Functionality (1-2 weeks)
 | Phase | Effort | Priority | Status |
 |-------|--------|----------|--------|
-| 15.1: Helm Charts | 20h | HIGH | NOT STARTED |
-| 15.2: K8s Operator | 30h | MEDIUM | NOT STARTED |
-| 15.3: Production Hardening | 10h | HIGH | NOT STARTED |
-| **Total** | **60h** | | |
+| 18.7: Consumer Actions | 15h | HIGH | NOT STARTED |
+| 18.8: SQL Message Query (Lite) | 30h | MEDIUM | NOT STARTED |
+| **Total** | **45h** | | |
 
-### Long-term (6-10 weeks) - Advanced Features
+### Deferred: Cloud Native
+| Phase | Effort | Priority | Status |
+|-------|--------|----------|--------|
+| 15.1: Helm Charts | 20h | LOW | 🔄 DEFERRED |
+| 15.2: K8s Operator | 30h | LOW | 🔄 DEFERRED |
+| 15.3: Production Hardening | 10h | LOW | 🔄 DEFERRED |
+| **Total** | **60h** | | *Docker Compose prioritized* |
+
+### Long-term - Advanced Features
 | Phase | Effort | Priority | Status |
 |-------|--------|----------|--------|
 | 16: Exactly-Once | 60h | MEDIUM | NOT STARTED |
@@ -3637,20 +3998,24 @@ Enterprise:  Custom     (unlimited, SLA, support)
 | 21: Kafka Protocol Compatibility | 100h | CRITICAL | NOT STARTED |
 | 22: Community & Ecosystem | 40h | MEDIUM | NOT STARTED |
 | 23: Enterprise Features | 80h | LOW | NOT STARTED |
-| 24: Stream Processing & SQL Engine | 150h | MEDIUM | NOT STARTED |
+| 24: Full Stream Processing & SQL | 150h | MEDIUM | NOT STARTED |
 | 25: Testing & QA (distributed) | 180h | HIGH | ONGOING |
 | 26: Advanced Features (WarpStream Parity) | 140h | MEDIUM | NOT STARTED |
 | 27: Managed Cloud (StreamHouse Cloud) | 200h | MEDIUM | NOT STARTED |
 | **Total** | **1,060h** | | |
 
 ### Grand Total
-**MVP (Production-Ready):** ~340 hours (8-10 weeks) - Phases 9-18
-**Adoption Features:** ~590 hours (15-20 weeks) - Phases 19-24
-**Testing & Quality:** ~180 hours (ongoing throughout)
-**Competitive Parity:** ~340 hours (8-10 weeks) - Phases 25-27
-**Complete Platform:** ~1,450 hours (36-45 weeks / 9-11 months)
+**Completed:** Phase 9, 12, 13, 14, 18.5, 18.6, 20 ✅
+**Next:** Phase 18.7 + 18.8 (45h / ~1-2 weeks)
+**Deferred:** Phase 15 (Kubernetes) - Docker Compose deployment works well
 
-**Note:** Phase 9, 12, 14, 18.5, 18.6 complete. Phase 13 (Web UI) at 90% - finishing remaining pages.
+**Remaining Phases:**
+- **Core Functionality:** 45h (Consumer Actions + SQL Lite)
+- **Advanced Features:** 140h (Exactly-Once, Multi-Region, Rebalancing)
+- **Adoption Features:** 560h (Client Libraries, Kafka Compat, Community)
+- **Competitive Parity:** 340h (WarpStream features, Cloud offering)
+
+**Note:** Kubernetes deployment deferred in favor of Docker Compose + DigitalOcean hosting.
 
 ---
 
@@ -3673,13 +4038,19 @@ Enterprise:  Custom     (unlimited, SLA, support)
 
 **Outcome:** Visual management and monitoring ✅
 
-### Track 3: Cloud Native (Weeks 8-10)
+### Track 3: Core Functionality (Weeks 8-9) ← CURRENT
+**Goal:** Complete consumer management and message query capabilities
+
+5. Week 8: Phase 18.7 (Consumer Actions) - Reset offsets, delete groups, seek
+6. Week 9: Phase 18.8 (SQL Message Query) - Browse and query messages with SQL
+
+**Outcome:** Full consumer management + message debugging tools
+
+### Track 3b: Cloud Native (DEFERRED)
 **Goal:** Kubernetes-ready deployment
+**Status:** 🔄 DEFERRED - Docker Compose + DigitalOcean prioritized
 
-5. Week 8-9: Phase 15 (Helm + K8s)
-6. Week 10: Production hardening and testing
-
-**Outcome:** Deploy to any Kubernetes cluster
+- Phase 15 (Helm + K8s) - Deferred until K8s deployment needed
 
 ### Track 4: Advanced Features (Weeks 11-18)
 **Goal:** Feature parity with Kafka

@@ -41,6 +41,7 @@ thiserror = "1.0"
 streamhouse-metadata = { path = "../streamhouse-metadata" }
 streamhouse-client = { path = "../streamhouse-client" }
 streamhouse-storage = { path = "../streamhouse-storage" }
+streamhouse-sql = { path = "../streamhouse-sql" }
 object_store = { workspace = true }
 
 [features]
