@@ -47,6 +47,7 @@ streamhouse-agent = { path = "../streamhouse-agent" }
 chrono = { workspace = true }
 criterion = { workspace = true }
 clap = { workspace = true }
+anyhow = { workspace = true }
 
 [[bench]]
 name = "producer_bench"
@@ -55,3 +56,7 @@ harness = false
 [[bench]]
 name = "consumer_bench"
 harness = false
+
+[[example]]
+name = "load_test"
+path = "examples/load_test.rs"

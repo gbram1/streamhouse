@@ -154,7 +154,7 @@ export default function SchemasPage() {
                     <TableRow key={subject.subject}>
                       <TableCell className="font-medium">
                         <Link
-                          href={`/schemas/${subject.subject}`}
+                          href={`/schemas/${subject.latestSchemaId}`}
                           className="hover:text-primary"
                         >
                           {subject.subject}
@@ -180,7 +180,7 @@ export default function SchemasPage() {
                         <Badge variant="secondary">{subject.compatibilityMode}</Badge>
                       </TableCell>
                       <TableCell>
-                        <Link href={`/schemas/${subject.subject}`}>
+                        <Link href={`/schemas/${subject.latestSchemaId}`}>
                           <Button variant="ghost" size="sm">
                             View
                           </Button>

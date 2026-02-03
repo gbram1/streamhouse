@@ -115,7 +115,7 @@ export const API_ENDPOINTS = {
   schemaSubjectVersions: (subject: string) => `/schemas/subjects/${encodeURIComponent(subject)}/versions`,
   schemaSubjectVersion: (subject: string, version: number) =>
     `/schemas/subjects/${encodeURIComponent(subject)}/versions/${version}`,
-  schemaById: (id: number) => `/schemas/ids/${id}`,
+  schemaById: (id: number) => `/schemas/schemas/ids/${id}`,
 
   // Metrics
   metricsThroughput: '/api/v1/metrics/throughput',
