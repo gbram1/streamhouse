@@ -1,33 +1,12 @@
-version: '3.8'
-
 services:
-  # MinIO (S3-compatible object storage)
-  minio:
-    image: minio/minio:latest
-    container_name: streamhouse-minio
-    ports:
-      - "9000:9000"      # API
-      - "9001:9001"      # Console
-    environment:
-      MINIO_ROOT_USER: minioadmin
-      MINIO_ROOT_PASSWORD: minioadmin
-    command: server /data --console-address ":9001"
-    volumes:
-      - minio-data:/data
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
-      interval: 30s
-      timeout: 20s
-      retries: 3
-
-  # PostgreSQL (Phase 3.2 - Metadata Store)
+  # PostgreSQL - metadata storage
   postgres:
     image: postgres:16-alpine
     container_name: streamhouse-postgres
     environment:
       POSTGRES_USER: streamhouse
-      POSTGRES_PASSWORD: streamhouse_dev
-      POSTGRES_DB: streamhouse_metadata
+      POSTGRES_PASSWORD: streamhouse
+      POSTGRES_DB: streamhouse
     ports:
       - "5432:5432"
     volumes:
@@ -38,8 +17,90 @@ services:
       timeout: 5s
       retries: 5
 
+  # MinIO - S3-compatible object storage
+  minio:
+    image: minio/minio:latest
+    container_name: streamhouse-minio
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - minio_data:/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # MinIO bucket initialization
+  minio-init:
+    image: minio/mc:latest
+    depends_on:
+      minio:
+        condition: service_healthy
+    entrypoint: >
+      /bin/sh -c "
+      mc alias set myminio http://minio:9000 minioadmin minioadmin;
+      mc mb myminio/streamhouse --ignore-existing;
+      exit 0;
+      "
+
+  # StreamHouse Server (unified API + gRPC)
+  streamhouse:
+    image: streamhouse/agent:0.1.0
+    container_name: streamhouse-server
+    depends_on:
+      postgres:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+      minio-init:
+        condition: service_completed_successfully
+    environment:
+      DATABASE_URL: postgres://streamhouse:streamhouse@postgres:5432/streamhouse
+      S3_ENDPOINT: http://minio:9000
+      S3_BUCKET: streamhouse
+      S3_REGION: us-east-1
+      S3_PATH_STYLE: "true"
+      AWS_ACCESS_KEY_ID: minioadmin
+      AWS_SECRET_ACCESS_KEY: minioadmin
+      HTTP_PORT: "8080"
+      GRPC_PORT: "9090"
+      RUST_LOG: info
+      WAL_ENABLED: "true"
+      WAL_DIR: /data/wal
+      STREAMHOUSE_CACHE: /data/cache
+    ports:
+      - "8080:8080"
+      - "9090:9090"
+    volumes:
+      - wal_data:/data/wal
+      - cache_data:/data/cache
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Web UI
+  ui:
+    image: streamhouse/ui:0.1.0
+    container_name: streamhouse-ui
+    depends_on:
+      streamhouse:
+        condition: service_healthy
+    environment:
+      NEXT_PUBLIC_API_URL: http://localhost:8080
+      NEXT_PUBLIC_WS_URL: ws://localhost:8080
+    ports:
+      - "3000:3000"
+
   # pgAdmin (Optional - PostgreSQL web UI)
-  # Run with: docker-compose --profile admin up
+  # Run with: docker compose --profile admin up
   pgadmin:
     image: dpage/pgadmin4:latest
     container_name: streamhouse-pgadmin
@@ -54,5 +115,7 @@ services:
       - admin
 
 volumes:
-  minio-data:
   postgres_data:
+  minio_data:
+  wal_data:
+  cache_data:

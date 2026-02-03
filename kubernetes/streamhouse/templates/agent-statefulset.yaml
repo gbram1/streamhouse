@@ -29,12 +29,12 @@ spec:
       {{- end }}
       serviceAccountName: {{ include "streamhouse.serviceAccountName" . }}
       securityContext:
-        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+        {{- toYaml .Values.agent.podSecurityContext | nindent 8 }}
       containers:
         - name: agent
           securityContext:
-            {{- toYaml .Values.securityContext | nindent 12 }}
-          image: {{ include "streamhouse.image" (dict "repository" .Values.agent.image.repository "tag" .Values.agent.image.tag "Chart" .Chart) }}
+            {{- toYaml .Values.agent.securityContext | nindent 12 }}
+          image: "{{ .Values.agent.image.repository }}:{{ .Values.agent.image.tag | default .Chart.AppVersion }}"
           imagePullPolicy: {{ .Values.agent.image.pullPolicy }}
           ports:
             - name: grpc
@@ -57,8 +57,8 @@ spec:
             - name: DATABASE_URL
               valueFrom:
                 secretKeyRef:
-                  name: {{ include "streamhouse.fullname" . }}-secret
-                  key: database-url
+                  name: {{ include "streamhouse.fullname" . }}-secrets
+                  key: DATABASE_URL
             # S3 configuration
             - name: S3_BUCKET
               value: {{ include "streamhouse.s3.bucket" . | quote }}
@@ -73,16 +73,18 @@ spec:
               value: "true"
             {{- end }}
             # AWS credentials (from secret)
+            {{- if or .Values.minio.enabled .Values.minio.external.accessKey }}
             - name: AWS_ACCESS_KEY_ID
               valueFrom:
                 secretKeyRef:
-                  name: {{ include "streamhouse.fullname" . }}-secret
-                  key: aws-access-key-id
+                  name: {{ include "streamhouse.fullname" . }}-secrets
+                  key: S3_ACCESS_KEY
             - name: AWS_SECRET_ACCESS_KEY
               valueFrom:
                 secretKeyRef:
-                  name: {{ include "streamhouse.fullname" . }}-secret
-                  key: aws-secret-access-key
+                  name: {{ include "streamhouse.fullname" . }}-secrets
+                  key: S3_SECRET_KEY
+            {{- end }}
             # WAL configuration
             - name: WAL_ENABLED
               value: {{ .Values.agent.wal.enabled | quote }}
@@ -152,6 +154,10 @@ spec:
       volumes:
         - name: tmp
           emptyDir: {}
+        {{- if not .Values.agent.persistence.enabled }}
+        - name: wal-data
+          emptyDir: {}
+        {{- end }}
   {{- if .Values.agent.persistence.enabled }}
   volumeClaimTemplates:
     - metadata:
@@ -167,8 +173,4 @@ spec:
         resources:
           requests:
             storage: {{ .Values.agent.persistence.size }}
-  {{- else }}
-      volumes:
-        - name: wal-data
-          emptyDir: {}
   {{- end }}
