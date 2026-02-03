@@ -80,6 +80,9 @@ lru = "0.12"
 # Time
 chrono = "0.4"
 
+# UUID
+uuid = { version = "1.7", features = ["v4"] }
+
 # Config
 toml = "0.8"
 

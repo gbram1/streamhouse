@@ -40,9 +40,11 @@ pub mod coordinator;
 pub mod error;
 pub mod handlers;
 pub mod server;
+pub mod tenant;
 pub mod types;
 
 pub use coordinator::GroupCoordinator;
 pub use error::{KafkaError, KafkaResult};
 pub use server::{BoundKafkaServer, KafkaServer, KafkaServerConfig, KafkaServerState};
+pub use tenant::{AuthMethod, KafkaTenantContext, KafkaTenantResolver};
 pub use types::ApiKey;

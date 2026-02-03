@@ -88,6 +88,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         block_size_target: 1024 * 10, // 10KB blocks
         s3_upload_retries: 3,
         wal_config: None,
+        throttle_config: None,
     };
 
     let mut writer = PartitionWriter::new(

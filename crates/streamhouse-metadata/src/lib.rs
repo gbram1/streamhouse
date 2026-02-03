@@ -106,16 +106,21 @@
 //! - ACID transactions ensure consistency
 //! - Safe to share across async tasks via Arc<>
 
+pub mod auth;
 pub mod cached_store;
 pub mod error;
+pub mod quota;
 pub mod store;
+pub mod tenant;
 pub mod types;
 
 #[cfg(feature = "postgres")]
 pub mod postgres;
 
+pub use auth::{ApiKeyAuth, AuthError, AuthResult};
 pub use cached_store::{CacheConfig, CacheMetrics, CachedMetadataStore};
 pub use error::{MetadataError, Result};
+pub use quota::{QuotaCheck, QuotaEnforcer, QuotaSummary};
 pub use store::SqliteMetadataStore;
 pub use types::*;
 
@@ -899,4 +904,231 @@ pub trait MetadataStore: Send + Sync {
         topic: Option<&str>,
         agent_id: Option<&str>,
     ) -> Result<Vec<PartitionLease>>;
+
+    // ============================================================
+    // ORGANIZATION OPERATIONS (Phase 21.5: Multi-Tenancy)
+    // ============================================================
+    //
+    // These methods enable multi-tenant operation where multiple organizations
+    // share the same StreamHouse deployment with isolated resources.
+
+    /// Create a new organization.
+    ///
+    /// # Arguments
+    ///
+    /// * `config` - Organization configuration including name, slug, and plan
+    ///
+    /// # Returns
+    ///
+    /// The created organization with generated ID.
+    ///
+    /// # Errors
+    ///
+    /// - `ConflictError`: Organization with this slug already exists
+    /// - `DatabaseError`: Database operation failed
+    async fn create_organization(&self, config: CreateOrganization) -> Result<Organization>;
+
+    /// Get an organization by ID.
+    ///
+    /// # Arguments
+    ///
+    /// * `id` - Organization ID (UUID)
+    ///
+    /// # Returns
+    ///
+    /// - `Ok(Some(Organization))` if found
+    /// - `Ok(None)` if not found
+    async fn get_organization(&self, id: &str) -> Result<Option<Organization>>;
+
+    /// Get an organization by slug.
+    ///
+    /// # Arguments
+    ///
+    /// * `slug` - Organization slug (URL-friendly identifier)
+    ///
+    /// # Returns
+    ///
+    /// - `Ok(Some(Organization))` if found
+    /// - `Ok(None)` if not found
+    async fn get_organization_by_slug(&self, slug: &str) -> Result<Option<Organization>>;
+
+    /// List all organizations.
+    ///
+    /// # Returns
+    ///
+    /// Vector of all organizations, sorted by name.
+    async fn list_organizations(&self) -> Result<Vec<Organization>>;
+
+    /// Update an organization's status.
+    ///
+    /// # Arguments
+    ///
+    /// * `id` - Organization ID
+    /// * `status` - New status (active, suspended, deleted)
+    ///
+    /// # Errors
+    ///
+    /// - `NotFoundError`: Organization not found
+    async fn update_organization_status(
+        &self,
+        id: &str,
+        status: OrganizationStatus,
+    ) -> Result<()>;
+
+    /// Update an organization's plan.
+    ///
+    /// # Arguments
+    ///
+    /// * `id` - Organization ID
+    /// * `plan` - New plan (free, pro, enterprise)
+    ///
+    /// # Errors
+    ///
+    /// - `NotFoundError`: Organization not found
+    async fn update_organization_plan(&self, id: &str, plan: OrganizationPlan) -> Result<()>;
+
+    /// Delete an organization (soft delete by setting status to Deleted).
+    ///
+    /// # Arguments
+    ///
+    /// * `id` - Organization ID
+    ///
+    /// # Errors
+    ///
+    /// - `NotFoundError`: Organization not found
+    async fn delete_organization(&self, id: &str) -> Result<()>;
+
+    // ============================================================
+    // API KEY OPERATIONS (Phase 21.5: Multi-Tenancy)
+    // ============================================================
+
+    /// Create a new API key.
+    ///
+    /// # Arguments
+    ///
+    /// * `organization_id` - Owning organization ID
+    /// * `config` - Key configuration
+    /// * `key_hash` - SHA-256 hash of the actual key
+    /// * `key_prefix` - First 12 characters of the key for identification
+    ///
+    /// # Returns
+    ///
+    /// The created API key record (without the actual key).
+    async fn create_api_key(
+        &self,
+        organization_id: &str,
+        config: CreateApiKey,
+        key_hash: &str,
+        key_prefix: &str,
+    ) -> Result<ApiKey>;
+
+    /// Get an API key by ID.
+    ///
+    /// # Arguments
+    ///
+    /// * `id` - API key ID (UUID)
+    ///
+    /// # Returns
+    ///
+    /// - `Ok(Some(ApiKey))` if found
+    /// - `Ok(None)` if not found
+    async fn get_api_key(&self, id: &str) -> Result<Option<ApiKey>>;
+
+    /// Validate an API key by its hash and return the key record.
+    ///
+    /// This is used during authentication to find the API key by its hash.
+    ///
+    /// # Arguments
+    ///
+    /// * `key_hash` - SHA-256 hash of the API key
+    ///
+    /// # Returns
+    ///
+    /// - `Ok(Some(ApiKey))` if valid (found and not expired)
+    /// - `Ok(None)` if not found or expired
+    async fn validate_api_key(&self, key_hash: &str) -> Result<Option<ApiKey>>;
+
+    /// List all API keys for an organization.
+    ///
+    /// # Arguments
+    ///
+    /// * `organization_id` - Organization ID
+    ///
+    /// # Returns
+    ///
+    /// Vector of API keys (sorted by created_at descending).
+    async fn list_api_keys(&self, organization_id: &str) -> Result<Vec<ApiKey>>;
+
+    /// Update API key's last_used_at timestamp.
+    ///
+    /// Called on each successful authentication.
+    async fn touch_api_key(&self, id: &str) -> Result<()>;
+
+    /// Revoke (delete) an API key.
+    ///
+    /// # Arguments
+    ///
+    /// * `id` - API key ID
+    async fn revoke_api_key(&self, id: &str) -> Result<()>;
+
+    // ============================================================
+    // QUOTA OPERATIONS (Phase 21.5: Multi-Tenancy)
+    // ============================================================
+
+    /// Get quotas for an organization.
+    ///
+    /// # Arguments
+    ///
+    /// * `organization_id` - Organization ID
+    ///
+    /// # Returns
+    ///
+    /// Organization quotas (or defaults if not set).
+    async fn get_organization_quota(&self, organization_id: &str) -> Result<OrganizationQuota>;
+
+    /// Set quotas for an organization.
+    ///
+    /// # Arguments
+    ///
+    /// * `quota` - Quota configuration
+    async fn set_organization_quota(&self, quota: OrganizationQuota) -> Result<()>;
+
+    /// Get current usage for an organization.
+    ///
+    /// # Arguments
+    ///
+    /// * `organization_id` - Organization ID
+    ///
+    /// # Returns
+    ///
+    /// Vector of usage metrics.
+    async fn get_organization_usage(&self, organization_id: &str) -> Result<Vec<OrganizationUsage>>;
+
+    /// Update a usage metric for an organization.
+    ///
+    /// # Arguments
+    ///
+    /// * `organization_id` - Organization ID
+    /// * `metric` - Metric name (e.g., "storage_bytes", "produce_bytes")
+    /// * `value` - New value
+    async fn update_organization_usage(
+        &self,
+        organization_id: &str,
+        metric: &str,
+        value: i64,
+    ) -> Result<()>;
+
+    /// Increment a usage metric for an organization.
+    ///
+    /// # Arguments
+    ///
+    /// * `organization_id` - Organization ID
+    /// * `metric` - Metric name
+    /// * `delta` - Amount to add
+    async fn increment_organization_usage(
+        &self,
+        organization_id: &str,
+        metric: &str,
+        delta: i64,
+    ) -> Result<()>;
 }

@@ -54,6 +54,7 @@ fn create_write_config_with_wal(wal_dir: std::path::PathBuf) -> WriteConfig {
             sync_policy: SyncPolicy::Always, // Force sync for test reliability
             max_size_bytes: 1024 * 1024,
         }),
+        throttle_config: None,
     }
 }
 
@@ -391,6 +392,7 @@ async fn test_wal_disabled_mode() {
         block_size_target: 1024,
         s3_upload_retries: 3,
         wal_config: None, // WAL disabled
+        throttle_config: None,
     };
 
     let mut writer = PartitionWriter::new(

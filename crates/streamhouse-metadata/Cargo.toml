@@ -15,6 +15,9 @@ async-trait = { workspace = true }
 thiserror = { workspace = true }
 tokio = { workspace = true }
 chrono = { workspace = true }
+uuid = { workspace = true }
+sha2 = "0.10"
+rand = "0.8"
 lru = "0.12"
 
 [features]

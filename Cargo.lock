@@ -3922,12 +3922,15 @@ dependencies = [
  "async-trait",
  "chrono",
  "lru",
+ "rand 0.8.5",
  "serde",
  "serde_json",
+ "sha2",
  "sqlx",
  "streamhouse-core",
  "thiserror 1.0.69",
  "tokio",
+ "uuid",
 ]
 
 [[package]]

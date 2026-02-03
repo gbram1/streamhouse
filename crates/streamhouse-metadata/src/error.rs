@@ -75,6 +75,15 @@ pub enum MetadataError {
 
     #[error("Migration error: {0}")]
     MigrationError(String),
+
+    #[error("Authentication error: {0}")]
+    AuthenticationError(String),
+
+    #[error("Authorization error: {0}")]
+    AuthorizationError(String),
+
+    #[error("Quota exceeded: {0}")]
+    QuotaExceeded(String),
 }
 
 impl From<sqlx::migrate::MigrateError> for MetadataError {

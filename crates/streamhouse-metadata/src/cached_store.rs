@@ -105,8 +105,9 @@
 //! - Memory: (10K × 500B) + (1M × 200B) = 205 MB
 
 use crate::{
-    AgentInfo, ConsumerOffset, MetadataStore, Partition, PartitionLease, Result, SegmentInfo,
-    Topic, TopicConfig,
+    AgentInfo, ApiKey, ConsumerOffset, CreateApiKey, CreateOrganization, MetadataStore,
+    Organization, OrganizationPlan, OrganizationQuota, OrganizationStatus, OrganizationUsage,
+    Partition, PartitionLease, Result, SegmentInfo, Topic, TopicConfig,
 };
 use async_trait::async_trait;
 use lru::LruCache;
@@ -636,6 +637,120 @@ impl<S: MetadataStore + 'static> MetadataStore for CachedMetadataStore<S> {
         agent_id: Option<&str>,
     ) -> Result<Vec<PartitionLease>> {
         self.inner.list_partition_leases(topic, agent_id).await
+    }
+
+    // ========================================================================
+    // ORGANIZATION OPERATIONS (NOT CACHED - Phase 21.5)
+    // ========================================================================
+    // Organization data changes infrequently but must be consistent.
+    // Could add caching in the future if needed.
+
+    async fn create_organization(&self, config: CreateOrganization) -> Result<Organization> {
+        self.inner.create_organization(config).await
+    }
+
+    async fn get_organization(&self, id: &str) -> Result<Option<Organization>> {
+        self.inner.get_organization(id).await
+    }
+
+    async fn get_organization_by_slug(&self, slug: &str) -> Result<Option<Organization>> {
+        self.inner.get_organization_by_slug(slug).await
+    }
+
+    async fn list_organizations(&self) -> Result<Vec<Organization>> {
+        self.inner.list_organizations().await
+    }
+
+    async fn update_organization_status(
+        &self,
+        id: &str,
+        status: OrganizationStatus,
+    ) -> Result<()> {
+        self.inner.update_organization_status(id, status).await
+    }
+
+    async fn update_organization_plan(&self, id: &str, plan: OrganizationPlan) -> Result<()> {
+        self.inner.update_organization_plan(id, plan).await
+    }
+
+    async fn delete_organization(&self, id: &str) -> Result<()> {
+        self.inner.delete_organization(id).await
+    }
+
+    // ========================================================================
+    // API KEY OPERATIONS (NOT CACHED - Phase 21.5)
+    // ========================================================================
+    // API keys require real-time validation for security.
+
+    async fn create_api_key(
+        &self,
+        organization_id: &str,
+        config: CreateApiKey,
+        key_hash: &str,
+        key_prefix: &str,
+    ) -> Result<ApiKey> {
+        self.inner
+            .create_api_key(organization_id, config, key_hash, key_prefix)
+            .await
+    }
+
+    async fn get_api_key(&self, id: &str) -> Result<Option<ApiKey>> {
+        self.inner.get_api_key(id).await
+    }
+
+    async fn validate_api_key(&self, key_hash: &str) -> Result<Option<ApiKey>> {
+        self.inner.validate_api_key(key_hash).await
+    }
+
+    async fn list_api_keys(&self, organization_id: &str) -> Result<Vec<ApiKey>> {
+        self.inner.list_api_keys(organization_id).await
+    }
+
+    async fn touch_api_key(&self, id: &str) -> Result<()> {
+        self.inner.touch_api_key(id).await
+    }
+
+    async fn revoke_api_key(&self, id: &str) -> Result<()> {
+        self.inner.revoke_api_key(id).await
+    }
+
+    // ========================================================================
+    // QUOTA OPERATIONS (NOT CACHED - Phase 21.5)
+    // ========================================================================
+    // Quotas must be accurate for enforcement.
+
+    async fn get_organization_quota(&self, organization_id: &str) -> Result<OrganizationQuota> {
+        self.inner.get_organization_quota(organization_id).await
+    }
+
+    async fn set_organization_quota(&self, quota: OrganizationQuota) -> Result<()> {
+        self.inner.set_organization_quota(quota).await
+    }
+
+    async fn get_organization_usage(&self, organization_id: &str) -> Result<Vec<OrganizationUsage>> {
+        self.inner.get_organization_usage(organization_id).await
+    }
+
+    async fn update_organization_usage(
+        &self,
+        organization_id: &str,
+        metric: &str,
+        value: i64,
+    ) -> Result<()> {
+        self.inner
+            .update_organization_usage(organization_id, metric, value)
+            .await
+    }
+
+    async fn increment_organization_usage(
+        &self,
+        organization_id: &str,
+        metric: &str,
+        delta: i64,
+    ) -> Result<()> {
+        self.inner
+            .increment_organization_usage(organization_id, metric, delta)
+            .await
     }
 }
 
