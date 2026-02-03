@@ -8,7 +8,7 @@
 
 ## Executive Summary
 
-**Current State** (Phase 21 Complete):
+**Current State** (Phase 21.5 Complete):
 - ✅ Core distributed streaming platform (Phases 1-7)
 - ✅ Multi-agent coordination with partition leases
 - ✅ S3-native storage with LZ4 compression
@@ -16,6 +16,7 @@
 - ✅ Agent binary with gRPC + metrics servers
 - ✅ Observability (Prometheus metrics, health checks)
 - ✅ **Kafka Protocol Compatibility** (Phase 21) - port 9092
+- ✅ **Multi-Tenancy Backend** (Phase 21.5) - S3 isolation, quotas, API key auth
 
 **Target State** (Month 9):
 - 🎯 **WarpStream parity**: All core streaming features
@@ -27,7 +28,7 @@
 
 ## Gap Analysis: What's Missing vs WarpStream
 
-### ✅ Already Have (Phases 1-7)
+### ✅ Already Have (Phases 1-7, 21, 21.5)
 - Core streaming (produce/consume, topics, partitions)
 - Distributed agents with partition leases
 - S3-native storage with compression
@@ -37,6 +38,8 @@
 - CLI tool (streamctl)
 - Observability (metrics, health checks)
 - Agent binary (gRPC + metrics servers)
+- **Kafka protocol compatibility** (Phase 21)
+- **Multi-tenancy backend** (Phase 21.5): S3 prefix isolation, quota enforcement, API key auth
 
 ### ❌ Missing for WarpStream Parity
 
@@ -76,16 +79,25 @@ Need:
 - Billing dashboard
 
 #### 4. **Multi-Tenancy** (Production Gap)
-**Status**: ⚠️ Partially planned (MULTI_TENANT_DATABASE_STRATEGY.md exists)
+**Status**: ✅ Backend Complete (Phase 21.5), ⚠️ UI Pending
 **Impact**: CRITICAL - Blocker for managed service
-**Work**: ~3 weeks
+**Work**: Backend ✅ Done, UI ~2 weeks remaining
 
-Need:
-- `organization_id` in all tables
-- Row-level security (RLS)
-- S3 prefix isolation per org
-- Quota enforcement
-- Tenant isolation guarantees
+✅ **Completed (Phase 21.5)**:
+- `TenantObjectStore` - S3 prefix isolation per organization (`org-{uuid}/data/...`)
+- `QuotaEnforcer` - Per-organization resource limits and throughput rate limiting
+- `ApiKeyAuth` - API key authentication middleware (REST + Kafka SASL/PLAIN)
+- `KafkaTenantResolver` - Tenant resolution for Kafka protocol connections
+- Plan-based quotas (Free/Pro/Enterprise tiers)
+- Default organization for backwards compatibility
+- 📖 See: `docs/MULTI_TENANCY.md`
+
+⚠️ **Pending (UI - Phase 10)**:
+- Organization management UI (create, update, delete organizations)
+- API key management UI (create, list, revoke keys)
+- Quota usage dashboard (storage, throughput, requests)
+- Plan upgrade/downgrade UI
+- User authentication flow (login with API key or SSO)
 
 #### 5. **Exactly-Once Semantics** (Feature Gap)
 **Status**: ❌ Not implemented
@@ -265,17 +277,21 @@ GROUP BY user_id, SESSION(event_time, INTERVAL '30' MINUTE);
 
 ---
 
-### Phase 9: Multi-Tenancy Foundation (Weeks 5-7) ✅ **UNCHANGED**
+### Phase 9: Multi-Tenancy Foundation (Weeks 5-7) ✅ **BACKEND COMPLETE (Phase 21.5)**
 **Goal**: Database-level tenant isolation
 
-- Week 5: Add `organization_id` to schema
-- Week 6: Update MetadataStore trait with org_id
-- Week 7: S3 prefix isolation + quotas
+✅ **Completed (Phase 21.5)**:
+- Week 5: ✅ Organization, API key, quota tables in schema
+- Week 6: ✅ `TenantContext` and `ApiKeyValidator` in MetadataStore
+- Week 7: ✅ `TenantObjectStore` for S3 prefix isolation + `QuotaEnforcer`
 
 **Deliverables**:
-- Multi-tenant data model
-- S3 isolation: `org-{uuid}/data/{topic}/{partition}/`
-- Quota enforcement
+- ✅ Multi-tenant data model (organizations, api_keys, organization_quotas tables)
+- ✅ S3 isolation: `org-{uuid}/data/{topic}/{partition}/`
+- ✅ Quota enforcement (topic limits, storage, throughput rate limiting)
+- ✅ API key authentication (REST middleware + Kafka SASL/PLAIN)
+- ⚠️ UI components pending (see Phase 10)
+- 📖 See: `docs/MULTI_TENANCY.md`
 
 ---
 
@@ -299,16 +315,21 @@ GROUP BY user_id, SESSION(event_time, INTERVAL '30' MINUTE);
   - Topic management UI
   - Real-time metrics dashboard (Chart.js)
   - Consumer group monitoring
-  - Organization settings
-  - API key management
+  - **Multi-Tenancy UI** (leveraging Phase 21.5 backend):
+    - Organization management (create, view, update, delete)
+    - API key management (create, list, revoke, set permissions/scopes)
+    - Quota usage dashboard (storage, throughput, requests with visual gauges)
+    - Plan tier display and upgrade flow
+    - Organization member management (future: invite users)
   - Billing dashboard (usage + costs)
-- **Authentication**: Auth0 or Clerk
+- **Authentication**: Auth0 or Clerk (integrate with API key auth)
 - **Hosting**: Vercel or CloudFront + S3
 
 **Deliverables**:
 - REST API with OpenAPI docs
 - Web console (responsive UI)
 - User authentication
+- Organization and API key management UI
 
 ---
 
@@ -618,16 +639,16 @@ JOIN users u
 
 ## Timeline Summary
 
-| Phase | Weeks | Focus | Key Deliverable |
-|-------|-------|-------|----------------|
-| Phase 8 | 1-4 | Infrastructure | Kubernetes + RDS + S3 |
-| Phase 9 | 5-7 | Multi-tenancy | Tenant isolation |
-| Phase 10 | 8-13 | UI/UX | REST API + Web Console |
-| Phase 11 | 14-17 | Compatibility | Kafka protocol |
-| Phase 12 | 18-19 | CLI | Production streamctl |
-| Phase 13 | 20-22 | Schemas | Schema registry |
-| Phase 14 | 23-26 | Transactions | Exactly-once |
-| Phase 15 | 27-36 | **SQL** 🎯 | **Stream processing** |
+| Phase | Weeks | Focus | Key Deliverable | Status |
+|-------|-------|-------|----------------|--------|
+| Phase 8 | 1-4 | Infrastructure | Kubernetes + RDS + S3 | ⏳ |
+| Phase 9 | 5-7 | Multi-tenancy | Tenant isolation | ✅ Backend (21.5) |
+| Phase 10 | 8-13 | UI/UX | REST API + Web Console + Multi-tenancy UI | ⏳ |
+| Phase 11 | 14-17 | Compatibility | Kafka protocol | ✅ (Phase 21) |
+| Phase 12 | 18-19 | CLI | Production streamctl | ⏳ |
+| Phase 13 | 20-22 | Schemas | Schema registry | ⏳ |
+| Phase 14 | 23-26 | Transactions | Exactly-once | ⏳ |
+| Phase 15 | 27-36 | **SQL** 🎯 | **Stream processing** | ⏳ |
 
 **Total**: 36 weeks (9 months) to full production with SQL
 
@@ -676,11 +697,11 @@ JOIN users u
 ## Implementation Priorities
 
 ### Must-Have (for Managed Service Launch)
-1. ✅ Phase 8: Kubernetes deployment
-2. ✅ Phase 9: Multi-tenancy
-3. ✅ Phase 10: REST API + Web Console
-4. ✅ Phase 11: Kafka protocol
-5. ✅ Phase 12: Production CLI
+1. ⏳ Phase 8: Kubernetes deployment
+2. ✅ Phase 9: Multi-tenancy backend (Phase 21.5 complete, UI in Phase 10)
+3. ⏳ Phase 10: REST API + Web Console (includes multi-tenancy UI)
+4. ✅ Phase 11: Kafka protocol (Phase 21 complete)
+5. ⏳ Phase 12: Production CLI
 
 ### Should-Have (for Enterprise)
 6. ✅ Phase 13: Schema registry

@@ -1,7 +1,7 @@
 # StreamHouse: Complete Roadmap to Production & Adoption
 **Date:** February 3, 2026
-**Status:** ✅ Phase 9-14 (Core Complete), ✅ Phase 18.5-18.8 (High-Perf Client + Demo + Consumer Actions + SQL Query), ✅ Phase 20 (Developer Experience), ✅ Phase 21 (Kafka Protocol Compatibility)
-**Next:** Phase 21.5 (Multi-Tenancy) or Phase 24 (Stream Processing & SQL Engine)
+**Status:** ✅ Phase 9-14 (Core Complete), ✅ Phase 18.5-18.8 (High-Perf Client + Demo + Consumer Actions + SQL Query), ✅ Phase 20 (Developer Experience), ✅ Phase 21 (Kafka Protocol Compatibility), ✅ Phase 21.5 (Multi-Tenancy Backend)
+**Next:** Phase 13 UI (Multi-Tenancy UI) or Phase 24 (Stream Processing & SQL Engine)
 **Deferred:** Phase 15 (Kubernetes) - Docker Compose deployment prioritized
 
 ---
@@ -32,7 +32,8 @@ StreamHouse is a high-performance, cloud-native streaming platform built in Rust
 - ✅ Consumer management (reset offsets, delete groups, seek) - DONE
 - ✅ Message query/browse (SQL Lite) - DONE
 - ✅ Kafka protocol compatibility (ecosystem access) - DONE
-- ❌ **Multi-Tenancy** (org isolation, quotas, API keys) - CRITICAL FOR SAAS
+- ✅ **Multi-Tenancy Backend** (S3 isolation, quotas, API keys) - DONE (Phase 21.5)
+- ⚠️ **Multi-Tenancy UI** (org management, API key UI, quota dashboard) - PENDING
 - ❌ Multi-language client libraries (Python, JavaScript, Go)
 - ❌ Advanced features (tiering, compression)
 
@@ -676,6 +677,14 @@ pub async fn get_throughput_metrics(
 - ✅ Performance page with throughput/latency/error charts
 - ✅ Docker Compose integration with proper networking
 - ✅ Producer console page
+
+**Pending - Multi-Tenancy UI (leveraging Phase 21.5 backend):**
+- ⚠️ Organization management page (create, view, update, delete organizations)
+- ⚠️ API key management page (create, list, revoke keys, set permissions/scopes)
+- ⚠️ Quota usage dashboard (storage, throughput, requests with visual gauges)
+- ⚠️ Plan tier display and upgrade flow
+- ⚠️ Organization member management (future: invite users)
+- ⚠️ User authentication flow (login with API key or SSO)
 
 **Future Enhancements (not blocking):**
 - Agent CPU/Memory/Disk metrics - backend doesn't collect system metrics yet
@@ -2870,8 +2879,29 @@ docker run -p 8080:8080 \
 
 **Priority:** CRITICAL (blocker for managed service)
 **Effort:** 80 hours
-**Status:** NOT STARTED
-**Gap:** Single-tenant architecture - cannot offer managed service without tenant isolation
+**Status:** ✅ BACKEND COMPLETE (February 3, 2026), ⚠️ UI PENDING
+**Delivered:** S3 prefix isolation, quota enforcement, API key authentication, Kafka SASL/PLAIN auth
+
+### ✅ What Was Completed (Backend)
+
+| Component | File | Description |
+|-----------|------|-------------|
+| **TenantObjectStore** | `crates/streamhouse-storage/src/tenant.rs` | S3 prefix isolation per organization (`org-{uuid}/data/...`) |
+| **QuotaEnforcer** | `crates/streamhouse-metadata/src/quota.rs` | Per-org resource limits, throughput rate limiting (sliding window) |
+| **ApiKeyAuth** | `crates/streamhouse-metadata/src/auth.rs` | REST API key authentication middleware (Bearer + X-API-Key headers) |
+| **KafkaTenantResolver** | `crates/streamhouse-kafka/src/tenant.rs` | Kafka SASL/PLAIN authentication, tenant resolution |
+| **Plan-based quotas** | Database schema | Free/Pro/Enterprise tiers with different limits |
+| **Documentation** | `docs/MULTI_TENANCY.md` | Comprehensive multi-tenancy architecture docs |
+
+### ⚠️ What's Pending (UI - Phase 13)
+
+| Feature | Description |
+|---------|-------------|
+| Organization management UI | Create, view, update, delete organizations |
+| API key management UI | Create, list, revoke keys, set permissions/scopes |
+| Quota usage dashboard | Storage, throughput, requests with visual gauges |
+| Plan tier display | Show current plan, upgrade flow |
+| User authentication flow | Login with API key or SSO integration |
 
 ### Why This Matters
 
@@ -3495,15 +3525,20 @@ pub async fn create_topic(
 
 ### Deliverables
 
-- ✅ Migration `004_multi_tenancy.sql` with all schema changes
-- ✅ Organizations and API keys tables
-- ✅ Row-Level Security (RLS) policies on all tables
-- ✅ Tenant-aware S3 storage wrapper
-- ✅ Quota enforcement middleware
-- ✅ API key authentication middleware
-- ✅ Kafka protocol tenant resolution
-- ✅ Per-tenant metrics and logging
+**✅ Completed (Backend):**
+- ✅ Organizations, API keys, quotas tables in database schema
+- ✅ `TenantObjectStore` - S3 prefix isolation wrapper (`crates/streamhouse-storage/src/tenant.rs`)
+- ✅ `QuotaEnforcer` - Per-org limits and rate limiting (`crates/streamhouse-metadata/src/quota.rs`)
+- ✅ `ApiKeyAuth` - REST API authentication middleware (`crates/streamhouse-metadata/src/auth.rs`)
+- ✅ `KafkaTenantResolver` - Kafka SASL/PLAIN tenant resolution (`crates/streamhouse-kafka/src/tenant.rs`)
+- ✅ Default organization for backwards compatibility
 - ✅ Documentation: `docs/MULTI_TENANCY.md`
+
+**⚠️ Pending (UI - see Phase 13):**
+- ⚠️ Organization management UI
+- ⚠️ API key management UI
+- ⚠️ Quota usage dashboard
+- ⚠️ User authentication flow
 
 ### Success Criteria
 
@@ -3603,28 +3638,28 @@ curl -X POST http://localhost:8080/api/v1/topics \
 ## Phase 23: Enterprise Features
 
 **Priority:** LOW (for monetization)
-**Effort:** 80 hours
-**Status:** NOT STARTED
+**Effort:** 50 hours (reduced - multi-tenancy backend complete)
+**Status:** PARTIALLY STARTED (Multi-tenancy backend done in Phase 21.5)
 **Prerequisite:** Stable production deployments
 
 ### Features
 
 1. **Authentication & Authorization** (30h)
-   - RBAC (Role-Based Access Control)
-   - API keys and tokens
-   - LDAP/Active Directory integration
-   - OAuth2/OIDC support
+   - ✅ API keys and tokens (Phase 21.5)
+   - ⚠️ RBAC (Role-Based Access Control)
+   - ❌ LDAP/Active Directory integration
+   - ❌ OAuth2/OIDC support
 
 2. **Audit Logging** (20h)
    - Track all operations (produce, consume, admin)
    - Immutable audit log
    - Compliance reporting (GDPR, SOC2)
 
-3. **Multi-Tenancy** (30h)
-   - Namespace isolation
-   - Resource quotas per tenant
-   - Billing integration
-   - Tenant-level monitoring
+3. **Multi-Tenancy** (✅ Backend Complete - Phase 21.5)
+   - ✅ Namespace/S3 prefix isolation
+   - ✅ Resource quotas per tenant
+   - ⚠️ Billing integration (needs UI)
+   - ⚠️ Tenant-level monitoring (partially done)
 
 **Deliverable:**
 - Enterprise feature flag (`--features enterprise`)
