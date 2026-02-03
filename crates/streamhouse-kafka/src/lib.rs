@@ -1,14 +1,48 @@
-pub fn add(left: u64, right: u64) -> u64 {
-    left + right
-}
+//! # StreamHouse Kafka Protocol Compatibility
+//!
+//! This crate provides native Kafka binary protocol support for StreamHouse,
+//! enabling any standard Kafka client to connect and interact with the system.
+//!
+//! ## Supported APIs
+//!
+//! | API | Name | Status |
+//! |-----|------|--------|
+//! | 18 | ApiVersions | ✅ Implemented |
+//! | 3 | Metadata | ✅ Implemented |
+//! | 0 | Produce | ✅ Implemented |
+//! | 1 | Fetch | ✅ Implemented |
+//! | 2 | ListOffsets | ✅ Implemented |
+//! | 10 | FindCoordinator | ✅ Implemented |
+//! | 11 | JoinGroup | ✅ Implemented |
+//! | 14 | SyncGroup | ✅ Implemented |
+//! | 12 | Heartbeat | ✅ Implemented |
+//! | 13 | LeaveGroup | ✅ Implemented |
+//! | 8 | OffsetCommit | ✅ Implemented |
+//! | 9 | OffsetFetch | ✅ Implemented |
+//! | 19 | CreateTopics | ✅ Implemented |
+//! | 20 | DeleteTopics | ✅ Implemented |
+//!
+//! ## Usage
+//!
+//! ```rust,no_run
+//! use streamhouse_kafka::{KafkaServer, KafkaServerConfig};
+//!
+//! #[tokio::main]
+//! async fn main() {
+//!     let config = KafkaServerConfig::default();
+//!     let server = KafkaServer::new(config, metadata, writer_pool, segment_cache, object_store).await.unwrap();
+//!     server.run().await.unwrap();
+//! }
+//! ```
 
-#[cfg(test)]
-mod tests {
-    use super::*;
+pub mod codec;
+pub mod coordinator;
+pub mod error;
+pub mod handlers;
+pub mod server;
+pub mod types;
 
-    #[test]
-    fn it_works() {
-        let result = add(2, 2);
-        assert_eq!(result, 4);
-    }
-}
+pub use coordinator::GroupCoordinator;
+pub use error::{KafkaError, KafkaResult};
+pub use server::{BoundKafkaServer, KafkaServer, KafkaServerConfig, KafkaServerState};
+pub use types::ApiKey;

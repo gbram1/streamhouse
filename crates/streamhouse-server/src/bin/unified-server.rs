@@ -2,6 +2,7 @@
 //!
 //! Single server binary that provides:
 //! - gRPC API (port 50051) for producers/consumers
+//! - Kafka Protocol (port 9092) for Kafka-compatible clients
 //! - REST API (port 8080/api/v1/*) for management
 //! - Schema Registry (port 8080/schemas/*) for schema management
 //! - Web Console (port 8080/*) static file serving
@@ -19,6 +20,7 @@
 //!
 //! ### Server Settings
 //! - `GRPC_ADDR`: gRPC server bind address (default: 0.0.0.0:50051)
+//! - `KAFKA_ADDR`: Kafka protocol server bind address (default: 0.0.0.0:9092)
 //! - `HTTP_ADDR`: HTTP server bind address (default: 0.0.0.0:8080)
 //! - `WEB_CONSOLE_PATH`: Path to web console static files (default: ./web/out)
 //!
@@ -57,6 +59,7 @@ use std::time::Duration;
 #[cfg(feature = "postgres")]
 use streamhouse_metadata::PostgresMetadataStore;
 use streamhouse_metadata::{MetadataStore, SqliteMetadataStore};
+use streamhouse_kafka::{GroupCoordinator, KafkaServer, KafkaServerConfig, KafkaServerState};
 use streamhouse_schema_registry::{SchemaRegistry, SchemaRegistryApi};
 use streamhouse_server::{pb::stream_house_server::StreamHouseServer, StreamHouseService};
 use streamhouse_storage::{SegmentCache, WriteConfig, WriterPool};
@@ -108,6 +111,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let http_addr: SocketAddr = std::env::var("HTTP_ADDR")
         .unwrap_or_else(|_| "0.0.0.0:8080".to_string())
         .parse()?;
+
+    let kafka_addr = std::env::var("KAFKA_ADDR").unwrap_or_else(|_| "0.0.0.0:9092".to_string());
 
     let web_console_path =
         std::env::var("WEB_CONSOLE_PATH").unwrap_or_else(|_| "./web/out".to_string());
@@ -239,6 +244,38 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let _flush_handle = writer_pool
         .clone()
         .start_background_flush(Duration::from_secs(flush_interval_secs));
+
+    // Start Kafka protocol server
+    tracing::info!("📡 Initializing Kafka protocol server");
+    let kafka_config = KafkaServerConfig {
+        bind_addr: kafka_addr.clone(),
+        node_id: 0,
+        advertised_host: std::env::var("KAFKA_ADVERTISED_HOST")
+            .unwrap_or_else(|_| "localhost".to_string()),
+        advertised_port: std::env::var("KAFKA_ADVERTISED_PORT")
+            .ok()
+            .and_then(|s| s.parse().ok())
+            .unwrap_or(9092),
+    };
+
+    let kafka_state = Arc::new(KafkaServerState {
+        config: kafka_config,
+        metadata: metadata.clone(),
+        writer_pool: writer_pool.clone(),
+        segment_cache: cache.clone(),
+        object_store: object_store.clone(),
+        group_coordinator: Arc::new(GroupCoordinator::new(metadata.clone())),
+    });
+
+    let kafka_server = KafkaServer::new(kafka_state);
+    let kafka_addr_display = kafka_addr.clone();
+    let (kafka_shutdown_tx, kafka_shutdown_rx) = tokio::sync::oneshot::channel::<()>();
+    tokio::spawn(async move {
+        if let Err(e) = kafka_server.run_until(kafka_shutdown_rx).await {
+            tracing::error!("Kafka server error: {}", e);
+        }
+    });
+    tracing::info!("   Kafka server started on {}", kafka_addr_display);
 
     // Create gRPC service
     let grpc_service = StreamHouseService::new(
@@ -512,10 +549,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
         let _ = shutdown_tx.send(());
         let _ = http_shutdown_tx.send(());
+        let _ = kafka_shutdown_tx.send(());
     });
 
     tracing::info!("✅ StreamHouse Unified Server starting");
     tracing::info!("   gRPC:           {}", grpc_addr);
+    tracing::info!("   Kafka:          {}", kafka_addr);
     tracing::info!("   REST API:       http://{}/api/v1", http_addr);
     tracing::info!("   Schema Registry: http://{}/schemas", http_addr);
     tracing::info!("   Web Console:    http://{}", http_addr);

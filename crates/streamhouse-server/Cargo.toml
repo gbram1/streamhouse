@@ -16,6 +16,7 @@ streamhouse-client = { path = "../streamhouse-client" }
 streamhouse-observability = { path = "../streamhouse-observability" }
 streamhouse-agent = { path = "../streamhouse-agent" }
 streamhouse-proto = { path = "../streamhouse-proto" }
+streamhouse-kafka = { path = "../streamhouse-kafka" }
 
 # gRPC
 tonic = { workspace = true }
@@ -52,7 +53,7 @@ tempfile = { workspace = true }
 tonic-build = { workspace = true }
 
 [features]
-postgres = ["dep:sqlx", "streamhouse-metadata/postgres"]
+postgres = ["dep:sqlx", "streamhouse-metadata/postgres", "streamhouse-kafka/postgres"]
 
 [[bin]]
 name = "unified-server"

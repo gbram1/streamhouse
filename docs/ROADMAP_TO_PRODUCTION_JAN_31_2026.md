@@ -1,7 +1,7 @@
 # StreamHouse: Complete Roadmap to Production & Adoption
 **Date:** February 3, 2026
-**Status:** ✅ Phase 9-14 (Core Complete), ✅ Phase 18.5-18.6 (High-Perf Client + Demo), ✅ Phase 20 (Developer Experience)
-**Next:** Phase 18.7 (Consumer Actions) → Phase 18.8 (SQL Message Query)
+**Status:** ✅ Phase 9-14 (Core Complete), ✅ Phase 18.5-18.8 (High-Perf Client + Demo + Consumer Actions + SQL Query), ✅ Phase 20 (Developer Experience)
+**Next:** Phase 19 (Multi-Language SDKs) or Phase 21 (Kafka Protocol Compatibility)
 **Deferred:** Phase 15 (Kubernetes) - Docker Compose deployment prioritized
 
 ---
@@ -29,9 +29,9 @@ StreamHouse is a high-performance, cloud-native streaming platform built in Rust
 
 **Critical for Real-World Usage:**
 - ✅ Easy onboarding (Docker Compose, benchmarks, examples) - DONE
-- ❌ Consumer management (reset offsets, delete groups, seek) - NEXT
-- ❌ Message query/browse (SQL Lite) - NEXT
-- ❌ Multi-language client libraries (Python, JavaScript, Go)
+- ✅ Consumer management (reset offsets, delete groups, seek) - DONE
+- ✅ Message query/browse (SQL Lite) - DONE
+- ❌ Multi-language client libraries (Python, JavaScript, Go) - NEXT
 - ❌ Kafka protocol compatibility (ecosystem access)
 - ❌ Advanced features (tiering, compression, quotas)
 
@@ -2099,8 +2099,8 @@ echo "📊 Watch real-time analytics in the terminal above!"
 
 **Priority:** HIGH (core functionality)
 **Effort:** 15 hours
-**Status:** NOT STARTED
-**Gap:** Cannot manage consumer groups from UI - basic functionality missing
+**Status:** ✅ COMPLETE (February 3, 2026)
+**Delivered:** Full consumer group management via API, UI, and CLI
 
 ### Why This Matters
 
@@ -2228,8 +2228,8 @@ streamctl consumer delete my-group
 
 **Priority:** MEDIUM (useful for debugging)
 **Effort:** 30 hours
-**Status:** NOT STARTED
-**Gap:** No way to query/search messages without consuming them
+**Status:** ✅ COMPLETE (February 3, 2026)
+**Delivered:** SQL query engine with API, Web UI Workbench, and CLI support
 
 ### Why This Matters
 
@@ -3970,8 +3970,8 @@ Enterprise:  Custom     (unlimited, SLA, support)
 ### 🎯 Next Up: Core Functionality (1-2 weeks)
 | Phase | Effort | Priority | Status |
 |-------|--------|----------|--------|
-| 18.7: Consumer Actions | 15h | HIGH | NOT STARTED |
-| 18.8: SQL Message Query (Lite) | 30h | MEDIUM | NOT STARTED |
+| 18.7: Consumer Actions | 15h | HIGH | ✅ COMPLETE |
+| 18.8: SQL Message Query (Lite) | 30h | MEDIUM | ✅ COMPLETE |
 | **Total** | **45h** | | |
 
 ### Deferred: Cloud Native
@@ -4006,11 +4006,11 @@ Enterprise:  Custom     (unlimited, SLA, support)
 
 ### Grand Total
 **Completed:** Phase 9, 12, 13, 14, 18.5, 18.6, 20 ✅
-**Next:** Phase 18.7 + 18.8 (45h / ~1-2 weeks)
+**Next:** Phase 19 (Multi-Language SDKs) or Phase 21 (Kafka Protocol Compatibility)
 **Deferred:** Phase 15 (Kubernetes) - Docker Compose deployment works well
 
 **Remaining Phases:**
-- **Core Functionality:** 45h (Consumer Actions + SQL Lite)
+- **Core Functionality:** ✅ COMPLETE (Consumer Actions + SQL Lite)
 - **Advanced Features:** 140h (Exactly-Once, Multi-Region, Rebalancing)
 - **Adoption Features:** 560h (Client Libraries, Kafka Compat, Community)
 - **Competitive Parity:** 340h (WarpStream features, Cloud offering)
@@ -4041,8 +4041,8 @@ Enterprise:  Custom     (unlimited, SLA, support)
 ### Track 3: Core Functionality (Weeks 8-9) ← CURRENT
 **Goal:** Complete consumer management and message query capabilities
 
-5. Week 8: Phase 18.7 (Consumer Actions) - Reset offsets, delete groups, seek
-6. Week 9: Phase 18.8 (SQL Message Query) - Browse and query messages with SQL
+5. Week 8: Phase 18.7 (Consumer Actions) - ✅ COMPLETE
+6. Week 9: Phase 18.8 (SQL Message Query) - ✅ COMPLETE
 
 **Outcome:** Full consumer management + message debugging tools
 
