@@ -1,6 +1,6 @@
 //! SQL query executor
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::time::Instant;
 
@@ -51,6 +51,7 @@ impl SqlExecutor {
             SqlQuery::DescribeTopic(topic) => self.execute_describe(&topic).await?,
             SqlQuery::Count(q) => self.execute_count(q, start, timeout).await?,
             SqlQuery::WindowAggregate(q) => self.execute_window_aggregate(q, start, timeout).await?,
+            SqlQuery::Join(q) => self.execute_join(q, start, timeout).await?,
         };
 
         Ok(result)
@@ -520,6 +521,175 @@ impl SqlExecutor {
             execution_time_ms: start.elapsed().as_millis() as u64,
             truncated,
         })
+    }
+
+    /// Execute a JOIN query
+    async fn execute_join(
+        &self,
+        query: JoinQuery,
+        start: Instant,
+        timeout_ms: u64,
+    ) -> Result<QueryResult> {
+        // Validate both topics exist
+        let _left_topic = self
+            .metadata
+            .get_topic(&query.left.topic)
+            .await?
+            .ok_or_else(|| SqlError::TopicNotFound(query.left.topic.clone()))?;
+
+        let _right_topic = self
+            .metadata
+            .get_topic(&query.right.topic)
+            .await?
+            .ok_or_else(|| SqlError::TopicNotFound(query.right.topic.clone()))?;
+
+        // Check timeout before loading
+        if start.elapsed().as_millis() as u64 > timeout_ms {
+            return Err(SqlError::Timeout(timeout_ms));
+        }
+
+        // Load messages from both topics
+        let left_messages = self.load_topic_messages(&query.left.topic, start, timeout_ms).await?;
+
+        // Check timeout after loading left
+        if start.elapsed().as_millis() as u64 > timeout_ms {
+            return Err(SqlError::Timeout(timeout_ms));
+        }
+
+        let right_messages = self.load_topic_messages(&query.right.topic, start, timeout_ms).await?;
+
+        // Check timeout after loading right
+        if start.elapsed().as_millis() as u64 > timeout_ms {
+            return Err(SqlError::Timeout(timeout_ms));
+        }
+
+        // OPTIMIZATION: Predicate pushdown - filter messages before joining
+        // Partition filters by which side they apply to based on qualifier
+        let (left_filters, right_filters): (Vec<_>, Vec<_>) = query.filters.iter()
+            .partition(|f| filter_applies_to_side(f, &query.left));
+
+        let left_messages: Vec<_> = if left_filters.is_empty() {
+            left_messages
+        } else {
+            left_messages.into_iter()
+                .filter(|msg| apply_pushdown_filters(msg, &left_filters))
+                .collect()
+        };
+
+        let right_messages: Vec<_> = if right_filters.is_empty() {
+            right_messages
+        } else {
+            right_messages.into_iter()
+                .filter(|msg| apply_pushdown_filters(msg, &right_filters))
+                .collect()
+        };
+
+        // Check if this is a stream-table join (one side uses TABLE())
+        let joined_rows = if query.right.is_table {
+            // Stream-Table JOIN: Right side is a TABLE (compacted key→value)
+            // Build key→latest_value map for O(1) lookups
+            let right_table = build_table_state(&right_messages, &query.condition.right);
+            perform_stream_table_join(
+                &left_messages,
+                &right_table,
+                &query.condition,
+                &query.join_type,
+            )
+        } else if query.left.is_table {
+            // Table-Stream JOIN: Left side is a TABLE
+            // Swap and perform reversed join
+            let left_table = build_table_state(&left_messages, &query.condition.left);
+            let swapped_rows = perform_stream_table_join(
+                &right_messages,
+                &left_table,
+                &JoinCondition {
+                    left: query.condition.right.clone(),
+                    right: query.condition.left.clone(),
+                },
+                &swap_join_type(&query.join_type),
+            );
+            // Swap back the results
+            swapped_rows.into_iter().map(|(r, l)| (l, r)).collect()
+        } else {
+            // Stream-Stream JOIN: Both sides are streams
+            // Build hash index on right side (for hash join)
+            let right_index = build_join_index(&right_messages, &query.condition.right);
+            perform_join(
+                &left_messages,
+                &right_messages,
+                &right_index,
+                &query.condition,
+                &query.join_type,
+                &query.left,
+                &query.right,
+            )
+        };
+
+        // Check timeout after join
+        if start.elapsed().as_millis() as u64 > timeout_ms {
+            return Err(SqlError::Timeout(timeout_ms));
+        }
+
+        // Project to output columns
+        let columns = build_join_column_info(&query.columns, &query.left, &query.right);
+        let limit = query.limit.unwrap_or(MAX_ROWS).min(MAX_ROWS);
+
+        let mut rows: Vec<Row> = Vec::new();
+        for (left_msg, right_msg) in joined_rows {
+            if rows.len() >= limit {
+                break;
+            }
+            // Periodic timeout check during projection
+            if rows.len() % 1000 == 0 && start.elapsed().as_millis() as u64 > timeout_ms {
+                return Err(SqlError::Timeout(timeout_ms));
+            }
+            let row = project_join_row(&query.columns, left_msg.as_ref(), right_msg.as_ref(), &query.left, &query.right);
+            rows.push(row);
+        }
+
+        let truncated = rows.len() >= limit;
+
+        Ok(QueryResult {
+            columns,
+            row_count: rows.len(),
+            rows,
+            execution_time_ms: start.elapsed().as_millis() as u64,
+            truncated,
+        })
+    }
+
+    /// Load all messages from a topic
+    async fn load_topic_messages(
+        &self,
+        topic_name: &str,
+        start: Instant,
+        timeout_ms: u64,
+    ) -> Result<Vec<MessageRow>> {
+        let topic = self
+            .metadata
+            .get_topic(topic_name)
+            .await?
+            .ok_or_else(|| SqlError::TopicNotFound(topic_name.to_string()))?;
+
+        let mut all_messages: Vec<MessageRow> = Vec::new();
+
+        for partition_id in 0..topic.partition_count {
+            if start.elapsed().as_millis() as u64 > timeout_ms {
+                return Err(SqlError::Timeout(timeout_ms));
+            }
+
+            let segments = self
+                .metadata
+                .get_segments(topic_name, partition_id)
+                .await?;
+
+            for segment in segments {
+                let messages = self.read_segment_messages(&segment).await?;
+                all_messages.extend(messages);
+            }
+        }
+
+        Ok(all_messages)
     }
 
     /// Read messages from a segment
@@ -993,6 +1163,466 @@ fn extract_value_from_msg(msg: &MessageRow, path: &str) -> serde_json::Value {
         extract_json_path_for_stats(&json, path)
     } else {
         serde_json::Value::Null
+    }
+}
+
+// ============================================================================
+// JOIN Helper Functions
+// ============================================================================
+
+/// Build a hash index on messages keyed by join key
+fn build_join_index(
+    messages: &[MessageRow],
+    key_spec: &(String, String), // (qualifier, path)
+) -> HashMap<String, Vec<usize>> {
+    let mut index: HashMap<String, Vec<usize>> = HashMap::new();
+    let (_, path) = key_spec;
+
+    for (idx, msg) in messages.iter().enumerate() {
+        if let Some(key_value) = extract_join_key(msg, path) {
+            index.entry(key_value).or_default().push(idx);
+        }
+    }
+
+    index
+}
+
+/// Extract join key value from a message
+fn extract_join_key(msg: &MessageRow, path: &str) -> Option<String> {
+    match path {
+        "key" => msg.key.clone(),
+        "offset" => Some(msg.offset.to_string()),
+        "partition" => Some(msg.partition.to_string()),
+        "timestamp" => Some(msg.timestamp.to_string()),
+        _ if path.starts_with("$.") => {
+            // JSON path extraction
+            if let Ok(json) = serde_json::from_str::<serde_json::Value>(&msg.value) {
+                let extracted = extract_json_path_for_stats(&json, path);
+                match extracted {
+                    serde_json::Value::String(s) => Some(s),
+                    serde_json::Value::Number(n) => Some(n.to_string()),
+                    serde_json::Value::Bool(b) => Some(b.to_string()),
+                    serde_json::Value::Null => None,
+                    _ => Some(extracted.to_string()),
+                }
+            } else {
+                None
+            }
+        }
+        _ => {
+            // Try as JSON path without $. prefix
+            let full_path = format!("$.{}", path);
+            extract_join_key(msg, &full_path)
+        }
+    }
+}
+
+// ============================================================================
+// Predicate Pushdown Helpers
+// ============================================================================
+
+/// Determine if a filter can be pushed down to a specific side of the join
+/// Returns true if the filter applies to simple partition/offset/timestamp filters
+fn filter_applies_to_side(filter: &Filter, _table_ref: &TableRef) -> bool {
+    // Partition, offset, and timestamp filters can be pushed down to either side
+    // since they're not qualified with table alias
+    matches!(
+        filter,
+        Filter::PartitionEquals(_)
+            | Filter::OffsetGte(_)
+            | Filter::OffsetLt(_)
+            | Filter::OffsetEquals(_)
+            | Filter::TimestampGte(_)
+            | Filter::TimestampLt(_)
+    )
+}
+
+/// Apply pushdown filters to a message
+/// Returns true if the message passes all filters
+fn apply_pushdown_filters(msg: &MessageRow, filters: &[&Filter]) -> bool {
+    for filter in filters {
+        match filter {
+            Filter::PartitionEquals(p) => {
+                if msg.partition != *p {
+                    return false;
+                }
+            }
+            Filter::OffsetGte(offset) => {
+                if msg.offset < *offset {
+                    return false;
+                }
+            }
+            Filter::OffsetLt(offset) => {
+                if msg.offset >= *offset {
+                    return false;
+                }
+            }
+            Filter::OffsetEquals(offset) => {
+                if msg.offset != *offset {
+                    return false;
+                }
+            }
+            Filter::TimestampGte(ts) => {
+                if msg.timestamp < *ts {
+                    return false;
+                }
+            }
+            Filter::TimestampLt(ts) => {
+                if msg.timestamp >= *ts {
+                    return false;
+                }
+            }
+            // Other filters (KeyEquals, JsonEquals, etc.) are applied post-join
+            _ => {}
+        }
+    }
+    true
+}
+
+/// Perform the actual join operation
+fn perform_join(
+    left_messages: &[MessageRow],
+    right_messages: &[MessageRow],
+    right_index: &HashMap<String, Vec<usize>>,
+    condition: &JoinCondition,
+    join_type: &JoinType,
+    _left_ref: &TableRef,
+    _right_ref: &TableRef,
+) -> Vec<(Option<MessageRow>, Option<MessageRow>)> {
+    let mut results: Vec<(Option<MessageRow>, Option<MessageRow>)> = Vec::new();
+    let left_path = &condition.left.1;
+
+    // Track which right rows have been matched (for FULL JOIN)
+    let mut right_matched: HashSet<usize> = HashSet::new();
+
+    // For each left row, find matching right rows
+    for left_msg in left_messages {
+        if let Some(left_key) = extract_join_key(left_msg, left_path) {
+            if let Some(right_indices) = right_index.get(&left_key) {
+                // Found matches
+                for &right_idx in right_indices {
+                    right_matched.insert(right_idx);
+                    results.push((
+                        Some(left_msg.clone()),
+                        Some(right_messages[right_idx].clone()),
+                    ));
+                }
+            } else {
+                // No match on right side
+                match join_type {
+                    JoinType::Left | JoinType::Full => {
+                        results.push((Some(left_msg.clone()), None));
+                    }
+                    JoinType::Inner | JoinType::Right => {
+                        // Don't include unmatched left rows for INNER or RIGHT join
+                    }
+                }
+            }
+        } else {
+            // Left key is null
+            match join_type {
+                JoinType::Left | JoinType::Full => {
+                    results.push((Some(left_msg.clone()), None));
+                }
+                _ => {}
+            }
+        }
+    }
+
+    // For RIGHT and FULL joins, include unmatched right rows
+    if matches!(join_type, JoinType::Right | JoinType::Full) {
+        for (idx, right_msg) in right_messages.iter().enumerate() {
+            if !right_matched.contains(&idx) {
+                results.push((None, Some(right_msg.clone())));
+            }
+        }
+    }
+
+    results
+}
+
+// ============================================================================
+// Stream-Table JOIN Helper Functions
+// ============================================================================
+
+/// Build table state: key→latest_value map for compacted table semantics
+/// This keeps only the latest value for each key, simulating a changelog table
+fn build_table_state(
+    messages: &[MessageRow],
+    key_spec: &(String, String), // (qualifier, path)
+) -> HashMap<String, MessageRow> {
+    let mut table: HashMap<String, MessageRow> = HashMap::new();
+    let (_, path) = key_spec;
+
+    // Process messages in order, later messages overwrite earlier ones
+    for msg in messages {
+        if let Some(key_value) = extract_join_key(msg, path) {
+            table.insert(key_value, msg.clone());
+        }
+    }
+
+    table
+}
+
+/// Perform stream-table join with O(1) lookups
+/// Left side is the stream, right side is the table (compacted key→value)
+fn perform_stream_table_join(
+    stream_messages: &[MessageRow],
+    table: &HashMap<String, MessageRow>,
+    condition: &JoinCondition,
+    join_type: &JoinType,
+) -> Vec<(Option<MessageRow>, Option<MessageRow>)> {
+    let mut results: Vec<(Option<MessageRow>, Option<MessageRow>)> = Vec::new();
+    let stream_path = &condition.left.1;
+
+    // Track which table rows have been matched (for FULL/RIGHT joins)
+    let mut table_matched: HashSet<String> = HashSet::new();
+
+    // For each stream row, do O(1) lookup in table
+    for stream_msg in stream_messages {
+        if let Some(stream_key) = extract_join_key(stream_msg, stream_path) {
+            if let Some(table_msg) = table.get(&stream_key) {
+                // Found match - O(1) lookup
+                table_matched.insert(stream_key);
+                results.push((Some(stream_msg.clone()), Some(table_msg.clone())));
+            } else {
+                // No match in table
+                match join_type {
+                    JoinType::Left | JoinType::Full => {
+                        results.push((Some(stream_msg.clone()), None));
+                    }
+                    JoinType::Inner | JoinType::Right => {
+                        // Don't include unmatched stream rows
+                    }
+                }
+            }
+        } else {
+            // Stream key is null
+            match join_type {
+                JoinType::Left | JoinType::Full => {
+                    results.push((Some(stream_msg.clone()), None));
+                }
+                _ => {}
+            }
+        }
+    }
+
+    // For RIGHT and FULL joins, include unmatched table rows
+    if matches!(join_type, JoinType::Right | JoinType::Full) {
+        for (key, table_msg) in table {
+            if !table_matched.contains(key) {
+                results.push((None, Some(table_msg.clone())));
+            }
+        }
+    }
+
+    results
+}
+
+/// Swap join type when reversing left/right sides
+fn swap_join_type(join_type: &JoinType) -> JoinType {
+    match join_type {
+        JoinType::Inner => JoinType::Inner,
+        JoinType::Left => JoinType::Right,
+        JoinType::Right => JoinType::Left,
+        JoinType::Full => JoinType::Full,
+    }
+}
+
+/// Build column info for JOIN results
+fn build_join_column_info(
+    columns: &[JoinSelectColumn],
+    left: &TableRef,
+    right: &TableRef,
+) -> Vec<ColumnInfo> {
+    let mut result = Vec::new();
+
+    for col in columns {
+        match col {
+            JoinSelectColumn::AllFrom(qualifier) => {
+                match qualifier {
+                    None => {
+                        // All columns from both tables
+                        for prefix in [left.qualifier(), right.qualifier()] {
+                            result.extend(vec![
+                                ColumnInfo { name: format!("{}.topic", prefix), data_type: "string".to_string() },
+                                ColumnInfo { name: format!("{}.partition", prefix), data_type: "integer".to_string() },
+                                ColumnInfo { name: format!("{}.offset", prefix), data_type: "bigint".to_string() },
+                                ColumnInfo { name: format!("{}.key", prefix), data_type: "string".to_string() },
+                                ColumnInfo { name: format!("{}.value", prefix), data_type: "string".to_string() },
+                                ColumnInfo { name: format!("{}.timestamp", prefix), data_type: "bigint".to_string() },
+                            ]);
+                        }
+                    }
+                    Some(qual) => {
+                        // All columns from one table
+                        result.extend(vec![
+                            ColumnInfo { name: format!("{}.topic", qual), data_type: "string".to_string() },
+                            ColumnInfo { name: format!("{}.partition", qual), data_type: "integer".to_string() },
+                            ColumnInfo { name: format!("{}.offset", qual), data_type: "bigint".to_string() },
+                            ColumnInfo { name: format!("{}.key", qual), data_type: "string".to_string() },
+                            ColumnInfo { name: format!("{}.value", qual), data_type: "string".to_string() },
+                            ColumnInfo { name: format!("{}.timestamp", qual), data_type: "bigint".to_string() },
+                        ]);
+                    }
+                }
+            }
+            JoinSelectColumn::QualifiedColumn { qualifier, column, alias } => {
+                let name = alias.clone().unwrap_or_else(|| {
+                    if qualifier.is_empty() {
+                        column.clone()
+                    } else {
+                        format!("{}.{}", qualifier, column)
+                    }
+                });
+                let data_type = match column.as_str() {
+                    "partition" => "integer",
+                    "offset" | "timestamp" => "bigint",
+                    _ => "string",
+                };
+                result.push(ColumnInfo { name, data_type: data_type.to_string() });
+            }
+            JoinSelectColumn::QualifiedJsonExtract { qualifier, path, alias } => {
+                let name = alias.clone().unwrap_or_else(|| {
+                    if qualifier.is_empty() {
+                        path.clone()
+                    } else {
+                        format!("{}.{}", qualifier, path)
+                    }
+                });
+                result.push(ColumnInfo { name, data_type: "json".to_string() });
+            }
+        }
+    }
+
+    result
+}
+
+/// Project join result to output row
+fn project_join_row(
+    columns: &[JoinSelectColumn],
+    left_msg: Option<&MessageRow>,
+    right_msg: Option<&MessageRow>,
+    left_ref: &TableRef,
+    right_ref: &TableRef,
+) -> Row {
+    let mut row = Vec::new();
+
+    for col in columns {
+        match col {
+            JoinSelectColumn::AllFrom(qualifier) => {
+                match qualifier {
+                    None => {
+                        // All columns from both tables
+                        row.extend(message_to_row_values(left_msg));
+                        row.extend(message_to_row_values(right_msg));
+                    }
+                    Some(qual) => {
+                        // All columns from one table
+                        let msg = if qual == left_ref.qualifier() {
+                            left_msg
+                        } else {
+                            right_msg
+                        };
+                        row.extend(message_to_row_values(msg));
+                    }
+                }
+            }
+            JoinSelectColumn::QualifiedColumn { qualifier, column, .. } => {
+                let msg = resolve_qualifier(qualifier, left_msg, right_msg, left_ref, right_ref);
+                let value = extract_column_value(msg, column);
+                row.push(value);
+            }
+            JoinSelectColumn::QualifiedJsonExtract { qualifier, path, .. } => {
+                let msg = resolve_qualifier(qualifier, left_msg, right_msg, left_ref, right_ref);
+                let value = if let Some(m) = msg {
+                    if let Ok(json) = serde_json::from_str::<serde_json::Value>(&m.value) {
+                        extract_json_path_for_stats(&json, path)
+                    } else {
+                        serde_json::Value::Null
+                    }
+                } else {
+                    serde_json::Value::Null
+                };
+                row.push(value);
+            }
+        }
+    }
+
+    row
+}
+
+/// Convert a message to row values
+fn message_to_row_values(msg: Option<&MessageRow>) -> Vec<serde_json::Value> {
+    match msg {
+        Some(m) => vec![
+            serde_json::Value::String(m.topic.clone()),
+            serde_json::Value::Number(m.partition.into()),
+            serde_json::Value::Number(m.offset.into()),
+            m.key.as_ref()
+                .map(|k| serde_json::Value::String(k.clone()))
+                .unwrap_or(serde_json::Value::Null),
+            serde_json::Value::String(m.value.clone()),
+            serde_json::Value::Number(m.timestamp.into()),
+        ],
+        None => vec![
+            serde_json::Value::Null,
+            serde_json::Value::Null,
+            serde_json::Value::Null,
+            serde_json::Value::Null,
+            serde_json::Value::Null,
+            serde_json::Value::Null,
+        ],
+    }
+}
+
+/// Resolve which message to use based on qualifier
+fn resolve_qualifier<'a>(
+    qualifier: &str,
+    left_msg: Option<&'a MessageRow>,
+    right_msg: Option<&'a MessageRow>,
+    left_ref: &TableRef,
+    right_ref: &TableRef,
+) -> Option<&'a MessageRow> {
+    if qualifier.is_empty() {
+        // Try left first, then right
+        left_msg.or(right_msg)
+    } else if qualifier == left_ref.qualifier() {
+        left_msg
+    } else if qualifier == right_ref.qualifier() {
+        right_msg
+    } else {
+        None
+    }
+}
+
+/// Extract a column value from a message
+fn extract_column_value(msg: Option<&MessageRow>, column: &str) -> serde_json::Value {
+    match msg {
+        Some(m) => match column {
+            "topic" => serde_json::Value::String(m.topic.clone()),
+            "partition" => serde_json::Value::Number(m.partition.into()),
+            "offset" => serde_json::Value::Number(m.offset.into()),
+            "key" => m.key.as_ref()
+                .map(|k| serde_json::Value::String(k.clone()))
+                .unwrap_or(serde_json::Value::Null),
+            "value" => serde_json::Value::String(m.value.clone()),
+            "timestamp" => serde_json::Value::Number(m.timestamp.into()),
+            _ => {
+                // Try as JSON path
+                if let Ok(json) = serde_json::from_str::<serde_json::Value>(&m.value) {
+                    let path = if column.starts_with("$.") {
+                        column.to_string()
+                    } else {
+                        format!("$.{}", column)
+                    };
+                    extract_json_path_for_stats(&json, &path)
+                } else {
+                    serde_json::Value::Null
+                }
+            }
+        },
+        None => serde_json::Value::Null,
     }
 }
 
