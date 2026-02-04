@@ -3777,6 +3777,7 @@ dependencies = [
  "serde_json",
  "streamhouse-core",
  "streamhouse-metadata",
+ "streamhouse-observability",
  "streamhouse-proto",
  "streamhouse-storage",
  "tempfile",

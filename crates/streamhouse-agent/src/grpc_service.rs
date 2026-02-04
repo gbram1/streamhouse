@@ -40,17 +40,24 @@
 //! Target: 50K+ records/sec per agent with p99 latency < 10ms
 
 use std::sync::Arc;
-use streamhouse_metadata::{MetadataStore, ProducerState};
+use streamhouse_metadata::{LeaderChangeReason, LeaseTransfer, MetadataStore, ProducerState};
 use streamhouse_proto::producer::{
     producer_service_server::ProducerService, AbortTransactionRequest, AbortTransactionResponse,
     BeginTransactionRequest, BeginTransactionResponse, CommitTransactionRequest,
     CommitTransactionResponse, HeartbeatRequest, HeartbeatResponse, InitProducerRequest,
     InitProducerResponse, ProduceRequest, ProduceResponse,
 };
+use streamhouse_proto::streamhouse::{
+    agent_coordination_server::AgentCoordination, AcceptLeaseRequest, AcceptLeaseResponse,
+    CompleteTransferRequest, CompleteTransferResponse, HealthCheckRequest, HealthCheckResponse,
+    TransferLeaseRequest, TransferLeaseResponse, TransferReason,
+};
 use streamhouse_storage::writer_pool::WriterPool;
 use tokio::sync::RwLock;
 use tonic::{Request, Response, Status};
 use tracing::{debug, error, info, warn};
+
+use crate::LeaseManager;
 
 /// Prometheus metrics for the Agent.
 ///
@@ -1063,6 +1070,365 @@ impl ProducerService for ProducerServiceImpl {
         Ok(Response::new(HeartbeatResponse {
             valid: true,
             error: None,
+        }))
+    }
+}
+
+// ============================================================================
+// Agent Coordination Service (Fast Leader Handoff)
+// ============================================================================
+
+/// Agent Coordination service for fast leader handoff.
+///
+/// This service handles lease transfers between agents during rolling deploys,
+/// graceful shutdown, and rebalancing.
+pub struct AgentCoordinationImpl {
+    /// Lease manager for handling transfers
+    lease_manager: Arc<LeaseManager>,
+
+    /// Metadata store for querying agent and partition info
+    metadata_store: Arc<dyn MetadataStore>,
+
+    /// Writer pool for flushing data before transfer
+    writer_pool: Arc<WriterPool>,
+
+    /// Agent ID
+    agent_id: String,
+
+    /// Agent state for checking if we're shutting down
+    shutting_down: Arc<RwLock<bool>>,
+
+    /// Current partition count (for health check)
+    partition_count: Arc<RwLock<u32>>,
+
+    /// Maximum partitions this agent can handle (for capacity reporting)
+    max_partitions: u32,
+}
+
+impl AgentCoordinationImpl {
+    /// Create a new AgentCoordination implementation.
+    pub fn new(
+        lease_manager: Arc<LeaseManager>,
+        metadata_store: Arc<dyn MetadataStore>,
+        writer_pool: Arc<WriterPool>,
+        agent_id: String,
+        max_partitions: u32,
+    ) -> Self {
+        Self {
+            lease_manager,
+            metadata_store,
+            writer_pool,
+            agent_id,
+            shutting_down: Arc::new(RwLock::new(false)),
+            partition_count: Arc::new(RwLock::new(0)),
+            max_partitions,
+        }
+    }
+
+    /// Signal that the service is shutting down.
+    pub async fn shutdown(&self) {
+        let mut shutting_down = self.shutting_down.write().await;
+        *shutting_down = true;
+    }
+
+    /// Update partition count (for capacity reporting).
+    pub async fn set_partition_count(&self, count: u32) {
+        let mut pc = self.partition_count.write().await;
+        *pc = count;
+    }
+
+    /// Convert proto TransferReason to LeaderChangeReason.
+    fn convert_transfer_reason(reason: i32) -> LeaderChangeReason {
+        match TransferReason::try_from(reason) {
+            Ok(TransferReason::GracefulShutdown) => LeaderChangeReason::GracefulHandoff,
+            Ok(TransferReason::RollingDeploy) => LeaderChangeReason::GracefulHandoff,
+            Ok(TransferReason::Rebalance) => LeaderChangeReason::Rebalance,
+            Ok(TransferReason::Maintenance) => LeaderChangeReason::GracefulHandoff,
+            _ => LeaderChangeReason::GracefulHandoff,
+        }
+    }
+}
+
+#[tonic::async_trait]
+impl AgentCoordination for AgentCoordinationImpl {
+    /// Initiate a graceful lease transfer to another agent.
+    async fn transfer_lease(
+        &self,
+        request: Request<TransferLeaseRequest>,
+    ) -> std::result::Result<Response<TransferLeaseResponse>, Status> {
+        let req = request.into_inner();
+
+        // Verify this request is from us (we're the outgoing leader)
+        if req.from_agent_id != self.agent_id {
+            return Ok(Response::new(TransferLeaseResponse {
+                accepted: false,
+                transfer_id: String::new(),
+                error: Some(format!(
+                    "This agent is {}, not {}",
+                    self.agent_id, req.from_agent_id
+                )),
+            }));
+        }
+
+        let reason = Self::convert_transfer_reason(req.reason);
+
+        info!(
+            agent_id = %self.agent_id,
+            topic = %req.topic,
+            partition = req.partition,
+            to_agent = %req.to_agent_id,
+            reason = ?reason,
+            "Initiating lease transfer"
+        );
+
+        // Record metric
+        streamhouse_observability::metrics::LEADER_TRANSFERS_PENDING.inc();
+
+        match self
+            .lease_manager
+            .initiate_transfer(&req.topic, req.partition, &req.to_agent_id, reason, req.timeout_ms)
+            .await
+        {
+            Ok(transfer_id) => {
+                info!(
+                    transfer_id = %transfer_id,
+                    topic = %req.topic,
+                    partition = req.partition,
+                    "Lease transfer initiated"
+                );
+
+                Ok(Response::new(TransferLeaseResponse {
+                    accepted: true,
+                    transfer_id,
+                    error: None,
+                }))
+            }
+            Err(e) => {
+                warn!(
+                    topic = %req.topic,
+                    partition = req.partition,
+                    error = %e,
+                    "Failed to initiate lease transfer"
+                );
+
+                streamhouse_observability::metrics::LEADER_TRANSFERS_PENDING.dec();
+                streamhouse_observability::metrics::LEADER_TRANSFERS_TOTAL
+                    .with_label_values(&["error"])
+                    .inc();
+
+                Ok(Response::new(TransferLeaseResponse {
+                    accepted: false,
+                    transfer_id: String::new(),
+                    error: Some(e.to_string()),
+                }))
+            }
+        }
+    }
+
+    /// Accept a lease transfer from another agent.
+    async fn accept_lease(
+        &self,
+        request: Request<AcceptLeaseRequest>,
+    ) -> std::result::Result<Response<AcceptLeaseResponse>, Status> {
+        let req = request.into_inner();
+
+        // Verify we're the target agent
+        if req.agent_id != self.agent_id {
+            return Ok(Response::new(AcceptLeaseResponse {
+                success: false,
+                new_epoch: 0,
+                lease_expires_at: 0,
+                error: Some(format!(
+                    "This agent is {}, not {}",
+                    self.agent_id, req.agent_id
+                )),
+            }));
+        }
+
+        // Check if we're shutting down
+        let shutting_down = *self.shutting_down.read().await;
+        if shutting_down {
+            return Ok(Response::new(AcceptLeaseResponse {
+                success: false,
+                new_epoch: 0,
+                lease_expires_at: 0,
+                error: Some("Agent is shutting down".to_string()),
+            }));
+        }
+
+        // Check capacity
+        let current = *self.partition_count.read().await;
+        if current >= self.max_partitions {
+            return Ok(Response::new(AcceptLeaseResponse {
+                success: false,
+                new_epoch: 0,
+                lease_expires_at: 0,
+                error: Some("Agent at capacity".to_string()),
+            }));
+        }
+
+        info!(
+            agent_id = %self.agent_id,
+            transfer_id = %req.transfer_id,
+            topic = %req.topic,
+            partition = req.partition,
+            "Accepting lease transfer"
+        );
+
+        match self.lease_manager.accept_transfer(&req.transfer_id).await {
+            Ok(()) => {
+                info!(
+                    transfer_id = %req.transfer_id,
+                    "Lease transfer accepted"
+                );
+
+                Ok(Response::new(AcceptLeaseResponse {
+                    success: true,
+                    new_epoch: req.expected_epoch,
+                    lease_expires_at: 0, // Will be set on complete
+                    error: None,
+                }))
+            }
+            Err(e) => {
+                warn!(
+                    transfer_id = %req.transfer_id,
+                    error = %e,
+                    "Failed to accept lease transfer"
+                );
+
+                Ok(Response::new(AcceptLeaseResponse {
+                    success: false,
+                    new_epoch: 0,
+                    lease_expires_at: 0,
+                    error: Some(e.to_string()),
+                }))
+            }
+        }
+    }
+
+    /// Complete a lease transfer after data sync.
+    async fn complete_transfer(
+        &self,
+        request: Request<CompleteTransferRequest>,
+    ) -> std::result::Result<Response<CompleteTransferResponse>, Status> {
+        let req = request.into_inner();
+
+        // Verify we're the source agent
+        if req.from_agent_id != self.agent_id {
+            return Ok(Response::new(CompleteTransferResponse {
+                acknowledged: false,
+                error: Some(format!(
+                    "This agent is {}, not {}",
+                    self.agent_id, req.from_agent_id
+                )),
+            }));
+        }
+
+        let start_time = std::time::Instant::now();
+
+        info!(
+            agent_id = %self.agent_id,
+            transfer_id = %req.transfer_id,
+            topic = %req.topic,
+            partition = req.partition,
+            last_flushed_offset = req.last_flushed_offset,
+            high_watermark = req.high_watermark,
+            "Completing lease transfer"
+        );
+
+        // Flush the writer to ensure all data is persisted
+        if let Ok(writer) = self.writer_pool.get_writer(&req.topic, req.partition).await {
+            let mut writer_guard = writer.lock().await;
+            if let Err(e) = writer_guard.flush_durable().await {
+                warn!(
+                    transfer_id = %req.transfer_id,
+                    error = %e,
+                    "Failed to flush writer before transfer completion"
+                );
+            }
+        }
+
+        match self
+            .lease_manager
+            .complete_transfer(&req.transfer_id, req.last_flushed_offset, req.high_watermark)
+            .await
+        {
+            Ok(()) => {
+                let duration = start_time.elapsed();
+
+                info!(
+                    transfer_id = %req.transfer_id,
+                    duration_ms = duration.as_millis(),
+                    "Lease transfer completed"
+                );
+
+                // Record metrics
+                streamhouse_observability::metrics::LEADER_TRANSFERS_PENDING.dec();
+                streamhouse_observability::metrics::LEADER_TRANSFERS_TOTAL
+                    .with_label_values(&["success"])
+                    .inc();
+                streamhouse_observability::metrics::LEADER_HANDOFF_LATENCY
+                    .with_label_values(&[&req.topic, &req.partition.to_string()])
+                    .observe(duration.as_secs_f64());
+                streamhouse_observability::metrics::LEADER_CHANGES_TOTAL
+                    .with_label_values(&[&req.topic, &req.partition.to_string(), "graceful_handoff"])
+                    .inc();
+
+                Ok(Response::new(CompleteTransferResponse {
+                    acknowledged: true,
+                    error: None,
+                }))
+            }
+            Err(e) => {
+                warn!(
+                    transfer_id = %req.transfer_id,
+                    error = %e,
+                    "Failed to complete lease transfer"
+                );
+
+                streamhouse_observability::metrics::LEADER_TRANSFERS_PENDING.dec();
+                streamhouse_observability::metrics::LEADER_TRANSFERS_TOTAL
+                    .with_label_values(&["error"])
+                    .inc();
+
+                Ok(Response::new(CompleteTransferResponse {
+                    acknowledged: false,
+                    error: Some(e.to_string()),
+                }))
+            }
+        }
+    }
+
+    /// Check agent health and readiness.
+    async fn health_check(
+        &self,
+        request: Request<HealthCheckRequest>,
+    ) -> std::result::Result<Response<HealthCheckResponse>, Status> {
+        let req = request.into_inner();
+
+        // Verify this is checking us
+        if req.agent_id != self.agent_id {
+            return Ok(Response::new(HealthCheckResponse {
+                healthy: false,
+                ready_for_leases: false,
+                partition_count: 0,
+                available_capacity: 0,
+            }));
+        }
+
+        let shutting_down = *self.shutting_down.read().await;
+        let current_partitions = *self.partition_count.read().await;
+        let available = if shutting_down {
+            0
+        } else {
+            self.max_partitions.saturating_sub(current_partitions)
+        };
+
+        Ok(Response::new(HealthCheckResponse {
+            healthy: !shutting_down,
+            ready_for_leases: !shutting_down && current_partitions < self.max_partitions,
+            partition_count: current_partitions,
+            available_capacity: available,
         }))
     }
 }

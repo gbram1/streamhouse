@@ -164,3 +164,155 @@ message GetOffsetResponse {
   uint64 offset = 1;
   optional string metadata = 2;
 }
+
+// ============================================================================
+// Agent Coordination Service (Fast Leader Handoff)
+// ============================================================================
+
+// Service for agent-to-agent coordination during leadership transfers.
+// Used during rolling deploys and graceful shutdown for zero-downtime handoffs.
+service AgentCoordination {
+  // Initiate a graceful lease transfer to another agent.
+  // Called by the outgoing agent during graceful shutdown or rolling deploy.
+  rpc TransferLease(TransferLeaseRequest) returns (TransferLeaseResponse);
+
+  // Accept a lease transfer from another agent.
+  // Called by the incoming agent to confirm it's ready to take over.
+  rpc AcceptLease(AcceptLeaseRequest) returns (AcceptLeaseResponse);
+
+  // Complete a lease transfer after data sync.
+  // Called by the outgoing agent after flushing pending writes.
+  rpc CompleteTransfer(CompleteTransferRequest) returns (CompleteTransferResponse);
+
+  // Check agent health and readiness.
+  rpc HealthCheck(HealthCheckRequest) returns (HealthCheckResponse);
+}
+
+// Request to initiate a lease transfer.
+message TransferLeaseRequest {
+  // Topic name
+  string topic = 1;
+
+  // Partition ID
+  uint32 partition = 2;
+
+  // Current agent ID (outgoing leader)
+  string from_agent_id = 3;
+
+  // Target agent ID (incoming leader)
+  string to_agent_id = 4;
+
+  // Current lease epoch
+  uint64 current_epoch = 5;
+
+  // Reason for transfer
+  TransferReason reason = 6;
+
+  // Transfer timeout in milliseconds
+  uint32 timeout_ms = 7;
+}
+
+// Reason for lease transfer
+enum TransferReason {
+  TRANSFER_REASON_UNSPECIFIED = 0;
+  TRANSFER_REASON_GRACEFUL_SHUTDOWN = 1;
+  TRANSFER_REASON_ROLLING_DEPLOY = 2;
+  TRANSFER_REASON_REBALANCE = 3;
+  TRANSFER_REASON_MAINTENANCE = 4;
+}
+
+// Response to lease transfer initiation.
+message TransferLeaseResponse {
+  // Whether the transfer was accepted
+  bool accepted = 1;
+
+  // Transfer ID for tracking
+  string transfer_id = 2;
+
+  // Error message if not accepted
+  optional string error = 3;
+}
+
+// Request to accept an offered lease.
+message AcceptLeaseRequest {
+  // Transfer ID from TransferLeaseResponse
+  string transfer_id = 1;
+
+  // Topic name
+  string topic = 2;
+
+  // Partition ID
+  uint32 partition = 3;
+
+  // Agent ID accepting the lease
+  string agent_id = 4;
+
+  // Expected new epoch
+  uint64 expected_epoch = 5;
+}
+
+// Response to lease acceptance.
+message AcceptLeaseResponse {
+  // Whether acceptance was successful
+  bool success = 1;
+
+  // New lease epoch (epoch + 1)
+  uint64 new_epoch = 2;
+
+  // New lease expiration timestamp
+  int64 lease_expires_at = 3;
+
+  // Error message if not successful
+  optional string error = 4;
+}
+
+// Request to complete a lease transfer.
+message CompleteTransferRequest {
+  // Transfer ID
+  string transfer_id = 1;
+
+  // Topic name
+  string topic = 2;
+
+  // Partition ID
+  uint32 partition = 3;
+
+  // Outgoing agent ID
+  string from_agent_id = 4;
+
+  // Last flushed offset (all data up to this offset is persisted)
+  uint64 last_flushed_offset = 5;
+
+  // High watermark at time of transfer
+  uint64 high_watermark = 6;
+}
+
+// Response to transfer completion.
+message CompleteTransferResponse {
+  // Whether completion was acknowledged
+  bool acknowledged = 1;
+
+  // Error message if not acknowledged
+  optional string error = 2;
+}
+
+// Health check request.
+message HealthCheckRequest {
+  // Agent ID being checked
+  string agent_id = 1;
+}
+
+// Health check response.
+message HealthCheckResponse {
+  // Agent health status
+  bool healthy = 1;
+
+  // Whether agent is ready to accept leases
+  bool ready_for_leases = 2;
+
+  // Current number of partitions this agent leads
+  uint32 partition_count = 3;
+
+  // Available capacity for more partitions
+  uint32 available_capacity = 4;
+}

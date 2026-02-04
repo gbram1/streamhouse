@@ -14,6 +14,7 @@ streamhouse-core = { path = "../streamhouse-core" }
 streamhouse-metadata = { path = "../streamhouse-metadata" }
 streamhouse-storage = { path = "../streamhouse-storage" }
 streamhouse-proto = { path = "../streamhouse-proto" }
+streamhouse-observability = { path = "../streamhouse-observability" }
 tokio = { workspace = true }
 tonic = { workspace = true }
 prost = { workspace = true }

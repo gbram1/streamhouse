@@ -242,6 +242,43 @@ lazy_static! {
     ).expect("metric can be created");
 
     // ============================================================================
+    // Leader Change Tracking Metrics (Fast Leader Handoff)
+    // ============================================================================
+
+    /// Total leader changes by reason
+    /// Reasons: lease_expired, graceful_handoff, agent_crash, rebalance
+    pub static ref LEADER_CHANGES_TOTAL: IntCounterVec = IntCounterVec::new(
+        Opts::new("streamhouse_leader_changes_total", "Total leadership changes by reason"),
+        &["topic", "partition", "reason"] // reason=lease_expired/graceful_handoff/agent_crash/rebalance
+    ).expect("metric can be created");
+
+    /// Leader handoff latency (time from initiation to completion)
+    pub static ref LEADER_HANDOFF_LATENCY: HistogramVec = HistogramVec::new(
+        HistogramOpts::new("streamhouse_leader_handoff_latency_seconds", "Leader handoff latency in seconds")
+            .buckets(vec![0.01, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0]),
+        &["topic", "partition"]
+    ).expect("metric can be created");
+
+    /// Leader gap time (time partition was leaderless)
+    pub static ref LEADER_GAP_SECONDS: HistogramVec = HistogramVec::new(
+        HistogramOpts::new("streamhouse_leader_gap_seconds", "Time partition was without a leader")
+            .buckets(vec![0.0, 0.1, 0.5, 1.0, 2.0, 5.0, 10.0, 30.0, 60.0]),
+        &["topic", "partition"]
+    ).expect("metric can be created");
+
+    /// Pending lease transfers (in-progress graceful handoffs)
+    pub static ref LEADER_TRANSFERS_PENDING: IntGauge = IntGauge::new(
+        "streamhouse_leader_transfers_pending",
+        "Number of pending leader transfers"
+    ).expect("metric can be created");
+
+    /// Lease transfer results
+    pub static ref LEADER_TRANSFERS_TOTAL: IntCounterVec = IntCounterVec::new(
+        Opts::new("streamhouse_leader_transfers_total", "Total leader transfer operations"),
+        &["result"] // result=success/timeout/rejected/error
+    ).expect("metric can be created");
+
+    // ============================================================================
     // WAL Metrics (Phase 10)
     // ============================================================================
 
@@ -445,6 +482,23 @@ pub fn init() {
         REGISTRY
             .register(Box::new(LEASE_EXPIRES_AT.clone()))
             .expect("lease_expires_at can be registered");
+
+        // Leader Change Tracking metrics
+        REGISTRY
+            .register(Box::new(LEADER_CHANGES_TOTAL.clone()))
+            .expect("leader_changes_total can be registered");
+        REGISTRY
+            .register(Box::new(LEADER_HANDOFF_LATENCY.clone()))
+            .expect("leader_handoff_latency can be registered");
+        REGISTRY
+            .register(Box::new(LEADER_GAP_SECONDS.clone()))
+            .expect("leader_gap_seconds can be registered");
+        REGISTRY
+            .register(Box::new(LEADER_TRANSFERS_PENDING.clone()))
+            .expect("leader_transfers_pending can be registered");
+        REGISTRY
+            .register(Box::new(LEADER_TRANSFERS_TOTAL.clone()))
+            .expect("leader_transfers_total can be registered");
 
         // WAL metrics
         REGISTRY

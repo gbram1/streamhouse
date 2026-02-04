@@ -106,9 +106,9 @@
 
 use crate::{
     AgentInfo, ApiKey, ConsumerOffset, CreateApiKey, CreateOrganization, InitProducerConfig,
-    MetadataStore, Organization, OrganizationPlan, OrganizationQuota, OrganizationStatus,
-    OrganizationUsage, Partition, PartitionLease, Producer, Result, SegmentInfo, Topic,
-    TopicConfig, Transaction, TransactionMarker, TransactionPartition,
+    LeaderChangeReason, LeaseTransfer, MetadataStore, Organization, OrganizationPlan,
+    OrganizationQuota, OrganizationStatus, OrganizationUsage, Partition, PartitionLease, Producer,
+    Result, SegmentInfo, Topic, TopicConfig, Transaction, TransactionMarker, TransactionPartition,
 };
 use async_trait::async_trait;
 use lru::LruCache;
@@ -907,6 +907,82 @@ impl<S: MetadataStore + 'static> MetadataStore for CachedMetadataStore<S> {
     ) -> Result<()> {
         self.inner
             .update_last_stable_offset(topic, partition_id, lso)
+            .await
+    }
+
+    // ========================================================================
+    // FAST LEADER HANDOFF (Phase 17 - NOT CACHED)
+    // ========================================================================
+    // Lease transfer state must be consistent for safe handoffs.
+
+    async fn initiate_lease_transfer(
+        &self,
+        topic: &str,
+        partition_id: u32,
+        from_agent_id: &str,
+        to_agent_id: &str,
+        reason: LeaderChangeReason,
+        timeout_ms: u32,
+    ) -> Result<LeaseTransfer> {
+        self.inner
+            .initiate_lease_transfer(topic, partition_id, from_agent_id, to_agent_id, reason, timeout_ms)
+            .await
+    }
+
+    async fn accept_lease_transfer(
+        &self,
+        transfer_id: &str,
+        agent_id: &str,
+    ) -> Result<LeaseTransfer> {
+        self.inner.accept_lease_transfer(transfer_id, agent_id).await
+    }
+
+    async fn complete_lease_transfer(
+        &self,
+        transfer_id: &str,
+        last_flushed_offset: u64,
+        high_watermark: u64,
+    ) -> Result<PartitionLease> {
+        self.inner
+            .complete_lease_transfer(transfer_id, last_flushed_offset, high_watermark)
+            .await
+    }
+
+    async fn reject_lease_transfer(
+        &self,
+        transfer_id: &str,
+        agent_id: &str,
+        reason: &str,
+    ) -> Result<()> {
+        self.inner
+            .reject_lease_transfer(transfer_id, agent_id, reason)
+            .await
+    }
+
+    async fn get_lease_transfer(&self, transfer_id: &str) -> Result<Option<LeaseTransfer>> {
+        self.inner.get_lease_transfer(transfer_id).await
+    }
+
+    async fn get_pending_transfers_for_agent(&self, agent_id: &str) -> Result<Vec<LeaseTransfer>> {
+        self.inner.get_pending_transfers_for_agent(agent_id).await
+    }
+
+    async fn cleanup_timed_out_transfers(&self) -> Result<u64> {
+        self.inner.cleanup_timed_out_transfers().await
+    }
+
+    async fn record_leader_change(
+        &self,
+        topic: &str,
+        partition_id: u32,
+        from_agent_id: Option<&str>,
+        to_agent_id: &str,
+        reason: LeaderChangeReason,
+        epoch: u64,
+        gap_ms: i64,
+    ) -> Result<()> {
+        self.inner
+            .record_leader_change(topic, partition_id, from_agent_id, to_agent_id, reason, epoch, gap_ms)
             .await
     }
 }

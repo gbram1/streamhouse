@@ -1134,3 +1134,164 @@ pub enum AckMode {
     /// Fastest but can lose data.
     None,
 }
+
+// ============================================================================
+// Fast Leader Handoff Types
+// ============================================================================
+
+/// Reason for leadership change.
+///
+/// Used for tracking and metrics to understand why leadership changed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum LeaderChangeReason {
+    /// Lease expired due to agent failure or network partition.
+    LeaseExpired,
+    /// Graceful handoff during shutdown or rolling deploy.
+    GracefulHandoff,
+    /// Agent crashed without graceful shutdown.
+    AgentCrash,
+    /// Rebalance triggered by partition reassignment.
+    Rebalance,
+    /// Initial lease acquisition (no previous leader).
+    Initial,
+}
+
+impl Default for LeaderChangeReason {
+    fn default() -> Self {
+        Self::Initial
+    }
+}
+
+impl std::fmt::Display for LeaderChangeReason {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            LeaderChangeReason::LeaseExpired => write!(f, "lease_expired"),
+            LeaderChangeReason::GracefulHandoff => write!(f, "graceful_handoff"),
+            LeaderChangeReason::AgentCrash => write!(f, "agent_crash"),
+            LeaderChangeReason::Rebalance => write!(f, "rebalance"),
+            LeaderChangeReason::Initial => write!(f, "initial"),
+        }
+    }
+}
+
+impl std::str::FromStr for LeaderChangeReason {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s.to_lowercase().as_str() {
+            "lease_expired" => Ok(LeaderChangeReason::LeaseExpired),
+            "graceful_handoff" => Ok(LeaderChangeReason::GracefulHandoff),
+            "agent_crash" => Ok(LeaderChangeReason::AgentCrash),
+            "rebalance" => Ok(LeaderChangeReason::Rebalance),
+            "initial" => Ok(LeaderChangeReason::Initial),
+            _ => Err(format!("Unknown leader change reason: {}", s)),
+        }
+    }
+}
+
+/// State of a pending lease transfer.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum LeaseTransferState {
+    /// Transfer has been initiated but not yet accepted.
+    Pending,
+    /// Transfer has been accepted, waiting for data sync.
+    Accepted,
+    /// Data sync is complete, lease is being transferred.
+    Completing,
+    /// Transfer completed successfully.
+    Completed,
+    /// Transfer was rejected by the target agent.
+    Rejected,
+    /// Transfer timed out.
+    TimedOut,
+    /// Transfer failed for other reasons.
+    Failed,
+}
+
+impl Default for LeaseTransferState {
+    fn default() -> Self {
+        Self::Pending
+    }
+}
+
+impl std::fmt::Display for LeaseTransferState {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            LeaseTransferState::Pending => write!(f, "pending"),
+            LeaseTransferState::Accepted => write!(f, "accepted"),
+            LeaseTransferState::Completing => write!(f, "completing"),
+            LeaseTransferState::Completed => write!(f, "completed"),
+            LeaseTransferState::Rejected => write!(f, "rejected"),
+            LeaseTransferState::TimedOut => write!(f, "timed_out"),
+            LeaseTransferState::Failed => write!(f, "failed"),
+        }
+    }
+}
+
+impl std::str::FromStr for LeaseTransferState {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s.to_lowercase().as_str() {
+            "pending" => Ok(LeaseTransferState::Pending),
+            "accepted" => Ok(LeaseTransferState::Accepted),
+            "completing" => Ok(LeaseTransferState::Completing),
+            "completed" => Ok(LeaseTransferState::Completed),
+            "rejected" => Ok(LeaseTransferState::Rejected),
+            "timed_out" => Ok(LeaseTransferState::TimedOut),
+            "failed" => Ok(LeaseTransferState::Failed),
+            _ => Err(format!("Unknown transfer state: {}", s)),
+        }
+    }
+}
+
+/// Pending lease transfer record.
+///
+/// Tracks an in-progress lease transfer between two agents.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LeaseTransfer {
+    /// Unique transfer ID (UUID).
+    pub transfer_id: String,
+
+    /// Topic name.
+    pub topic: String,
+
+    /// Partition ID.
+    pub partition_id: u32,
+
+    /// Source agent ID (current leader).
+    pub from_agent_id: String,
+
+    /// Target agent ID (incoming leader).
+    pub to_agent_id: String,
+
+    /// Lease epoch at transfer initiation.
+    pub from_epoch: u64,
+
+    /// Transfer state.
+    pub state: LeaseTransferState,
+
+    /// Reason for transfer.
+    pub reason: LeaderChangeReason,
+
+    /// Transfer initiation timestamp (milliseconds since Unix epoch).
+    pub initiated_at: i64,
+
+    /// Transfer completion timestamp (milliseconds since Unix epoch).
+    /// None if transfer is still in progress.
+    pub completed_at: Option<i64>,
+
+    /// Transfer timeout (milliseconds since Unix epoch).
+    pub timeout_at: i64,
+
+    /// Last flushed offset (set when data sync completes).
+    pub last_flushed_offset: Option<u64>,
+
+    /// High watermark at transfer initiation.
+    pub high_watermark: Option<u64>,
+
+    /// Error message if transfer failed.
+    pub error: Option<String>,
+}

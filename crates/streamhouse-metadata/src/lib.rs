@@ -1463,4 +1463,87 @@ pub trait MetadataStore: Send + Sync {
         partition_id: u32,
         lso: u64,
     ) -> Result<()>;
+
+    // ============================================================
+    // FAST LEADER HANDOFF (Phase 17)
+    // ============================================================
+    //
+    // These methods enable graceful leadership transfers between agents
+    // for zero-downtime rolling deploys and maintenance.
+
+    /// Initiate a lease transfer to another agent.
+    ///
+    /// Creates a pending transfer record and marks the lease as being transferred.
+    /// The target agent must accept the transfer before it completes.
+    ///
+    /// # Arguments
+    ///
+    /// * `topic` - Topic name
+    /// * `partition_id` - Partition ID
+    /// * `from_agent_id` - Current leader agent ID
+    /// * `to_agent_id` - Target agent ID
+    /// * `reason` - Reason for transfer
+    /// * `timeout_ms` - Transfer timeout in milliseconds
+    ///
+    /// # Returns
+    ///
+    /// The created transfer record.
+    async fn initiate_lease_transfer(
+        &self,
+        topic: &str,
+        partition_id: u32,
+        from_agent_id: &str,
+        to_agent_id: &str,
+        reason: LeaderChangeReason,
+        timeout_ms: u32,
+    ) -> Result<LeaseTransfer>;
+
+    /// Accept a pending lease transfer.
+    ///
+    /// Called by the target agent to indicate it's ready to take over.
+    async fn accept_lease_transfer(
+        &self,
+        transfer_id: &str,
+        agent_id: &str,
+    ) -> Result<LeaseTransfer>;
+
+    /// Complete a lease transfer after data sync.
+    ///
+    /// Called by the source agent after flushing all pending writes.
+    /// This atomically transfers the lease to the target agent.
+    async fn complete_lease_transfer(
+        &self,
+        transfer_id: &str,
+        last_flushed_offset: u64,
+        high_watermark: u64,
+    ) -> Result<PartitionLease>;
+
+    /// Reject or cancel a pending lease transfer.
+    async fn reject_lease_transfer(
+        &self,
+        transfer_id: &str,
+        agent_id: &str,
+        reason: &str,
+    ) -> Result<()>;
+
+    /// Get a pending lease transfer by ID.
+    async fn get_lease_transfer(&self, transfer_id: &str) -> Result<Option<LeaseTransfer>>;
+
+    /// Get pending transfers for an agent.
+    async fn get_pending_transfers_for_agent(&self, agent_id: &str) -> Result<Vec<LeaseTransfer>>;
+
+    /// Clean up timed out transfers.
+    async fn cleanup_timed_out_transfers(&self) -> Result<u64>;
+
+    /// Record a leadership change event for metrics/tracking.
+    async fn record_leader_change(
+        &self,
+        topic: &str,
+        partition_id: u32,
+        from_agent_id: Option<&str>,
+        to_agent_id: &str,
+        reason: LeaderChangeReason,
+        epoch: u64,
+        gap_ms: i64,
+    ) -> Result<()>;
 }
