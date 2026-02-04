@@ -74,6 +74,7 @@ services:
       WAL_ENABLED: "true"
       WAL_DIR: /data/wal
       STREAMHOUSE_CACHE: /data/cache
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
     ports:
       - "8080:8080"
       - "9090:9090"
