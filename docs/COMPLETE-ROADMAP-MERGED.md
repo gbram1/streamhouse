@@ -137,193 +137,62 @@ This roadmap merges two strategies:
 ## 🔥 PHASES 24-25: STREAM JOINS & MATERIALIZED VIEWS (Next Priority)
 
 **Goal**: Make StreamHouse a true "Kafka + Flink in one" offering
-**Impact**: HIGH | **Estimated Effort**: ~40 hours
-**Builds on**: Phases 21-23 (Streaming SQL Analytics)
+**Impact**: HIGH | **Effort**: ~40h | **Builds on**: Phases 21-23
 
-### Phase 24: Stream JOINs (~20 hours)
+### Phase 24: Stream JOINs (~20h)
 
-**Goal**: Enable joining data across multiple streams/topics in real-time
+| Sub-phase | Task | Hours |
+|-----------|------|-------|
+| **24.1** | **Stream-Stream JOINs** | 8-10h |
+| 24.1a | JOIN parser (INNER, LEFT, RIGHT, FULL) | |
+| 24.1b | Join key extraction from ON clause | |
+| 24.1c | Time-windowed join buffer | |
+| 24.1d | Hash join execution engine | |
+| 24.1e | Memory management & eviction | |
+| **24.2** | **Stream-Table JOINs** | 6-8h |
+| 24.2a | TABLE(topic) syntax | |
+| 24.2b | In-memory table state (key→value) | |
+| 24.2c | Lookup join execution (O(1)) | |
+| 24.2d | Table bootstrap from topic | |
+| 24.2e | Incremental table updates | |
+| **24.3** | **Join Optimizations** | 4-6h |
+| 24.3a | Predicate pushdown | |
+| 24.3b | Broadcast join (<100MB tables) | |
+| 24.3c | Join statistics & metrics | |
+| 24.3d | Timeout handling | |
 
-#### 24.1: Stream-Stream JOINs (8-10 hours)
-**Sub-tasks**:
-- [ ] **24.1a**: JOIN parser support (INNER, LEFT, RIGHT, FULL OUTER)
-- [ ] **24.1b**: Join key extraction from ON clause
-- [ ] **24.1c**: Time-windowed join buffer (retain recent records for matching)
-- [ ] **24.1d**: Join execution engine (hash join for equality predicates)
-- [ ] **24.1e**: Memory management (bounded buffers, eviction policies)
+**Example**: `SELECT o.*, u.name FROM orders o JOIN users u ON o.user_id = u.id`
 
-**SQL Syntax**:
-```sql
--- Stream-stream join (real-time order enrichment)
-SELECT o.order_id, o.amount, u.name, u.email
-FROM orders o
-JOIN users u ON o.user_id = u.id
-WHERE o.timestamp > NOW() - INTERVAL '1 hour';
+### Phase 25: Materialized Views (~20h)
 
--- Left join (include orders even if user not found)
-SELECT o.*, u.name
-FROM orders o
-LEFT JOIN users u ON o.user_id = u.id;
-```
+| Sub-phase | Task | Hours |
+|-----------|------|-------|
+| **25.1** | **Materialized View Core** | 8-10h |
+| 25.1a | CREATE MATERIALIZED VIEW parser | |
+| 25.1b | View definition storage (PostgreSQL) | |
+| 25.1c | Background maintenance task | |
+| 25.1d | View state persistence (topic) | |
+| 25.1e | Refresh modes (continuous/periodic) | |
+| **25.2** | **Incremental Maintenance** | 6-8h |
+| 25.2a | Delta processing | |
+| 25.2b | Running aggregation state | |
+| 25.2c | Watermark tracking | |
+| 25.2d | View compaction | |
+| **25.3** | **View Management** | 4-6h |
+| 25.3a | SHOW/DESCRIBE/REFRESH commands | |
+| 25.3b | View metadata API | |
+| 25.3c | Status monitoring (lag, rate) | |
+| 25.3d | UI integration | |
 
-**Implementation Notes**:
-- Join buffer stores recent records from each stream (configurable window)
-- On new record arrival, probe buffer of other stream for matches
-- Evict records older than join window to bound memory
+**Example**: `CREATE MATERIALIZED VIEW hourly_sales AS SELECT TUMBLE(...), SUM(amount) FROM orders GROUP BY ...`
 
-#### 24.2: Stream-Table JOINs (6-8 hours)
-**Sub-tasks**:
-- [ ] **24.2a**: Table reference syntax (`TABLE(topic)` or compacted topic)
-- [ ] **24.2b**: Table state storage (in-memory hash map, key → latest value)
-- [ ] **24.2c**: Lookup join execution (stream record probes table)
-- [ ] **24.2d**: Table refresh strategy (consume compacted topic on startup)
-- [ ] **24.2e**: Incremental table updates (apply changes as they arrive)
-
-**SQL Syntax**:
-```sql
--- Stream-table join (enrich orders with latest user data)
-SELECT o.order_id, o.amount, u.name, u.tier
-FROM orders o
-JOIN TABLE(users) u ON o.user_id = u.id;
-
--- Lookup dimension data
-SELECT e.*, p.product_name, p.category
-FROM events e
-JOIN TABLE(products) p ON e.product_id = p.id;
-```
-
-**Implementation Notes**:
-- Table represents "latest value per key" (like compacted topic)
-- Stream records do point lookup into table (O(1) hash lookup)
-- Table can be bootstrapped from topic or external source
-
-#### 24.3: Join Optimizations (4-6 hours)
-**Sub-tasks**:
-- [ ] **24.3a**: Join predicate pushdown (filter before join)
-- [ ] **24.3b**: Broadcast join for small tables (<100MB)
-- [ ] **24.3c**: Join statistics (rows processed, buffer sizes, hit rates)
-- [ ] **24.3d**: Join timeout handling (emit partial results or null)
-
----
-
-### Phase 25: Materialized Views (~20 hours)
-
-**Goal**: Pre-computed, continuously updated query results
-
-#### 25.1: Materialized View Core (8-10 hours)
-**Sub-tasks**:
-- [ ] **25.1a**: CREATE MATERIALIZED VIEW parser support
-- [ ] **25.1b**: View definition storage (PostgreSQL metadata)
-- [ ] **25.1c**: Background view maintenance task (continuous query execution)
-- [ ] **25.1d**: View state storage (results persisted to dedicated topic)
-- [ ] **25.1e**: View refresh modes (continuous, periodic, on-demand)
-
-**SQL Syntax**:
-```sql
--- Create materialized view for hourly sales
-CREATE MATERIALIZED VIEW hourly_sales AS
-SELECT
-  TUMBLE(timestamp, '1 hour') as window_start,
-  COUNT(*) as order_count,
-  SUM(json_extract(value, '$.amount')) as total_revenue,
-  AVG(json_extract(value, '$.amount')) as avg_order_value
-FROM orders
-GROUP BY TUMBLE(timestamp, '1 hour');
-
--- Query the materialized view (instant results)
-SELECT * FROM hourly_sales WHERE window_start > '2026-02-01';
-
--- Drop materialized view
-DROP MATERIALIZED VIEW hourly_sales;
-```
-
-#### 25.2: Incremental View Maintenance (6-8 hours)
-**Sub-tasks**:
-- [ ] **25.2a**: Delta processing (only process new records since last update)
-- [ ] **25.2b**: Aggregation state management (maintain running totals)
-- [ ] **25.2c**: Watermark tracking (handle late-arriving data)
-- [ ] **25.2d**: View compaction (merge old windows, reduce storage)
-
-**Implementation Notes**:
-- Views maintain incremental state (e.g., running SUM, COUNT)
-- New records update aggregates without full recomputation
-- Watermarks determine when windows are "complete"
-
-#### 25.3: View Management & Querying (4-6 hours)
-**Sub-tasks**:
-- [ ] **25.3a**: SHOW MATERIALIZED VIEWS command
-- [ ] **25.3b**: View metadata API (creation time, last refresh, row count)
-- [ ] **25.3c**: View status monitoring (lag, processing rate)
-- [ ] **25.3d**: UI integration (list views, show definition, query results)
-- [ ] **25.3e**: REFRESH MATERIALIZED VIEW command (force update)
-
-**SQL Syntax**:
-```sql
--- List all materialized views
-SHOW MATERIALIZED VIEWS;
-
--- Get view metadata
-DESCRIBE MATERIALIZED VIEW hourly_sales;
-
--- Force refresh
-REFRESH MATERIALIZED VIEW hourly_sales;
-```
-
----
-
-### Phase 24-25: Success Criteria
+### Success Criteria
 
 | Metric | Target |
 |--------|--------|
-| Join latency (stream-stream) | < 100ms p99 |
-| Join latency (stream-table) | < 10ms p99 |
+| Stream-stream join latency | < 100ms p99 |
+| Stream-table join latency | < 10ms p99 |
 | Materialized view lag | < 5 seconds |
-| Memory per join buffer | Configurable (default 100MB) |
-| Views per topic | Unlimited |
-
-### Phase 24-25: Example Use Cases
-
-**1. Real-time Order Enrichment**
-```sql
--- Join orders with user profiles and product catalog
-SELECT
-  o.order_id,
-  u.name as customer_name,
-  u.tier as customer_tier,
-  p.name as product_name,
-  o.quantity * p.price as total
-FROM orders o
-JOIN TABLE(users) u ON o.user_id = u.id
-JOIN TABLE(products) p ON o.product_id = p.id;
-```
-
-**2. Fraud Detection Dashboard**
-```sql
--- Materialized view of suspicious activity
-CREATE MATERIALIZED VIEW suspicious_transactions AS
-SELECT
-  user_id,
-  COUNT(*) as tx_count,
-  SUM(amount) as total_amount,
-  zscore(amount) as amount_zscore
-FROM transactions
-WHERE timestamp > NOW() - INTERVAL '1 hour'
-GROUP BY user_id
-HAVING zscore(amount) > 3.0;
-```
-
-**3. Real-time Analytics Dashboard**
-```sql
--- Pre-aggregated metrics for instant dashboard queries
-CREATE MATERIALIZED VIEW dashboard_metrics AS
-SELECT
-  TUMBLE(timestamp, '5 minutes') as period,
-  COUNT(*) as events,
-  COUNT(DISTINCT user_id) as unique_users,
-  AVG(response_time) as avg_latency
-FROM api_events
-GROUP BY TUMBLE(timestamp, '5 minutes');
-```
 
 ---
 
@@ -767,8 +636,8 @@ After:  [k1:v3, k3:v4]  (k2 deleted via tombstone)
 - [x] **14.1c**: Aggregations (COUNT, SUM, AVG, MIN, MAX, FIRST, LAST) ✅ (Phase 21)
 - [x] **14.1d-new**: Anomaly detection (zscore, anomaly, moving_avg) ✅ (Phase 22)
 - [x] **14.1e-new**: Vector similarity search (cosine, euclidean, dot_product) ✅ (Phase 23)
-- [ ] **14.1f**: Joins (stream-stream, stream-table) - Future
-- [ ] **14.1g**: Materialized views (cached query results) - Future
+- [ ] **14.1f**: Joins (stream-stream, stream-table) → **Phase 24**
+- [ ] **14.1g**: Materialized views (cached query results) → **Phase 25**
 
 **SQL Examples** (all working):
 ```sql
@@ -1015,7 +884,7 @@ Consumer Simulator Panel:
   - Window aggregations (TUMBLE, HOP, SESSION)
   - Anomaly detection (zscore, anomaly, moving_avg)
   - Vector similarity search (cosine, euclidean, dot_product)
-- 🔄 Stream processing (joins, materialized views)
+- 🔄 Stream JOINs & Materialized Views (Phase 24-25, ~40h)
 - 📋 Analytics connectors
 
 **Target Audience**: Data teams, analysts
@@ -1080,7 +949,7 @@ Consumer Simulator Panel:
 |----------|-------|-------------|
 | HIGH | 12.1 | Client SDKs (Python, JS, Go, Java) |
 | MEDIUM | 8.2-8.5 | Performance optimizations |
-| MEDIUM | 14.1f-g | Stream JOINs & Materialized Views |
+| **HIGH** | **24-25** | **Stream JOINs & Materialized Views (~40h)** |
 | MEDIUM | 10 | Production Hardening (Security, HA, DR) |
 | LOW | 13 | Advanced Features (Transactions, Tiered Storage) |
 | LOW | 15 | Kubernetes Deployment |
