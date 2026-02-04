@@ -1,7 +1,7 @@
 # StreamHouse: Complete Roadmap to Production & Adoption
 **Date:** February 3, 2026
-**Status:** ✅ Phase 9-14 (Core Complete), ✅ Phase 18.5-18.8 (High-Perf Client + Demo + Consumer Actions + SQL Query), ✅ Phase 20 (Developer Experience), ✅ Phase 21 (Kafka Protocol Compatibility), ✅ Phase 21.5 (Multi-Tenancy Backend)
-**Next:** Phase 13 UI (Multi-Tenancy UI) or Phase 24 (Stream Processing & SQL Engine)
+**Status:** ✅ Phase 9-14 (Core Complete), ✅ Phase 18.5-18.8 (High-Perf Client + Demo + Consumer Actions + SQL Query), ✅ Phase 20 (Developer Experience), ✅ Phase 21 (Kafka Protocol Compatibility), ✅ Phase 21.5 (Multi-Tenancy Backend), ✅ Phase 13 UI (Multi-Tenancy UI Complete)
+**Next:** Phase 24 (Stream Processing & SQL Engine) or Phase 22 (Multi-Tenancy Rate Limiting)
 **Deferred:** Phase 15 (Kubernetes) - Docker Compose deployment prioritized
 
 ---
@@ -33,7 +33,7 @@ StreamHouse is a high-performance, cloud-native streaming platform built in Rust
 - ✅ Message query/browse (SQL Lite) - DONE
 - ✅ Kafka protocol compatibility (ecosystem access) - DONE
 - ✅ **Multi-Tenancy Backend** (S3 isolation, quotas, API keys) - DONE (Phase 21.5)
-- ⚠️ **Multi-Tenancy UI** (org management, API key UI, quota dashboard) - PENDING
+- ✅ **Multi-Tenancy UI** (org management, API key UI, quota dashboard) - DONE (Phase 13 UI)
 - ❌ Multi-language client libraries (Python, JavaScript, Go)
 - ❌ Advanced features (tiering, compression)
 
@@ -678,15 +678,18 @@ pub async fn get_throughput_metrics(
 - ✅ Docker Compose integration with proper networking
 - ✅ Producer console page
 
-**Pending - Multi-Tenancy UI (leveraging Phase 21.5 backend):**
-- ⚠️ Organization management page (create, view, update, delete organizations)
-- ⚠️ API key management page (create, list, revoke keys, set permissions/scopes)
-- ⚠️ Quota usage dashboard (storage, throughput, requests with visual gauges)
-- ⚠️ Plan tier display and upgrade flow
-- ⚠️ Organization member management (future: invite users)
-- ⚠️ User authentication flow (login with API key or SSO)
+**Multi-Tenancy UI (leveraging Phase 21.5 backend) - ✅ COMPLETE:**
+- ✅ Organization management page (`/settings/organizations`) - create, view, update, delete organizations
+- ✅ Organization detail page (`/settings/organizations/[id]`) - quotas, usage, API keys overview
+- ✅ API key management page (`/settings/api-keys`) - create, list, revoke keys, set permissions/scopes
+- ✅ Quota usage dashboard - storage, throughput, requests with visual progress bars
+- ✅ Plan tier display - Free/Pro/Enterprise comparison table
+- ✅ React Query hooks for organizations and API keys
+- ✅ Sidebar navigation with Settings section
 
 **Future Enhancements (not blocking):**
+- Organization member management (invite users, role-based access)
+- User authentication flow (login with API key or SSO)
 - Agent CPU/Memory/Disk metrics - backend doesn't collect system metrics yet
 - Consumer Lag Over Time chart - needs time-series metrics collection
 - Real-time WebSocket updates - polling works for now
@@ -3635,15 +3638,23 @@ docker run -p 8080:8080 \
 | **Plan-based quotas** | Database schema | Free/Pro/Enterprise tiers with different limits |
 | **Documentation** | `docs/MULTI_TENANCY.md` | Comprehensive multi-tenancy architecture docs |
 
-### ⚠️ What's Pending (UI - Phase 13)
+### ✅ What Was Completed (UI - Phase 13)
+
+| Feature | Location | Description |
+|---------|----------|-------------|
+| Organization management UI | `/settings/organizations` | Create, view, update, delete organizations with plan/status badges |
+| Organization detail page | `/settings/organizations/[id]` | Quota usage dashboard, plan limits table, API keys overview |
+| API key management UI | `/settings/api-keys` | Create, list, revoke keys, set permissions/scopes, secure key display |
+| Quota usage dashboard | Organization detail page | Storage, throughput, requests with visual progress bars |
+| Plan tier display | Organization detail page | Free/Pro/Enterprise limits comparison table |
+| React Query hooks | `web/lib/hooks/` | `use-organizations.ts`, `use-api-keys.ts` for data fetching |
+
+### ⚠️ Future Enhancements (not blocking)
 
 | Feature | Description |
 |---------|-------------|
-| Organization management UI | Create, view, update, delete organizations |
-| API key management UI | Create, list, revoke keys, set permissions/scopes |
-| Quota usage dashboard | Storage, throughput, requests with visual gauges |
-| Plan tier display | Show current plan, upgrade flow |
 | User authentication flow | Login with API key or SSO integration |
+| Organization member management | Invite users, role-based access control |
 
 ### Why This Matters
 
@@ -4276,11 +4287,15 @@ pub async fn create_topic(
 - ✅ Default organization for backwards compatibility
 - ✅ Documentation: `docs/MULTI_TENANCY.md`
 
-**⚠️ Pending (UI - see Phase 13):**
-- ⚠️ Organization management UI
-- ⚠️ API key management UI
-- ⚠️ Quota usage dashboard
-- ⚠️ User authentication flow
+**✅ Completed (UI - Phase 13):**
+- ✅ Organization management UI (`/settings/organizations`)
+- ✅ Organization detail page (`/settings/organizations/[id]`)
+- ✅ API key management UI (`/settings/api-keys`)
+- ✅ Quota usage dashboard with visual progress bars
+- ✅ Plan tier comparison table
+
+**⚠️ Future (not blocking):**
+- User authentication flow (SSO integration)
 
 ### Success Criteria
 

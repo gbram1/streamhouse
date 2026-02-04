@@ -181,36 +181,63 @@ CREATE INDEX IF NOT EXISTS idx_org_usage_period ON organization_usage(period_sta
 -- ADD organization_id TO EXISTING TABLES
 -- ============================================================================
 
--- Topics
+-- ============================================================================
+-- STEP 1: Drop ALL foreign key constraints that reference topics first
+-- ============================================================================
+
+-- Drop consumer_offsets -> partitions -> topics chain
+ALTER TABLE consumer_offsets DROP CONSTRAINT IF EXISTS consumer_offsets_topic_partition_id_fkey;
+ALTER TABLE consumer_offsets DROP CONSTRAINT IF EXISTS consumer_offsets_group_id_fkey;
+
+-- Drop partitions -> topics
+ALTER TABLE partitions DROP CONSTRAINT IF EXISTS partitions_topic_fkey;
+
+-- Drop segments -> partitions -> topics
+ALTER TABLE segments DROP CONSTRAINT IF EXISTS segments_topic_partition_id_fkey;
+
+-- Drop partition_leases -> topics (if exists)
+ALTER TABLE partition_leases DROP CONSTRAINT IF EXISTS partition_leases_topic_fkey;
+
+-- ============================================================================
+-- STEP 2: Now we can safely modify topics table
+-- ============================================================================
+
+-- Topics: Add organization_id
 ALTER TABLE topics ADD COLUMN IF NOT EXISTS organization_id UUID;
 UPDATE topics SET organization_id = '00000000-0000-0000-0000-000000000000' WHERE organization_id IS NULL;
 ALTER TABLE topics ALTER COLUMN organization_id SET NOT NULL;
 ALTER TABLE topics ADD CONSTRAINT fk_topics_org FOREIGN KEY (organization_id) REFERENCES organizations(id) ON DELETE CASCADE;
 CREATE INDEX IF NOT EXISTS idx_topics_org ON topics(organization_id);
 
--- Drop old primary key and create new composite unique constraint
--- Note: Topic names are unique WITHIN an organization, not globally
+-- Drop old primary key and create new composite primary key
 ALTER TABLE topics DROP CONSTRAINT IF EXISTS topics_pkey;
 ALTER TABLE topics ADD CONSTRAINT topics_pkey PRIMARY KEY (organization_id, name);
 
--- Partitions
+-- ============================================================================
+-- STEP 3: Modify partitions and recreate foreign key
+-- ============================================================================
+
+-- Partitions: Add organization_id
 ALTER TABLE partitions ADD COLUMN IF NOT EXISTS organization_id UUID;
 UPDATE partitions SET organization_id = '00000000-0000-0000-0000-000000000000' WHERE organization_id IS NULL;
 ALTER TABLE partitions ALTER COLUMN organization_id SET NOT NULL;
 ALTER TABLE partitions ADD CONSTRAINT fk_partitions_org FOREIGN KEY (organization_id) REFERENCES organizations(id) ON DELETE CASCADE;
 CREATE INDEX IF NOT EXISTS idx_partitions_org ON partitions(organization_id);
 
--- Update foreign key to include organization_id
-ALTER TABLE partitions DROP CONSTRAINT IF EXISTS partitions_topic_fkey;
+-- Recreate partitions -> topics foreign key with organization_id
 ALTER TABLE partitions ADD CONSTRAINT partitions_topic_fkey
     FOREIGN KEY (organization_id, topic) REFERENCES topics(organization_id, name) ON DELETE CASCADE;
 
--- Segments
+-- Segments: Add organization_id and recreate FK to partitions
 ALTER TABLE segments ADD COLUMN IF NOT EXISTS organization_id UUID;
 UPDATE segments SET organization_id = '00000000-0000-0000-0000-000000000000' WHERE organization_id IS NULL;
 ALTER TABLE segments ALTER COLUMN organization_id SET NOT NULL;
 ALTER TABLE segments ADD CONSTRAINT fk_segments_org FOREIGN KEY (organization_id) REFERENCES organizations(id) ON DELETE CASCADE;
 CREATE INDEX IF NOT EXISTS idx_segments_org ON segments(organization_id);
+
+-- Recreate segments -> partitions foreign key (was dropped in STEP 1)
+ALTER TABLE segments ADD CONSTRAINT segments_topic_partition_id_fkey
+    FOREIGN KEY (topic, partition_id) REFERENCES partitions(topic, partition_id) ON DELETE CASCADE;
 
 -- Consumer Groups
 ALTER TABLE consumer_groups ADD COLUMN IF NOT EXISTS organization_id UUID;
@@ -234,6 +261,10 @@ CREATE INDEX IF NOT EXISTS idx_consumer_offsets_org ON consumer_offsets(organiza
 -- Update foreign key to include organization_id
 ALTER TABLE consumer_offsets ADD CONSTRAINT consumer_offsets_group_fkey
     FOREIGN KEY (organization_id, group_id) REFERENCES consumer_groups(organization_id, group_id) ON DELETE CASCADE;
+
+-- Recreate consumer_offsets -> partitions foreign key (was dropped in STEP 1)
+ALTER TABLE consumer_offsets ADD CONSTRAINT consumer_offsets_topic_partition_id_fkey
+    FOREIGN KEY (topic, partition_id) REFERENCES partitions(topic, partition_id) ON DELETE CASCADE;
 
 -- Agents (can be shared across orgs or per-org)
 ALTER TABLE agents ADD COLUMN IF NOT EXISTS organization_id UUID;
