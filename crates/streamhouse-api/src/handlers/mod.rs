@@ -1,6 +1,7 @@
 //! API request handlers
 
 pub mod agents;
+pub mod ai;
 pub mod api_keys;
 pub mod consume;
 pub mod consumer_groups;

@@ -1,7 +1,7 @@
 # StreamHouse: Integrated Technical & Business Roadmap
 
 **Last Updated:** February 4, 2026
-**Current Status:** Phase 13 (UI), Phase 16 (Exactly-Once), Phase 17 (Fast Leader Handoff) Complete
+**Current Status:** Phase 13 (UI), Phase 16 (Exactly-Once), Phase 17 (Fast Leader Handoff), Phase 20 (AI Queries) Complete
 
 ---
 
@@ -613,9 +613,9 @@ Partner 3: ___________________
 
 These AI features position StreamHouse for the AI-native era. Ranked by value vs effort.
 
-#### Phase 20: Natural Language → SQL Queries ⏳ HIGH PRIORITY
+#### Phase 20: Natural Language → SQL Queries ✅ COMPLETE
 
-**Status:** PLANNED
+**Status:** COMPLETE
 **Priority:** HIGH (demos well, expands user base)
 **Effort:** 2-3 days (20-25 hours)
 
@@ -644,10 +644,10 @@ POST /api/v1/query/ask
 ```
 
 **Features:**
-- [ ] Natural language query endpoint (`/api/v1/query/ask`)
-- [ ] Schema-aware prompt generation (fetch topic schemas)
-- [ ] SQL validation before execution
-- [ ] Query explanation (show generated SQL to user)
+- [x] Natural language query endpoint (`/api/v1/query/ask`)
+- [x] Schema-aware prompt generation (fetch topic schemas)
+- [x] SQL validation before execution
+- [x] Query explanation (show generated SQL to user)
 - [ ] Query history and refinement
 - [ ] Cost estimation before execution
 
@@ -832,7 +832,7 @@ LIMIT 10;
 
 | Priority | Feature | Effort | Impact | Status |
 |----------|---------|--------|--------|--------|
-| 1 | Natural Language → SQL | 2-3 days | HIGH - demos well | PLANNED |
+| 1 | Natural Language → SQL | 2-3 days | HIGH - demos well | ✅ COMPLETE |
 | 2 | Schema Inference | 1-2 days | MEDIUM - onboarding | PLANNED |
 | 3 | ML Feature Pipelines | Docs + 1 week | HIGH - positioning | PLANNED |
 | 4 | Anomaly Detection | 1 week | MEDIUM - built-in value | PLANNED |

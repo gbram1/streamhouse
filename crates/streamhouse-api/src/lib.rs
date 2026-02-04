@@ -127,6 +127,9 @@ pub fn create_router(state: AppState) -> Router {
             get(handlers::api_keys::get_api_key)
                 .delete(handlers::api_keys::revoke_api_key),
         )
+        // AI-powered queries
+        .route("/query/ask", post(handlers::ai::ask_query))
+        .route("/ai/health", get(handlers::ai::ai_health))
         .with_state(state.clone());
 
     // OpenAPI documentation
@@ -206,6 +209,8 @@ pub async fn serve(router: Router, port: u16) -> Result<(), Box<dyn std::error::
         handlers::api_keys::get_api_key,
         handlers::api_keys::create_api_key,
         handlers::api_keys::revoke_api_key,
+        handlers::ai::ask_query,
+        handlers::ai::ai_health,
     ),
     components(schemas(
         models::Topic,
@@ -255,6 +260,10 @@ pub async fn serve(router: Router, port: u16) -> Result<(), Box<dyn std::error::
         handlers::api_keys::ApiKeyResponse,
         handlers::api_keys::ApiKeyCreatedResponse,
         handlers::api_keys::CreateApiKeyRequest,
+        handlers::ai::AskQueryRequest,
+        handlers::ai::AskQueryResponse,
+        handlers::ai::QueryResults,
+        handlers::ai::AskQueryError,
     )),
     tags(
         (name = "topics", description = "Topic management"),
@@ -267,6 +276,7 @@ pub async fn serve(router: Router, port: u16) -> Result<(), Box<dyn std::error::
         (name = "sql", description = "SQL query engine"),
         (name = "organizations", description = "Organization management for multi-tenancy"),
         (name = "api-keys", description = "API key management for authentication"),
+        (name = "ai", description = "AI-powered natural language query generation"),
     ),
     info(
         title = "StreamHouse API",
