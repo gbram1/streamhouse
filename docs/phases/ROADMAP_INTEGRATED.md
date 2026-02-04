@@ -1,7 +1,7 @@
 # StreamHouse: Integrated Technical & Business Roadmap
 
-**Last Updated:** January 29, 2026
-**Current Status:** Phase 8.5 Complete, Phase 12 (Business Validation) Starting
+**Last Updated:** February 4, 2026
+**Current Status:** Phase 13 (UI), Phase 16 (Exactly-Once), Phase 17 (Fast Leader Handoff) Complete
 
 ---
 
@@ -609,6 +609,272 @@ Partner 3: ___________________
 
 ---
 
+### TIER 4: AI Capabilities (Strategic Differentiation)
+
+These AI features position StreamHouse for the AI-native era. Ranked by value vs effort.
+
+#### Phase 20: Natural Language → SQL Queries ⏳ HIGH PRIORITY
+
+**Status:** PLANNED
+**Priority:** HIGH (demos well, expands user base)
+**Effort:** 2-3 days (20-25 hours)
+
+**Problem:** SQL is powerful but intimidating for non-engineers. Let users query streams in plain English.
+
+**Example:**
+```
+User: "Show me orders over $100 in the last hour by region"
+
+→ LLM generates:
+SELECT region, COUNT(*) as orders, SUM(amount) as total
+FROM orders
+WHERE amount > 100
+  AND event_time > NOW() - INTERVAL '1 hour'
+GROUP BY region
+```
+
+**Implementation:**
+```rust
+// New API endpoint
+POST /api/v1/query/ask
+{
+  "question": "What were the top 5 products by revenue today?",
+  "topics": ["orders"]
+}
+```
+
+**Features:**
+- [ ] Natural language query endpoint (`/api/v1/query/ask`)
+- [ ] Schema-aware prompt generation (fetch topic schemas)
+- [ ] SQL validation before execution
+- [ ] Query explanation (show generated SQL to user)
+- [ ] Query history and refinement
+- [ ] Cost estimation before execution
+
+**Why it matters:** "Query your streams in plain English" is a compelling headline. Expands market beyond engineers.
+
+#### Phase 20.1: Schema Inference & Documentation ⏳ HIGH PRIORITY
+
+**Status:** PLANNED
+**Priority:** HIGH (improves onboarding)
+**Effort:** 1-2 days (10-15 hours)
+
+**Problem:** Users struggle to define schemas correctly. Auto-generate from sample data.
+
+**Example:**
+```
+User uploads sample JSON →
+
+AI infers:
+- Field types (string, int, timestamp, etc.)
+- Nullable fields
+- Suggested indexes
+- Human-readable documentation
+- Compatibility recommendations
+```
+
+**Features:**
+- [ ] Sample data → Avro/JSON schema inference
+- [ ] Nullable field detection
+- [ ] Type coercion suggestions
+- [ ] Auto-generated field descriptions
+- [ ] Index recommendations based on query patterns
+- [ ] Schema evolution suggestions
+
+**Effort:** 10-15 hours
+
+#### Phase 21: ML Feature Pipelines ⏳ STRATEGIC
+
+**Status:** PLANNED (positioning first)
+**Priority:** HIGH (marketing differentiation)
+**Effort:** Documentation + 40 hours (features)
+
+**Problem:** Every ML team needs real-time features. Flink is painful. SQL is easier.
+
+**Architecture:**
+```
+Raw Events → StreamHouse SQL → Feature Store → Model Serving
+                   ↓
+         "user_purchase_count_7d"
+         "avg_session_duration_24h"
+         "items_in_cart_now"
+```
+
+**Features:**
+- [ ] Window aggregation functions (tumbling, sliding, session)
+- [ ] Point-in-time correct joins
+- [ ] Feature materialization to external stores
+- [ ] Feature versioning and lineage
+- [ ] Integration with Feast/Tecton/Hopsworks
+- [ ] Pre-built feature templates
+
+**Marketing Angle:** "Real-time ML features in SQL, not Java"
+
+**Phase 21.1: Documentation & Positioning**
+- [ ] Blog post: "Real-time features without Flink"
+- [ ] Tutorial: Building a recommendation engine
+- [ ] Comparison: StreamHouse SQL vs Flink Java
+- [ ] Landing page for ML use case
+
+**Phase 21.2: Implementation**
+- [ ] TUMBLE/HOP/SESSION window functions
+- [ ] OVER() window aggregations
+- [ ] Feature store connectors (S3 Parquet, Feast)
+- [ ] Backfill support for historical features
+
+**Effort:** Docs (15h) + Implementation (40h)
+
+#### Phase 22: Built-in Anomaly Detection ⏳ MEDIUM PRIORITY
+
+**Status:** PLANNED
+**Priority:** MEDIUM (built-in differentiation)
+**Effort:** 1 week (40 hours)
+
+**Problem:** Every observability use case needs anomaly detection. Built-in = differentiation.
+
+**SQL Interface:**
+```sql
+-- Simple threshold anomaly
+SELECT * FROM orders
+WHERE amount > ANOMALY_THRESHOLD(amount, '1 hour')
+
+-- Statistical anomaly (z-score)
+SELECT * FROM metrics
+WHERE cpu_usage > ZSCORE(cpu_usage, 3, '1 hour')  -- 3 standard deviations
+
+-- Seasonal anomaly
+SELECT * FROM traffic
+WHERE requests > SEASONAL_BASELINE(requests, '1 day', '1 week')
+```
+
+**Features:**
+- [ ] `ANOMALY_THRESHOLD(column, window)` - rolling percentile-based
+- [ ] `ZSCORE(column, threshold, window)` - standard deviation based
+- [ ] `SEASONAL_BASELINE(column, period, history)` - seasonal patterns
+- [ ] `FORECAST(column, horizon)` - simple time series prediction
+- [ ] Anomaly alerting integration
+- [ ] Anomaly dashboard in UI
+
+**Algorithms (start simple):**
+- Rolling statistics (mean, stddev, percentiles)
+- Z-score thresholds
+- Exponential smoothing
+- Optional: Prophet integration for seasonal
+
+**Effort:** 40 hours
+
+#### Phase 23: Vector/Embedding Streaming (RAG Pipelines) ⏳ STRATEGIC
+
+**Status:** PLANNED
+**Priority:** MEDIUM (AI-native positioning)
+**Effort:** 2-3 weeks (80-120 hours)
+
+**Problem:** RAG pipelines need real-time document ingestion. Position for AI-native companies.
+
+**Schema Example:**
+```sql
+CREATE TOPIC documents (
+  id STRING,
+  content STRING,
+  embedding VECTOR(1536)  -- OpenAI embedding dimension
+);
+
+-- Semantic search on streaming data
+SELECT * FROM documents
+WHERE cosine_similarity(embedding, ?) > 0.8
+ORDER BY cosine_similarity(embedding, ?) DESC
+LIMIT 10;
+```
+
+**Features:**
+- [ ] VECTOR(N) data type in schema registry
+- [ ] Vector serialization (binary, protobuf)
+- [ ] `cosine_similarity(v1, v2)` SQL function
+- [ ] `euclidean_distance(v1, v2)` SQL function
+- [ ] `dot_product(v1, v2)` SQL function
+- [ ] Approximate nearest neighbor (ANN) index
+- [ ] Integration with embedding APIs (OpenAI, Cohere, etc.)
+- [ ] Real-time RAG pipeline example
+
+**Why it matters:** Every AI application needs document ingestion. Real-time vector streaming is underserved.
+
+**Effort:** 80-120 hours
+
+#### Phase 24: Intelligent Alerting ⏳ LOWER PRIORITY
+
+**Status:** PLANNED
+**Priority:** LOWER (nice-to-have)
+**Effort:** 40-60 hours
+
+**Problem:** Alert fatigue from duplicate/correlated alerts.
+
+**Features:**
+```
+100 alerts fire → AI groups into 3 incidents
+                → Suggests root cause
+                → Auto-resolves duplicates
+                → Ranks by severity
+```
+
+**Implementation:**
+- [ ] Alert deduplication (fingerprinting)
+- [ ] Alert correlation (time, labels, topology)
+- [ ] AI-powered grouping (LLM clustering)
+- [ ] Root cause suggestion
+- [ ] Auto-silence for known patterns
+- [ ] Incident timeline reconstruction
+
+**Effort:** 40-60 hours
+
+---
+
+### AI Capabilities Summary
+
+| Priority | Feature | Effort | Impact | Status |
+|----------|---------|--------|--------|--------|
+| 1 | Natural Language → SQL | 2-3 days | HIGH - demos well | PLANNED |
+| 2 | Schema Inference | 1-2 days | MEDIUM - onboarding | PLANNED |
+| 3 | ML Feature Pipelines | Docs + 1 week | HIGH - positioning | PLANNED |
+| 4 | Anomaly Detection | 1 week | MEDIUM - built-in value | PLANNED |
+| 5 | Vector/Embedding Support | 2-3 weeks | STRATEGIC - AI-native | PLANNED |
+| 6 | Intelligent Alerting | 1-2 weeks | LOWER - nice-to-have | PLANNED |
+
+**Total AI Effort:** ~200-250 hours (~5-6 weeks)
+
+### What NOT to Build (AI Anti-Patterns)
+
+| Avoid | Why |
+|-------|-----|
+| "AI-powered auto-scaling" | Kubernetes already does this well |
+| "AI query optimization" | Premature - need users first |
+| "AI-generated dashboards" | Not core value prop |
+| "Chatbot for docs" | Low value, everyone has this |
+| "AI infrastructure management" | Commoditized, not differentiating |
+
+### Quick Win: Add This Week
+
+**Recommended first AI feature:**
+
+```bash
+curl -X POST http://localhost:8080/api/v1/query/ask \
+  -H "Content-Type: application/json" \
+  -d '{
+    "question": "What were the top 5 products by revenue today?",
+    "topics": ["orders"]
+  }'
+```
+
+**Implementation steps:**
+1. Fetch topic schemas from Schema Registry
+2. Send to Claude: "Generate SQL for this question given these schemas"
+3. Validate generated SQL
+4. Execute SQL via existing query engine
+5. Return results + show generated SQL
+
+**Demo value is huge.** "Query your streams in plain English" headlines well.
+
+---
+
 ## Decision Gates & Milestones
 
 ### Week 2 Decision Gate: Customer Discovery
@@ -739,7 +1005,18 @@ Partner 3: ___________________
 | Phase 11: Distributed Architecture | 160h | LOW |
 | **Total** | **720h** | **~18 weeks** |
 
-**Grand Total (to Production-Ready Full Platform):** ~1,270 hours (~32 weeks full-time)
+### AI Capabilities (Strategic)
+| Phase | Effort | Priority |
+|-------|--------|----------|
+| Phase 20: Natural Language → SQL | 25h | HIGH |
+| Phase 20.1: Schema Inference | 15h | HIGH |
+| Phase 21: ML Feature Pipelines | 55h | HIGH |
+| Phase 22: Anomaly Detection | 40h | MEDIUM |
+| Phase 23: Vector/Embedding Streaming | 100h | STRATEGIC |
+| Phase 24: Intelligent Alerting | 50h | LOWER |
+| **Total** | **285h** | **~7 weeks** |
+
+**Grand Total (to Production-Ready Full Platform + AI):** ~1,555 hours (~39 weeks full-time)
 
 ---
 
