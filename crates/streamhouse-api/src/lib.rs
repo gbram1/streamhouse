@@ -129,6 +129,16 @@ pub fn create_router(state: AppState) -> Router {
         )
         // AI-powered queries
         .route("/query/ask", post(handlers::ai::ask_query))
+        .route("/query/estimate", post(handlers::ai::estimate_cost))
+        .route(
+            "/query/history",
+            get(handlers::ai::get_query_history).delete(handlers::ai::clear_query_history),
+        )
+        .route(
+            "/query/history/:id",
+            get(handlers::ai::get_query_by_id).delete(handlers::ai::delete_query),
+        )
+        .route("/query/history/:id/refine", post(handlers::ai::refine_query))
         .route("/ai/health", get(handlers::ai::ai_health))
         .with_state(state.clone());
 
@@ -211,6 +221,12 @@ pub async fn serve(router: Router, port: u16) -> Result<(), Box<dyn std::error::
         handlers::api_keys::revoke_api_key,
         handlers::ai::ask_query,
         handlers::ai::ai_health,
+        handlers::ai::get_query_history,
+        handlers::ai::get_query_by_id,
+        handlers::ai::refine_query,
+        handlers::ai::estimate_cost,
+        handlers::ai::delete_query,
+        handlers::ai::clear_query_history,
     ),
     components(schemas(
         models::Topic,
@@ -264,6 +280,11 @@ pub async fn serve(router: Router, port: u16) -> Result<(), Box<dyn std::error::
         handlers::ai::AskQueryResponse,
         handlers::ai::QueryResults,
         handlers::ai::AskQueryError,
+        handlers::ai::RefineQueryRequest,
+        handlers::ai::EstimateCostRequest,
+        handlers::ai::CostEstimate,
+        handlers::ai::QueryHistoryEntry,
+        handlers::ai::QueryHistoryResponse,
     )),
     tags(
         (name = "topics", description = "Topic management"),

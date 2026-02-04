@@ -648,8 +648,8 @@ POST /api/v1/query/ask
 - [x] Schema-aware prompt generation (fetch topic schemas)
 - [x] SQL validation before execution
 - [x] Query explanation (show generated SQL to user)
-- [ ] Query history and refinement
-- [ ] Cost estimation before execution
+- [x] Query history and refinement (`/api/v1/query/history`, `/refine`)
+- [x] Cost estimation before execution (`/api/v1/query/estimate`)
 
 **Why it matters:** "Query your streams in plain English" is a compelling headline. Expands market beyond engineers.
 
