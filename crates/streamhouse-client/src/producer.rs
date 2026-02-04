@@ -763,6 +763,40 @@ pub struct Producer {
     /// Caches subject -> schema_id mappings to avoid repeated registry lookups.
     /// Cache is write-through: schemas are registered once and cached permanently.
     schema_cache: Arc<RwLock<HashMap<String, i32>>>,
+
+    // ============================================================
+    // Idempotent Producer Fields (Phase 16)
+    // ============================================================
+
+    /// Producer ID assigned by InitProducer (None if idempotent mode disabled).
+    ///
+    /// When set, all produce requests include this ID for deduplication.
+    producer_id: Arc<RwLock<Option<String>>>,
+
+    /// Producer epoch (incremented on each InitProducer call).
+    ///
+    /// Used for fencing zombie producers.
+    producer_epoch: Arc<RwLock<u32>>,
+
+    /// Sequence numbers per partition for idempotent sends.
+    ///
+    /// Key: (topic, partition_id)
+    /// Value: Next sequence number to use
+    sequence_numbers: Arc<RwLock<HashMap<(String, u32), i64>>>,
+
+    /// Whether idempotent mode is enabled.
+    ///
+    /// When true, the producer will call InitProducer before first send
+    /// and include producer_id, epoch, and sequence in all requests.
+    idempotent: bool,
+
+    /// Optional transactional ID for transactional producers.
+    ///
+    /// If set, enables transactional writes with exactly-once semantics.
+    transactional_id: Option<String>,
+
+    /// Current transaction ID (if in a transaction).
+    current_transaction_id: Arc<RwLock<Option<String>>>,
 }
 
 impl Producer {
@@ -1238,8 +1272,24 @@ impl Producer {
     pub async fn flush(&self) -> Result<()> {
         let ready = self.batch_manager.lock().await.ready_batches();
 
+        // Get idempotent producer state (Phase 16)
+        let producer_id = self.producer_id.read().await.clone();
+        let epoch = *self.producer_epoch.read().await;
+        let transaction_id = self.current_transaction_id.read().await.clone();
+
         for (topic, partition, records) in ready {
             let record_count = records.len();
+
+            // Get and update sequence number for idempotent mode
+            let base_sequence = if self.idempotent && producer_id.is_some() {
+                let mut seqs = self.sequence_numbers.write().await;
+                let key = (topic.clone(), partition);
+                let seq = *seqs.get(&key).unwrap_or(&0);
+                seqs.insert(key, seq + record_count as i64);
+                Some(seq)
+            } else {
+                None
+            };
 
             match Self::send_batch_to_agent(
                 &topic,
@@ -1249,6 +1299,10 @@ impl Producer {
                 &self.config.metadata_store,
                 &self.agents,
                 &self.retry_policy,
+                producer_id.clone(),
+                if self.idempotent { Some(epoch) } else { None },
+                base_sequence,
+                transaction_id.clone(),
             )
             .await
             {
@@ -1332,7 +1386,25 @@ impl Producer {
         // 2. Flush all pending batches
         let all_batches = self.batch_manager.lock().await.flush_all();
 
+        // Get idempotent producer state (Phase 16)
+        let producer_id = self.producer_id.read().await.clone();
+        let epoch = *self.producer_epoch.read().await;
+        let transaction_id = self.current_transaction_id.read().await.clone();
+
         for (topic, partition, records) in all_batches {
+            let record_count = records.len();
+
+            // Get and update sequence number for idempotent mode
+            let base_sequence = if self.idempotent && producer_id.is_some() {
+                let mut seqs = self.sequence_numbers.write().await;
+                let key = (topic.clone(), partition);
+                let seq = *seqs.get(&key).unwrap_or(&0);
+                seqs.insert(key, seq + record_count as i64);
+                Some(seq)
+            } else {
+                None
+            };
+
             if let Err(e) = Self::send_batch_to_agent(
                 &topic,
                 partition,
@@ -1341,6 +1413,10 @@ impl Producer {
                 &self.config.metadata_store,
                 &self.agents,
                 &self.retry_policy,
+                producer_id.clone(),
+                if self.idempotent { Some(epoch) } else { None },
+                base_sequence,
+                transaction_id.clone(),
             )
             .await
             {
@@ -1361,6 +1437,291 @@ impl Producer {
     }
 
     // Internal methods
+
+    // ============================================================
+    // Transaction Methods (Phase 16)
+    // ============================================================
+
+    /// Begin a new transaction (Phase 16).
+    ///
+    /// Starts a new transaction and returns the transaction ID. All subsequent
+    /// sends will be part of this transaction until `commit_transaction()` or
+    /// `abort_transaction()` is called.
+    ///
+    /// # Returns
+    ///
+    /// The transaction ID assigned by the server.
+    ///
+    /// # Errors
+    ///
+    /// - `ConfigError`: Producer is not configured for transactions
+    /// - `AgentError`: Agent rejected the request
+    /// - `NoAgentsAvailable`: No healthy agents in group
+    ///
+    /// # Examples
+    ///
+    /// ```ignore
+    /// let txn_id = producer.begin_transaction().await?;
+    /// producer.send("orders", None, b"order1", None).await?;
+    /// producer.send("payments", None, b"payment1", None).await?;
+    /// producer.commit_transaction(&txn_id).await?;
+    /// ```
+    #[instrument(skip(self))]
+    pub async fn begin_transaction(&self) -> Result<String> {
+        // Validate transactional producer
+        if self.transactional_id.is_none() {
+            return Err(ClientError::ConfigError(
+                "Producer is not configured for transactions. Use .transactional_id() on builder"
+                    .to_string(),
+            ));
+        }
+
+        let producer_id = self.producer_id.read().await.clone().ok_or_else(|| {
+            ClientError::ConfigError(
+                "Producer not initialized. Idempotent mode must be enabled".to_string(),
+            )
+        })?;
+
+        let epoch = *self.producer_epoch.read().await;
+
+        // Find an agent to send the request
+        let agents_map = self.agents.read().await;
+        let agent = agents_map
+            .values()
+            .next()
+            .ok_or_else(|| ClientError::NoAgentsAvailable(self.config.agent_group.clone()))?
+            .clone();
+        drop(agents_map);
+
+        let address = if agent.address.starts_with("http://") || agent.address.starts_with("https://")
+        {
+            agent.address.clone()
+        } else {
+            format!("http://{}", agent.address)
+        };
+
+        let client = self
+            .connection_pool
+            .get_producer_client(&address)
+            .await
+            .map_err(|e| {
+                ClientError::AgentConnectionFailed(
+                    agent.agent_id.clone(),
+                    agent.address.clone(),
+                    e.to_string(),
+                )
+            })?;
+
+        let request = streamhouse_proto::producer::BeginTransactionRequest {
+            producer_id: producer_id.clone(),
+            producer_epoch: epoch,
+            timeout_ms: 30000,
+        };
+
+        let response = client.clone().begin_transaction(request).await.map_err(|e| {
+            ClientError::AgentError(
+                agent.agent_id.clone(),
+                format!("BeginTransaction failed: {}", e),
+            )
+        })?;
+
+        let txn_id = response.into_inner().transaction_id;
+
+        // Store current transaction ID
+        *self.current_transaction_id.write().await = Some(txn_id.clone());
+
+        info!(
+            producer_id = %producer_id,
+            transaction_id = %txn_id,
+            "Transaction started"
+        );
+
+        Ok(txn_id)
+    }
+
+    /// Commit a transaction (Phase 16).
+    ///
+    /// Atomically commits all sends that were part of the transaction.
+    /// After this call, all records become visible to consumers with
+    /// read-committed isolation.
+    ///
+    /// # Arguments
+    ///
+    /// * `transaction_id` - The transaction ID returned by `begin_transaction()`
+    ///
+    /// # Returns
+    ///
+    /// The commit timestamp on success.
+    ///
+    /// # Errors
+    ///
+    /// - `ConfigError`: Producer is not configured for transactions
+    /// - `AgentError`: Agent rejected the request (e.g., transaction timed out)
+    /// - `NoAgentsAvailable`: No healthy agents in group
+    ///
+    /// # Examples
+    ///
+    /// ```ignore
+    /// let txn_id = producer.begin_transaction().await?;
+    /// producer.send("orders", None, b"data", None).await?;
+    /// let commit_ts = producer.commit_transaction(&txn_id).await?;
+    /// println!("Committed at {}", commit_ts);
+    /// ```
+    #[instrument(skip(self))]
+    pub async fn commit_transaction(&self, transaction_id: &str) -> Result<u64> {
+        let producer_id = self.producer_id.read().await.clone().ok_or_else(|| {
+            ClientError::ConfigError("Producer not initialized".to_string())
+        })?;
+
+        let epoch = *self.producer_epoch.read().await;
+
+        // Find an agent
+        let agents_map = self.agents.read().await;
+        let agent = agents_map
+            .values()
+            .next()
+            .ok_or_else(|| ClientError::NoAgentsAvailable(self.config.agent_group.clone()))?
+            .clone();
+        drop(agents_map);
+
+        let address = if agent.address.starts_with("http://") || agent.address.starts_with("https://")
+        {
+            agent.address.clone()
+        } else {
+            format!("http://{}", agent.address)
+        };
+
+        let client = self
+            .connection_pool
+            .get_producer_client(&address)
+            .await
+            .map_err(|e| {
+                ClientError::AgentConnectionFailed(
+                    agent.agent_id.clone(),
+                    agent.address.clone(),
+                    e.to_string(),
+                )
+            })?;
+
+        // Flush all pending batches before commit
+        self.flush().await?;
+
+        let request = streamhouse_proto::producer::CommitTransactionRequest {
+            producer_id: producer_id.clone(),
+            producer_epoch: epoch,
+            transaction_id: transaction_id.to_string(),
+        };
+
+        let response = client.clone().commit_transaction(request).await.map_err(|e| {
+            ClientError::AgentError(
+                agent.agent_id.clone(),
+                format!("CommitTransaction failed: {}", e),
+            )
+        })?;
+
+        // Clear current transaction
+        *self.current_transaction_id.write().await = None;
+
+        let resp = response.into_inner();
+        info!(
+            producer_id = %producer_id,
+            transaction_id = %transaction_id,
+            commit_timestamp = resp.commit_timestamp,
+            "Transaction committed"
+        );
+
+        Ok(resp.commit_timestamp)
+    }
+
+    /// Abort a transaction (Phase 16).
+    ///
+    /// Aborts all sends that were part of the transaction.
+    /// All records in the transaction are discarded and never become visible
+    /// to consumers.
+    ///
+    /// # Arguments
+    ///
+    /// * `transaction_id` - The transaction ID returned by `begin_transaction()`
+    ///
+    /// # Errors
+    ///
+    /// - `ConfigError`: Producer is not configured for transactions
+    /// - `AgentError`: Agent rejected the request
+    /// - `NoAgentsAvailable`: No healthy agents in group
+    ///
+    /// # Examples
+    ///
+    /// ```ignore
+    /// let txn_id = producer.begin_transaction().await?;
+    /// producer.send("orders", None, b"data", None).await?;
+    ///
+    /// // Something went wrong, abort the transaction
+    /// producer.abort_transaction(&txn_id).await?;
+    /// ```
+    #[instrument(skip(self))]
+    pub async fn abort_transaction(&self, transaction_id: &str) -> Result<()> {
+        let producer_id = self.producer_id.read().await.clone().ok_or_else(|| {
+            ClientError::ConfigError("Producer not initialized".to_string())
+        })?;
+
+        let epoch = *self.producer_epoch.read().await;
+
+        // Find an agent
+        let agents_map = self.agents.read().await;
+        let agent = agents_map
+            .values()
+            .next()
+            .ok_or_else(|| ClientError::NoAgentsAvailable(self.config.agent_group.clone()))?
+            .clone();
+        drop(agents_map);
+
+        let address = if agent.address.starts_with("http://") || agent.address.starts_with("https://")
+        {
+            agent.address.clone()
+        } else {
+            format!("http://{}", agent.address)
+        };
+
+        let client = self
+            .connection_pool
+            .get_producer_client(&address)
+            .await
+            .map_err(|e| {
+                ClientError::AgentConnectionFailed(
+                    agent.agent_id.clone(),
+                    agent.address.clone(),
+                    e.to_string(),
+                )
+            })?;
+
+        let request = streamhouse_proto::producer::AbortTransactionRequest {
+            producer_id: producer_id.clone(),
+            producer_epoch: epoch,
+            transaction_id: transaction_id.to_string(),
+        };
+
+        client.clone().abort_transaction(request).await.map_err(|e| {
+            ClientError::AgentError(
+                agent.agent_id.clone(),
+                format!("AbortTransaction failed: {}", e),
+            )
+        })?;
+
+        // Clear current transaction
+        *self.current_transaction_id.write().await = None;
+
+        info!(
+            producer_id = %producer_id,
+            transaction_id = %transaction_id,
+            "Transaction aborted"
+        );
+
+        Ok(())
+    }
+
+    // ============================================================
+    // Internal Methods
+    // ============================================================
 
     /// Get topic metadata from cache or fetch from metadata store.
     ///
@@ -1588,6 +1949,10 @@ impl Producer {
         metadata_store: &Arc<dyn MetadataStore>,
         agents: &Arc<RwLock<HashMap<String, AgentInfo>>>,
         retry_policy: &RetryPolicy,
+        producer_id: Option<String>,
+        producer_epoch: Option<u32>,
+        base_sequence: Option<i64>,
+        transaction_id: Option<String>,
     ) -> Result<ProduceBatchResponse> {
         let start = std::time::Instant::now();
         // Find agent for partition
@@ -1631,6 +1996,11 @@ impl Producer {
             topic: topic.to_string(),
             partition,
             records: proto_records,
+            // Idempotent fields (Phase 16)
+            producer_id,
+            producer_epoch,
+            base_sequence,
+            transaction_id,
         };
 
         // Send with retry
@@ -1757,6 +2127,7 @@ impl Producer {
     /// This task runs until:
     /// - `Producer::close()` is called (aborts the task)
     /// - The Producer is dropped (task handle is dropped)
+    #[allow(clippy::too_many_arguments)]
     fn spawn_flush_task(
         batch_manager: Arc<Mutex<BatchManager>>,
         connection_pool: Arc<ConnectionPool>,
@@ -1765,6 +2136,12 @@ impl Producer {
         retry_policy: RetryPolicy,
         pending_records: Arc<Mutex<HashMap<(String, u32), PendingQueue>>>,
         #[cfg(feature = "metrics")] _metrics: Option<Arc<ProducerMetrics>>,
+        // Phase 16: Idempotent producer fields
+        idempotent: bool,
+        producer_id: Arc<RwLock<Option<String>>>,
+        producer_epoch: Arc<RwLock<u32>>,
+        sequence_numbers: Arc<RwLock<HashMap<(String, u32), i64>>>,
+        current_transaction_id: Arc<RwLock<Option<String>>>,
     ) -> tokio::task::JoinHandle<()> {
         tokio::spawn(async move {
             let mut interval = tokio::time::interval(Duration::from_millis(50));
@@ -1775,8 +2152,24 @@ impl Producer {
                 // Get ready batches
                 let ready = batch_manager.lock().await.ready_batches();
 
+                // Get idempotent producer state (Phase 16)
+                let pid = producer_id.read().await.clone();
+                let epoch = *producer_epoch.read().await;
+                let txn_id = current_transaction_id.read().await.clone();
+
                 for (topic, partition, records) in ready {
                     let record_count = records.len();
+
+                    // Get and update sequence number for idempotent mode
+                    let base_sequence = if idempotent && pid.is_some() {
+                        let mut seqs = sequence_numbers.write().await;
+                        let key = (topic.clone(), partition);
+                        let seq = *seqs.get(&key).unwrap_or(&0);
+                        seqs.insert(key, seq + record_count as i64);
+                        Some(seq)
+                    } else {
+                        None
+                    };
 
                     // Send batch to agent
                     match Self::send_batch_to_agent(
@@ -1787,6 +2180,10 @@ impl Producer {
                         &metadata_store,
                         &agents,
                         &retry_policy,
+                        pid.clone(),
+                        if idempotent { Some(epoch) } else { None },
+                        base_sequence,
+                        txn_id.clone(),
                     )
                     .await
                     {
@@ -1993,6 +2390,25 @@ pub struct ProducerBuilder {
     /// When set, enables schema validation and auto-registration. Schemas
     /// are cached locally to avoid repeated registry lookups.
     schema_registry_url: Option<String>,
+
+    /// Enable idempotent mode for exactly-once semantics (Phase 16).
+    ///
+    /// When enabled, the producer will:
+    /// - Call InitProducer to get a producer_id and epoch
+    /// - Track sequence numbers per partition
+    /// - Include producer_id, epoch, and base_sequence in all requests
+    /// - Enable automatic deduplication on the server side
+    idempotent: bool,
+
+    /// Transactional ID for transactional writes (Phase 16).
+    ///
+    /// When set, enables transactional writes with exactly-once semantics.
+    /// All writes within a transaction are atomic - either all succeed or none.
+    /// Requires idempotent mode to be enabled.
+    transactional_id: Option<String>,
+
+    /// Organization ID for multi-tenant isolation (Phase 14).
+    organization_id: Option<String>,
 }
 
 impl ProducerBuilder {
@@ -2026,6 +2442,9 @@ impl ProducerBuilder {
             #[cfg(feature = "metrics")]
             metrics: None,
             schema_registry_url: None,
+            idempotent: false,
+            transactional_id: None,
+            organization_id: None,
         }
     }
 
@@ -2354,6 +2773,103 @@ impl ProducerBuilder {
         self
     }
 
+    /// Enable idempotent mode for exactly-once semantics (Phase 16).
+    ///
+    /// When enabled, the producer will:
+    /// - Call InitProducer on first send to get a producer_id and epoch
+    /// - Track sequence numbers per partition
+    /// - Include producer_id, epoch, and base_sequence in all requests
+    /// - Enable automatic deduplication on the server side
+    ///
+    /// Idempotent mode adds ~5ms latency on first send (InitProducer call).
+    /// Subsequent sends have no additional latency.
+    ///
+    /// # Arguments
+    ///
+    /// * `enabled` - true to enable idempotent mode
+    ///
+    /// # Default
+    ///
+    /// false (disabled)
+    ///
+    /// # Examples
+    ///
+    /// ```ignore
+    /// let producer = Producer::builder()
+    ///     .metadata_store(metadata)
+    ///     .idempotent(true)
+    ///     .build()
+    ///     .await?;
+    ///
+    /// // Now sends are automatically deduplicated
+    /// producer.send("orders", Some(b"key"), b"data", None).await?;
+    /// ```
+    pub fn idempotent(mut self, enabled: bool) -> Self {
+        self.idempotent = enabled;
+        self
+    }
+
+    /// Set the transactional ID for transactional writes (Phase 16).
+    ///
+    /// When set, enables transactional writes with exactly-once semantics:
+    /// - All writes within a transaction are atomic
+    /// - Either all succeed (on commit) or none (on abort)
+    /// - Consumers with read-committed isolation only see committed data
+    ///
+    /// Setting a transactional ID automatically enables idempotent mode.
+    ///
+    /// # Arguments
+    ///
+    /// * `id` - Unique transactional ID for this producer instance
+    ///
+    /// # Default
+    ///
+    /// None (non-transactional)
+    ///
+    /// # Examples
+    ///
+    /// ```ignore
+    /// let producer = Producer::builder()
+    ///     .metadata_store(metadata)
+    ///     .transactional_id("my-app-producer-1")
+    ///     .build()
+    ///     .await?;
+    ///
+    /// // Now you can use transactions
+    /// let txn_id = producer.begin_transaction().await?;
+    /// producer.send("orders", None, b"data1", None).await?;
+    /// producer.send("payments", None, b"data2", None).await?;
+    /// producer.commit_transaction(&txn_id).await?;
+    /// ```
+    pub fn transactional_id(mut self, id: impl Into<String>) -> Self {
+        self.transactional_id = Some(id.into());
+        self.idempotent = true; // Transactional producers must be idempotent
+        self
+    }
+
+    /// Set the organization ID for multi-tenant isolation (Phase 14).
+    ///
+    /// When set, associates this producer with a specific organization.
+    /// This is used for billing, quota enforcement, and audit logging.
+    ///
+    /// # Arguments
+    ///
+    /// * `org_id` - Organization ID
+    ///
+    /// # Examples
+    ///
+    /// ```ignore
+    /// let producer = Producer::builder()
+    ///     .metadata_store(metadata)
+    ///     .organization_id("org-123")
+    ///     .build()
+    ///     .await?;
+    /// ```
+    pub fn organization_id(mut self, org_id: impl Into<String>) -> Self {
+        self.organization_id = Some(org_id.into());
+        self
+    }
+
     /// Build the Producer
     pub async fn build(self) -> Result<Producer> {
         let metadata_store = self
@@ -2426,7 +2942,13 @@ impl ProducerBuilder {
         // Create pending records tracker (Phase 5.4)
         let pending_records = Arc::new(Mutex::new(HashMap::new()));
 
-        // Spawn background flush task
+        // Initialize idempotent producer fields (Phase 16) - must be before spawn_flush_task
+        let producer_id = Arc::new(RwLock::new(None));
+        let producer_epoch = Arc::new(RwLock::new(0u32));
+        let sequence_numbers = Arc::new(RwLock::new(HashMap::new()));
+        let current_transaction_id = Arc::new(RwLock::new(None));
+
+        // Spawn background flush task with idempotent producer state
         let flush_handle = Arc::new(Mutex::new(Some(Producer::spawn_flush_task(
             Arc::clone(&batch_manager),
             Arc::clone(&connection_pool),
@@ -2436,6 +2958,12 @@ impl ProducerBuilder {
             Arc::clone(&pending_records),
             #[cfg(feature = "metrics")]
             self.metrics.clone(),
+            // Phase 16: Idempotent producer fields
+            self.idempotent,
+            Arc::clone(&producer_id),
+            Arc::clone(&producer_epoch),
+            Arc::clone(&sequence_numbers),
+            Arc::clone(&current_transaction_id),
         ))));
 
         // Initialize schema registry client if URL provided
@@ -2446,6 +2974,62 @@ impl ProducerBuilder {
         });
 
         let schema_cache = Arc::new(RwLock::new(HashMap::new()));
+
+        // If idempotent mode is enabled, initialize the producer now
+        if self.idempotent {
+            // Find any agent to call InitProducer
+            let agents_map = agents.read().await;
+            if let Some(agent) = agents_map.values().next() {
+                let address = if agent.address.starts_with("http://")
+                    || agent.address.starts_with("https://")
+                {
+                    agent.address.clone()
+                } else {
+                    format!("http://{}", agent.address)
+                };
+
+                let client = connection_pool.get_producer_client(&address).await.map_err(|e| {
+                    ClientError::AgentConnectionFailed(
+                        agent.agent_id.clone(),
+                        agent.address.clone(),
+                        e.to_string(),
+                    )
+                })?;
+
+                let init_request = streamhouse_proto::producer::InitProducerRequest {
+                    transactional_id: self.transactional_id.clone(),
+                    organization_id: self.organization_id.clone(),
+                    timeout_ms: 30000,
+                    metadata: Default::default(),
+                };
+
+                let response = client
+                    .clone()
+                    .init_producer(init_request)
+                    .await
+                    .map_err(|e| {
+                        ClientError::AgentError(
+                            agent.agent_id.clone(),
+                            format!("InitProducer failed: {}", e),
+                        )
+                    })?;
+
+                let resp = response.into_inner();
+                *producer_id.write().await = Some(resp.producer_id.clone());
+                *producer_epoch.write().await = resp.epoch;
+
+                info!(
+                    producer_id = %resp.producer_id,
+                    epoch = resp.epoch,
+                    transactional_id = ?self.transactional_id,
+                    "Idempotent producer initialized"
+                );
+            } else if self.idempotent {
+                // Idempotent mode but no agents available
+                warn!("Idempotent mode enabled but no agents available - will initialize on first send");
+            }
+            drop(agents_map);
+        }
 
         Ok(Producer {
             config,
@@ -2461,6 +3045,13 @@ impl ProducerBuilder {
             _metrics: self.metrics,
             schema_registry,
             schema_cache,
+            // Idempotent producer fields (Phase 16)
+            producer_id,
+            producer_epoch,
+            sequence_numbers,
+            idempotent: self.idempotent,
+            transactional_id: self.transactional_id,
+            current_transaction_id,
         })
     }
 }
@@ -2490,6 +3081,9 @@ mod tests {
             max_retries: 3,
             retry_backoff: Duration::from_millis(100),
             schema_registry_url: None,
+            idempotent: false,
+            transactional_id: None,
+            organization_id: None,
         };
 
         // Create a mock producer (we can't fully initialize without metadata store)

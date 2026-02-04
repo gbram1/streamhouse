@@ -84,6 +84,15 @@ pub enum MetadataError {
 
     #[error("Quota exceeded: {0}")]
     QuotaExceeded(String),
+
+    #[error("Sequence error: {0}")]
+    SequenceError(String),
+
+    #[error("Transaction error: {0}")]
+    TransactionError(String),
+
+    #[error("Producer fenced: {0}")]
+    ProducerFenced(String),
 }
 
 impl From<sqlx::migrate::MigrateError> for MetadataError {

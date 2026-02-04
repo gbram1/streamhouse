@@ -794,3 +794,343 @@ pub struct OrganizationUsage {
 /// This is used for existing data that doesn't have an organization_id,
 /// and for single-tenant deployments.
 pub const DEFAULT_ORGANIZATION_ID: &str = "00000000-0000-0000-0000-000000000000";
+
+// ============================================================================
+// Exactly-Once Semantics Types
+// ============================================================================
+
+/// Producer state for idempotent and transactional producers.
+///
+/// Each producer is assigned a unique ID and epoch. The epoch is incremented
+/// on each InitProducer call, allowing detection of "zombie" producers.
+///
+/// # Idempotent Producers
+///
+/// When a producer sets `producer_id` and `base_sequence` in ProduceRequest,
+/// the agent tracks the last sequence seen and rejects duplicates.
+///
+/// # Transactional Producers
+///
+/// If `transactional_id` is set, the producer can use transactions for
+/// atomic multi-partition writes.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Producer {
+    /// Unique producer ID (UUID).
+    pub id: String,
+
+    /// Optional organization ID for multi-tenant isolation.
+    pub organization_id: Option<String>,
+
+    /// Optional transactional ID for transactional producers.
+    /// Must be unique per organization.
+    pub transactional_id: Option<String>,
+
+    /// Producer epoch (incremented on each InitProducer call).
+    /// Used for fencing zombie producers.
+    pub epoch: u32,
+
+    /// Producer state.
+    pub state: ProducerState,
+
+    /// Creation timestamp (milliseconds since Unix epoch).
+    pub created_at: i64,
+
+    /// Last heartbeat timestamp (milliseconds since Unix epoch).
+    pub last_heartbeat: i64,
+
+    /// Optional metadata (client info, etc.).
+    pub metadata: Option<HashMap<String, String>>,
+}
+
+/// Producer state.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ProducerState {
+    /// Producer is active and can send records.
+    Active,
+    /// Producer has been fenced by a newer instance.
+    Fenced,
+    /// Producer has expired due to timeout.
+    Expired,
+}
+
+impl Default for ProducerState {
+    fn default() -> Self {
+        Self::Active
+    }
+}
+
+impl std::fmt::Display for ProducerState {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ProducerState::Active => write!(f, "active"),
+            ProducerState::Fenced => write!(f, "fenced"),
+            ProducerState::Expired => write!(f, "expired"),
+        }
+    }
+}
+
+impl std::str::FromStr for ProducerState {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s.to_lowercase().as_str() {
+            "active" => Ok(ProducerState::Active),
+            "fenced" => Ok(ProducerState::Fenced),
+            "expired" => Ok(ProducerState::Expired),
+            _ => Err(format!("Unknown producer state: {}", s)),
+        }
+    }
+}
+
+/// Sequence tracking for idempotent producers.
+///
+/// Tracks the last sequence number seen for each producer/topic/partition combo.
+/// Used for deduplication - if a record's sequence <= last_sequence, it's a duplicate.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ProducerSequence {
+    /// Producer ID.
+    pub producer_id: String,
+
+    /// Topic name.
+    pub topic: String,
+
+    /// Partition ID.
+    pub partition_id: u32,
+
+    /// Last sequence number successfully processed.
+    /// -1 means no records have been processed yet.
+    pub last_sequence: i64,
+
+    /// Last update timestamp (milliseconds since Unix epoch).
+    pub updated_at: i64,
+}
+
+/// Configuration for creating/initializing a producer.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct InitProducerConfig {
+    /// Optional transactional ID.
+    pub transactional_id: Option<String>,
+
+    /// Optional organization ID.
+    pub organization_id: Option<String>,
+
+    /// Producer timeout in milliseconds.
+    pub timeout_ms: u32,
+
+    /// Optional metadata.
+    pub metadata: Option<HashMap<String, String>>,
+}
+
+/// Transaction state.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Transaction {
+    /// Unique transaction ID (UUID).
+    pub transaction_id: String,
+
+    /// Producer ID that owns this transaction.
+    pub producer_id: String,
+
+    /// Transaction state.
+    pub state: TransactionState,
+
+    /// Transaction timeout in milliseconds.
+    pub timeout_ms: u32,
+
+    /// Start timestamp (milliseconds since Unix epoch).
+    pub started_at: i64,
+
+    /// Last update timestamp (milliseconds since Unix epoch).
+    pub updated_at: i64,
+
+    /// Completion timestamp (milliseconds since Unix epoch).
+    /// None if transaction is still ongoing.
+    pub completed_at: Option<i64>,
+}
+
+/// Transaction state.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum TransactionState {
+    /// Transaction is ongoing, records being added.
+    Ongoing,
+    /// Transaction is preparing to commit (two-phase commit).
+    Preparing,
+    /// Transaction has been committed.
+    Committed,
+    /// Transaction has been aborted.
+    Aborted,
+}
+
+impl Default for TransactionState {
+    fn default() -> Self {
+        Self::Ongoing
+    }
+}
+
+impl std::fmt::Display for TransactionState {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            TransactionState::Ongoing => write!(f, "ongoing"),
+            TransactionState::Preparing => write!(f, "preparing"),
+            TransactionState::Committed => write!(f, "committed"),
+            TransactionState::Aborted => write!(f, "aborted"),
+        }
+    }
+}
+
+impl std::str::FromStr for TransactionState {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s.to_lowercase().as_str() {
+            "ongoing" => Ok(TransactionState::Ongoing),
+            "preparing" => Ok(TransactionState::Preparing),
+            "committed" => Ok(TransactionState::Committed),
+            "aborted" => Ok(TransactionState::Aborted),
+            _ => Err(format!("Unknown transaction state: {}", s)),
+        }
+    }
+}
+
+/// Partition participation in a transaction.
+///
+/// Tracks which partitions have records as part of a transaction.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TransactionPartition {
+    /// Transaction ID.
+    pub transaction_id: String,
+
+    /// Topic name.
+    pub topic: String,
+
+    /// Partition ID.
+    pub partition_id: u32,
+
+    /// First offset written in this transaction.
+    pub first_offset: u64,
+
+    /// Last offset written in this transaction (updated as records are added).
+    pub last_offset: u64,
+}
+
+/// Transaction marker written to indicate commit/abort boundaries.
+///
+/// These are control records written to the partition log to indicate
+/// transaction boundaries. Used by consumers in read-committed mode.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TransactionMarker {
+    /// Transaction ID this marker belongs to.
+    pub transaction_id: String,
+
+    /// Topic name.
+    pub topic: String,
+
+    /// Partition ID.
+    pub partition_id: u32,
+
+    /// Offset of the marker record.
+    pub offset: u64,
+
+    /// Marker type.
+    pub marker_type: TransactionMarkerType,
+
+    /// Creation timestamp (milliseconds since Unix epoch).
+    pub timestamp: i64,
+}
+
+/// Transaction marker type.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum TransactionMarkerType {
+    /// Transaction was committed.
+    Commit,
+    /// Transaction was aborted.
+    Abort,
+}
+
+/// Consumer isolation level for read-committed support.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum IsolationLevel {
+    /// Read all records, including uncommitted transaction records.
+    #[default]
+    ReadUncommitted,
+    /// Only read committed records (skip uncommitted transaction records).
+    ReadCommitted,
+}
+
+/// Consumer group configuration for exactly-once support.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ConsumerGroupConfig {
+    /// Consumer group ID.
+    pub group_id: String,
+
+    /// Isolation level for reads.
+    pub isolation_level: IsolationLevel,
+
+    /// Whether to enable auto-commit.
+    pub enable_auto_commit: bool,
+
+    /// Auto-commit interval in milliseconds.
+    pub auto_commit_interval_ms: u32,
+
+    /// Session timeout in milliseconds.
+    pub session_timeout_ms: u32,
+
+    /// Creation timestamp (milliseconds since Unix epoch).
+    pub created_at: i64,
+
+    /// Last update timestamp (milliseconds since Unix epoch).
+    pub updated_at: i64,
+}
+
+impl Default for ConsumerGroupConfig {
+    fn default() -> Self {
+        Self {
+            group_id: String::new(),
+            isolation_level: IsolationLevel::ReadUncommitted,
+            enable_auto_commit: true,
+            auto_commit_interval_ms: 5000,
+            session_timeout_ms: 30000,
+            created_at: 0,
+            updated_at: 0,
+        }
+    }
+}
+
+/// Last Stable Offset (LSO) for a partition.
+///
+/// The LSO is the highest offset where all transactions below are either
+/// committed or aborted. Consumers in read-committed mode only see records
+/// up to the LSO.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PartitionLSO {
+    /// Topic name.
+    pub topic: String,
+
+    /// Partition ID.
+    pub partition_id: u32,
+
+    /// Last stable offset.
+    pub last_stable_offset: u64,
+
+    /// Last update timestamp (milliseconds since Unix epoch).
+    pub updated_at: i64,
+}
+
+/// Ack mode for controlling durability vs latency trade-off.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum AckMode {
+    /// Ack after record is buffered in agent memory.
+    /// Fast (~1ms) but data at risk until S3 flush (~30s window).
+    #[default]
+    Buffered,
+    /// Ack after record is persisted to S3.
+    /// Slower (~150ms) but zero data loss.
+    Durable,
+    /// Fire and forget - don't wait for any confirmation.
+    /// Fastest but can lose data.
+    None,
+}

@@ -40,14 +40,17 @@
 //! Target: 50K+ records/sec per agent with p99 latency < 10ms
 
 use std::sync::Arc;
-use streamhouse_metadata::MetadataStore;
+use streamhouse_metadata::{MetadataStore, ProducerState};
 use streamhouse_proto::producer::{
-    producer_service_server::ProducerService, ProduceRequest, ProduceResponse,
+    producer_service_server::ProducerService, AbortTransactionRequest, AbortTransactionResponse,
+    BeginTransactionRequest, BeginTransactionResponse, CommitTransactionRequest,
+    CommitTransactionResponse, HeartbeatRequest, HeartbeatResponse, InitProducerRequest,
+    InitProducerResponse, ProduceRequest, ProduceResponse,
 };
 use streamhouse_storage::writer_pool::WriterPool;
 use tokio::sync::RwLock;
 use tonic::{Request, Response, Status};
-use tracing::{debug, error, warn};
+use tracing::{debug, error, info, warn};
 
 /// Prometheus metrics for the Agent.
 ///
@@ -270,6 +273,143 @@ impl ProducerServiceImpl {
         *shutting_down = true;
     }
 
+    /// Validate idempotent producer request (producer_id, epoch, sequence).
+    ///
+    /// For idempotent producers, this method:
+    /// 1. Validates the producer exists and is active
+    /// 2. Validates the epoch matches (rejects zombies)
+    /// 3. Checks sequence numbers for duplicates
+    ///
+    /// # Arguments
+    ///
+    /// * `producer_id` - Producer ID from the request
+    /// * `producer_epoch` - Producer epoch from the request
+    /// * `base_sequence` - Base sequence number from the request
+    /// * `topic` - Topic being written to
+    /// * `partition` - Partition being written to
+    /// * `record_count` - Number of records in the batch
+    ///
+    /// # Returns
+    ///
+    /// - `Ok(true)` if records should be written (not a duplicate)
+    /// - `Ok(false)` if records are duplicates (should be acked but not written)
+    /// - `Err(Status)` if validation fails (fenced, sequence error, etc.)
+    async fn validate_idempotent(
+        &self,
+        producer_id: &str,
+        producer_epoch: u32,
+        base_sequence: i64,
+        topic: &str,
+        partition: u32,
+        record_count: u32,
+    ) -> std::result::Result<bool, Status> {
+        // 1. Get producer and validate it exists and is active
+        let producer = match self.metadata_store.get_producer(producer_id).await {
+            Ok(Some(p)) => p,
+            Ok(None) => {
+                warn!(
+                    producer_id = %producer_id,
+                    "Unknown producer ID"
+                );
+                return Err(Status::failed_precondition(format!(
+                    "Unknown producer ID: {}",
+                    producer_id
+                )));
+            }
+            Err(e) => {
+                error!(
+                    producer_id = %producer_id,
+                    error = %e,
+                    "Failed to get producer"
+                );
+                return Err(Status::internal(format!("Failed to get producer: {}", e)));
+            }
+        };
+
+        // 2. Check producer state
+        if producer.state == ProducerState::Fenced {
+            warn!(
+                producer_id = %producer_id,
+                "Producer has been fenced"
+            );
+            return Err(Status::failed_precondition(format!(
+                "Producer {} has been fenced",
+                producer_id
+            )));
+        }
+
+        if producer.state == ProducerState::Expired {
+            warn!(
+                producer_id = %producer_id,
+                "Producer has expired"
+            );
+            return Err(Status::failed_precondition(format!(
+                "Producer {} has expired",
+                producer_id
+            )));
+        }
+
+        // 3. Validate epoch (reject zombie producers)
+        if producer.epoch != producer_epoch {
+            warn!(
+                producer_id = %producer_id,
+                request_epoch = producer_epoch,
+                current_epoch = producer.epoch,
+                "Epoch mismatch - producer may be a zombie"
+            );
+            return Err(Status::failed_precondition(format!(
+                "Producer epoch mismatch: expected {}, got {}",
+                producer.epoch, producer_epoch
+            )));
+        }
+
+        // 4. Check and update sequence atomically
+        match self
+            .metadata_store
+            .check_and_update_sequence(producer_id, topic, partition, base_sequence, record_count)
+            .await
+        {
+            Ok(true) => {
+                // Valid sequence - proceed with write
+                debug!(
+                    producer_id = %producer_id,
+                    topic = %topic,
+                    partition = partition,
+                    base_sequence = base_sequence,
+                    record_count = record_count,
+                    "Sequence validated, proceeding with write"
+                );
+                Ok(true)
+            }
+            Ok(false) => {
+                // Duplicate detected - ack but don't write
+                info!(
+                    producer_id = %producer_id,
+                    topic = %topic,
+                    partition = partition,
+                    base_sequence = base_sequence,
+                    "Duplicate batch detected, returning success without write"
+                );
+                Ok(false)
+            }
+            Err(e) => {
+                // Sequence gap or other error
+                error!(
+                    producer_id = %producer_id,
+                    topic = %topic,
+                    partition = partition,
+                    base_sequence = base_sequence,
+                    error = %e,
+                    "Sequence validation failed"
+                );
+                Err(Status::failed_precondition(format!(
+                    "Sequence validation failed: {}",
+                    e
+                )))
+            }
+        }
+    }
+
     /// Check if a partition lease is valid and held by this agent.
     ///
     /// # Arguments
@@ -422,6 +562,51 @@ impl ProducerService for ProducerServiceImpl {
         // Validate partition lease
         self.validate_lease(&req.topic, req.partition).await?;
 
+        // Validate idempotent producer (if producer_id is present)
+        let should_write = if let Some(ref producer_id) = req.producer_id {
+            let epoch = req.producer_epoch.unwrap_or(0);
+            let base_seq = req.base_sequence.unwrap_or(0);
+
+            self.validate_idempotent(
+                producer_id,
+                epoch,
+                base_seq,
+                &req.topic,
+                req.partition,
+                req.records.len() as u32,
+            )
+            .await?
+        } else {
+            true // Non-idempotent producers always write
+        };
+
+        // If duplicate detected, return success without writing
+        if !should_write {
+            // For duplicates, we need to return the same base offset that was assigned originally
+            // For now, return 0 as the base offset - the producer should use the cached result
+            debug!(
+                topic = %req.topic,
+                partition = req.partition,
+                "Duplicate batch - returning success without write"
+            );
+
+            #[cfg(feature = "metrics")]
+            if let Some(ref metrics) = self.metrics {
+                let duration = start.elapsed().as_secs_f64();
+                metrics.record_grpc_request(duration);
+            }
+
+            // Note: We're returning 0 for base_offset on duplicates
+            // The producer should cache the original response
+            return Ok(Response::new(ProduceResponse {
+                base_offset: 0,
+                record_count: req.records.len() as u32,
+                log_append_time: None,
+                record_errors: vec![],
+                duplicates_filtered: true,
+            }));
+        }
+
         // Get writer for partition
         let writer = match self.writer_pool.get_writer(&req.topic, req.partition).await {
             Ok(writer) => writer,
@@ -502,6 +687,91 @@ impl ProducerService for ProducerServiceImpl {
             "Successfully produced records"
         );
 
+        // Handle ACK_DURABLE mode - wait for S3 persistence before acknowledging
+        // AckMode: 0 = ACK_BUFFERED (default), 1 = ACK_DURABLE, 2 = ACK_NONE
+        if req.ack_mode == 1 {
+            debug!(
+                topic = %req.topic,
+                partition = req.partition,
+                "ACK_DURABLE mode - flushing to S3 before acknowledgment"
+            );
+
+            let writer = match self.writer_pool.get_writer(&req.topic, req.partition).await {
+                Ok(w) => w,
+                Err(e) => {
+                    error!(
+                        topic = %req.topic,
+                        partition = req.partition,
+                        error = %e,
+                        "Failed to get writer for durable flush"
+                    );
+                    return Err(Status::internal(format!(
+                        "Failed to get writer for durable flush: {}",
+                        e
+                    )));
+                }
+            };
+
+            {
+                let mut writer_guard = writer.lock().await;
+                if let Err(e) = writer_guard.flush_durable().await {
+                    error!(
+                        topic = %req.topic,
+                        partition = req.partition,
+                        error = %e,
+                        "Failed to flush durable - S3 upload failed"
+                    );
+                    return Err(Status::internal(format!(
+                        "Failed to flush durable: {}",
+                        e
+                    )));
+                }
+            }
+
+            debug!(
+                topic = %req.topic,
+                partition = req.partition,
+                "ACK_DURABLE flush completed - data persisted to S3"
+            );
+        }
+
+        // Track transaction partition if this is a transactional write
+        if let Some(ref transaction_id) = req.transaction_id {
+            let last_offset = base_offset + record_count as u64 - 1;
+
+            // Add partition to transaction (first time we write to this partition)
+            if let Err(e) = self
+                .metadata_store
+                .add_transaction_partition(transaction_id, &req.topic, req.partition, base_offset)
+                .await
+            {
+                warn!(
+                    transaction_id = %transaction_id,
+                    topic = %req.topic,
+                    partition = req.partition,
+                    error = %e,
+                    "Failed to add partition to transaction (may already exist)"
+                );
+            }
+
+            // Update the last offset for this partition in the transaction
+            if let Err(e) = self
+                .metadata_store
+                .update_transaction_partition_offset(transaction_id, &req.topic, req.partition, last_offset)
+                .await
+            {
+                error!(
+                    transaction_id = %transaction_id,
+                    topic = %req.topic,
+                    partition = req.partition,
+                    error = %e,
+                    "Failed to update transaction partition offset"
+                );
+                // Don't fail the produce - the records are written
+                // The transaction commit will use whatever offsets are tracked
+            }
+        }
+
         // Record metrics (Phase 7)
         #[cfg(feature = "metrics")]
         if let Some(ref metrics) = self.metrics {
@@ -513,6 +783,286 @@ impl ProducerService for ProducerServiceImpl {
         Ok(Response::new(ProduceResponse {
             base_offset,
             record_count,
+            log_append_time: None,
+            record_errors: vec![],
+            duplicates_filtered: false,
+        }))
+    }
+
+    /// Initialize a producer and get a producer ID.
+    async fn init_producer(
+        &self,
+        request: Request<InitProducerRequest>,
+    ) -> std::result::Result<Response<InitProducerResponse>, Status> {
+        let req = request.into_inner();
+
+        // Build init config
+        let config = streamhouse_metadata::InitProducerConfig {
+            transactional_id: req.transactional_id,
+            organization_id: req.organization_id,
+            timeout_ms: req.timeout_ms,
+            metadata: if req.metadata.is_empty() {
+                None
+            } else {
+                Some(req.metadata.into_iter().collect())
+            },
+        };
+
+        // Initialize producer in metadata store
+        match self.metadata_store.init_producer(config).await {
+            Ok(producer) => {
+                info!(
+                    producer_id = %producer.id,
+                    epoch = producer.epoch,
+                    transactional_id = ?producer.transactional_id,
+                    "Producer initialized"
+                );
+                Ok(Response::new(InitProducerResponse {
+                    producer_id: producer.id,
+                    epoch: producer.epoch,
+                }))
+            }
+            Err(e) => {
+                error!(error = %e, "Failed to initialize producer");
+                Err(Status::internal(format!(
+                    "Failed to initialize producer: {}",
+                    e
+                )))
+            }
+        }
+    }
+
+    /// Begin a new transaction.
+    async fn begin_transaction(
+        &self,
+        request: Request<BeginTransactionRequest>,
+    ) -> std::result::Result<Response<BeginTransactionResponse>, Status> {
+        let req = request.into_inner();
+
+        // Validate producer exists and epoch matches
+        let producer = match self.metadata_store.get_producer(&req.producer_id).await {
+            Ok(Some(p)) => p,
+            Ok(None) => {
+                return Err(Status::not_found(format!(
+                    "Unknown producer: {}",
+                    req.producer_id
+                )));
+            }
+            Err(e) => {
+                return Err(Status::internal(format!("Failed to get producer: {}", e)));
+            }
+        };
+
+        if producer.epoch != req.producer_epoch {
+            return Err(Status::failed_precondition(format!(
+                "Producer epoch mismatch: expected {}, got {}",
+                producer.epoch, req.producer_epoch
+            )));
+        }
+
+        if producer.state != ProducerState::Active {
+            return Err(Status::failed_precondition(format!(
+                "Producer {} is not active",
+                req.producer_id
+            )));
+        }
+
+        // Begin transaction
+        match self
+            .metadata_store
+            .begin_transaction(&req.producer_id, req.timeout_ms)
+            .await
+        {
+            Ok(txn) => {
+                info!(
+                    producer_id = %req.producer_id,
+                    transaction_id = %txn.transaction_id,
+                    "Transaction started"
+                );
+                Ok(Response::new(BeginTransactionResponse {
+                    transaction_id: txn.transaction_id,
+                }))
+            }
+            Err(e) => {
+                error!(
+                    producer_id = %req.producer_id,
+                    error = %e,
+                    "Failed to begin transaction"
+                );
+                Err(Status::internal(format!(
+                    "Failed to begin transaction: {}",
+                    e
+                )))
+            }
+        }
+    }
+
+    /// Commit a transaction.
+    async fn commit_transaction(
+        &self,
+        request: Request<CommitTransactionRequest>,
+    ) -> std::result::Result<Response<CommitTransactionResponse>, Status> {
+        let req = request.into_inner();
+
+        // Validate producer
+        let producer = match self.metadata_store.get_producer(&req.producer_id).await {
+            Ok(Some(p)) => p,
+            Ok(None) => {
+                return Err(Status::not_found(format!(
+                    "Unknown producer: {}",
+                    req.producer_id
+                )));
+            }
+            Err(e) => {
+                return Err(Status::internal(format!("Failed to get producer: {}", e)));
+            }
+        };
+
+        if producer.epoch != req.producer_epoch {
+            return Err(Status::failed_precondition(format!(
+                "Producer epoch mismatch: expected {}, got {}",
+                producer.epoch, req.producer_epoch
+            )));
+        }
+
+        // Commit transaction
+        match self.metadata_store.commit_transaction(&req.transaction_id).await {
+            Ok(commit_timestamp) => {
+                info!(
+                    producer_id = %req.producer_id,
+                    transaction_id = %req.transaction_id,
+                    commit_timestamp = commit_timestamp,
+                    "Transaction committed"
+                );
+                Ok(Response::new(CommitTransactionResponse {
+                    success: true,
+                    commit_timestamp: commit_timestamp as u64,
+                }))
+            }
+            Err(e) => {
+                error!(
+                    producer_id = %req.producer_id,
+                    transaction_id = %req.transaction_id,
+                    error = %e,
+                    "Failed to commit transaction"
+                );
+                Err(Status::internal(format!(
+                    "Failed to commit transaction: {}",
+                    e
+                )))
+            }
+        }
+    }
+
+    /// Abort a transaction.
+    async fn abort_transaction(
+        &self,
+        request: Request<AbortTransactionRequest>,
+    ) -> std::result::Result<Response<AbortTransactionResponse>, Status> {
+        let req = request.into_inner();
+
+        // Validate producer
+        let producer = match self.metadata_store.get_producer(&req.producer_id).await {
+            Ok(Some(p)) => p,
+            Ok(None) => {
+                return Err(Status::not_found(format!(
+                    "Unknown producer: {}",
+                    req.producer_id
+                )));
+            }
+            Err(e) => {
+                return Err(Status::internal(format!("Failed to get producer: {}", e)));
+            }
+        };
+
+        if producer.epoch != req.producer_epoch {
+            return Err(Status::failed_precondition(format!(
+                "Producer epoch mismatch: expected {}, got {}",
+                producer.epoch, req.producer_epoch
+            )));
+        }
+
+        // Abort transaction
+        match self.metadata_store.abort_transaction(&req.transaction_id).await {
+            Ok(()) => {
+                info!(
+                    producer_id = %req.producer_id,
+                    transaction_id = %req.transaction_id,
+                    "Transaction aborted"
+                );
+                Ok(Response::new(AbortTransactionResponse { success: true }))
+            }
+            Err(e) => {
+                error!(
+                    producer_id = %req.producer_id,
+                    transaction_id = %req.transaction_id,
+                    error = %e,
+                    "Failed to abort transaction"
+                );
+                Err(Status::internal(format!(
+                    "Failed to abort transaction: {}",
+                    e
+                )))
+            }
+        }
+    }
+
+    /// Send a heartbeat to keep producer and transaction alive.
+    async fn heartbeat(
+        &self,
+        request: Request<HeartbeatRequest>,
+    ) -> std::result::Result<Response<HeartbeatResponse>, Status> {
+        let req = request.into_inner();
+
+        // Get producer to validate
+        let producer = match self.metadata_store.get_producer(&req.producer_id).await {
+            Ok(Some(p)) => p,
+            Ok(None) => {
+                return Ok(Response::new(HeartbeatResponse {
+                    valid: false,
+                    error: Some(format!("Unknown producer: {}", req.producer_id)),
+                }));
+            }
+            Err(e) => {
+                return Err(Status::internal(format!("Failed to get producer: {}", e)));
+            }
+        };
+
+        // Check epoch
+        if producer.epoch != req.producer_epoch {
+            return Ok(Response::new(HeartbeatResponse {
+                valid: false,
+                error: Some(format!(
+                    "Producer epoch mismatch: expected {}, got {}",
+                    producer.epoch, req.producer_epoch
+                )),
+            }));
+        }
+
+        // Check state
+        if producer.state != ProducerState::Active {
+            return Ok(Response::new(HeartbeatResponse {
+                valid: false,
+                error: Some(format!("Producer {} is {:?}", req.producer_id, producer.state)),
+            }));
+        }
+
+        // Update heartbeat
+        if let Err(e) = self
+            .metadata_store
+            .update_producer_heartbeat(&req.producer_id)
+            .await
+        {
+            warn!(
+                producer_id = %req.producer_id,
+                error = %e,
+                "Failed to update heartbeat"
+            );
+        }
+
+        Ok(Response::new(HeartbeatResponse {
+            valid: true,
+            error: None,
         }))
     }
 }

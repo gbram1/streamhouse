@@ -615,6 +615,41 @@ impl PartitionWriter {
         }
         Ok(())
     }
+
+    /// Force flush all buffered data to S3 immediately for durable acknowledgment.
+    ///
+    /// Unlike `flush()`, this method immediately rolls the segment regardless of
+    /// size or age thresholds. Use this for ACK_DURABLE mode where the producer
+    /// must wait for S3 persistence before receiving acknowledgment.
+    ///
+    /// # Latency
+    ///
+    /// This operation typically takes ~150ms as it performs a synchronous S3 upload.
+    /// Only use this when durability guarantees are more important than throughput.
+    ///
+    /// # Behavior
+    ///
+    /// - If current segment is empty: No-op, returns immediately
+    /// - If current segment has records: Forces immediate segment roll and S3 upload
+    ///
+    /// # Returns
+    ///
+    /// The end offset of the flushed segment, or None if segment was empty.
+    ///
+    /// # Errors
+    ///
+    /// - `S3UploadFailed`: Failed to upload segment to S3
+    /// - `MetadataError`: Failed to register segment in metadata store
+    /// - `SegmentError`: Failed to finalize segment
+    pub async fn flush_durable(&mut self) -> Result<Option<u64>> {
+        if self.current_segment.record_count() > 0 {
+            let end_offset = self.current_segment.last_offset();
+            self.roll_segment().await?;
+            Ok(end_offset)
+        } else {
+            Ok(None)
+        }
+    }
 }
 
 /// Manages writes across multiple partitions for a single topic

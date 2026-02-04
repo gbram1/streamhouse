@@ -379,6 +379,55 @@ impl ConnectionPool {
         let agents = pools.len();
         (total, healthy, agents)
     }
+
+    /// Get a ProducerService client for transaction/idempotent operations (Phase 16).
+    ///
+    /// This creates a new ProducerServiceClient connection to the specified agent.
+    /// Unlike the regular StreamHouseClient, this client is used for:
+    /// - InitProducer (get producer ID and epoch)
+    /// - BeginTransaction
+    /// - CommitTransaction
+    /// - AbortTransaction
+    /// - Heartbeat
+    ///
+    /// # Arguments
+    ///
+    /// * `address` - Agent address (e.g., "http://localhost:9090")
+    ///
+    /// # Returns
+    ///
+    /// A ProducerServiceClient connected to the agent.
+    ///
+    /// # Errors
+    ///
+    /// - `TransportError`: Failed to connect to agent
+    /// - `InvalidUri`: Malformed agent address
+    pub async fn get_producer_client(
+        &self,
+        address: &str,
+    ) -> Result<
+        streamhouse_proto::producer::producer_service_client::ProducerServiceClient<Channel>,
+        Box<dyn std::error::Error + Send + Sync>,
+    > {
+        let endpoint = Endpoint::from_shared(address.to_string())?
+            .timeout(Duration::from_secs(10))
+            .connect_timeout(Duration::from_secs(3))
+            .tcp_keepalive(Some(Duration::from_secs(30)))
+            .http2_keep_alive_interval(Duration::from_secs(20))
+            .keep_alive_timeout(Duration::from_secs(5))
+            .keep_alive_while_idle(true)
+            .http2_adaptive_window(true)
+            .initial_connection_window_size(Some(1024 * 1024))
+            .initial_stream_window_size(Some(1024 * 1024));
+
+        let channel = endpoint.connect().await?;
+        let client =
+            streamhouse_proto::producer::producer_service_client::ProducerServiceClient::new(
+                channel,
+            );
+
+        Ok(client)
+    }
 }
 
 impl Default for ConnectionPool {

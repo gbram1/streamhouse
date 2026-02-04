@@ -231,6 +231,8 @@ pub struct ConsumerConfig {
     pub max_poll_records: usize,
     /// Optional schema registry URL for schema resolution (Phase 9+)
     pub schema_registry_url: Option<String>,
+    /// Isolation level for transactional records (Phase 16)
+    pub isolation_level: IsolationLevel,
 }
 
 /// Strategy for resetting offsets when no committed offset exists.
@@ -242,6 +244,50 @@ pub enum OffsetReset {
     Latest,
     /// Fail if no committed offset exists.
     None,
+}
+
+/// Isolation level for controlling visibility of transactional records (Phase 16).
+///
+/// This determines which records are visible to the consumer when transactional
+/// producers are in use.
+///
+/// ## Read-Uncommitted vs Read-Committed
+///
+/// - **ReadUncommitted**: All records are visible immediately, including those
+///   from in-progress transactions. This provides lower latency but may expose
+///   records that are later aborted.
+///
+/// - **ReadCommitted**: Only records from committed transactions are visible.
+///   Records from in-progress or aborted transactions are filtered out using
+///   the Last Stable Offset (LSO). This provides exactly-once semantics at the
+///   cost of slightly higher latency.
+///
+/// ## Example
+///
+/// ```ignore
+/// use streamhouse_client::{Consumer, IsolationLevel};
+///
+/// // High throughput, may see uncommitted records
+/// let consumer = Consumer::builder()
+///     .isolation_level(IsolationLevel::ReadUncommitted)
+///     .build()
+///     .await?;
+///
+/// // Exactly-once semantics, only committed records
+/// let consumer = Consumer::builder()
+///     .isolation_level(IsolationLevel::ReadCommitted)
+///     .build()
+///     .await?;
+/// ```
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum IsolationLevel {
+    /// Read all records including uncommitted transactional records.
+    /// This is the default for backwards compatibility and higher throughput.
+    #[default]
+    ReadUncommitted,
+    /// Only read committed records. Records from in-progress or aborted
+    /// transactions are filtered out using the Last Stable Offset (LSO).
+    ReadCommitted,
 }
 
 /// A record consumed from a topic partition.
@@ -274,6 +320,7 @@ pub struct ConsumerBuilder {
     #[cfg(feature = "metrics")]
     metrics: Option<Arc<ConsumerMetrics>>,
     schema_registry_url: Option<String>,
+    isolation_level: IsolationLevel,
 }
 
 impl ConsumerBuilder {
@@ -293,6 +340,7 @@ impl ConsumerBuilder {
             #[cfg(feature = "metrics")]
             metrics: None,
             schema_registry_url: None,
+            isolation_level: IsolationLevel::ReadUncommitted, // Phase 16: default for compatibility
         }
     }
 
@@ -449,6 +497,36 @@ impl ConsumerBuilder {
         self
     }
 
+    /// Set the isolation level for transactional records (Phase 16).
+    ///
+    /// This controls which records are visible to the consumer:
+    ///
+    /// - **ReadUncommitted** (default): All records visible immediately,
+    ///   including uncommitted transactional records. Higher throughput but
+    ///   may expose records that are later aborted.
+    ///
+    /// - **ReadCommitted**: Only committed records visible. Uses the Last
+    ///   Stable Offset (LSO) to filter out in-progress and aborted transactions.
+    ///   Required for exactly-once semantics.
+    ///
+    /// # Arguments
+    ///
+    /// * `level` - The isolation level to use
+    ///
+    /// # Examples
+    ///
+    /// ```ignore
+    /// // For exactly-once processing
+    /// Consumer::builder()
+    ///     .isolation_level(IsolationLevel::ReadCommitted)
+    ///     .build()
+    ///     .await?;
+    /// ```
+    pub fn isolation_level(mut self, level: IsolationLevel) -> Self {
+        self.isolation_level = level;
+        self
+    }
+
     /// Build the Consumer.
     ///
     /// # Errors
@@ -503,6 +581,7 @@ impl ConsumerBuilder {
                 offset_reset: self.offset_reset,
                 max_poll_records: self.max_poll_records,
                 schema_registry_url: self.schema_registry_url,
+                isolation_level: self.isolation_level,
             },
             group_id: self.group_id,
             readers: Arc::new(RwLock::new(HashMap::new())),
@@ -687,8 +766,49 @@ impl Consumer {
                 }
             };
 
-            // Convert to ConsumedRecord
+            // Phase 16: Get LSO for read-committed filtering
+            let lso = if self.config.isolation_level == IsolationLevel::ReadCommitted {
+                // Get Last Stable Offset - records at or above LSO may be uncommitted
+                match self
+                    .metadata_store
+                    .get_last_stable_offset(&key.topic, key.partition_id)
+                    .await
+                {
+                    Ok(offset) => Some(offset),
+                    Err(e) => {
+                        // If LSO not found (no transactions on this partition yet),
+                        // use high watermark as LSO (all records are committed)
+                        tracing::debug!(
+                            topic = %key.topic,
+                            partition = key.partition_id,
+                            error = %e,
+                            "LSO not found, using high watermark"
+                        );
+                        None
+                    }
+                }
+            } else {
+                None // ReadUncommitted doesn't filter by LSO
+            };
+
+            // Convert to ConsumedRecord with LSO filtering
             for record in read_result.records {
+                // Phase 16: Filter records based on isolation level
+                if let Some(last_stable) = lso {
+                    if record.offset >= last_stable {
+                        // Record is at or above LSO - may be uncommitted
+                        // Skip it in read-committed mode
+                        tracing::trace!(
+                            topic = %key.topic,
+                            partition = key.partition_id,
+                            offset = record.offset,
+                            lso = last_stable,
+                            "Filtering uncommitted record (offset >= LSO)"
+                        );
+                        continue;
+                    }
+                }
+
                 all_records.push(ConsumedRecord {
                     topic: key.topic.clone(),
                     partition: key.partition_id,
@@ -697,7 +817,7 @@ impl Consumer {
                     key: record.key,
                     value: record.value,
                     schema_id: None, // Will be populated if schema registry is configured
-                    schema: None,     // Will be populated if schema registry is configured
+                    schema: None,    // Will be populated if schema registry is configured
                 });
             }
         }
