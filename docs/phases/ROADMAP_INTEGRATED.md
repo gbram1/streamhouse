@@ -402,6 +402,114 @@ Partner 3: ___________________
 10.4. Consumer Transaction Isolation (read committed)
 10.5. Testing and Verification
 
+#### Phase 10.5: Producer Ack Modes ⏳ PLANNED
+
+**Status:** PLANNED
+**Priority:** HIGH (durability control for customers)
+**Prerequisite:** Core producer API complete
+
+**Problem:** Producers currently have no control over durability vs latency trade-off. Data buffered in agent memory can be lost if agent crashes before S3 flush.
+
+**Features:**
+- [ ] `AckMode::None` - Fire and forget (fastest, can lose data)
+- [ ] `AckMode::Buffered` - Ack after buffer (default, ~1ms, ~30s loss window)
+- [ ] `AckMode::Durable` - Ack after S3 flush (~150ms, zero data loss)
+- [ ] Kafka protocol mapping (`acks=0/1/all` → AckMode)
+- [ ] Per-request ack mode override
+- [ ] Metrics: ack latency by mode, data-at-risk bytes
+
+**Trade-offs:**
+| Mode | Latency | Durability | Use Case |
+|------|---------|------------|----------|
+| None | <1ms | Can lose | Metrics, logs |
+| Buffered | ~1ms | ~30s window | Default |
+| Durable | ~150ms | Zero loss | Financial, critical |
+
+**Effort:** 25 hours (1 week)
+
+#### Phase 10.6: Chaos Testing Suite ⏳ PLANNED
+
+**Status:** PLANNED
+**Priority:** HIGH (proves durability claims)
+**Prerequisite:** Ack modes complete
+
+**Problem:** Publishing benchmarks means nothing if you can't prove data survives crashes.
+
+**Crash Drill Scenarios:**
+- [ ] Kill writer during segment rollover → verify monotonic offsets, no duplicates
+- [ ] Power yank simulation → verify WAL recovery, no data loss for durable acks
+- [ ] Network partition (split-brain) → verify epoch fencing, no duplicate writes
+- [ ] S3 outage/throttling → verify backpressure, circuit breaker, recovery
+- [ ] PostgreSQL failover → verify reconnection, < 10s downtime
+
+**Deliverables:** Chaos test framework, 5 automated scripts, CI integration, published durability report
+
+**Effort:** 40 hours (1 week)
+
+#### Phase 10.7: Idempotent Producers ⏳ PLANNED
+
+**Status:** PLANNED
+**Priority:** HIGH (table stakes for production)
+**Prerequisite:** Core producer API
+
+**Problem:** Without idempotent producers, network retries cause duplicates.
+
+**Features:**
+- [ ] Producer ID assignment and persistence
+- [ ] Per-partition sequence number tracking
+- [ ] Server-side deduplication logic
+- [ ] Epoch fencing for zombie producers
+- [ ] Kafka protocol mapping (enable.idempotence=true)
+
+**Effort:** 35 hours (1 week)
+
+#### Phase 10.8: Hot-Partition Mitigation ⏳ PLANNED
+
+**Status:** PLANNED
+**Priority:** MEDIUM (scalability)
+**Prerequisite:** Core partition assignment
+
+**Problem:** One hot partition (100x traffic) overwhelms single agent.
+
+**Features:**
+- [ ] Dynamic shard splitting (auto-split hot partitions)
+- [ ] Fast leader handoff (< 1s vs 30s lease expiry)
+- [ ] Credit-based load shedding per partition
+
+**Effort:** 45 hours (1.5 weeks)
+
+#### Phase 10.9: Credit-Based Backpressure ⏳ PLANNED
+
+**Status:** PLANNED
+**Priority:** MEDIUM (prevents cascading failures)
+**Prerequisite:** Agent forwarding
+
+**Problem:** Head-of-line blocking when forwarding between agents.
+
+**Features:**
+- [ ] Credit system per destination agent
+- [ ] Async forwarding queues (bounded)
+- [ ] Forwarding loop prevention (hop count, visited set)
+
+**Effort:** 30 hours (1 week)
+
+#### Phase 10.10: Enhanced Operational Metrics ⏳ PLANNED
+
+**Status:** PLANNED
+**Priority:** HIGH (production debugging)
+**Prerequisite:** Basic Prometheus metrics
+
+**Problem:** Operators need to know WHY things fail, not just that they failed.
+
+**New Metrics:**
+- [ ] Leader change tracking (reason, old/new leader, gap duration)
+- [ ] Routing staleness (cache age, misdirected requests, metadata TTL)
+- [ ] Retry storm detection (retry rate by cause, backoff time)
+- [ ] Per-partition operational metrics (lag, write/read rate, segments)
+- [ ] Compaction stats (progress, bytes reclaimed, errors)
+
+**Effort:** 25 hours (1 week)
+
 ---
 
 ### TIER 2: Important for Scalability
@@ -621,11 +729,17 @@ Partner 3: ___________________
 |-------|--------|----------|
 | Phase 7: Observability (remaining) | 40h | HIGH |
 | Phase 10: Exactly-Once | 200h | HIGH |
+| Phase 10.5: Producer Ack Modes | 25h | HIGH |
+| Phase 10.6: Chaos Testing Suite | 40h | HIGH |
+| Phase 10.7: Idempotent Producers | 35h | HIGH |
+| Phase 10.8: Hot-Partition Mitigation | 45h | MEDIUM |
+| Phase 10.9: Credit-Based Backpressure | 30h | MEDIUM |
+| Phase 10.10: Enhanced Operational Metrics | 25h | HIGH |
 | Phase 9: Advanced Consumer | 120h | MEDIUM |
 | Phase 11: Distributed Architecture | 160h | LOW |
-| **Total** | **520h** | **~13 weeks** |
+| **Total** | **720h** | **~18 weeks** |
 
-**Grand Total (to Production-Ready Full Platform):** ~1,070 hours (~27 weeks full-time)
+**Grand Total (to Production-Ready Full Platform):** ~1,270 hours (~32 weeks full-time)
 
 ---
 

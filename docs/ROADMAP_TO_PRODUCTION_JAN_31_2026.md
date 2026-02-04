@@ -1394,6 +1394,748 @@ producer.abort_transaction().await?;
 
 ---
 
+## Phase 16.5: Producer Ack Modes (Durability vs Latency)
+
+**Priority:** HIGH
+**Effort:** 25 hours
+**Status:** NOT STARTED
+**Prerequisite:** Core producer API complete
+
+**Goal:** Allow producers to choose their durability/latency trade-off, similar to Kafka's `acks` configuration.
+
+### Problem
+
+Currently, StreamHouse buffers records in memory before flushing to S3. If an agent crashes before the S3 flush completes, buffered data is lost. Producers have no control over when they receive acknowledgment.
+
+**Current behavior:** Ack after buffer (fast, but ~30s data loss window)
+**Kafka comparison:** Kafka offers `acks=0`, `acks=1`, `acks=all` for different guarantees
+
+### Solution: Configurable Ack Modes
+
+```rust
+pub enum AckMode {
+    /// Fire and forget - don't wait for any confirmation
+    /// Fastest, but can lose data (similar to Kafka acks=0)
+    None,
+
+    /// Ack after record is buffered in agent memory
+    /// Fast (~1ms), but data at risk until S3 flush (~30s window)
+    /// Similar to Kafka acks=1 (leader only)
+    Buffered,
+
+    /// Ack only after record is persisted to S3
+    /// Slower (~150ms), but zero data loss possible
+    /// Similar to Kafka acks=all
+    Durable,
+}
+```
+
+### Features
+
+1. **Producer Configuration** (8h)
+   - Add `ack_mode` to ProducerConfig
+   - Default to `AckMode::Buffered` (current behavior, backwards compatible)
+   - gRPC/REST API support for ack mode
+   - Kafka protocol: map `acks` parameter to AckMode
+
+2. **Durable Ack Implementation** (10h)
+   - `AckMode::Durable`: Wait for S3 PUT to complete before acking
+   - Track pending acks per record
+   - Batch S3 writes but ack individually
+   - Handle S3 failures with proper error propagation
+
+3. **None Ack Implementation** (3h)
+   - `AckMode::None`: Return immediately after queueing
+   - Fire-and-forget for high-throughput, loss-tolerant workloads
+   - Useful for metrics, logs, non-critical events
+
+4. **Metrics & Observability** (4h)
+   - `streamhouse_producer_ack_latency_seconds{mode="buffered|durable|none"}`
+   - `streamhouse_producer_data_loss_risk_bytes` (buffered but not flushed)
+   - Dashboard showing ack mode distribution
+
+### API Examples
+
+**Rust Client:**
+```rust
+let producer = Producer::builder()
+    .ack_mode(AckMode::Durable)  // Wait for S3
+    .build()
+    .await?;
+
+// This blocks until data is in S3 (~150ms)
+producer.send("critical-events", key, value).await?;
+```
+
+**Kafka Protocol:**
+```python
+# Using kafka-python with StreamHouse
+producer = KafkaProducer(
+    bootstrap_servers='localhost:9092',
+    acks='all'  # Maps to AckMode::Durable
+)
+```
+
+**REST API:**
+```bash
+curl -X POST http://localhost:8080/v1/topics/orders/records \
+  -H "X-Ack-Mode: durable" \
+  -d '{"key": "order-1", "value": "..."}'
+```
+
+### Trade-offs
+
+| Mode | Latency | Durability | Use Case |
+|------|---------|------------|----------|
+| `None` | <1ms | Can lose data | Metrics, logs, non-critical |
+| `Buffered` | ~1ms | ~30s loss window | Default, most workloads |
+| `Durable` | ~150ms | Zero loss | Financial, critical events |
+
+### Implementation Notes
+
+- **Backwards compatible:** Default `Buffered` maintains current behavior
+- **Per-request override:** Allow ack mode per produce request, not just producer-level
+- **Batch optimization:** For `Durable`, batch multiple records into single S3 PUT
+- **Timeout handling:** Durable mode needs longer timeouts (S3 latency + retries)
+
+### Comparison with Kafka
+
+| Kafka `acks` | StreamHouse `AckMode` | Behavior |
+|--------------|----------------------|----------|
+| `acks=0` | `None` | Fire and forget |
+| `acks=1` | `Buffered` | Leader ack (agent buffer) |
+| `acks=all` | `Durable` | All replicas (S3 = durable storage) |
+
+**Key difference:** Kafka's `acks=all` waits for ISR replication. StreamHouse's `Durable` waits for S3 persistence. Both achieve durability, but through different mechanisms (replication vs object storage).
+
+### Deliverables
+
+- `AckMode` enum and producer config (~100 LOC)
+- Durable ack tracking in WriterPool (~300 LOC)
+- gRPC/REST/Kafka protocol support (~200 LOC)
+- Metrics and dashboard updates (~100 LOC)
+- Tests (unit + integration) (~400 LOC)
+- Documentation
+
+### Success Criteria
+
+```bash
+# Test durable mode
+time streamctl produce orders --ack-mode durable --count 100
+# Expected: ~15s (100 * 150ms)
+
+# Test buffered mode (default)
+time streamctl produce orders --count 100
+# Expected: <1s
+
+# Verify no data loss with durable mode
+# 1. Start produce with durable mode
+# 2. Kill agent mid-produce
+# 3. Restart agent
+# 4. Verify all acked records are in S3
+```
+
+---
+
+## Phase 16.6: Chaos Testing Suite (Crash Drills)
+
+**Priority:** HIGH
+**Effort:** 40 hours
+**Status:** NOT STARTED
+**Prerequisite:** Phase 16.5 (Ack Modes) complete
+
+**Goal:** Prove durability and correctness through systematic crash testing. As one experienced engineer noted: *"The real test isn't peak throughput; it's durable writes, predictable ops, and client compatibility."*
+
+### Why This Matters
+
+Publishing benchmarks means nothing if you can't prove:
+- Data survives crashes
+- Offsets remain monotonic
+- No duplicates after recovery
+- Fast, predictable failover
+
+### Crash Drill Scenarios
+
+**1. Kill Writer During Segment Rollover** (10h)
+```bash
+# Scenario: Agent is mid-flush to S3 when killed
+./chaos/kill-during-rollover.sh
+
+# Verify after restart:
+✓ All acked records present in S3
+✓ No partial/corrupt segments
+✓ Offsets are monotonic (no gaps, no duplicates)
+✓ Consumers can resume from last committed offset
+```
+
+**2. Power Yank Simulation** (8h)
+```bash
+# Scenario: Instant process kill (SIGKILL), no graceful shutdown
+./chaos/power-yank.sh
+
+# Verify:
+✓ WAL recovery works correctly
+✓ No data loss for acked records (with AckMode::Durable)
+✓ Buffered records lost as expected (with AckMode::Buffered)
+✓ Agent restarts cleanly
+```
+
+**3. Network Partition (Split-Brain)** (8h)
+```bash
+# Scenario: Agent isolated from PostgreSQL but not from clients
+./chaos/network-partition.sh
+
+# Verify:
+✓ Epoch fencing prevents zombie writes
+✓ Stale leader rejected when partition heals
+✓ New leader elected within lease timeout
+✓ No duplicate records written
+```
+
+**4. S3 Outage / Throttling** (7h)
+```bash
+# Scenario: S3 returns 503 or rate limits
+./chaos/s3-outage.sh
+
+# Verify:
+✓ Backpressure propagates to producers
+✓ Circuit breaker prevents cascade
+✓ Recovery when S3 returns
+✓ No data loss with proper ack mode
+```
+
+**5. PostgreSQL Failover** (7h)
+```bash
+# Scenario: Primary DB fails, replica promoted
+./chaos/postgres-failover.sh
+
+# Verify:
+✓ Agents reconnect to new primary
+✓ Metadata operations resume
+✓ No stale reads from old primary
+✓ Downtime < 10 seconds
+```
+
+### Metrics to Publish
+
+After each chaos test, publish:
+```
+| Scenario | Acked Records | Recovered Records | Data Loss | Failover Time |
+|----------|---------------|-------------------|-----------|---------------|
+| Kill during rollover | 10,000 | 10,000 | 0% | 2.3s |
+| Power yank (durable) | 10,000 | 10,000 | 0% | 5.1s |
+| Power yank (buffered) | 10,000 | 9,847 | 1.5% | 4.8s |
+| Network partition | 10,000 | 10,000 | 0% | 31.2s |
+| S3 outage (5min) | 10,000 | 10,000 | 0% | 0s (buffered) |
+| PostgreSQL failover | 10,000 | 10,000 | 0% | 8.4s |
+```
+
+### Deliverables
+
+- Chaos test framework (`chaos/` directory)
+- 5 automated crash drill scripts
+- CI integration (run on every release)
+- Published durability report
+- Grafana dashboard for chaos metrics
+
+---
+
+## Phase 16.7: Idempotent Producers (Exactly-Once Foundation)
+
+**Priority:** HIGH
+**Effort:** 35 hours
+**Status:** NOT STARTED
+**Prerequisite:** Phase 16.5 (Ack Modes) complete
+
+**Goal:** Guarantee no duplicate records even after retries, crashes, or network issues. This is table stakes for production streaming systems.
+
+### Problem
+
+Without idempotent producers:
+```
+Producer sends record → Network timeout → Producer retries → DUPLICATE!
+```
+
+### Solution: Producer ID + Sequence Numbers
+
+```rust
+pub struct ProducerIdentity {
+    /// Unique producer ID (assigned on init or persisted)
+    producer_id: u64,
+    /// Per-partition sequence number (monotonically increasing)
+    sequence_number: u64,
+    /// Producer epoch (incremented on restart for fencing)
+    epoch: u32,
+}
+```
+
+### How It Works
+
+**1. Producer Registration** (8h)
+```rust
+// On producer init
+let producer_id = agent.register_producer().await?;
+// Returns: ProducerId { id: 12345, epoch: 1 }
+
+// Producer tracks sequence per partition
+let mut sequences: HashMap<(Topic, Partition), u64> = HashMap::new();
+```
+
+**2. Sequence Number Tracking** (10h)
+```rust
+// Every record includes:
+ProduceRequest {
+    producer_id: 12345,
+    epoch: 1,
+    records: vec![
+        Record { partition: 0, sequence: 100, ... },
+        Record { partition: 0, sequence: 101, ... },
+        Record { partition: 1, sequence: 50, ... },
+    ]
+}
+```
+
+**3. Server-Side Deduplication** (12h)
+```rust
+// Agent tracks last sequence per producer per partition
+fn check_duplicate(&self, req: &ProduceRequest) -> Result<()> {
+    for record in &req.records {
+        let last_seq = self.get_last_sequence(
+            req.producer_id,
+            record.partition
+        );
+
+        if record.sequence <= last_seq {
+            // Duplicate! Already processed
+            return Err(DuplicateRecord { ... });
+        }
+
+        if record.sequence != last_seq + 1 {
+            // Gap! Out of order
+            return Err(SequenceGap { ... });
+        }
+    }
+    Ok(())
+}
+```
+
+**4. Epoch Fencing** (5h)
+```rust
+// Old producer with stale epoch rejected
+if req.epoch < current_epoch {
+    return Err(FencedProducer {
+        message: "Producer has been fenced by newer instance"
+    });
+}
+```
+
+### State Persistence
+
+Producer state stored in PostgreSQL:
+```sql
+CREATE TABLE producer_state (
+    producer_id BIGINT PRIMARY KEY,
+    epoch INTEGER NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL,
+    last_heartbeat TIMESTAMPTZ NOT NULL
+);
+
+CREATE TABLE producer_sequences (
+    producer_id BIGINT NOT NULL,
+    topic VARCHAR(255) NOT NULL,
+    partition_id INTEGER NOT NULL,
+    last_sequence BIGINT NOT NULL,
+    PRIMARY KEY (producer_id, topic, partition_id)
+);
+```
+
+### Kafka Protocol Mapping
+
+```
+Kafka: enable.idempotence=true
+→ StreamHouse: Automatically assigns producer_id, tracks sequences
+```
+
+### Deliverables
+
+- Producer ID assignment (~200 LOC)
+- Sequence tracking in agent (~400 LOC)
+- Deduplication logic (~300 LOC)
+- Epoch fencing (~150 LOC)
+- PostgreSQL state persistence (~200 LOC)
+- Kafka protocol support
+- Tests proving no duplicates after crash/retry
+
+---
+
+## Phase 16.8: Hot-Partition Mitigation
+
+**Priority:** MEDIUM
+**Effort:** 45 hours
+**Status:** NOT STARTED
+**Prerequisite:** Core partition assignment working
+
+**Goal:** Handle hot partitions (100x traffic) without multi-second pauses or dropped requests.
+
+### Problem
+
+One partition gets 90% of traffic (common with time-based keys or popular users):
+- Single agent overwhelmed
+- Other partitions starved
+- Leader handoff causes visible latency spikes
+
+### Solution 1: Dynamic Shard Splitting (25h)
+
+**Auto-split hot partitions:**
+```
+Partition 0 (hot, 100K msg/s)
+    ↓ Split triggered
+Partition 0-a (50K msg/s) → Agent 1
+Partition 0-b (50K msg/s) → Agent 2
+```
+
+**Implementation:**
+```rust
+struct PartitionSplitManager {
+    /// Threshold to trigger split (msg/s)
+    split_threshold: u64,  // default: 50,000
+
+    /// Minimum time between splits
+    cooldown: Duration,  // default: 5 minutes
+
+    /// Maximum splits per partition
+    max_splits: u32,  // default: 8
+}
+
+async fn check_hot_partitions(&self) {
+    for partition in self.partitions() {
+        let rate = self.get_write_rate(partition);
+        if rate > self.split_threshold {
+            self.trigger_split(partition).await?;
+        }
+    }
+}
+```
+
+**Split process:**
+1. Mark partition as "splitting" in metadata
+2. Create new partition segments
+3. Update routing table atomically
+4. Producers discover new partitions via metadata refresh
+
+### Solution 2: Fast Leader Handoff (15h)
+
+**Problem:** Current lease-based handoff takes up to 30s (lease expiry)
+
+**Solution:** Cooperative handoff with pre-warming
+```rust
+async fn graceful_handoff(&self, partition: Partition, new_leader: AgentId) {
+    // 1. Stop accepting new writes (10ms)
+    self.pause_writes(partition).await;
+
+    // 2. Flush pending data to S3 (variable, typically <500ms)
+    self.flush(partition).await?;
+
+    // 3. Transfer lease to new leader (10ms)
+    self.transfer_lease(partition, new_leader).await?;
+
+    // 4. New leader starts accepting writes immediately
+    // Total handoff: <1 second vs 30 seconds
+}
+```
+
+### Solution 3: Credit-Based Load Shedding (5h)
+
+When partition is overwhelmed:
+```rust
+struct PartitionCredits {
+    /// Available credits (replenished per second)
+    credits: AtomicU64,
+
+    /// Max credits (burst capacity)
+    max_credits: u64,
+}
+
+fn accept_request(&self, partition: Partition, size: u64) -> Result<()> {
+    let credits = self.credits.fetch_sub(size, Ordering::SeqCst);
+    if credits < size {
+        return Err(BackpressureError::PartitionOverloaded {
+            partition,
+            retry_after_ms: 100,
+        });
+    }
+    Ok(())
+}
+```
+
+### Metrics
+
+- `streamhouse_partition_write_rate{topic, partition}` - writes/sec
+- `streamhouse_partition_split_total` - number of splits
+- `streamhouse_leader_handoff_duration_seconds` - handoff latency
+- `streamhouse_partition_load_shed_total` - rejected due to overload
+
+### Deliverables
+
+- Dynamic partition splitting (~600 LOC)
+- Fast leader handoff protocol (~400 LOC)
+- Credit-based load shedding (~200 LOC)
+- Metrics and alerting
+- Documentation on hot partition handling
+
+---
+
+## Phase 16.9: Credit-Based Backpressure
+
+**Priority:** MEDIUM
+**Effort:** 30 hours
+**Status:** NOT STARTED
+**Prerequisite:** Core agent forwarding working
+
+**Goal:** Prevent head-of-line blocking when forwarding requests between agents.
+
+### Problem
+
+When Agent A forwards to Agent B (because B owns the partition):
+```
+Producer → Agent A → Agent B (overloaded) → BLOCKED
+                ↓
+        All other requests to Agent A also blocked!
+```
+
+### Solution: Credit-Based Flow Control
+
+**1. Credit System** (15h)
+```rust
+struct ForwardingCredits {
+    /// Credits per destination agent
+    credits: HashMap<AgentId, AtomicU64>,
+
+    /// Max credits per agent
+    max_credits: u64,  // default: 1000
+
+    /// Credit replenishment rate
+    replenish_rate: u64,  // default: 100/sec
+}
+
+async fn forward_request(&self, dest: AgentId, req: Request) -> Result<Response> {
+    // Check if we have credits
+    if !self.try_consume_credit(dest) {
+        return Err(BackpressureError::DestinationOverloaded {
+            agent: dest,
+            retry_after_ms: 10,
+        });
+    }
+
+    // Forward with timeout
+    let result = timeout(
+        Duration::from_secs(5),
+        self.send_to_agent(dest, req)
+    ).await;
+
+    // Replenish credit on success
+    if result.is_ok() {
+        self.replenish_credit(dest);
+    }
+
+    result
+}
+```
+
+**2. Async Forwarding Queue** (10h)
+```rust
+struct ForwardingQueue {
+    /// Per-destination queues (bounded)
+    queues: HashMap<AgentId, BoundedQueue<ForwardRequest>>,
+
+    /// Max queue depth
+    max_depth: usize,  // default: 10,000
+}
+
+// Non-blocking enqueue
+fn enqueue(&self, dest: AgentId, req: ForwardRequest) -> Result<()> {
+    match self.queues.get(&dest) {
+        Some(queue) if !queue.is_full() => {
+            queue.push(req);
+            Ok(())
+        }
+        _ => Err(BackpressureError::QueueFull { dest })
+    }
+}
+```
+
+**3. Prevent Forwarding Loops** (5h)
+```rust
+struct RequestContext {
+    /// Hop count (incremented on each forward)
+    hop_count: u8,
+
+    /// Max allowed hops
+    max_hops: u8,  // default: 3
+
+    /// Agents already visited
+    visited: HashSet<AgentId>,
+}
+
+fn validate_forward(&self, ctx: &RequestContext, dest: AgentId) -> Result<()> {
+    if ctx.hop_count >= ctx.max_hops {
+        return Err(RoutingError::MaxHopsExceeded);
+    }
+    if ctx.visited.contains(&dest) {
+        return Err(RoutingError::ForwardingLoop { agent: dest });
+    }
+    Ok(())
+}
+```
+
+### Metrics
+
+- `streamhouse_forwarding_credits{dest_agent}` - available credits
+- `streamhouse_forwarding_queue_depth{dest_agent}` - queue size
+- `streamhouse_forwarding_rejected_total{reason}` - rejected forwards
+- `streamhouse_forwarding_latency_seconds{dest_agent}` - forward RTT
+- `streamhouse_forwarding_loops_detected_total` - loop prevention triggers
+
+### Deliverables
+
+- Credit-based flow control (~300 LOC)
+- Async forwarding queues (~400 LOC)
+- Loop prevention (~150 LOC)
+- Metrics and alerting
+- Documentation
+
+---
+
+## Phase 16.10: Enhanced Operational Metrics
+
+**Priority:** HIGH
+**Effort:** 25 hours
+**Status:** NOT STARTED
+**Prerequisite:** Basic Prometheus metrics in place
+
+**Goal:** Expose the metrics operators actually need to debug production issues.
+
+### Current Gap
+
+We have throughput metrics, but operators need:
+- **Why** did the leader change?
+- **Where** are misdirected requests going?
+- **When** do retry storms happen?
+- **How** stale is my routing metadata?
+
+### New Metrics
+
+**1. Leader Change Tracking** (6h)
+```rust
+// Why did leadership change?
+streamhouse_leader_changes_total{
+    topic,
+    partition,
+    reason,  // "lease_expired", "graceful_handoff", "agent_crash", "rebalance"
+    old_leader,
+    new_leader
+}
+
+// Duration of leader gap (no leader)
+streamhouse_leader_gap_duration_seconds{topic, partition}
+
+// Current leader epoch
+streamhouse_leader_epoch{topic, partition, agent}
+```
+
+**2. Routing Staleness** (6h)
+```rust
+// How old is cached routing info?
+streamhouse_routing_cache_age_seconds{agent}
+
+// Requests sent to wrong agent (misdirected)
+streamhouse_misdirected_requests_total{
+    topic,
+    partition,
+    sent_to,
+    actual_leader
+}
+
+// Metadata refresh rate
+streamhouse_metadata_refresh_total{agent, trigger}  // "cache_miss", "periodic", "error"
+
+// Metadata TTL (time until stale)
+streamhouse_metadata_ttl_seconds{agent}
+```
+
+**3. Retry Storm Detection** (6h)
+```rust
+// Retry rate by cause
+streamhouse_retries_total{
+    operation,  // "produce", "consume", "metadata"
+    reason,     // "timeout", "leader_not_found", "throttled", "network_error"
+    attempt     // "1", "2", "3+"
+}
+
+// Retry storm indicator (retries/sec > threshold)
+streamhouse_retry_storm_active{agent}
+
+// Backoff time spent
+streamhouse_retry_backoff_seconds_total{operation, reason}
+```
+
+**4. Per-Partition Operational Metrics** (4h)
+```rust
+// Per-partition lag (for consumers)
+streamhouse_partition_lag{topic, partition, consumer_group}
+
+// Per-partition write rate
+streamhouse_partition_write_rate{topic, partition}
+
+// Per-partition read rate
+streamhouse_partition_read_rate{topic, partition}
+
+// Segment count and size
+streamhouse_partition_segments{topic, partition}
+streamhouse_partition_size_bytes{topic, partition}
+```
+
+**5. Compaction Stats** (3h)
+```rust
+// Compaction progress
+streamhouse_compaction_progress{topic, partition}  // 0.0 - 1.0
+
+// Compaction rate
+streamhouse_compaction_records_total{topic, partition}
+
+// Space reclaimed
+streamhouse_compaction_bytes_reclaimed_total{topic, partition}
+
+// Compaction errors
+streamhouse_compaction_errors_total{topic, partition, error_type}
+```
+
+### Grafana Dashboards
+
+1. **Leader Changes Dashboard**
+   - Leader changes over time (by reason)
+   - Current leader map
+   - Leader gap duration histogram
+
+2. **Routing Health Dashboard**
+   - Misdirected request rate
+   - Cache age distribution
+   - Metadata refresh triggers
+
+3. **Retry Analysis Dashboard**
+   - Retry rate by reason
+   - Retry storm alerts
+   - Backoff time analysis
+
+### Deliverables
+
+- 25+ new Prometheus metrics (~500 LOC)
+- 3 new Grafana dashboards
+- Alerting rules for anomalies
+- Documentation on metric meanings
+
+---
+
 ## Phase 17: Multi-Region Replication
 
 **Priority:** LOW
@@ -4332,58 +5074,202 @@ To compete with WarpStream and Confluent, we need:
 - **Quotas** (like Confluent) - Multi-tenancy isolation
 - **Data governance** (like Confluent) - Enterprise compliance
 
-### Task 1: Tiered Storage (Hot/Warm/Cold) (40h)
+### Task 1: Tiered Storage (Hot NVMe + Object Store) (60h)
 
-**Goal:** Automatically move old data to cheaper storage tiers.
+**Goal:** Combine local NVMe for ultra-low latency with S3 for durability and cost. This addresses the feedback: *"Consider tiered storage (hot NVMe + object store) with background index rebuilds and zero-copy re-sharding so retention isn't tied to compute."*
 
 **Architecture:**
 ```
-Recent data (7 days)    → S3 Standard (Hot)
-Older data (30 days)    → S3 IA (Warm)
-Archive data (90+ days) → Glacier (Cold)
+                        ┌─────────────────────────────────────────┐
+                        │           Read Path                     │
+                        │                                         │
+Consumer ──────────────►│  1. Check NVMe cache (< 1ms)            │
+                        │  2. If miss → fetch from S3 (50-150ms)  │
+                        │  3. Populate cache for next read        │
+                        └─────────────────────────────────────────┘
+
+                        ┌─────────────────────────────────────────┐
+                        │           Write Path                    │
+                        │                                         │
+Producer ──────────────►│  1. Write to NVMe (acknowledge)         │
+                        │  2. Async replicate to S3               │
+                        │  3. Evict from NVMe after S3 confirm    │
+                        └─────────────────────────────────────────┘
+```
+
+**Three-Tier Architecture:**
+```
+┌──────────────────────────────────────────────────────────────────┐
+│ HOT TIER (NVMe SSD)                                              │
+│ - Local to agent                                                 │
+│ - Last 0-24 hours of data                                        │
+│ - Latency: 1-5ms                                                 │
+│ - Cost: ~$0.10/GB/month (instance storage)                       │
+└──────────────────────────────────────────────────────────────────┘
+                              ↓ (background migration)
+┌──────────────────────────────────────────────────────────────────┐
+│ WARM TIER (S3 Standard)                                          │
+│ - 1-30 days old                                                  │
+│ - Latency: 10-50ms                                               │
+│ - Cost: $0.023/GB/month                                          │
+└──────────────────────────────────────────────────────────────────┘
+                              ↓ (lifecycle policy)
+┌──────────────────────────────────────────────────────────────────┐
+│ COLD TIER (S3 Glacier IR / S3 Glacier)                           │
+│ - 30+ days old                                                   │
+│ - Latency: 50-200ms (Glacier IR) or minutes (Glacier)            │
+│ - Cost: $0.004-0.01/GB/month                                     │
+└──────────────────────────────────────────────────────────────────┘
 ```
 
 **Implementation:**
 
-**File:** `crates/streamhouse-storage/src/tiering.rs` (~1,000 LOC)
+**File:** `crates/streamhouse-storage/src/tiering.rs` (~1,500 LOC)
 
 ```rust
-pub struct TieringPolicy {
-    pub hot_retention: Duration,    // 7 days
-    pub warm_retention: Duration,   // 30 days
-    pub cold_retention: Duration,   // 90 days (or infinite)
-}
+pub struct TieredStorage {
+    /// Hot tier: local NVMe SSD
+    hot_tier: NvmeCache,
 
-pub struct TieringManager {
-    s3_client: S3Client,
+    /// Warm tier: S3 Standard
+    warm_tier: S3Client,
+
+    /// Cold tier: S3 Glacier IR
+    cold_tier: S3Client,
+
+    /// Tiering policy
     policy: TieringPolicy,
+
+    /// Background migration task
+    migration_task: JoinHandle<()>,
 }
 
-impl TieringManager {
-    /// Move old segments to appropriate tier
-    pub async fn tier_segments(&self, topic: &str) -> Result<()> {
-        // 1. List all segments
-        // 2. Check age
-        // 3. If > hot_retention, move to S3 IA
-        // 4. If > warm_retention, move to Glacier
+pub struct NvmeCache {
+    /// Path to NVMe mount point
+    path: PathBuf,
+
+    /// Max size (e.g., 500GB)
+    max_size: u64,
+
+    /// Current size
+    current_size: AtomicU64,
+
+    /// LRU eviction index
+    lru: Mutex<LruIndex>,
+}
+
+pub struct TieringPolicy {
+    /// Data younger than this stays on NVMe
+    hot_retention: Duration,    // default: 24 hours
+
+    /// Data younger than this stays on S3 Standard
+    warm_retention: Duration,   // default: 30 days
+
+    /// Data older than this goes to Glacier
+    cold_retention: Duration,   // default: 90 days
+}
+
+impl TieredStorage {
+    /// Read with automatic tier traversal
+    pub async fn read(&self, segment: &SegmentId) -> Result<Segment> {
+        // 1. Try hot tier (NVMe)
+        if let Some(data) = self.hot_tier.get(segment).await? {
+            metrics::increment("tier_hit", "hot");
+            return Ok(data);
+        }
+
+        // 2. Try warm tier (S3 Standard)
+        if let Some(data) = self.warm_tier.get(segment).await? {
+            metrics::increment("tier_hit", "warm");
+            // Optionally promote to hot tier for repeated access
+            self.maybe_promote_to_hot(segment, &data).await;
+            return Ok(data);
+        }
+
+        // 3. Fall back to cold tier (Glacier)
+        let data = self.cold_tier.get(segment).await?;
+        metrics::increment("tier_hit", "cold");
+        Ok(data)
+    }
+
+    /// Write always goes to hot tier first
+    pub async fn write(&self, segment: &SegmentId, data: &Segment) -> Result<()> {
+        // 1. Write to NVMe (fast ack)
+        self.hot_tier.put(segment, data).await?;
+
+        // 2. Async replicate to S3 (durability)
+        self.warm_tier.put_async(segment, data);
+
+        Ok(())
+    }
+}
+```
+
+**Background Index Rebuilds:**
+```rust
+impl TieredStorage {
+    /// Rebuild indexes without blocking reads
+    pub async fn rebuild_index_background(&self, topic: &str) -> Result<()> {
+        // 1. Create new index in temp location
+        let temp_index = self.build_index_async(topic).await?;
+
+        // 2. Atomic swap when complete
+        self.swap_index(topic, temp_index).await?;
+
+        Ok(())
+    }
+}
+```
+
+**Zero-Copy Re-sharding:**
+```rust
+impl TieredStorage {
+    /// Re-shard without copying data
+    pub async fn reshard_zero_copy(
+        &self,
+        topic: &str,
+        old_partitions: u32,
+        new_partitions: u32,
+    ) -> Result<()> {
+        // 1. Update metadata to point to new partition scheme
+        // 2. Old segments remain in place, accessed via redirect
+        // 3. New writes go to new partition scheme
+        // 4. Background compaction merges over time
     }
 }
 ```
 
 **Configuration:**
-```rust
-// Per-topic tiering policy
-topic.retention.hot=7d
-topic.retention.warm=30d
-topic.retention.cold=90d
+```toml
+[storage.tiering]
+enabled = true
+hot_tier_path = "/mnt/nvme/streamhouse"
+hot_tier_max_size = "500GB"
+hot_retention = "24h"
+warm_retention = "30d"
+cold_retention = "90d"
+background_migration_interval = "1h"
 ```
 
 **Benefits:**
-- **Cost savings:** 50-80% on storage
+- **Ultra-low latency:** 1-5ms for hot data (vs 50-150ms S3-only)
+- **Cost savings:** 50-80% on storage (Glacier for old data)
 - **Automatic:** No manual intervention
-- **Transparent:** Consumers don't notice
+- **Zero-copy re-sharding:** Retention isn't tied to compute
+- **Background operations:** No impact on read/write path
+
+**Metrics:**
+```rust
+streamhouse_tier_hit_total{tier="hot|warm|cold"}
+streamhouse_tier_size_bytes{tier="hot|warm|cold"}
+streamhouse_tier_migration_total{from, to}
+streamhouse_tier_migration_bytes_total{from, to}
+streamhouse_nvme_cache_utilization
+streamhouse_nvme_eviction_total
+```
 
 **WarpStream Equivalent:** Automatic data tiering
+**Redpanda Equivalent:** Tiered storage with local cache
 
 ### Task 2: Compression Support (30h)
 
