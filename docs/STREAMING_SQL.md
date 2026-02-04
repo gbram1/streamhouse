@@ -251,6 +251,231 @@ GROUP BY TUMBLE(timestamp, '1 hour'), key;
 
 ---
 
+## Stream JOINs
+
+StreamHouse supports joining data between topics using standard SQL JOIN syntax. JOINs operate on time-windowed buffers to handle the streaming nature of the data.
+
+### INNER JOIN
+
+Return only matching records from both topics:
+
+```sql
+SELECT
+  o.key as order_key,
+  json_extract(o.value, '$.amount') as amount,
+  json_extract(u.value, '$.name') as customer_name
+FROM orders o
+INNER JOIN users u ON json_extract(o.value, '$.user_id') = u.key
+LIMIT 100;
+```
+
+### LEFT JOIN
+
+Return all records from the left topic, with NULLs for non-matching right records:
+
+```sql
+SELECT
+  o.key,
+  json_extract(o.value, '$.amount') as amount,
+  json_extract(p.value, '$.status') as payment_status
+FROM orders o
+LEFT JOIN payments p ON o.key = p.key
+LIMIT 100;
+```
+
+### RIGHT JOIN
+
+Return all records from the right topic, with NULLs for non-matching left records:
+
+```sql
+SELECT
+  o.key as order_key,
+  u.key as user_key,
+  json_extract(u.value, '$.email') as email
+FROM orders o
+RIGHT JOIN users u ON json_extract(o.value, '$.user_id') = u.key
+LIMIT 100;
+```
+
+### FULL OUTER JOIN
+
+Return all records from both topics, with NULLs where there are no matches:
+
+```sql
+SELECT
+  o.key as order_key,
+  u.key as user_key,
+  COALESCE(json_extract(o.value, '$.amount'), 0) as amount
+FROM orders o
+FULL OUTER JOIN users u ON o.key = u.key
+LIMIT 100;
+```
+
+### Join Conditions
+
+JOINs support equality conditions on keys and JSON-extracted fields:
+
+```sql
+-- Join on message key
+FROM orders o
+INNER JOIN users u ON o.key = u.key
+
+-- Join on JSON field
+FROM orders o
+INNER JOIN users u ON json_extract(o.value, '$.user_id') = u.key
+
+-- Join on two JSON fields
+FROM orders o
+INNER JOIN inventory i ON json_extract(o.value, '$.product_id') = json_extract(i.value, '$.id')
+```
+
+### Qualified Column References
+
+When joining topics, use table aliases to reference columns:
+
+```sql
+SELECT
+  o.key,           -- key from orders
+  o.offset,        -- offset from orders
+  o.value,         -- value from orders
+  u.key,           -- key from users
+  u.value,         -- value from users
+  json_extract(o.value, '$.amount') as order_amount,
+  json_extract(u.value, '$.name') as user_name
+FROM orders o
+INNER JOIN users u ON o.key = u.key;
+```
+
+### Wildcards in JOINs
+
+Select all columns from one or both topics:
+
+```sql
+-- All columns from both topics
+SELECT * FROM orders o
+INNER JOIN users u ON o.key = u.key;
+
+-- All columns from one topic
+SELECT o.*, json_extract(u.value, '$.name') as user_name
+FROM orders o
+INNER JOIN users u ON o.key = u.key;
+```
+
+### Join Implementation
+
+Stream-stream JOINs use a hash join strategy:
+- Both topics are loaded into memory buffers
+- An index is built on the right-side join key for O(1) lookups
+- Results are produced by iterating the left side and probing the right-side index
+- Default time window: 1 hour (configurable)
+
+### Join Optimizations
+
+StreamHouse applies several optimizations to JOIN queries:
+
+**Predicate Pushdown**
+- WHERE filters on partition, offset, and timestamp are pushed down
+- Messages are filtered before the join, reducing memory usage
+- Example: `WHERE partition = 0` filters both topics early
+
+**Timeout Handling**
+- Queries check for timeout throughout execution
+- Timeouts are checked after loading each topic and during projection
+- Prevents runaway queries on large datasets
+
+**Example with filters:**
+```sql
+SELECT o.key, u.key
+FROM orders o
+JOIN users u ON o.key = u.key
+WHERE partition = 0 AND offset >= 1000
+LIMIT 100;
+```
+
+### Use Cases
+
+| Join Type | Use Case |
+|-----------|----------|
+| INNER JOIN | Enrich orders with user data |
+| LEFT JOIN | Find orders without payments |
+| RIGHT JOIN | Find users without orders |
+| FULL OUTER JOIN | Complete reconciliation between systems |
+
+---
+
+## Stream-Table JOINs
+
+Stream-Table JOINs allow joining a stream of events against a compacted "table" where only the latest value per key is kept. This enables efficient O(1) lookups for enrichment scenarios.
+
+### TABLE() Syntax
+
+Use `TABLE(topic)` to treat a topic as a compacted table (key→latest value):
+
+```sql
+-- Enrich orders with latest user data
+SELECT
+  o.key as order_key,
+  json_extract(o.value, '$.amount') as amount,
+  json_extract(u.value, '$.name') as user_name,
+  json_extract(u.value, '$.email') as email
+FROM orders o
+INNER JOIN TABLE(users) u ON json_extract(o.value, '$.user_id') = u.key
+LIMIT 100;
+```
+
+### Stream-Table vs Stream-Stream
+
+| Feature | Stream-Stream | Stream-Table |
+|---------|---------------|--------------|
+| Syntax | `JOIN topic` | `JOIN TABLE(topic)` |
+| Right side | All messages | Latest per key |
+| Duplicates | Multiple matches possible | One match per key |
+| Use case | Event correlation | Dimension lookups |
+| Performance | Hash index (fast) | O(1) lookups (faster) |
+
+### Examples
+
+**Lookup user details for each order:**
+```sql
+SELECT
+  o.key,
+  json_extract(u.value, '$.name') as customer
+FROM orders o
+JOIN TABLE(users) u ON json_extract(o.value, '$.user_id') = u.key
+LIMIT 50;
+```
+
+**Enrich events with product information:**
+```sql
+SELECT
+  e.key,
+  json_extract(e.value, '$.action') as action,
+  json_extract(p.value, '$.name') as product_name,
+  json_extract(p.value, '$.price') as price
+FROM events e
+LEFT JOIN TABLE(products) p ON json_extract(e.value, '$.product_id') = p.key
+LIMIT 100;
+```
+
+**TABLE() on either side:**
+```sql
+-- Table on left side
+SELECT u.key, o.key
+FROM TABLE(users) u
+LEFT JOIN orders o ON u.key = json_extract(o.value, '$.user_id')
+LIMIT 50;
+```
+
+### Table Semantics
+
+When using `TABLE(topic)`:
+- Messages are processed in order (by offset)
+- Later messages with the same key overwrite earlier ones
+- The result is a key→value map with one entry per unique key
+- Join lookups are O(1) using this map
+
+---
+
 ## Vector Similarity Search
 
 StreamHouse supports vector operations for semantic search, RAG (Retrieval Augmented Generation), and recommendation systems.
@@ -396,8 +621,8 @@ LIMIT 5;
 - Maximum 10,000 rows per query
 - 30 second query timeout
 - Read-only queries (no INSERT/UPDATE/DELETE)
-- No JOINs between topics
 - Window functions require GROUP BY
+- JOINs use 1-hour time window (in-memory buffer)
 
 ## Performance Tips
 

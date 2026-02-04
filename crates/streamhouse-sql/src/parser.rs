@@ -1,8 +1,8 @@
 //! SQL parser for StreamHouse queries
 
 use sqlparser::ast::{
-    BinaryOperator, Expr, Function, FunctionArg, FunctionArgExpr, Select, SelectItem,
-    SetExpr, Statement, TableFactor, Value as SqlValue,
+    BinaryOperator, Expr, Function, FunctionArg, FunctionArgExpr, Join, JoinConstraint,
+    JoinOperator, Select, SelectItem, SetExpr, Statement, TableFactor, Value as SqlValue,
 };
 use sqlparser::dialect::GenericDialect;
 use sqlparser::parser::Parser;
@@ -58,6 +58,11 @@ fn parse_select_query(query: &sqlparser::ast::Query, original_sql: &str) -> Resu
             ))
         }
     };
+
+    // Check for JOIN query first (before window/count checks)
+    if let Some(join_query) = try_parse_join_query(select, query)? {
+        return Ok(SqlQuery::Join(join_query));
+    }
 
     // Check for window aggregate query (GROUP BY with TUMBLE/HOP/SESSION)
     if let Some(window_query) = try_parse_window_query(select, query, original_sql)? {
@@ -117,6 +122,419 @@ fn parse_select_query(query: &sqlparser::ast::Query, original_sql: &str) -> Resu
         limit,
         offset,
     }))
+}
+
+/// Try to parse as a JOIN query
+fn try_parse_join_query(
+    select: &Select,
+    query: &sqlparser::ast::Query,
+) -> Result<Option<JoinQuery>> {
+    // Check if FROM clause has a JOIN
+    if select.from.is_empty() {
+        return Ok(None);
+    }
+
+    let table_with_joins = &select.from[0];
+    if table_with_joins.joins.is_empty() {
+        return Ok(None);
+    }
+
+    // Parse left table
+    let left = parse_table_ref(&table_with_joins.relation)?;
+
+    // Parse the first join (we only support one join for now)
+    let join = &table_with_joins.joins[0];
+
+    // Parse join type
+    let join_type = match &join.join_operator {
+        JoinOperator::Inner(_) => JoinType::Inner,
+        JoinOperator::LeftOuter(_) => JoinType::Left,
+        JoinOperator::RightOuter(_) => JoinType::Right,
+        JoinOperator::FullOuter(_) => JoinType::Full,
+        _ => {
+            return Err(SqlError::UnsupportedOperation(
+                "Only INNER, LEFT, RIGHT, and FULL joins are supported".to_string(),
+            ))
+        }
+    };
+
+    // Parse right table
+    let right = parse_table_ref(&join.relation)?;
+
+    // Parse ON clause
+    let condition = parse_join_condition(join)?;
+
+    // Parse SELECT columns for join
+    let columns = parse_join_select_columns(select, &left, &right)?;
+
+    // Parse WHERE clause
+    let filters = if let Some(selection) = &select.selection {
+        parse_where_clause(selection)?
+    } else {
+        vec![]
+    };
+
+    // Parse LIMIT
+    let limit = query
+        .limit
+        .as_ref()
+        .and_then(|e| extract_literal_int(e).map(|n| n as usize));
+
+    // Parse ORDER BY
+    let order_by = if !query.order_by.is_empty() {
+        let first = &query.order_by[0];
+        if let Expr::Identifier(ident) = &first.expr {
+            Some(OrderBy {
+                column: ident.value.clone(),
+                descending: first.asc == Some(false),
+            })
+        } else if let Expr::CompoundIdentifier(parts) = &first.expr {
+            // Handle qualified column like o.amount
+            let col = parts.iter().map(|p| p.value.as_str()).collect::<Vec<_>>().join(".");
+            Some(OrderBy {
+                column: col,
+                descending: first.asc == Some(false),
+            })
+        } else {
+            None
+        }
+    } else {
+        None
+    };
+
+    Ok(Some(JoinQuery {
+        left,
+        right,
+        join_type,
+        condition,
+        columns,
+        filters,
+        order_by,
+        limit,
+        window_ms: Some(3600000), // Default 1 hour window
+    }))
+}
+
+/// Parse a table reference (topic with optional alias)
+fn parse_table_ref(table_factor: &TableFactor) -> Result<TableRef> {
+    match table_factor {
+        TableFactor::Table { name, alias, .. } => {
+            let topic = name.to_string();
+            let alias_str = alias.as_ref().map(|a| a.name.value.clone());
+            Ok(TableRef {
+                topic,
+                alias: alias_str,
+                is_table: false,
+            })
+        }
+        // TABLE(topic) syntax for stream-table joins
+        // sqlparser parses this as TableFunction { expr, alias }
+        TableFactor::TableFunction { expr, alias } => {
+            // Extract topic name from expression
+            let topic = match expr {
+                Expr::Identifier(ident) => ident.value.clone(),
+                Expr::Value(SqlValue::SingleQuotedString(s)) => s.clone(),
+                Expr::CompoundIdentifier(parts) => {
+                    parts.iter().map(|p| p.value.as_str()).collect::<Vec<_>>().join(".")
+                }
+                _ => {
+                    return Err(SqlError::ParseError(
+                        "TABLE() argument must be a topic name".to_string(),
+                    ))
+                }
+            };
+            let alias_str = alias.as_ref().map(|a| a.name.value.clone());
+            Ok(TableRef {
+                topic,
+                alias: alias_str,
+                is_table: true, // Mark as table reference for O(1) lookups
+            })
+        }
+        // Also handle LATERAL TABLE() or general function syntax
+        TableFactor::Function {
+            name,
+            args,
+            alias,
+            ..
+        } => {
+            let func_name = name.to_string().to_uppercase();
+            if func_name == "TABLE" {
+                // Extract topic name from args
+                if args.is_empty() {
+                    return Err(SqlError::ParseError(
+                        "TABLE() requires a topic name argument".to_string(),
+                    ));
+                }
+                let topic = match &args[0] {
+                    FunctionArg::Unnamed(FunctionArgExpr::Expr(Expr::Identifier(ident))) => {
+                        ident.value.clone()
+                    }
+                    FunctionArg::Unnamed(FunctionArgExpr::Expr(Expr::Value(SqlValue::SingleQuotedString(s)))) => {
+                        s.clone()
+                    }
+                    _ => {
+                        return Err(SqlError::ParseError(
+                            "TABLE() argument must be a topic name".to_string(),
+                        ))
+                    }
+                };
+                let alias_str = alias.as_ref().map(|a| a.name.value.clone());
+                Ok(TableRef {
+                    topic,
+                    alias: alias_str,
+                    is_table: true, // Mark as table reference for O(1) lookups
+                })
+            } else {
+                Err(SqlError::UnsupportedOperation(format!(
+                    "Unsupported table function: {}. Use TABLE(topic) for stream-table joins.",
+                    func_name
+                )))
+            }
+        }
+        _ => Err(SqlError::UnsupportedOperation(
+            "Unsupported table reference type".to_string(),
+        )),
+    }
+}
+
+/// Parse JOIN ON clause to extract join condition
+fn parse_join_condition(join: &Join) -> Result<JoinCondition> {
+    let constraint = match &join.join_operator {
+        JoinOperator::Inner(c) | JoinOperator::LeftOuter(c) | JoinOperator::RightOuter(c) | JoinOperator::FullOuter(c) => c,
+        _ => {
+            return Err(SqlError::UnsupportedOperation(
+                "Join must have ON clause".to_string(),
+            ))
+        }
+    };
+
+    match constraint {
+        JoinConstraint::On(expr) => parse_join_on_expr(expr),
+        JoinConstraint::Using(_) => Err(SqlError::UnsupportedOperation(
+            "USING clause not supported, use ON instead".to_string(),
+        )),
+        JoinConstraint::Natural => Err(SqlError::UnsupportedOperation(
+            "NATURAL join not supported".to_string(),
+        )),
+        JoinConstraint::None => Err(SqlError::UnsupportedOperation(
+            "Join must have ON clause".to_string(),
+        )),
+    }
+}
+
+/// Parse ON expression (e.g., o.user_id = u.id)
+fn parse_join_on_expr(expr: &Expr) -> Result<JoinCondition> {
+    match expr {
+        Expr::BinaryOp { left, op, right } if *op == BinaryOperator::Eq => {
+            let left_ref = parse_column_ref(left)?;
+            let right_ref = parse_column_ref(right)?;
+            Ok(JoinCondition {
+                left: left_ref,
+                right: right_ref,
+            })
+        }
+        _ => Err(SqlError::UnsupportedOperation(
+            "Only equality conditions (=) are supported in ON clause".to_string(),
+        )),
+    }
+}
+
+/// Parse a column reference (e.g., o.user_id or json_extract(o.value, '$.user_id'))
+fn parse_column_ref(expr: &Expr) -> Result<(String, String)> {
+    match expr {
+        // Handle: o.column_name
+        Expr::CompoundIdentifier(parts) if parts.len() == 2 => {
+            let qualifier = parts[0].value.clone();
+            let column = parts[1].value.clone();
+            // Convert column name to path if it's a known field
+            let path = match column.as_str() {
+                "key" => "key".to_string(),
+                "value" => "value".to_string(),
+                "offset" => "offset".to_string(),
+                "timestamp" => "timestamp".to_string(),
+                "partition" => "partition".to_string(),
+                _ => format!("$.{}", column), // Assume it's a JSON path
+            };
+            Ok((qualifier, path))
+        }
+        // Handle: json_extract(o.value, '$.field')
+        Expr::Function(func) => {
+            let func_name = func.name.to_string().to_uppercase();
+            if func_name == "JSON_EXTRACT" {
+                let args = &func.args;
+                if args.len() != 2 {
+                    return Err(SqlError::ParseError(
+                        "json_extract requires 2 arguments".to_string(),
+                    ));
+                }
+
+                // Get qualifier from first arg (e.g., o.value)
+                let qualifier = match &args[0] {
+                    FunctionArg::Unnamed(FunctionArgExpr::Expr(Expr::CompoundIdentifier(parts))) => {
+                        if parts.len() >= 1 {
+                            parts[0].value.clone()
+                        } else {
+                            return Err(SqlError::ParseError(
+                                "Expected qualified column in json_extract".to_string(),
+                            ));
+                        }
+                    }
+                    _ => {
+                        return Err(SqlError::ParseError(
+                            "Expected qualified column in json_extract".to_string(),
+                        ))
+                    }
+                };
+
+                // Get path from second arg
+                let path = match &args[1] {
+                    FunctionArg::Unnamed(FunctionArgExpr::Expr(Expr::Value(
+                        SqlValue::SingleQuotedString(s),
+                    ))) => s.clone(),
+                    _ => {
+                        return Err(SqlError::ParseError(
+                            "Second argument to json_extract must be a string path".to_string(),
+                        ))
+                    }
+                };
+
+                Ok((qualifier, path))
+            } else {
+                Err(SqlError::UnsupportedOperation(format!(
+                    "Function {} not supported in join condition",
+                    func_name
+                )))
+            }
+        }
+        _ => Err(SqlError::UnsupportedOperation(
+            "Unsupported expression in join condition".to_string(),
+        )),
+    }
+}
+
+/// Parse SELECT columns for JOIN query
+fn parse_join_select_columns(
+    select: &Select,
+    left: &TableRef,
+    right: &TableRef,
+) -> Result<Vec<JoinSelectColumn>> {
+    let mut columns = Vec::new();
+
+    for item in &select.projection {
+        match item {
+            SelectItem::Wildcard(_) => {
+                columns.push(JoinSelectColumn::AllFrom(None));
+            }
+            SelectItem::QualifiedWildcard(name, _) => {
+                let qualifier = name.to_string();
+                columns.push(JoinSelectColumn::AllFrom(Some(qualifier)));
+            }
+            SelectItem::UnnamedExpr(expr) => {
+                columns.push(parse_join_select_expr(expr, None, left, right)?);
+            }
+            SelectItem::ExprWithAlias { expr, alias } => {
+                columns.push(parse_join_select_expr(expr, Some(alias.value.clone()), left, right)?);
+            }
+        }
+    }
+
+    Ok(columns)
+}
+
+/// Parse a single SELECT expression in a JOIN query
+fn parse_join_select_expr(
+    expr: &Expr,
+    alias: Option<String>,
+    _left: &TableRef,
+    _right: &TableRef,
+) -> Result<JoinSelectColumn> {
+    match expr {
+        // Handle: o.column_name
+        Expr::CompoundIdentifier(parts) if parts.len() == 2 => {
+            let qualifier = parts[0].value.clone();
+            let column = parts[1].value.clone();
+            Ok(JoinSelectColumn::QualifiedColumn {
+                qualifier,
+                column,
+                alias,
+            })
+        }
+        // Handle: json_extract(o.value, '$.field')
+        Expr::Function(func) => {
+            let func_name = func.name.to_string().to_uppercase();
+            if func_name == "JSON_EXTRACT" {
+                let (qualifier, path) = parse_json_extract_for_join(func)?;
+                Ok(JoinSelectColumn::QualifiedJsonExtract {
+                    qualifier,
+                    path,
+                    alias,
+                })
+            } else {
+                Err(SqlError::UnsupportedOperation(format!(
+                    "Function {} not yet supported in JOIN select",
+                    func_name
+                )))
+            }
+        }
+        // Handle unqualified column (will be resolved at runtime)
+        Expr::Identifier(ident) => {
+            Ok(JoinSelectColumn::QualifiedColumn {
+                qualifier: String::new(), // Empty means "resolve at runtime"
+                column: ident.value.clone(),
+                alias,
+            })
+        }
+        _ => Err(SqlError::UnsupportedOperation(format!(
+            "Unsupported expression in JOIN select: {:?}",
+            expr
+        ))),
+    }
+}
+
+/// Parse json_extract for JOIN (returns qualifier and path)
+fn parse_json_extract_for_join(func: &Function) -> Result<(String, String)> {
+    let args = &func.args;
+    if args.len() != 2 {
+        return Err(SqlError::ParseError(
+            "json_extract requires 2 arguments".to_string(),
+        ));
+    }
+
+    // Get qualifier from first arg (e.g., o.value)
+    let qualifier = match &args[0] {
+        FunctionArg::Unnamed(FunctionArgExpr::Expr(Expr::CompoundIdentifier(parts))) => {
+            if !parts.is_empty() {
+                parts[0].value.clone()
+            } else {
+                return Err(SqlError::ParseError(
+                    "Expected qualified column in json_extract".to_string(),
+                ));
+            }
+        }
+        FunctionArg::Unnamed(FunctionArgExpr::Expr(Expr::Identifier(ident))) => {
+            // Unqualified - use empty string
+            ident.value.clone()
+        }
+        _ => {
+            return Err(SqlError::ParseError(
+                "Expected column in json_extract".to_string(),
+            ))
+        }
+    };
+
+    // Get path from second arg
+    let path = match &args[1] {
+        FunctionArg::Unnamed(FunctionArgExpr::Expr(Expr::Value(SqlValue::SingleQuotedString(s)))) => {
+            s.clone()
+        }
+        _ => {
+            return Err(SqlError::ParseError(
+                "Second argument to json_extract must be a string path".to_string(),
+            ))
+        }
+    };
+
+    Ok((qualifier, path))
 }
 
 /// Try to parse as a window aggregate query
@@ -1582,6 +2000,222 @@ mod tests {
                 assert_eq!(q.limit, Some(10));
             }
             _ => panic!("Expected Select query"),
+        }
+    }
+
+    // JOIN Query Tests
+
+    #[test]
+    fn test_parse_inner_join() {
+        let query = parse_query(
+            "SELECT o.key, u.key \
+             FROM orders o \
+             INNER JOIN users u ON o.user_id = u.id \
+             LIMIT 100"
+        ).unwrap();
+        match query {
+            SqlQuery::Join(q) => {
+                assert_eq!(q.left.topic, "orders");
+                assert_eq!(q.left.alias, Some("o".to_string()));
+                assert_eq!(q.right.topic, "users");
+                assert_eq!(q.right.alias, Some("u".to_string()));
+                assert_eq!(q.join_type, JoinType::Inner);
+                assert_eq!(q.limit, Some(100));
+            }
+            _ => panic!("Expected Join query"),
+        }
+    }
+
+    #[test]
+    fn test_parse_left_join() {
+        let query = parse_query(
+            "SELECT o.key, u.key \
+             FROM orders o \
+             LEFT JOIN users u ON o.user_id = u.id"
+        ).unwrap();
+        match query {
+            SqlQuery::Join(q) => {
+                assert_eq!(q.join_type, JoinType::Left);
+            }
+            _ => panic!("Expected Join query"),
+        }
+    }
+
+    #[test]
+    fn test_parse_right_join() {
+        let query = parse_query(
+            "SELECT o.key, u.key \
+             FROM orders o \
+             RIGHT JOIN users u ON o.user_id = u.id"
+        ).unwrap();
+        match query {
+            SqlQuery::Join(q) => {
+                assert_eq!(q.join_type, JoinType::Right);
+            }
+            _ => panic!("Expected Join query"),
+        }
+    }
+
+    #[test]
+    fn test_parse_full_join() {
+        let query = parse_query(
+            "SELECT o.key, u.key \
+             FROM orders o \
+             FULL OUTER JOIN users u ON o.user_id = u.id"
+        ).unwrap();
+        match query {
+            SqlQuery::Join(q) => {
+                assert_eq!(q.join_type, JoinType::Full);
+            }
+            _ => panic!("Expected Join query"),
+        }
+    }
+
+    #[test]
+    fn test_parse_join_with_json_extract() {
+        let query = parse_query(
+            "SELECT o.key, json_extract(o.value, '$.amount') as amount, u.key as user_key \
+             FROM orders o \
+             JOIN users u ON json_extract(o.value, '$.user_id') = json_extract(u.value, '$.id') \
+             LIMIT 50"
+        ).unwrap();
+        match query {
+            SqlQuery::Join(q) => {
+                assert_eq!(q.left.topic, "orders");
+                assert_eq!(q.right.topic, "users");
+                assert_eq!(q.columns.len(), 3);
+                // Check join condition uses JSON paths
+                assert!(q.condition.left.1.starts_with("$."));
+                assert!(q.condition.right.1.starts_with("$."));
+            }
+            _ => panic!("Expected Join query"),
+        }
+    }
+
+    #[test]
+    fn test_parse_join_on_key() {
+        let query = parse_query(
+            "SELECT o.key, o.value, u.value \
+             FROM orders o \
+             JOIN users u ON o.key = u.key"
+        ).unwrap();
+        match query {
+            SqlQuery::Join(q) => {
+                // When joining on .key, it should recognize it as the key field
+                assert_eq!(q.condition.left.0, "o");
+                assert_eq!(q.condition.right.0, "u");
+            }
+            _ => panic!("Expected Join query"),
+        }
+    }
+
+    #[test]
+    fn test_parse_join_with_wildcard() {
+        let query = parse_query(
+            "SELECT * FROM orders o JOIN users u ON o.user_id = u.id"
+        ).unwrap();
+        match query {
+            SqlQuery::Join(q) => {
+                assert_eq!(q.columns.len(), 1);
+                assert!(matches!(&q.columns[0], JoinSelectColumn::AllFrom(None)));
+            }
+            _ => panic!("Expected Join query"),
+        }
+    }
+
+    #[test]
+    fn test_parse_join_with_qualified_wildcard() {
+        let query = parse_query(
+            "SELECT o.*, u.key FROM orders o JOIN users u ON o.user_id = u.id"
+        ).unwrap();
+        match query {
+            SqlQuery::Join(q) => {
+                assert_eq!(q.columns.len(), 2);
+                assert!(matches!(&q.columns[0], JoinSelectColumn::AllFrom(Some(qual)) if qual == "o"));
+            }
+            _ => panic!("Expected Join query"),
+        }
+    }
+
+    // Stream-Table JOIN Tests (TABLE() syntax)
+
+    #[test]
+    fn test_parse_stream_table_join() {
+        let query = parse_query(
+            "SELECT o.key, u.key \
+             FROM orders o \
+             INNER JOIN TABLE(users) u ON o.user_id = u.key \
+             LIMIT 100"
+        ).unwrap();
+        match query {
+            SqlQuery::Join(q) => {
+                assert_eq!(q.left.topic, "orders");
+                assert!(!q.left.is_table); // Stream
+                assert_eq!(q.right.topic, "users");
+                assert!(q.right.is_table); // Table
+                assert_eq!(q.right.alias, Some("u".to_string()));
+            }
+            _ => panic!("Expected Join query"),
+        }
+    }
+
+    #[test]
+    fn test_parse_table_stream_join() {
+        // TABLE() on left side
+        let query = parse_query(
+            "SELECT u.key, o.key \
+             FROM TABLE(users) u \
+             LEFT JOIN orders o ON u.key = o.user_id"
+        ).unwrap();
+        match query {
+            SqlQuery::Join(q) => {
+                assert_eq!(q.left.topic, "users");
+                assert!(q.left.is_table); // Table
+                assert_eq!(q.right.topic, "orders");
+                assert!(!q.right.is_table); // Stream
+            }
+            _ => panic!("Expected Join query"),
+        }
+    }
+
+    #[test]
+    fn test_parse_stream_table_join_with_json() {
+        let query = parse_query(
+            "SELECT o.key, json_extract(o.value, '$.amount') as amount, \
+                    json_extract(u.value, '$.name') as user_name \
+             FROM orders o \
+             JOIN TABLE(users) u ON json_extract(o.value, '$.user_id') = u.key \
+             LIMIT 50"
+        ).unwrap();
+        match query {
+            SqlQuery::Join(q) => {
+                assert!(!q.left.is_table);
+                assert!(q.right.is_table);
+                assert_eq!(q.columns.len(), 3);
+                // Check join condition uses JSON path
+                assert!(q.condition.left.1.starts_with("$."));
+            }
+            _ => panic!("Expected Join query"),
+        }
+    }
+
+    #[test]
+    fn test_parse_join_with_where_filter() {
+        // Test JOIN with WHERE clause for predicate pushdown
+        let query = parse_query(
+            "SELECT o.key, u.key \
+             FROM orders o \
+             JOIN users u ON o.user_id = u.id \
+             WHERE partition = 0"
+        ).unwrap();
+        match query {
+            SqlQuery::Join(q) => {
+                assert_eq!(q.left.topic, "orders");
+                assert_eq!(q.right.topic, "users");
+                assert_eq!(q.filters.len(), 1);
+                assert!(matches!(&q.filters[0], Filter::PartitionEquals(0)));
+            }
+            _ => panic!("Expected Join query"),
         }
     }
 }

@@ -164,6 +164,43 @@ FROM embeddings
 ORDER BY distance ASC
 LIMIT 5;`,
   },
+  {
+    name: 'INNER JOIN',
+    query: `SELECT
+  o.key as order_key,
+  json_extract(o.value, '$.amount') as amount,
+  json_extract(u.value, '$.name') as customer_name
+FROM orders o
+INNER JOIN users u ON json_extract(o.value, '$.user_id') = u.key
+LIMIT 50;`,
+  },
+  {
+    name: 'LEFT JOIN',
+    query: `SELECT
+  o.key,
+  json_extract(o.value, '$.amount') as amount,
+  json_extract(p.value, '$.status') as payment_status
+FROM orders o
+LEFT JOIN payments p ON o.key = p.key
+LIMIT 50;`,
+  },
+  {
+    name: 'JOIN on Key',
+    query: `SELECT o.*, u.value as user_data
+FROM orders o
+INNER JOIN users u ON o.key = u.key
+LIMIT 50;`,
+  },
+  {
+    name: 'Stream-Table JOIN',
+    query: `SELECT
+  o.key as order_key,
+  json_extract(o.value, '$.amount') as amount,
+  json_extract(u.value, '$.name') as customer
+FROM orders o
+JOIN TABLE(users) u ON json_extract(o.value, '$.user_id') = u.key
+LIMIT 50;`,
+  },
 ];
 
 export default function SqlWorkbenchPage() {
@@ -482,6 +519,15 @@ export default function SqlWorkbenchPage() {
                   <li>vector_norm(...)</li>
                 </ul>
               </div>
+              <div>
+                <h4 className="font-medium">Stream JOINs</h4>
+                <ul className="text-muted-foreground mt-1 space-y-1">
+                  <li>INNER/LEFT/RIGHT/FULL JOIN</li>
+                  <li>JOIN TABLE(topic) t</li>
+                  <li>ON a.key = b.key</li>
+                  <li>ON json_extract(...) = ...</li>
+                </ul>
+              </div>
             </div>
           </Card>
 
@@ -489,10 +535,9 @@ export default function SqlWorkbenchPage() {
             <h3 className="text-lg font-semibold mb-2">Limitations</h3>
             <ul className="text-sm text-muted-foreground space-y-1">
               <li>Max 10,000 rows per query</li>
-              <li>No GROUP BY / aggregations</li>
-              <li>No JOINs</li>
               <li>Read-only queries</li>
               <li>30 second timeout</li>
+              <li>JOINs: 1hr window default</li>
             </ul>
           </Card>
         </div>

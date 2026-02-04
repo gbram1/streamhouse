@@ -15,6 +15,90 @@ pub enum SqlQuery {
     Count(CountQuery),
     /// Window aggregation query
     WindowAggregate(WindowAggregateQuery),
+    /// JOIN query across multiple topics
+    Join(JoinQuery),
+}
+
+/// JOIN type
+#[derive(Debug, Clone, PartialEq)]
+pub enum JoinType {
+    /// INNER JOIN - only matching rows
+    Inner,
+    /// LEFT [OUTER] JOIN - all left rows, matching right rows
+    Left,
+    /// RIGHT [OUTER] JOIN - matching left rows, all right rows
+    Right,
+    /// FULL [OUTER] JOIN - all rows from both sides
+    Full,
+}
+
+/// Table reference in FROM clause (topic with optional alias)
+#[derive(Debug, Clone)]
+pub struct TableRef {
+    /// Topic name
+    pub topic: String,
+    /// Optional alias (e.g., "orders o" -> alias = "o")
+    pub alias: Option<String>,
+    /// Whether this is a TABLE() reference (for stream-table joins)
+    pub is_table: bool,
+}
+
+impl TableRef {
+    /// Get the name to use for column qualification (alias if present, else topic)
+    pub fn qualifier(&self) -> &str {
+        self.alias.as_deref().unwrap_or(&self.topic)
+    }
+}
+
+/// JOIN condition from ON clause
+#[derive(Debug, Clone)]
+pub struct JoinCondition {
+    /// Left side: (qualifier, field_path) e.g., ("o", "$.user_id") or ("o", "key")
+    pub left: (String, String),
+    /// Right side: (qualifier, field_path) e.g., ("u", "$.id") or ("u", "key")
+    pub right: (String, String),
+}
+
+/// JOIN query structure
+#[derive(Debug, Clone)]
+pub struct JoinQuery {
+    /// Left table reference
+    pub left: TableRef,
+    /// Right table reference
+    pub right: TableRef,
+    /// Type of join
+    pub join_type: JoinType,
+    /// Join condition (ON clause)
+    pub condition: JoinCondition,
+    /// Columns to select
+    pub columns: Vec<JoinSelectColumn>,
+    /// WHERE clause filters
+    pub filters: Vec<Filter>,
+    /// ORDER BY clause
+    pub order_by: Option<OrderBy>,
+    /// LIMIT clause
+    pub limit: Option<usize>,
+    /// Time window for join buffer (in milliseconds, default 1 hour)
+    pub window_ms: Option<i64>,
+}
+
+/// Column selection in JOIN query (supports qualified names)
+#[derive(Debug, Clone)]
+pub enum JoinSelectColumn {
+    /// All columns from all tables (*)
+    AllFrom(Option<String>), // None = *, Some("o") = o.*
+    /// Qualified column: o.key, u.value, etc.
+    QualifiedColumn {
+        qualifier: String,
+        column: String,
+        alias: Option<String>,
+    },
+    /// JSON extraction with qualifier: json_extract(o.value, '$.field')
+    QualifiedJsonExtract {
+        qualifier: String,
+        path: String,
+        alias: Option<String>,
+    },
 }
 
 /// Window type for streaming aggregations
