@@ -311,3 +311,110 @@ Response:
 6. **Use refinement**: Start with a simple query, then refine it iteratively
 
 7. **Check cost first**: Use `/query/estimate` before running expensive queries
+
+## Schema Inference
+
+Automatically infer the JSON schema from topic messages with AI-powered field descriptions and index recommendations.
+
+### Infer Schema
+
+```bash
+curl -X POST http://localhost:8080/api/v1/schema/infer \
+  -H "Content-Type: application/json" \
+  -d '{
+    "topic": "orders",
+    "sampleSize": 100,
+    "generateDescriptions": true
+  }'
+```
+
+### Request Parameters
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `topic` | string | Yes | Topic name to analyze |
+| `sampleSize` | number | No | Number of messages to sample (default: 100, max: 1000) |
+| `generateDescriptions` | boolean | No | Generate AI descriptions for fields (default: true) |
+
+### Response Format
+
+```json
+{
+  "topic": "orders",
+  "sampleCount": 100,
+  "fields": [
+    {
+      "path": "user_id",
+      "jsonType": "string",
+      "nullable": false,
+      "occurrenceRate": 1.0,
+      "uniqueValues": 45,
+      "sampleValues": ["usr_123", "usr_456", "usr_789"],
+      "description": "Unique identifier for the user who placed the order",
+      "suggestedSqlType": "VARCHAR"
+    },
+    {
+      "path": "amount",
+      "jsonType": "number",
+      "nullable": false,
+      "occurrenceRate": 1.0,
+      "uniqueValues": 78,
+      "sampleValues": [99.99, 150.00, 24.50],
+      "description": "Order total amount in dollars",
+      "suggestedSqlType": "DOUBLE"
+    },
+    {
+      "path": "items",
+      "jsonType": "array<object>",
+      "nullable": false,
+      "occurrenceRate": 1.0,
+      "uniqueValues": null,
+      "sampleValues": [],
+      "description": "List of items in the order",
+      "suggestedSqlType": "JSON"
+    }
+  ],
+  "indexRecommendations": [
+    {
+      "field": "user_id",
+      "reason": "ID field - commonly used for lookups",
+      "priority": "high",
+      "exampleQuery": "SELECT * FROM orders WHERE json_extract(value, '$.user_id') = 'usr_123' LIMIT 100"
+    },
+    {
+      "field": "status",
+      "reason": "Low cardinality field - good for filtering",
+      "priority": "medium",
+      "exampleQuery": "SELECT * FROM orders WHERE json_extract(value, '$.status') = 'completed' LIMIT 100"
+    },
+    {
+      "field": "created_at",
+      "reason": "Timestamp field - useful for time-range queries",
+      "priority": "high",
+      "exampleQuery": "SELECT * FROM orders WHERE json_extract(value, '$.created_at') >= '2026-01-01' LIMIT 100"
+    }
+  ],
+  "confidence": 0.95,
+  "summary": "Orders topic containing e-commerce order data with user information, order items, amounts, and status tracking."
+}
+```
+
+### Field Types Detected
+
+| JSON Type | SQL Type | Description |
+|-----------|----------|-------------|
+| `string` | VARCHAR | Text values |
+| `integer` | BIGINT | Whole numbers |
+| `number` | DOUBLE | Decimal numbers |
+| `boolean` | BOOLEAN | True/false values |
+| `array` | JSON | Arrays of values |
+| `object` | JSON | Nested objects |
+| `null` | VARCHAR | Null values only |
+
+### Index Priority Levels
+
+| Priority | Meaning |
+|----------|---------|
+| `high` | Strongly recommended - ID fields, timestamps |
+| `medium` | Useful - status/type fields with low cardinality |
+| `low` | Optional - other frequently accessed fields |

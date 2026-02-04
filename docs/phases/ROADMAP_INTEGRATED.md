@@ -1,7 +1,7 @@
 # StreamHouse: Integrated Technical & Business Roadmap
 
 **Last Updated:** February 4, 2026
-**Current Status:** Phase 13 (UI), Phase 16 (Exactly-Once), Phase 17 (Fast Leader Handoff), Phase 20 (AI Queries) Complete
+**Current Status:** Phase 13 (UI), Phase 16 (Exactly-Once), Phase 17 (Fast Leader Handoff), Phase 20 (AI Queries), Phase 20.1 (Schema Inference) Complete
 
 ---
 
@@ -653,9 +653,9 @@ POST /api/v1/query/ask
 
 **Why it matters:** "Query your streams in plain English" is a compelling headline. Expands market beyond engineers.
 
-#### Phase 20.1: Schema Inference & Documentation ⏳ HIGH PRIORITY
+#### Phase 20.1: Schema Inference & Documentation ✅ COMPLETE
 
-**Status:** PLANNED
+**Status:** COMPLETE
 **Priority:** HIGH (improves onboarding)
 **Effort:** 1-2 days (10-15 hours)
 
@@ -674,14 +674,23 @@ AI infers:
 ```
 
 **Features:**
-- [ ] Sample data → Avro/JSON schema inference
-- [ ] Nullable field detection
-- [ ] Type coercion suggestions
-- [ ] Auto-generated field descriptions
-- [ ] Index recommendations based on query patterns
-- [ ] Schema evolution suggestions
+- [x] Sample data → JSON schema inference (`POST /api/v1/schema/infer`)
+- [x] Nullable field detection (tracks null counts and occurrence rates)
+- [x] Type detection (string, integer, number, boolean, array, object)
+- [x] Auto-generated field descriptions (AI-powered)
+- [x] Index recommendations based on field patterns (ID, status, timestamp fields)
+- [x] Suggested SQL types for each field
 
-**Effort:** 10-15 hours
+**API Endpoint:** `POST /api/v1/schema/infer`
+```json
+{
+  "topic": "orders",
+  "sampleSize": 100,
+  "generateDescriptions": true
+}
+```
+
+**Completed:** February 4, 2026
 
 #### Phase 21: ML Feature Pipelines ⏳ STRATEGIC
 
@@ -1008,8 +1017,8 @@ curl -X POST http://localhost:8080/api/v1/query/ask \
 ### AI Capabilities (Strategic)
 | Phase | Effort | Priority |
 |-------|--------|----------|
-| Phase 20: Natural Language → SQL | 25h | HIGH |
-| Phase 20.1: Schema Inference | 15h | HIGH |
+| Phase 20: Natural Language → SQL | 25h | ✅ COMPLETE |
+| Phase 20.1: Schema Inference | 15h | ✅ COMPLETE |
 | Phase 21: ML Feature Pipelines | 55h | HIGH |
 | Phase 22: Anomaly Detection | 40h | MEDIUM |
 | Phase 23: Vector/Embedding Streaming | 100h | STRATEGIC |

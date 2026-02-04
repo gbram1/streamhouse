@@ -140,6 +140,8 @@ pub fn create_router(state: AppState) -> Router {
         )
         .route("/query/history/:id/refine", post(handlers::ai::refine_query))
         .route("/ai/health", get(handlers::ai::ai_health))
+        // Schema inference
+        .route("/schema/infer", post(handlers::ai::infer_schema))
         .with_state(state.clone());
 
     // OpenAPI documentation
@@ -227,6 +229,7 @@ pub async fn serve(router: Router, port: u16) -> Result<(), Box<dyn std::error::
         handlers::ai::estimate_cost,
         handlers::ai::delete_query,
         handlers::ai::clear_query_history,
+        handlers::ai::infer_schema,
     ),
     components(schemas(
         models::Topic,
@@ -285,6 +288,10 @@ pub async fn serve(router: Router, port: u16) -> Result<(), Box<dyn std::error::
         handlers::ai::CostEstimate,
         handlers::ai::QueryHistoryEntry,
         handlers::ai::QueryHistoryResponse,
+        handlers::ai::InferSchemaRequest,
+        handlers::ai::InferredSchema,
+        handlers::ai::InferredField,
+        handlers::ai::IndexRecommendation,
     )),
     tags(
         (name = "topics", description = "Topic management"),
