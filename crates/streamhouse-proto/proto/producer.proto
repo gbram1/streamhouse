@@ -2,6 +2,11 @@
 //
 // This file defines the gRPC API for producers to send records to StreamHouse agents.
 // Agents are responsible for buffering, batching, and writing records to storage.
+//
+// Supports:
+// - Idempotent producers (deduplication via producer_id + sequence)
+// - Transactional writes (atomic multi-partition commits)
+// - Configurable ack modes (durability vs latency trade-off)
 
 syntax = "proto3";
 
@@ -13,19 +18,86 @@ package streamhouse.producer;
 // The agent validates partition leases, appends records to partition writers,
 // and returns the assigned offsets.
 service ProducerService {
+  // Initialize a producer and get a producer ID.
+  // Required for idempotent and transactional producers.
+  rpc InitProducer(InitProducerRequest) returns (InitProducerResponse);
+
   // Produce records to a partition.
   //
   // The agent validates that it holds the lease for the partition, then appends
-  // the records to the partition writer. Records are batched to amortize the
-  // cost of network round-trips.
+  // the records to the partition writer. For idempotent producers, duplicates
+  // are detected and filtered based on sequence numbers.
   //
   // Returns:
   // - OK: Records appended successfully, response contains base offset
   // - NOT_FOUND: Agent doesn't hold lease for this partition
-  // - FAILED_PRECONDITION: Lease expired
+  // - FAILED_PRECONDITION: Lease expired, producer fenced, or sequence error
   // - UNAVAILABLE: Agent shutting down
   // - INTERNAL: Storage write failed
+  // - ALREADY_EXISTS: Duplicate records detected (idempotent mode)
   rpc Produce(ProduceRequest) returns (ProduceResponse);
+
+  // Begin a new transaction.
+  // Must be called before sending transactional records.
+  rpc BeginTransaction(BeginTransactionRequest) returns (BeginTransactionResponse);
+
+  // Commit a transaction.
+  // Makes all records in the transaction visible to consumers.
+  rpc CommitTransaction(CommitTransactionRequest) returns (CommitTransactionResponse);
+
+  // Abort a transaction.
+  // Discards all records in the transaction.
+  rpc AbortTransaction(AbortTransactionRequest) returns (AbortTransactionResponse);
+
+  // Send a heartbeat to keep producer and transaction alive.
+  rpc Heartbeat(HeartbeatRequest) returns (HeartbeatResponse);
+}
+
+// Acknowledgment mode for durability vs latency trade-off.
+enum AckMode {
+  // Ack after record is buffered in agent memory.
+  // Fast (~1ms) but data at risk until S3 flush (~30s window).
+  // Similar to Kafka acks=1.
+  ACK_BUFFERED = 0;
+
+  // Ack after record is persisted to S3.
+  // Slower (~150ms) but zero data loss.
+  // Similar to Kafka acks=all.
+  ACK_DURABLE = 1;
+
+  // Fire and forget - don't wait for any confirmation.
+  // Fastest but can lose data.
+  // Similar to Kafka acks=0.
+  ACK_NONE = 2;
+}
+
+// Request to initialize a producer.
+message InitProducerRequest {
+  // Optional: transactional ID for transactional producers.
+  // If provided, enables transactions and ensures exactly-once semantics.
+  // Must be unique per logical producer.
+  optional string transactional_id = 1;
+
+  // Optional: organization ID for multi-tenant isolation.
+  optional string organization_id = 2;
+
+  // Producer timeout in milliseconds.
+  // Producer is considered dead if no heartbeat within this time.
+  uint32 timeout_ms = 3;
+
+  // Optional: client-provided metadata (for debugging/monitoring).
+  map<string, string> metadata = 4;
+}
+
+// Response from producer initialization.
+message InitProducerResponse {
+  // Assigned producer ID (UUID).
+  // Must be included in all subsequent ProduceRequests.
+  string producer_id = 1;
+
+  // Producer epoch (incremented on each InitProducer call).
+  // Used for fencing zombie producers.
+  uint32 epoch = 2;
 }
 
 // Request to produce records to a partition.
@@ -39,6 +111,37 @@ message ProduceRequest {
   // Records to append
   repeated Record records = 3;
 
+  // =====================================
+  // Idempotent Producer Fields
+  // =====================================
+
+  // Producer ID from InitProducer (required for idempotent mode).
+  // If not set, records are not deduplicated.
+  optional string producer_id = 4;
+
+  // Producer epoch from InitProducer.
+  // Used to fence zombie producers.
+  optional uint32 producer_epoch = 5;
+
+  // Base sequence number for this batch.
+  // Must be exactly last_acked_sequence + 1 for this partition.
+  // Each record in batch has sequence: base_sequence, base_sequence+1, ...
+  optional int64 base_sequence = 6;
+
+  // =====================================
+  // Transaction Fields
+  // =====================================
+
+  // Transaction ID (if part of a transaction).
+  optional string transaction_id = 7;
+
+  // =====================================
+  // Ack Mode
+  // =====================================
+
+  // Acknowledgment mode (default: ACK_BUFFERED).
+  AckMode ack_mode = 8;
+
   // Individual record in the batch
   message Record {
     // Optional record key (used for compaction, routing)
@@ -49,15 +152,118 @@ message ProduceRequest {
 
     // Record timestamp (milliseconds since Unix epoch)
     uint64 timestamp = 3;
+
+    // Optional headers (key-value metadata)
+    map<string, bytes> headers = 4;
   }
 }
 
 // Response from producing records.
 message ProduceResponse {
-  // Base offset of the first record in the batch
+  // Base offset of the first record in the batch.
   // Subsequent records have offsets base_offset + 1, base_offset + 2, etc.
   uint64 base_offset = 1;
 
-  // Number of records successfully appended
+  // Number of records successfully appended.
   uint32 record_count = 2;
+
+  // Timestamp assigned by the server (if server-side timestamping enabled).
+  optional uint64 log_append_time = 3;
+
+  // Error details for partial failures (one per record).
+  // Only populated if some records failed.
+  repeated RecordError record_errors = 4;
+
+  // Whether duplicates were detected and filtered.
+  bool duplicates_filtered = 5;
+
+  message RecordError {
+    // Index of the failed record in the request (0-based).
+    uint32 record_index = 1;
+
+    // Error code.
+    string error_code = 2;
+
+    // Human-readable error message.
+    string message = 3;
+  }
+}
+
+// Request to begin a transaction.
+message BeginTransactionRequest {
+  // Producer ID from InitProducer.
+  string producer_id = 1;
+
+  // Producer epoch for fencing.
+  uint32 producer_epoch = 2;
+
+  // Transaction timeout in milliseconds.
+  // Transaction is aborted if not committed/aborted within this time.
+  uint32 timeout_ms = 3;
+}
+
+// Response from beginning a transaction.
+message BeginTransactionResponse {
+  // Assigned transaction ID.
+  string transaction_id = 1;
+}
+
+// Request to commit a transaction.
+message CommitTransactionRequest {
+  // Producer ID from InitProducer.
+  string producer_id = 1;
+
+  // Producer epoch for fencing.
+  uint32 producer_epoch = 2;
+
+  // Transaction ID from BeginTransaction.
+  string transaction_id = 3;
+}
+
+// Response from committing a transaction.
+message CommitTransactionResponse {
+  // Whether the commit was successful.
+  bool success = 1;
+
+  // Commit timestamp.
+  uint64 commit_timestamp = 2;
+}
+
+// Request to abort a transaction.
+message AbortTransactionRequest {
+  // Producer ID from InitProducer.
+  string producer_id = 1;
+
+  // Producer epoch for fencing.
+  uint32 producer_epoch = 2;
+
+  // Transaction ID from BeginTransaction.
+  string transaction_id = 3;
+}
+
+// Response from aborting a transaction.
+message AbortTransactionResponse {
+  // Whether the abort was successful.
+  bool success = 1;
+}
+
+// Heartbeat to keep producer and transaction alive.
+message HeartbeatRequest {
+  // Producer ID from InitProducer.
+  string producer_id = 1;
+
+  // Producer epoch for fencing.
+  uint32 producer_epoch = 2;
+
+  // Optional: transaction ID if in a transaction.
+  optional string transaction_id = 3;
+}
+
+// Response from heartbeat.
+message HeartbeatResponse {
+  // Whether the producer is still valid.
+  bool valid = 1;
+
+  // If not valid, the reason.
+  optional string error = 2;
 }

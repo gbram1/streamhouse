@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useMemo } from 'react';
+import { useState } from 'react';
 import { DashboardLayout } from '@/components/layout/dashboard-layout';
 import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -115,8 +115,6 @@ export default function ApiKeysPage() {
 
   const selectedOrg = organizations?.find(o => o.id === selectedOrgId);
   const keyCount = apiKeys?.length || 0;
-  const now = useMemo(() => Date.now(), [apiKeys]);
-  const activeKeyCount = apiKeys?.filter(k => !k.expires_at || k.expires_at > now).length || 0;
 
   return (
     <DashboardLayout
@@ -154,7 +152,7 @@ export default function ApiKeysPage() {
               </div>
               <div className="mt-2 text-3xl font-bold">{keyCount}</div>
               <p className="mt-1 text-xs text-muted-foreground">
-                {activeKeyCount} active
+                Configured for this organization
               </p>
             </Card>
 
@@ -280,9 +278,7 @@ export default function ApiKeysPage() {
                         </TableCell>
                       </TableRow>
                     ) : (
-                      apiKeys?.map((key) => {
-                        const isExpired = key.expires_at && key.expires_at < now;
-                        return (
+                      apiKeys?.map((key) => (
                           <TableRow key={key.id}>
                             <TableCell className="font-medium">{key.name}</TableCell>
                             <TableCell className="font-mono text-sm">{key.key_prefix}...</TableCell>
@@ -318,12 +314,8 @@ export default function ApiKeysPage() {
                             <TableCell>
                               {key.expires_at ? (
                                 <div className="flex items-center gap-2">
-                                  {isExpired ? (
-                                    <AlertCircle className="h-4 w-4 text-destructive" />
-                                  ) : (
-                                    <Clock className="h-4 w-4 text-muted-foreground" />
-                                  )}
-                                  <span className={`text-sm ${isExpired ? 'text-destructive' : ''}`}>
+                                  <Clock className="h-4 w-4 text-muted-foreground" />
+                                  <span className="text-sm">
                                     {formatRelativeTime(key.expires_at)}
                                   </span>
                                 </div>
@@ -359,8 +351,7 @@ export default function ApiKeysPage() {
                               </AlertDialog>
                             </TableCell>
                           </TableRow>
-                        );
-                      })
+                      ))
                     )}
                   </TableBody>
                 </Table>

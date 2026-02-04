@@ -1131,4 +1131,336 @@ pub trait MetadataStore: Send + Sync {
         metric: &str,
         delta: i64,
     ) -> Result<()>;
+
+    // ============================================================
+    // EXACTLY-ONCE SEMANTICS (Phase 16)
+    // ============================================================
+    //
+    // These methods enable idempotent producers and transactional writes
+    // for exactly-once delivery guarantees.
+
+    // ---- Producer Operations ----
+
+    /// Initialize a producer and get/create producer state.
+    ///
+    /// For new producers, creates a new producer with epoch 0.
+    /// For existing transactional producers, increments the epoch (fencing old instances).
+    ///
+    /// # Arguments
+    ///
+    /// * `config` - Producer initialization config
+    ///
+    /// # Returns
+    ///
+    /// `Ok(Producer)` with assigned ID and current epoch.
+    async fn init_producer(&self, config: InitProducerConfig) -> Result<Producer>;
+
+    /// Get a producer by ID.
+    ///
+    /// # Arguments
+    ///
+    /// * `producer_id` - Producer ID
+    ///
+    /// # Returns
+    ///
+    /// - `Ok(Some(Producer))` if producer exists
+    /// - `Ok(None)` if not found
+    async fn get_producer(&self, producer_id: &str) -> Result<Option<Producer>>;
+
+    /// Get a producer by transactional ID.
+    ///
+    /// # Arguments
+    ///
+    /// * `transactional_id` - Transactional ID
+    /// * `organization_id` - Optional organization ID for multi-tenant isolation
+    ///
+    /// # Returns
+    ///
+    /// - `Ok(Some(Producer))` if producer exists
+    /// - `Ok(None)` if not found
+    async fn get_producer_by_transactional_id(
+        &self,
+        transactional_id: &str,
+        organization_id: Option<&str>,
+    ) -> Result<Option<Producer>>;
+
+    /// Update producer heartbeat timestamp.
+    ///
+    /// # Arguments
+    ///
+    /// * `producer_id` - Producer ID
+    async fn update_producer_heartbeat(&self, producer_id: &str) -> Result<()>;
+
+    /// Fence a producer (mark as fenced, preventing further operations).
+    ///
+    /// # Arguments
+    ///
+    /// * `producer_id` - Producer ID
+    async fn fence_producer(&self, producer_id: &str) -> Result<()>;
+
+    /// Delete expired producers.
+    ///
+    /// # Arguments
+    ///
+    /// * `timeout_ms` - Producers with last_heartbeat older than this are deleted
+    ///
+    /// # Returns
+    ///
+    /// Number of producers deleted.
+    async fn cleanup_expired_producers(&self, timeout_ms: i64) -> Result<u64>;
+
+    // ---- Sequence Operations (Idempotent Producers) ----
+
+    /// Get the last sequence number for a producer/partition.
+    ///
+    /// Used to detect duplicate records.
+    ///
+    /// # Arguments
+    ///
+    /// * `producer_id` - Producer ID
+    /// * `topic` - Topic name
+    /// * `partition_id` - Partition ID
+    ///
+    /// # Returns
+    ///
+    /// - `Ok(Some(sequence))` if sequence exists
+    /// - `Ok(None)` if no records from this producer yet
+    async fn get_producer_sequence(
+        &self,
+        producer_id: &str,
+        topic: &str,
+        partition_id: u32,
+    ) -> Result<Option<i64>>;
+
+    /// Update the last sequence number for a producer/partition.
+    ///
+    /// Called after successfully appending records.
+    ///
+    /// # Arguments
+    ///
+    /// * `producer_id` - Producer ID
+    /// * `topic` - Topic name
+    /// * `partition_id` - Partition ID
+    /// * `sequence` - New last sequence number
+    async fn update_producer_sequence(
+        &self,
+        producer_id: &str,
+        topic: &str,
+        partition_id: u32,
+        sequence: i64,
+    ) -> Result<()>;
+
+    /// Check and update sequence atomically (for deduplication).
+    ///
+    /// This is the core deduplication operation:
+    /// - If sequence <= last_sequence: return false (duplicate)
+    /// - If sequence == last_sequence + 1: update and return true (valid)
+    /// - If sequence > last_sequence + 1: return error (gap)
+    ///
+    /// # Arguments
+    ///
+    /// * `producer_id` - Producer ID
+    /// * `topic` - Topic name
+    /// * `partition_id` - Partition ID
+    /// * `base_sequence` - Expected base sequence (should be last_sequence + 1)
+    /// * `record_count` - Number of records in the batch
+    ///
+    /// # Returns
+    ///
+    /// - `Ok(true)` if sequence is valid and updated
+    /// - `Ok(false)` if duplicate detected
+    ///
+    /// # Errors
+    ///
+    /// - `SequenceError`: Gap in sequence numbers
+    async fn check_and_update_sequence(
+        &self,
+        producer_id: &str,
+        topic: &str,
+        partition_id: u32,
+        base_sequence: i64,
+        record_count: u32,
+    ) -> Result<bool>;
+
+    // ---- Transaction Operations ----
+
+    /// Begin a new transaction.
+    ///
+    /// # Arguments
+    ///
+    /// * `producer_id` - Producer ID
+    /// * `timeout_ms` - Transaction timeout
+    ///
+    /// # Returns
+    ///
+    /// `Ok(Transaction)` with new transaction ID.
+    async fn begin_transaction(&self, producer_id: &str, timeout_ms: u32) -> Result<Transaction>;
+
+    /// Get a transaction by ID.
+    ///
+    /// # Arguments
+    ///
+    /// * `transaction_id` - Transaction ID
+    ///
+    /// # Returns
+    ///
+    /// - `Ok(Some(Transaction))` if transaction exists
+    /// - `Ok(None)` if not found
+    async fn get_transaction(&self, transaction_id: &str) -> Result<Option<Transaction>>;
+
+    /// Add a partition to a transaction.
+    ///
+    /// Called when the first record is written to a partition as part of a transaction.
+    ///
+    /// # Arguments
+    ///
+    /// * `transaction_id` - Transaction ID
+    /// * `topic` - Topic name
+    /// * `partition_id` - Partition ID
+    /// * `first_offset` - First offset written
+    async fn add_transaction_partition(
+        &self,
+        transaction_id: &str,
+        topic: &str,
+        partition_id: u32,
+        first_offset: u64,
+    ) -> Result<()>;
+
+    /// Update the last offset for a partition in a transaction.
+    ///
+    /// Called after each record is written.
+    ///
+    /// # Arguments
+    ///
+    /// * `transaction_id` - Transaction ID
+    /// * `topic` - Topic name
+    /// * `partition_id` - Partition ID
+    /// * `last_offset` - New last offset
+    async fn update_transaction_partition_offset(
+        &self,
+        transaction_id: &str,
+        topic: &str,
+        partition_id: u32,
+        last_offset: u64,
+    ) -> Result<()>;
+
+    /// Get all partitions in a transaction.
+    ///
+    /// # Arguments
+    ///
+    /// * `transaction_id` - Transaction ID
+    ///
+    /// # Returns
+    ///
+    /// Vector of transaction partitions.
+    async fn get_transaction_partitions(
+        &self,
+        transaction_id: &str,
+    ) -> Result<Vec<TransactionPartition>>;
+
+    /// Prepare a transaction for commit (two-phase commit).
+    ///
+    /// Changes state from Ongoing to Preparing.
+    ///
+    /// # Arguments
+    ///
+    /// * `transaction_id` - Transaction ID
+    async fn prepare_transaction(&self, transaction_id: &str) -> Result<()>;
+
+    /// Commit a transaction.
+    ///
+    /// Changes state to Committed and writes commit markers.
+    ///
+    /// # Arguments
+    ///
+    /// * `transaction_id` - Transaction ID
+    ///
+    /// # Returns
+    ///
+    /// `Ok(i64)` commit timestamp.
+    async fn commit_transaction(&self, transaction_id: &str) -> Result<i64>;
+
+    /// Abort a transaction.
+    ///
+    /// Changes state to Aborted and writes abort markers.
+    ///
+    /// # Arguments
+    ///
+    /// * `transaction_id` - Transaction ID
+    async fn abort_transaction(&self, transaction_id: &str) -> Result<()>;
+
+    /// Clean up old completed transactions.
+    ///
+    /// # Arguments
+    ///
+    /// * `max_age_ms` - Transactions completed more than this long ago are deleted
+    ///
+    /// # Returns
+    ///
+    /// Number of transactions deleted.
+    async fn cleanup_completed_transactions(&self, max_age_ms: i64) -> Result<u64>;
+
+    // ---- Transaction Marker Operations ----
+
+    /// Add a transaction marker.
+    ///
+    /// Called when committing or aborting a transaction.
+    ///
+    /// # Arguments
+    ///
+    /// * `marker` - Transaction marker
+    async fn add_transaction_marker(&self, marker: TransactionMarker) -> Result<()>;
+
+    /// Get transaction markers for a partition.
+    ///
+    /// Used by consumers in read-committed mode to filter records.
+    ///
+    /// # Arguments
+    ///
+    /// * `topic` - Topic name
+    /// * `partition_id` - Partition ID
+    /// * `min_offset` - Minimum offset to include
+    ///
+    /// # Returns
+    ///
+    /// Vector of transaction markers (sorted by offset).
+    async fn get_transaction_markers(
+        &self,
+        topic: &str,
+        partition_id: u32,
+        min_offset: u64,
+    ) -> Result<Vec<TransactionMarker>>;
+
+    // ---- Last Stable Offset (LSO) Operations ----
+
+    /// Get the last stable offset for a partition.
+    ///
+    /// The LSO is the highest offset where all transactions below are committed/aborted.
+    /// Consumers in read-committed mode only see records up to the LSO.
+    ///
+    /// # Arguments
+    ///
+    /// * `topic` - Topic name
+    /// * `partition_id` - Partition ID
+    ///
+    /// # Returns
+    ///
+    /// Last stable offset (0 if not set).
+    async fn get_last_stable_offset(&self, topic: &str, partition_id: u32) -> Result<u64>;
+
+    /// Update the last stable offset for a partition.
+    ///
+    /// Called when transactions are committed/aborted.
+    ///
+    /// # Arguments
+    ///
+    /// * `topic` - Topic name
+    /// * `partition_id` - Partition ID
+    /// * `lso` - New last stable offset
+    async fn update_last_stable_offset(
+        &self,
+        topic: &str,
+        partition_id: u32,
+        lso: u64,
+    ) -> Result<()>;
 }

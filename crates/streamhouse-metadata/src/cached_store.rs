@@ -105,9 +105,10 @@
 //! - Memory: (10K × 500B) + (1M × 200B) = 205 MB
 
 use crate::{
-    AgentInfo, ApiKey, ConsumerOffset, CreateApiKey, CreateOrganization, MetadataStore,
-    Organization, OrganizationPlan, OrganizationQuota, OrganizationStatus, OrganizationUsage,
-    Partition, PartitionLease, Result, SegmentInfo, Topic, TopicConfig,
+    AgentInfo, ApiKey, ConsumerOffset, CreateApiKey, CreateOrganization, InitProducerConfig,
+    MetadataStore, Organization, OrganizationPlan, OrganizationQuota, OrganizationStatus,
+    OrganizationUsage, Partition, PartitionLease, Producer, Result, SegmentInfo, Topic,
+    TopicConfig, Transaction, TransactionMarker, TransactionPartition,
 };
 use async_trait::async_trait;
 use lru::LruCache;
@@ -750,6 +751,162 @@ impl<S: MetadataStore + 'static> MetadataStore for CachedMetadataStore<S> {
     ) -> Result<()> {
         self.inner
             .increment_organization_usage(organization_id, metric, delta)
+            .await
+    }
+
+    // ========================================================================
+    // EXACTLY-ONCE SEMANTICS (Phase 16 - NOT CACHED)
+    // ========================================================================
+    // Producer and transaction state must be consistent for exactly-once guarantees.
+
+    async fn init_producer(&self, config: InitProducerConfig) -> Result<Producer> {
+        self.inner.init_producer(config).await
+    }
+
+    async fn get_producer(&self, producer_id: &str) -> Result<Option<Producer>> {
+        self.inner.get_producer(producer_id).await
+    }
+
+    async fn get_producer_by_transactional_id(
+        &self,
+        transactional_id: &str,
+        organization_id: Option<&str>,
+    ) -> Result<Option<Producer>> {
+        self.inner
+            .get_producer_by_transactional_id(transactional_id, organization_id)
+            .await
+    }
+
+    async fn update_producer_heartbeat(&self, producer_id: &str) -> Result<()> {
+        self.inner.update_producer_heartbeat(producer_id).await
+    }
+
+    async fn fence_producer(&self, producer_id: &str) -> Result<()> {
+        self.inner.fence_producer(producer_id).await
+    }
+
+    async fn cleanup_expired_producers(&self, timeout_ms: i64) -> Result<u64> {
+        self.inner.cleanup_expired_producers(timeout_ms).await
+    }
+
+    async fn get_producer_sequence(
+        &self,
+        producer_id: &str,
+        topic: &str,
+        partition_id: u32,
+    ) -> Result<Option<i64>> {
+        self.inner
+            .get_producer_sequence(producer_id, topic, partition_id)
+            .await
+    }
+
+    async fn update_producer_sequence(
+        &self,
+        producer_id: &str,
+        topic: &str,
+        partition_id: u32,
+        sequence: i64,
+    ) -> Result<()> {
+        self.inner
+            .update_producer_sequence(producer_id, topic, partition_id, sequence)
+            .await
+    }
+
+    async fn check_and_update_sequence(
+        &self,
+        producer_id: &str,
+        topic: &str,
+        partition_id: u32,
+        base_sequence: i64,
+        record_count: u32,
+    ) -> Result<bool> {
+        self.inner
+            .check_and_update_sequence(producer_id, topic, partition_id, base_sequence, record_count)
+            .await
+    }
+
+    async fn begin_transaction(&self, producer_id: &str, timeout_ms: u32) -> Result<Transaction> {
+        self.inner.begin_transaction(producer_id, timeout_ms).await
+    }
+
+    async fn get_transaction(&self, transaction_id: &str) -> Result<Option<Transaction>> {
+        self.inner.get_transaction(transaction_id).await
+    }
+
+    async fn add_transaction_partition(
+        &self,
+        transaction_id: &str,
+        topic: &str,
+        partition_id: u32,
+        first_offset: u64,
+    ) -> Result<()> {
+        self.inner
+            .add_transaction_partition(transaction_id, topic, partition_id, first_offset)
+            .await
+    }
+
+    async fn update_transaction_partition_offset(
+        &self,
+        transaction_id: &str,
+        topic: &str,
+        partition_id: u32,
+        last_offset: u64,
+    ) -> Result<()> {
+        self.inner
+            .update_transaction_partition_offset(transaction_id, topic, partition_id, last_offset)
+            .await
+    }
+
+    async fn get_transaction_partitions(
+        &self,
+        transaction_id: &str,
+    ) -> Result<Vec<TransactionPartition>> {
+        self.inner.get_transaction_partitions(transaction_id).await
+    }
+
+    async fn prepare_transaction(&self, transaction_id: &str) -> Result<()> {
+        self.inner.prepare_transaction(transaction_id).await
+    }
+
+    async fn commit_transaction(&self, transaction_id: &str) -> Result<i64> {
+        self.inner.commit_transaction(transaction_id).await
+    }
+
+    async fn abort_transaction(&self, transaction_id: &str) -> Result<()> {
+        self.inner.abort_transaction(transaction_id).await
+    }
+
+    async fn cleanup_completed_transactions(&self, max_age_ms: i64) -> Result<u64> {
+        self.inner.cleanup_completed_transactions(max_age_ms).await
+    }
+
+    async fn add_transaction_marker(&self, marker: TransactionMarker) -> Result<()> {
+        self.inner.add_transaction_marker(marker).await
+    }
+
+    async fn get_transaction_markers(
+        &self,
+        topic: &str,
+        partition_id: u32,
+        min_offset: u64,
+    ) -> Result<Vec<TransactionMarker>> {
+        self.inner
+            .get_transaction_markers(topic, partition_id, min_offset)
+            .await
+    }
+
+    async fn get_last_stable_offset(&self, topic: &str, partition_id: u32) -> Result<u64> {
+        self.inner.get_last_stable_offset(topic, partition_id).await
+    }
+
+    async fn update_last_stable_offset(
+        &self,
+        topic: &str,
+        partition_id: u32,
+        lso: u64,
+    ) -> Result<()> {
+        self.inner
+            .update_last_stable_offset(topic, partition_id, lso)
             .await
     }
 }

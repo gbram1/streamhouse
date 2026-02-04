@@ -93,12 +93,21 @@ message ProduceBatchRequest {
   string topic = 1;
   uint32 partition = 2;
   repeated Record records = 3;
+
+  // Idempotent Producer Fields (Phase 16)
+  optional string producer_id = 4;     // Producer ID from InitProducer
+  optional uint32 producer_epoch = 5;  // Producer epoch for fencing
+  optional int64 base_sequence = 6;    // Base sequence number for deduplication
+
+  // Transaction Fields (Phase 16)
+  optional string transaction_id = 7;  // Transaction ID if part of a transaction
 }
 
 message ProduceBatchResponse {
   uint64 first_offset = 1;
   uint64 last_offset = 2;
   uint32 count = 3;
+  bool duplicates_filtered = 4;  // Whether duplicates were detected and filtered
 }
 
 message Record {
