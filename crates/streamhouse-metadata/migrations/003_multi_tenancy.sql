@@ -129,16 +129,16 @@ CREATE INDEX IF NOT EXISTS idx_org_usage_period ON organization_usage(period_sta
 -- SQLite doesn't support ALTER TABLE ADD CONSTRAINT, so we need to:
 -- 1. Create new tables with organization_id
 -- 2. Copy data from old tables
--- 3. Drop old tables
+-- 3. Drop old tables (in reverse FK dependency order)
 -- 4. Rename new tables
-
+--
 -- Note: This approach preserves data during migration
 
--- ---------------------------------------------------------------------------
--- TOPICS: Add organization_id
--- ---------------------------------------------------------------------------
+-- ===========================================================================
+-- PHASE 1: CREATE ALL NEW TABLES
+-- ===========================================================================
 
--- Create new topics table with organization_id
+-- TOPICS_NEW
 CREATE TABLE IF NOT EXISTS topics_new (
     organization_id TEXT NOT NULL DEFAULT '00000000-0000-0000-0000-000000000000',
     name TEXT NOT NULL,
@@ -151,22 +151,7 @@ CREATE TABLE IF NOT EXISTS topics_new (
     FOREIGN KEY (organization_id) REFERENCES organizations(id) ON DELETE CASCADE
 );
 
--- Copy existing data
-INSERT OR IGNORE INTO topics_new (organization_id, name, partition_count, retention_ms, created_at, updated_at, config)
-SELECT '00000000-0000-0000-0000-000000000000', name, partition_count, retention_ms, created_at, updated_at, config
-FROM topics;
-
--- Drop old table and rename (only if topics_new has data or topics is empty)
-DROP TABLE IF EXISTS topics;
-ALTER TABLE topics_new RENAME TO topics;
-
-CREATE INDEX IF NOT EXISTS idx_topics_org ON topics(organization_id);
-CREATE INDEX IF NOT EXISTS idx_topics_created_at ON topics(created_at);
-
--- ---------------------------------------------------------------------------
--- PARTITIONS: Add organization_id
--- ---------------------------------------------------------------------------
-
+-- PARTITIONS_NEW
 CREATE TABLE IF NOT EXISTS partitions_new (
     organization_id TEXT NOT NULL DEFAULT '00000000-0000-0000-0000-000000000000',
     topic TEXT NOT NULL,
@@ -175,23 +160,10 @@ CREATE TABLE IF NOT EXISTS partitions_new (
     created_at INTEGER NOT NULL,
     updated_at INTEGER NOT NULL,
     PRIMARY KEY (organization_id, topic, partition_id),
-    FOREIGN KEY (organization_id, topic) REFERENCES topics(organization_id, name) ON DELETE CASCADE
+    FOREIGN KEY (organization_id, topic) REFERENCES topics_new(organization_id, name) ON DELETE CASCADE
 );
 
-INSERT OR IGNORE INTO partitions_new (organization_id, topic, partition_id, high_watermark, created_at, updated_at)
-SELECT '00000000-0000-0000-0000-000000000000', topic, partition_id, high_watermark, created_at, updated_at
-FROM partitions;
-
-DROP TABLE IF EXISTS partitions;
-ALTER TABLE partitions_new RENAME TO partitions;
-
-CREATE INDEX IF NOT EXISTS idx_partitions_org ON partitions(organization_id);
-CREATE INDEX IF NOT EXISTS idx_partitions_topic ON partitions(organization_id, topic);
-
--- ---------------------------------------------------------------------------
--- SEGMENTS: Add organization_id
--- ---------------------------------------------------------------------------
-
+-- SEGMENTS_NEW
 CREATE TABLE IF NOT EXISTS segments_new (
     id TEXT PRIMARY KEY,
     organization_id TEXT NOT NULL DEFAULT '00000000-0000-0000-0000-000000000000',
@@ -208,22 +180,7 @@ CREATE TABLE IF NOT EXISTS segments_new (
     CHECK (end_offset >= base_offset)
 );
 
-INSERT OR IGNORE INTO segments_new (id, organization_id, topic, partition_id, base_offset, end_offset, record_count, size_bytes, s3_bucket, s3_key, created_at)
-SELECT id, '00000000-0000-0000-0000-000000000000', topic, partition_id, base_offset, end_offset, record_count, size_bytes, s3_bucket, s3_key, created_at
-FROM segments;
-
-DROP TABLE IF EXISTS segments;
-ALTER TABLE segments_new RENAME TO segments;
-
-CREATE INDEX IF NOT EXISTS idx_segments_org ON segments(organization_id);
-CREATE INDEX IF NOT EXISTS idx_segments_location ON segments(organization_id, topic, partition_id, base_offset);
-CREATE INDEX IF NOT EXISTS idx_segments_s3_path ON segments(s3_bucket, s3_key);
-CREATE INDEX IF NOT EXISTS idx_segments_offsets ON segments(organization_id, topic, partition_id, base_offset, end_offset);
-
--- ---------------------------------------------------------------------------
--- CONSUMER_GROUPS: Add organization_id
--- ---------------------------------------------------------------------------
-
+-- CONSUMER_GROUPS_NEW
 CREATE TABLE IF NOT EXISTS consumer_groups_new (
     organization_id TEXT NOT NULL DEFAULT '00000000-0000-0000-0000-000000000000',
     group_id TEXT NOT NULL,
@@ -233,19 +190,7 @@ CREATE TABLE IF NOT EXISTS consumer_groups_new (
     FOREIGN KEY (organization_id) REFERENCES organizations(id) ON DELETE CASCADE
 );
 
-INSERT OR IGNORE INTO consumer_groups_new (organization_id, group_id, created_at, updated_at)
-SELECT '00000000-0000-0000-0000-000000000000', group_id, created_at, updated_at
-FROM consumer_groups;
-
-DROP TABLE IF EXISTS consumer_groups;
-ALTER TABLE consumer_groups_new RENAME TO consumer_groups;
-
-CREATE INDEX IF NOT EXISTS idx_consumer_groups_org ON consumer_groups(organization_id);
-
--- ---------------------------------------------------------------------------
--- CONSUMER_OFFSETS: Add organization_id
--- ---------------------------------------------------------------------------
-
+-- CONSUMER_OFFSETS_NEW
 CREATE TABLE IF NOT EXISTS consumer_offsets_new (
     organization_id TEXT NOT NULL DEFAULT '00000000-0000-0000-0000-000000000000',
     group_id TEXT NOT NULL,
@@ -255,24 +200,11 @@ CREATE TABLE IF NOT EXISTS consumer_offsets_new (
     metadata TEXT,
     committed_at INTEGER NOT NULL,
     PRIMARY KEY (organization_id, group_id, topic, partition_id),
-    FOREIGN KEY (organization_id, group_id) REFERENCES consumer_groups(organization_id, group_id) ON DELETE CASCADE
+    FOREIGN KEY (organization_id, group_id) REFERENCES consumer_groups_new(organization_id, group_id) ON DELETE CASCADE,
+    UNIQUE (group_id, topic, partition_id)  -- For backwards compatibility with ON CONFLICT queries
 );
 
-INSERT OR IGNORE INTO consumer_offsets_new (organization_id, group_id, topic, partition_id, committed_offset, metadata, committed_at)
-SELECT '00000000-0000-0000-0000-000000000000', group_id, topic, partition_id, committed_offset, metadata, committed_at
-FROM consumer_offsets;
-
-DROP TABLE IF EXISTS consumer_offsets;
-ALTER TABLE consumer_offsets_new RENAME TO consumer_offsets;
-
-CREATE INDEX IF NOT EXISTS idx_consumer_offsets_org ON consumer_offsets(organization_id);
-CREATE INDEX IF NOT EXISTS idx_consumer_offsets_group ON consumer_offsets(organization_id, group_id);
-CREATE INDEX IF NOT EXISTS idx_consumer_offsets_topic ON consumer_offsets(organization_id, topic, partition_id);
-
--- ---------------------------------------------------------------------------
--- AGENTS: Add organization_id (nullable - agents can be shared)
--- ---------------------------------------------------------------------------
-
+-- AGENTS_NEW
 CREATE TABLE IF NOT EXISTS agents_new (
     agent_id TEXT PRIMARY KEY,
     organization_id TEXT,  -- NULL means shared agent
@@ -285,22 +217,7 @@ CREATE TABLE IF NOT EXISTS agents_new (
     FOREIGN KEY (organization_id) REFERENCES organizations(id) ON DELETE SET NULL
 );
 
-INSERT OR IGNORE INTO agents_new (agent_id, organization_id, address, availability_zone, agent_group, last_heartbeat, started_at, metadata)
-SELECT agent_id, NULL, address, availability_zone, agent_group, last_heartbeat, started_at, metadata
-FROM agents;
-
-DROP TABLE IF EXISTS agents;
-ALTER TABLE agents_new RENAME TO agents;
-
-CREATE INDEX IF NOT EXISTS idx_agents_org ON agents(organization_id);
-CREATE INDEX IF NOT EXISTS idx_agents_group ON agents(agent_group);
-CREATE INDEX IF NOT EXISTS idx_agents_az ON agents(availability_zone);
-CREATE INDEX IF NOT EXISTS idx_agents_heartbeat ON agents(last_heartbeat);
-
--- ---------------------------------------------------------------------------
--- PARTITION_LEASES: Add organization_id
--- ---------------------------------------------------------------------------
-
+-- PARTITION_LEASES_NEW
 CREATE TABLE IF NOT EXISTS partition_leases_new (
     organization_id TEXT NOT NULL DEFAULT '00000000-0000-0000-0000-000000000000',
     topic TEXT NOT NULL,
@@ -311,15 +228,92 @@ CREATE TABLE IF NOT EXISTS partition_leases_new (
     epoch INTEGER NOT NULL DEFAULT 1,
     PRIMARY KEY (organization_id, topic, partition_id),
     FOREIGN KEY (organization_id) REFERENCES organizations(id) ON DELETE CASCADE,
-    FOREIGN KEY (leader_agent_id) REFERENCES agents(agent_id) ON DELETE CASCADE
+    FOREIGN KEY (leader_agent_id) REFERENCES agents_new(agent_id) ON DELETE CASCADE,
+    UNIQUE (topic, partition_id)  -- For backwards compatibility with ON CONFLICT queries
 );
+
+-- ===========================================================================
+-- PHASE 2: COPY DATA FROM OLD TABLES TO NEW TABLES
+-- ===========================================================================
+
+INSERT OR IGNORE INTO topics_new (organization_id, name, partition_count, retention_ms, created_at, updated_at, config)
+SELECT '00000000-0000-0000-0000-000000000000', name, partition_count, retention_ms, created_at, updated_at, config
+FROM topics;
+
+INSERT OR IGNORE INTO partitions_new (organization_id, topic, partition_id, high_watermark, created_at, updated_at)
+SELECT '00000000-0000-0000-0000-000000000000', topic, partition_id, high_watermark, created_at, updated_at
+FROM partitions;
+
+INSERT OR IGNORE INTO segments_new (id, organization_id, topic, partition_id, base_offset, end_offset, record_count, size_bytes, s3_bucket, s3_key, created_at)
+SELECT id, '00000000-0000-0000-0000-000000000000', topic, partition_id, base_offset, end_offset, record_count, size_bytes, s3_bucket, s3_key, created_at
+FROM segments;
+
+INSERT OR IGNORE INTO consumer_groups_new (organization_id, group_id, created_at, updated_at)
+SELECT '00000000-0000-0000-0000-000000000000', group_id, created_at, updated_at
+FROM consumer_groups;
+
+INSERT OR IGNORE INTO consumer_offsets_new (organization_id, group_id, topic, partition_id, committed_offset, metadata, committed_at)
+SELECT '00000000-0000-0000-0000-000000000000', group_id, topic, partition_id, committed_offset, metadata, committed_at
+FROM consumer_offsets;
+
+INSERT OR IGNORE INTO agents_new (agent_id, organization_id, address, availability_zone, agent_group, last_heartbeat, started_at, metadata)
+SELECT agent_id, NULL, address, availability_zone, agent_group, last_heartbeat, started_at, metadata
+FROM agents;
 
 INSERT OR IGNORE INTO partition_leases_new (organization_id, topic, partition_id, leader_agent_id, lease_expires_at, acquired_at, epoch)
 SELECT '00000000-0000-0000-0000-000000000000', topic, partition_id, leader_agent_id, lease_expires_at, acquired_at, epoch
 FROM partition_leases;
 
+-- ===========================================================================
+-- PHASE 3: DROP ALL OLD TABLES (in reverse FK dependency order)
+-- ===========================================================================
+-- Order: Drop tables that reference others FIRST, then the tables they reference
+
 DROP TABLE IF EXISTS partition_leases;
+DROP TABLE IF EXISTS consumer_offsets;
+DROP TABLE IF EXISTS consumer_groups;
+DROP TABLE IF EXISTS segments;
+DROP TABLE IF EXISTS partitions;
+DROP TABLE IF EXISTS agents;
+DROP TABLE IF EXISTS topics;
+
+-- ===========================================================================
+-- PHASE 4: RENAME ALL NEW TABLES
+-- ===========================================================================
+
+ALTER TABLE topics_new RENAME TO topics;
+ALTER TABLE partitions_new RENAME TO partitions;
+ALTER TABLE segments_new RENAME TO segments;
+ALTER TABLE consumer_groups_new RENAME TO consumer_groups;
+ALTER TABLE consumer_offsets_new RENAME TO consumer_offsets;
+ALTER TABLE agents_new RENAME TO agents;
 ALTER TABLE partition_leases_new RENAME TO partition_leases;
+
+-- ===========================================================================
+-- PHASE 5: CREATE INDEXES
+-- ===========================================================================
+
+CREATE INDEX IF NOT EXISTS idx_topics_org ON topics(organization_id);
+CREATE INDEX IF NOT EXISTS idx_topics_created_at ON topics(created_at);
+
+CREATE INDEX IF NOT EXISTS idx_partitions_org ON partitions(organization_id);
+CREATE INDEX IF NOT EXISTS idx_partitions_topic ON partitions(organization_id, topic);
+
+CREATE INDEX IF NOT EXISTS idx_segments_org ON segments(organization_id);
+CREATE INDEX IF NOT EXISTS idx_segments_location ON segments(organization_id, topic, partition_id, base_offset);
+CREATE INDEX IF NOT EXISTS idx_segments_s3_path ON segments(s3_bucket, s3_key);
+CREATE INDEX IF NOT EXISTS idx_segments_offsets ON segments(organization_id, topic, partition_id, base_offset, end_offset);
+
+CREATE INDEX IF NOT EXISTS idx_consumer_groups_org ON consumer_groups(organization_id);
+
+CREATE INDEX IF NOT EXISTS idx_consumer_offsets_org ON consumer_offsets(organization_id);
+CREATE INDEX IF NOT EXISTS idx_consumer_offsets_group ON consumer_offsets(organization_id, group_id);
+CREATE INDEX IF NOT EXISTS idx_consumer_offsets_topic ON consumer_offsets(organization_id, topic, partition_id);
+
+CREATE INDEX IF NOT EXISTS idx_agents_org ON agents(organization_id);
+CREATE INDEX IF NOT EXISTS idx_agents_group ON agents(agent_group);
+CREATE INDEX IF NOT EXISTS idx_agents_az ON agents(availability_zone);
+CREATE INDEX IF NOT EXISTS idx_agents_heartbeat ON agents(last_heartbeat);
 
 CREATE INDEX IF NOT EXISTS idx_partition_leases_org ON partition_leases(organization_id);
 CREATE INDEX IF NOT EXISTS idx_partition_leases_agent ON partition_leases(leader_agent_id);

@@ -274,6 +274,288 @@ impl LeaseManager {
             .map(|lease| (lease.topic.clone(), lease.partition_id, lease.epoch))
             .collect()
     }
+
+    /// Initiate a graceful lease transfer to another agent.
+    ///
+    /// This starts the handoff protocol:
+    /// 1. Creates a pending transfer in metadata store
+    /// 2. Waits for target agent to accept
+    /// 3. Caller should flush pending writes before completing
+    ///
+    /// # Arguments
+    ///
+    /// * `topic` - Topic name
+    /// * `partition_id` - Partition ID
+    /// * `to_agent_id` - Target agent ID
+    /// * `reason` - Reason for transfer
+    /// * `timeout_ms` - Transfer timeout
+    ///
+    /// # Returns
+    ///
+    /// The transfer ID for tracking, or error if transfer cannot be initiated.
+    pub async fn initiate_transfer(
+        &self,
+        topic: &str,
+        partition_id: u32,
+        to_agent_id: &str,
+        reason: streamhouse_metadata::LeaderChangeReason,
+        timeout_ms: u32,
+    ) -> Result<String> {
+        // Verify we hold the lease
+        let _epoch = self.ensure_lease(topic, partition_id).await?;
+
+        info!(
+            agent_id = %self.agent_id,
+            topic = %topic,
+            partition_id = partition_id,
+            to_agent_id = %to_agent_id,
+            reason = ?reason,
+            "Initiating lease transfer"
+        );
+
+        let transfer = self
+            .metadata_store
+            .initiate_lease_transfer(
+                topic,
+                partition_id,
+                &self.agent_id,
+                to_agent_id,
+                reason,
+                timeout_ms,
+            )
+            .await
+            .map_err(AgentError::Metadata)?;
+
+        info!(
+            agent_id = %self.agent_id,
+            transfer_id = %transfer.transfer_id,
+            topic = %topic,
+            partition_id = partition_id,
+            to_agent_id = %to_agent_id,
+            "Lease transfer initiated"
+        );
+
+        Ok(transfer.transfer_id)
+    }
+
+    /// Complete a graceful lease transfer after flushing data.
+    ///
+    /// This atomically transfers the lease to the target agent.
+    /// Should only be called after:
+    /// 1. Transfer has been accepted by target agent
+    /// 2. All pending writes have been flushed to S3
+    ///
+    /// # Arguments
+    ///
+    /// * `transfer_id` - Transfer ID
+    /// * `last_flushed_offset` - Last offset flushed to S3
+    /// * `high_watermark` - Current high watermark
+    pub async fn complete_transfer(
+        &self,
+        transfer_id: &str,
+        last_flushed_offset: u64,
+        high_watermark: u64,
+    ) -> Result<()> {
+        info!(
+            agent_id = %self.agent_id,
+            transfer_id = %transfer_id,
+            last_flushed_offset = last_flushed_offset,
+            high_watermark = high_watermark,
+            "Completing lease transfer"
+        );
+
+        let lease = self
+            .metadata_store
+            .complete_lease_transfer(transfer_id, last_flushed_offset, high_watermark)
+            .await
+            .map_err(AgentError::Metadata)?;
+
+        // Remove from our cache since we no longer hold it
+        {
+            let mut leases = self.leases.write().await;
+            leases.remove(&(lease.topic.clone(), lease.partition_id));
+        }
+
+        info!(
+            agent_id = %self.agent_id,
+            transfer_id = %transfer_id,
+            new_leader = %lease.leader_agent_id,
+            new_epoch = lease.epoch,
+            "Lease transfer completed"
+        );
+
+        Ok(())
+    }
+
+    /// Accept a pending lease transfer from another agent.
+    ///
+    /// Called when this agent is the target of a transfer.
+    ///
+    /// # Arguments
+    ///
+    /// * `transfer_id` - Transfer ID
+    pub async fn accept_transfer(&self, transfer_id: &str) -> Result<()> {
+        info!(
+            agent_id = %self.agent_id,
+            transfer_id = %transfer_id,
+            "Accepting lease transfer"
+        );
+
+        self.metadata_store
+            .accept_lease_transfer(transfer_id, &self.agent_id)
+            .await
+            .map_err(AgentError::Metadata)?;
+
+        info!(
+            agent_id = %self.agent_id,
+            transfer_id = %transfer_id,
+            "Lease transfer accepted"
+        );
+
+        Ok(())
+    }
+
+    /// Reject a pending lease transfer.
+    ///
+    /// # Arguments
+    ///
+    /// * `transfer_id` - Transfer ID
+    /// * `reason` - Reason for rejection
+    pub async fn reject_transfer(&self, transfer_id: &str, reason: &str) -> Result<()> {
+        warn!(
+            agent_id = %self.agent_id,
+            transfer_id = %transfer_id,
+            reason = %reason,
+            "Rejecting lease transfer"
+        );
+
+        self.metadata_store
+            .reject_lease_transfer(transfer_id, &self.agent_id, reason)
+            .await
+            .map_err(AgentError::Metadata)?;
+
+        Ok(())
+    }
+
+    /// Get pending transfers where this agent is the target.
+    ///
+    /// Used to check for incoming transfer requests.
+    pub async fn get_incoming_transfers(
+        &self,
+    ) -> Result<Vec<streamhouse_metadata::LeaseTransfer>> {
+        let transfers = self
+            .metadata_store
+            .get_pending_transfers_for_agent(&self.agent_id)
+            .await
+            .map_err(AgentError::Metadata)?;
+
+        Ok(transfers
+            .into_iter()
+            .filter(|t| t.to_agent_id == self.agent_id)
+            .collect())
+    }
+
+    /// Gracefully transfer all leases before shutdown.
+    ///
+    /// Attempts to transfer each lease to an available agent.
+    /// Falls back to simple release if no agents are available.
+    ///
+    /// # Arguments
+    ///
+    /// * `available_agents` - List of agent IDs that can accept transfers
+    /// * `timeout_ms` - Timeout for each transfer
+    pub async fn transfer_all_leases(
+        &self,
+        available_agents: &[String],
+        timeout_ms: u32,
+    ) -> Result<()> {
+        let leases: Vec<(String, u32)> = {
+            let leases = self.leases.read().await;
+            leases.keys().cloned().collect()
+        };
+
+        if leases.is_empty() {
+            debug!(
+                agent_id = %self.agent_id,
+                "No leases to transfer"
+            );
+            return Ok(());
+        }
+
+        info!(
+            agent_id = %self.agent_id,
+            lease_count = leases.len(),
+            available_agents = ?available_agents,
+            "Initiating graceful transfer of all leases"
+        );
+
+        // If no available agents, fall back to release
+        if available_agents.is_empty() {
+            warn!(
+                agent_id = %self.agent_id,
+                "No available agents for transfer, falling back to lease release"
+            );
+            return self.release_all_leases().await;
+        }
+
+        // Round-robin distribute leases among available agents
+        let mut agent_idx = 0;
+        let mut transfers_initiated = 0;
+        let mut transfers_failed = 0;
+
+        for (topic, partition_id) in leases {
+            let target_agent = &available_agents[agent_idx % available_agents.len()];
+            agent_idx += 1;
+
+            match self
+                .initiate_transfer(
+                    &topic,
+                    partition_id,
+                    target_agent,
+                    streamhouse_metadata::LeaderChangeReason::GracefulHandoff,
+                    timeout_ms,
+                )
+                .await
+            {
+                Ok(_transfer_id) => {
+                    transfers_initiated += 1;
+                    // Note: In a real implementation, we would wait for acceptance
+                    // and then complete the transfer after flushing. For now,
+                    // this just initiates the transfer.
+                }
+                Err(e) => {
+                    warn!(
+                        agent_id = %self.agent_id,
+                        topic = %topic,
+                        partition_id = partition_id,
+                        error = %e,
+                        "Failed to initiate transfer, falling back to release"
+                    );
+                    transfers_failed += 1;
+
+                    // Fall back to simple release
+                    if let Err(e) = self.release_lease(&topic, partition_id).await {
+                        error!(
+                            agent_id = %self.agent_id,
+                            topic = %topic,
+                            partition_id = partition_id,
+                            error = %e,
+                            "Failed to release lease during graceful shutdown"
+                        );
+                    }
+                }
+            }
+        }
+
+        info!(
+            agent_id = %self.agent_id,
+            transfers_initiated = transfers_initiated,
+            transfers_failed = transfers_failed,
+            "Completed lease transfer initiation"
+        );
+
+        Ok(())
+    }
 }
 
 /// Background task that renews leases

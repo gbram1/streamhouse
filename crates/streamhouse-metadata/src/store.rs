@@ -2044,6 +2044,365 @@ impl MetadataStore for SqliteMetadataStore {
         sqlx::query(&query).execute(&self.pool).await?;
         Ok(())
     }
+
+    // ============================================================
+    // FAST LEADER HANDOFF
+    // ============================================================
+
+    async fn initiate_lease_transfer(
+        &self,
+        topic: &str,
+        partition_id: u32,
+        from_agent_id: &str,
+        to_agent_id: &str,
+        reason: LeaderChangeReason,
+        timeout_ms: u32,
+    ) -> Result<LeaseTransfer> {
+        let now = Self::now_ms();
+        let transfer_id = uuid::Uuid::new_v4().to_string();
+        let timeout_at = now + timeout_ms as i64;
+        let reason_str = reason.to_string();
+
+        // Verify the lease exists and is held by from_agent_id
+        let lease = self.get_partition_lease(topic, partition_id).await?;
+        let lease = match lease {
+            Some(l) if l.leader_agent_id == from_agent_id => l,
+            Some(_) => {
+                return Err(MetadataError::ConflictError(format!(
+                    "Partition {}/{} is not held by agent {}",
+                    topic, partition_id, from_agent_id
+                )));
+            }
+            None => {
+                return Err(MetadataError::NotFoundError(format!(
+                    "No lease found for partition {}/{}",
+                    topic, partition_id
+                )));
+            }
+        };
+
+        // Check for existing pending transfers
+        let existing_query = format!(
+            "SELECT transfer_id FROM lease_transfers \
+             WHERE topic = '{}' AND partition_id = {} AND state IN ('pending', 'accepted', 'completing')",
+            topic, partition_id
+        );
+        let existing: Option<(String,)> = sqlx::query_as(&existing_query)
+            .fetch_optional(&self.pool)
+            .await?;
+
+        if existing.is_some() {
+            return Err(MetadataError::ConflictError(format!(
+                "A transfer is already in progress for partition {}/{}",
+                topic, partition_id
+            )));
+        }
+
+        // Create the transfer record
+        let query = format!(
+            "INSERT INTO lease_transfers (transfer_id, topic, partition_id, from_agent_id, to_agent_id, \
+             from_epoch, state, reason, initiated_at, timeout_at) \
+             VALUES ('{}', '{}', {}, '{}', '{}', {}, 'pending', '{}', {}, {})",
+            transfer_id, topic, partition_id, from_agent_id, to_agent_id,
+            lease.epoch, reason_str, now, timeout_at
+        );
+        sqlx::query(&query).execute(&self.pool).await?;
+
+        Ok(LeaseTransfer {
+            transfer_id,
+            topic: topic.to_string(),
+            partition_id,
+            from_agent_id: from_agent_id.to_string(),
+            to_agent_id: to_agent_id.to_string(),
+            from_epoch: lease.epoch,
+            state: LeaseTransferState::Pending,
+            reason,
+            initiated_at: now,
+            completed_at: None,
+            timeout_at,
+            last_flushed_offset: None,
+            high_watermark: None,
+            error: None,
+        })
+    }
+
+    async fn accept_lease_transfer(
+        &self,
+        transfer_id: &str,
+        agent_id: &str,
+    ) -> Result<LeaseTransfer> {
+        let now = Self::now_ms();
+
+        // Get the transfer
+        let transfer = self.get_lease_transfer(transfer_id).await?;
+        let transfer = match transfer {
+            Some(t) => t,
+            None => {
+                return Err(MetadataError::NotFoundError(format!(
+                    "Transfer {} not found",
+                    transfer_id
+                )));
+            }
+        };
+
+        // Verify state and agent
+        if transfer.state != LeaseTransferState::Pending {
+            return Err(MetadataError::ConflictError(format!(
+                "Transfer {} is in state {:?}, not pending",
+                transfer_id, transfer.state
+            )));
+        }
+
+        if transfer.to_agent_id != agent_id {
+            return Err(MetadataError::ConflictError(format!(
+                "Transfer {} is for agent {}, not {}",
+                transfer_id, transfer.to_agent_id, agent_id
+            )));
+        }
+
+        // Check timeout
+        if now > transfer.timeout_at {
+            return Err(MetadataError::ConflictError(format!(
+                "Transfer {} has timed out",
+                transfer_id
+            )));
+        }
+
+        // Update state to accepted
+        let query = format!(
+            "UPDATE lease_transfers SET state = 'accepted' WHERE transfer_id = '{}'",
+            transfer_id
+        );
+        sqlx::query(&query).execute(&self.pool).await?;
+
+        Ok(LeaseTransfer {
+            state: LeaseTransferState::Accepted,
+            ..transfer
+        })
+    }
+
+    async fn complete_lease_transfer(
+        &self,
+        transfer_id: &str,
+        last_flushed_offset: u64,
+        high_watermark: u64,
+    ) -> Result<PartitionLease> {
+        let now = Self::now_ms();
+
+        // Get the transfer
+        let transfer = self.get_lease_transfer(transfer_id).await?;
+        let transfer = match transfer {
+            Some(t) => t,
+            None => {
+                return Err(MetadataError::NotFoundError(format!(
+                    "Transfer {} not found",
+                    transfer_id
+                )));
+            }
+        };
+
+        // Verify state
+        if transfer.state != LeaseTransferState::Accepted {
+            return Err(MetadataError::ConflictError(format!(
+                "Transfer {} is in state {:?}, not accepted",
+                transfer_id, transfer.state
+            )));
+        }
+
+        // Begin transaction for atomic lease transfer
+        let mut tx = self.pool.begin().await?;
+
+        // Update transfer state to completing
+        let query = format!(
+            "UPDATE lease_transfers SET state = 'completing', last_flushed_offset = {}, high_watermark = {} \
+             WHERE transfer_id = '{}'",
+            last_flushed_offset, high_watermark, transfer_id
+        );
+        sqlx::query(&query).execute(&mut *tx).await?;
+
+        // Transfer the lease atomically
+        let new_epoch = transfer.from_epoch + 1;
+        let lease_expires_at = now + 30_000; // 30 second lease
+
+        let lease_query = format!(
+            "UPDATE partition_leases SET \
+             leader_agent_id = '{}', epoch = {}, lease_expires_at = {}, acquired_at = {} \
+             WHERE topic = '{}' AND partition_id = {}",
+            transfer.to_agent_id, new_epoch, lease_expires_at, now,
+            transfer.topic, transfer.partition_id
+        );
+        sqlx::query(&lease_query).execute(&mut *tx).await?;
+
+        // Mark transfer as completed
+        let complete_query = format!(
+            "UPDATE lease_transfers SET state = 'completed', completed_at = {} WHERE transfer_id = '{}'",
+            now, transfer_id
+        );
+        sqlx::query(&complete_query).execute(&mut *tx).await?;
+
+        // Record the leader change
+        let change_query = format!(
+            "INSERT INTO leader_changes (topic, partition_id, from_agent_id, to_agent_id, reason, epoch, gap_ms, changed_at) \
+             VALUES ('{}', {}, '{}', '{}', '{}', {}, 0, {})",
+            transfer.topic, transfer.partition_id, transfer.from_agent_id,
+            transfer.to_agent_id, transfer.reason.to_string(), new_epoch, now
+        );
+        sqlx::query(&change_query).execute(&mut *tx).await?;
+
+        tx.commit().await?;
+
+        Ok(PartitionLease {
+            topic: transfer.topic,
+            partition_id: transfer.partition_id,
+            leader_agent_id: transfer.to_agent_id,
+            lease_expires_at,
+            acquired_at: now,
+            epoch: new_epoch,
+        })
+    }
+
+    async fn reject_lease_transfer(
+        &self,
+        transfer_id: &str,
+        _agent_id: &str,
+        reason: &str,
+    ) -> Result<()> {
+        let now = Self::now_ms();
+
+        let query = format!(
+            "UPDATE lease_transfers SET state = 'rejected', completed_at = {}, error = '{}' \
+             WHERE transfer_id = '{}' AND state IN ('pending', 'accepted')",
+            now, reason.replace('\'', "''"), transfer_id
+        );
+        let result = sqlx::query(&query).execute(&self.pool).await?;
+
+        if result.rows_affected() == 0 {
+            return Err(MetadataError::ConflictError(format!(
+                "Transfer {} not found or already completed",
+                transfer_id
+            )));
+        }
+
+        Ok(())
+    }
+
+    async fn get_lease_transfer(&self, transfer_id: &str) -> Result<Option<LeaseTransfer>> {
+        let query = format!(
+            "SELECT transfer_id, topic, partition_id, from_agent_id, to_agent_id, from_epoch, \
+             state, reason, initiated_at, completed_at, timeout_at, last_flushed_offset, \
+             high_watermark, error \
+             FROM lease_transfers WHERE transfer_id = '{}'",
+            transfer_id
+        );
+
+        let row: Option<(
+            String, String, i64, String, String, i64,
+            String, String, i64, Option<i64>, i64, Option<i64>,
+            Option<i64>, Option<String>
+        )> = sqlx::query_as(&query).fetch_optional(&self.pool).await?;
+
+        Ok(row.map(|(
+            transfer_id, topic, partition_id, from_agent_id, to_agent_id, from_epoch,
+            state, reason, initiated_at, completed_at, timeout_at, last_flushed_offset,
+            high_watermark, error
+        )| {
+            LeaseTransfer {
+                transfer_id,
+                topic,
+                partition_id: partition_id as u32,
+                from_agent_id,
+                to_agent_id,
+                from_epoch: from_epoch as u64,
+                state: state.parse().unwrap_or(LeaseTransferState::Pending),
+                reason: reason.parse().unwrap_or(LeaderChangeReason::GracefulHandoff),
+                initiated_at,
+                completed_at,
+                timeout_at,
+                last_flushed_offset: last_flushed_offset.map(|o| o as u64),
+                high_watermark: high_watermark.map(|o| o as u64),
+                error,
+            }
+        }))
+    }
+
+    async fn get_pending_transfers_for_agent(&self, agent_id: &str) -> Result<Vec<LeaseTransfer>> {
+        let query = format!(
+            "SELECT transfer_id, topic, partition_id, from_agent_id, to_agent_id, from_epoch, \
+             state, reason, initiated_at, completed_at, timeout_at, last_flushed_offset, \
+             high_watermark, error \
+             FROM lease_transfers \
+             WHERE (from_agent_id = '{}' OR to_agent_id = '{}') \
+             AND state IN ('pending', 'accepted', 'completing') \
+             ORDER BY initiated_at",
+            agent_id, agent_id
+        );
+
+        let rows: Vec<(
+            String, String, i64, String, String, i64,
+            String, String, i64, Option<i64>, i64, Option<i64>,
+            Option<i64>, Option<String>
+        )> = sqlx::query_as(&query).fetch_all(&self.pool).await?;
+
+        Ok(rows.into_iter().map(|(
+            transfer_id, topic, partition_id, from_agent_id, to_agent_id, from_epoch,
+            state, reason, initiated_at, completed_at, timeout_at, last_flushed_offset,
+            high_watermark, error
+        )| {
+            LeaseTransfer {
+                transfer_id,
+                topic,
+                partition_id: partition_id as u32,
+                from_agent_id,
+                to_agent_id,
+                from_epoch: from_epoch as u64,
+                state: state.parse().unwrap_or(LeaseTransferState::Pending),
+                reason: reason.parse().unwrap_or(LeaderChangeReason::GracefulHandoff),
+                initiated_at,
+                completed_at,
+                timeout_at,
+                last_flushed_offset: last_flushed_offset.map(|o| o as u64),
+                high_watermark: high_watermark.map(|o| o as u64),
+                error,
+            }
+        }).collect())
+    }
+
+    async fn cleanup_timed_out_transfers(&self) -> Result<u64> {
+        let now = Self::now_ms();
+
+        let query = format!(
+            "UPDATE lease_transfers SET state = 'timed_out', completed_at = {}, error = 'Transfer timed out' \
+             WHERE state IN ('pending', 'accepted') AND timeout_at < {}",
+            now, now
+        );
+        let result = sqlx::query(&query).execute(&self.pool).await?;
+
+        Ok(result.rows_affected())
+    }
+
+    async fn record_leader_change(
+        &self,
+        topic: &str,
+        partition_id: u32,
+        from_agent_id: Option<&str>,
+        to_agent_id: &str,
+        reason: LeaderChangeReason,
+        epoch: u64,
+        gap_ms: i64,
+    ) -> Result<()> {
+        let now = Self::now_ms();
+        let from_agent = from_agent_id.unwrap_or("");
+        let reason_str = reason.to_string();
+
+        let query = format!(
+            "INSERT INTO leader_changes (topic, partition_id, from_agent_id, to_agent_id, reason, epoch, gap_ms, changed_at) \
+             VALUES ('{}', {}, NULLIF('{}', ''), '{}', '{}', {}, {}, {})",
+            topic, partition_id, from_agent, to_agent_id, reason_str, epoch, gap_ms, now
+        );
+        sqlx::query(&query).execute(&self.pool).await?;
+
+        Ok(())
+    }
 }
 
 #[cfg(test)]

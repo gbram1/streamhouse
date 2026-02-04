@@ -5,8 +5,8 @@
 
 use std::collections::HashMap;
 use streamhouse_metadata::{
-    CacheConfig, CachedMetadataStore, InitProducerConfig, MetadataStore, ProducerState, SegmentInfo,
-    SqliteMetadataStore, TopicConfig, TransactionState,
+    CacheConfig, CachedMetadataStore, InitProducerConfig, LeaderChangeReason, LeaseTransferState,
+    MetadataStore, ProducerState, SegmentInfo, SqliteMetadataStore, TopicConfig, TransactionState,
 };
 
 #[cfg(feature = "postgres")]
@@ -866,6 +866,626 @@ async fn test_sequence_gap_detection() {
     // Implementation may either accept gaps or reject them
     // For StreamHouse, we accept gaps (lenient approach like Kafka)
     assert!(result.is_ok());
+
+    // Clean up
+    store.delete_topic(topic_name).await.unwrap();
+}
+
+// ============================================================================
+// Phase 17: Fast Leader Handoff Tests
+// ============================================================================
+
+#[tokio::test]
+async fn test_sqlite_lease_transfer_lifecycle() {
+    let store = SqliteMetadataStore::new(":memory:").await.unwrap();
+    test_lease_transfer_lifecycle(&store).await;
+}
+
+#[tokio::test]
+async fn test_sqlite_lease_transfer_rejection() {
+    let store = SqliteMetadataStore::new(":memory:").await.unwrap();
+    test_lease_transfer_rejection(&store).await;
+}
+
+#[tokio::test]
+async fn test_sqlite_leader_change_tracking() {
+    let store = SqliteMetadataStore::new(":memory:").await.unwrap();
+    test_leader_change_tracking(&store).await;
+}
+
+#[tokio::test]
+async fn test_sqlite_transfer_timeout_cleanup() {
+    let store = SqliteMetadataStore::new(":memory:").await.unwrap();
+    test_transfer_timeout_cleanup(&store).await;
+}
+
+#[tokio::test]
+async fn test_sqlite_pending_transfers_for_agent() {
+    let store = SqliteMetadataStore::new(":memory:").await.unwrap();
+    test_pending_transfers_for_agent(&store).await;
+}
+
+#[tokio::test]
+async fn test_cached_lease_transfer_lifecycle() {
+    let inner = SqliteMetadataStore::new(":memory:").await.unwrap();
+    let store = CachedMetadataStore::new(inner);
+    test_lease_transfer_lifecycle(&store).await;
+}
+
+/// Test the full lease transfer lifecycle: initiate -> accept -> complete
+async fn test_lease_transfer_lifecycle<S: MetadataStore>(store: &S) {
+    let topic_name = "transfer_test";
+
+    // Create topic and register agents
+    let config = create_test_topic_config(topic_name, 3);
+    store.create_topic(config).await.unwrap();
+
+    let agent1 = streamhouse_metadata::AgentInfo {
+        agent_id: "agent-001".to_string(),
+        address: "10.0.0.1:9090".to_string(),
+        availability_zone: "us-east-1a".to_string(),
+        agent_group: "test".to_string(),
+        last_heartbeat: chrono::Utc::now().timestamp_millis(),
+        started_at: chrono::Utc::now().timestamp_millis(),
+        metadata: HashMap::new(),
+    };
+    let agent2 = streamhouse_metadata::AgentInfo {
+        agent_id: "agent-002".to_string(),
+        address: "10.0.0.2:9090".to_string(),
+        availability_zone: "us-east-1a".to_string(),
+        agent_group: "test".to_string(),
+        last_heartbeat: chrono::Utc::now().timestamp_millis(),
+        started_at: chrono::Utc::now().timestamp_millis(),
+        metadata: HashMap::new(),
+    };
+
+    store.register_agent(agent1).await.unwrap();
+    store.register_agent(agent2).await.unwrap();
+
+    // 1. Agent 1 acquires lease
+    let lease = store
+        .acquire_partition_lease(topic_name, 0, "agent-001", 60_000)
+        .await
+        .unwrap();
+    assert_eq!(lease.leader_agent_id, "agent-001");
+    let initial_epoch = lease.epoch;
+
+    // 2. Initiate transfer from agent-001 to agent-002
+    let transfer = store
+        .initiate_lease_transfer(
+            topic_name,
+            0,
+            "agent-001",
+            "agent-002",
+            LeaderChangeReason::GracefulHandoff,
+            30_000,
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(transfer.topic, topic_name);
+    assert_eq!(transfer.partition_id, 0);
+    assert_eq!(transfer.from_agent_id, "agent-001");
+    assert_eq!(transfer.to_agent_id, "agent-002");
+    assert_eq!(transfer.state, LeaseTransferState::Pending);
+    assert_eq!(transfer.reason, LeaderChangeReason::GracefulHandoff);
+
+    // 3. Verify we can get the transfer
+    let retrieved = store.get_lease_transfer(&transfer.transfer_id).await.unwrap();
+    assert!(retrieved.is_some());
+    let retrieved = retrieved.unwrap();
+    assert_eq!(retrieved.transfer_id, transfer.transfer_id);
+
+    // 4. Target agent accepts the transfer
+    let accepted = store
+        .accept_lease_transfer(&transfer.transfer_id, "agent-002")
+        .await
+        .unwrap();
+    assert_eq!(accepted.state, LeaseTransferState::Accepted);
+
+    // 5. Source agent completes the transfer after flushing
+    let new_lease = store
+        .complete_lease_transfer(&transfer.transfer_id, 1000, 1001)
+        .await
+        .unwrap();
+
+    // 6. Verify the new lease
+    assert_eq!(new_lease.leader_agent_id, "agent-002");
+    assert_eq!(new_lease.topic, topic_name);
+    assert_eq!(new_lease.partition_id, 0);
+    assert!(new_lease.epoch > initial_epoch); // Epoch should have incremented
+
+    // 7. Verify the transfer is marked completed
+    let completed_transfer = store.get_lease_transfer(&transfer.transfer_id).await.unwrap();
+    assert!(completed_transfer.is_some());
+    let completed_transfer = completed_transfer.unwrap();
+    assert_eq!(completed_transfer.state, LeaseTransferState::Completed);
+    assert_eq!(completed_transfer.last_flushed_offset, Some(1000));
+    assert_eq!(completed_transfer.high_watermark, Some(1001));
+
+    // 8. Verify agent-002 now holds the lease
+    let current_lease = store.get_partition_lease(topic_name, 0).await.unwrap();
+    assert!(current_lease.is_some());
+    assert_eq!(current_lease.unwrap().leader_agent_id, "agent-002");
+
+    // Clean up
+    store.delete_topic(topic_name).await.unwrap();
+}
+
+/// Test lease transfer rejection flow
+async fn test_lease_transfer_rejection<S: MetadataStore>(store: &S) {
+    let topic_name = "reject_test";
+
+    // Create topic
+    let config = create_test_topic_config(topic_name, 1);
+    store.create_topic(config).await.unwrap();
+
+    // Register agents
+    let agent1 = streamhouse_metadata::AgentInfo {
+        agent_id: "agent-001".to_string(),
+        address: "10.0.0.1:9090".to_string(),
+        availability_zone: "us-east-1a".to_string(),
+        agent_group: "test".to_string(),
+        last_heartbeat: chrono::Utc::now().timestamp_millis(),
+        started_at: chrono::Utc::now().timestamp_millis(),
+        metadata: HashMap::new(),
+    };
+    let agent2 = streamhouse_metadata::AgentInfo {
+        agent_id: "agent-002".to_string(),
+        address: "10.0.0.2:9090".to_string(),
+        availability_zone: "us-east-1a".to_string(),
+        agent_group: "test".to_string(),
+        last_heartbeat: chrono::Utc::now().timestamp_millis(),
+        started_at: chrono::Utc::now().timestamp_millis(),
+        metadata: HashMap::new(),
+    };
+
+    store.register_agent(agent1).await.unwrap();
+    store.register_agent(agent2).await.unwrap();
+
+    // Agent 1 acquires lease
+    store
+        .acquire_partition_lease(topic_name, 0, "agent-001", 60_000)
+        .await
+        .unwrap();
+
+    // Initiate transfer
+    let transfer = store
+        .initiate_lease_transfer(
+            topic_name,
+            0,
+            "agent-001",
+            "agent-002",
+            LeaderChangeReason::Rebalance,
+            30_000,
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(transfer.state, LeaseTransferState::Pending);
+
+    // Target agent rejects the transfer
+    store
+        .reject_lease_transfer(&transfer.transfer_id, "agent-002", "Not ready for leadership")
+        .await
+        .unwrap();
+
+    // Verify transfer is rejected
+    let rejected = store.get_lease_transfer(&transfer.transfer_id).await.unwrap();
+    assert!(rejected.is_some());
+    let rejected = rejected.unwrap();
+    assert_eq!(rejected.state, LeaseTransferState::Rejected);
+    assert_eq!(rejected.error, Some("Not ready for leadership".to_string()));
+
+    // Original leader should still hold the lease
+    let lease = store.get_partition_lease(topic_name, 0).await.unwrap();
+    assert!(lease.is_some());
+    assert_eq!(lease.unwrap().leader_agent_id, "agent-001");
+
+    // Clean up
+    store.delete_topic(topic_name).await.unwrap();
+}
+
+/// Test leader change tracking/recording
+async fn test_leader_change_tracking<S: MetadataStore>(store: &S) {
+    let topic_name = "leader_change_test";
+
+    // Create topic
+    let config = create_test_topic_config(topic_name, 1);
+    store.create_topic(config).await.unwrap();
+
+    // Record various leadership changes
+    store
+        .record_leader_change(
+            topic_name,
+            0,
+            None, // No previous leader
+            "agent-001",
+            LeaderChangeReason::Initial,
+            1,
+            0, // No gap for initial
+        )
+        .await
+        .unwrap();
+
+    store
+        .record_leader_change(
+            topic_name,
+            0,
+            Some("agent-001"),
+            "agent-002",
+            LeaderChangeReason::GracefulHandoff,
+            2,
+            50, // 50ms gap
+        )
+        .await
+        .unwrap();
+
+    store
+        .record_leader_change(
+            topic_name,
+            0,
+            Some("agent-002"),
+            "agent-003",
+            LeaderChangeReason::LeaseExpired,
+            3,
+            30_000, // 30 second gap (lease expired)
+        )
+        .await
+        .unwrap();
+
+    store
+        .record_leader_change(
+            topic_name,
+            0,
+            Some("agent-003"),
+            "agent-004",
+            LeaderChangeReason::AgentCrash,
+            4,
+            60_000, // 60 second gap (crash)
+        )
+        .await
+        .unwrap();
+
+    // The records should be stored successfully
+    // Note: We don't have a direct query for leader_changes table,
+    // but the operations should succeed without error
+
+    // Clean up
+    store.delete_topic(topic_name).await.unwrap();
+}
+
+/// Test cleanup of timed out transfers
+async fn test_transfer_timeout_cleanup<S: MetadataStore>(store: &S) {
+    let topic_name = "timeout_test";
+
+    // Create topic
+    let config = create_test_topic_config(topic_name, 2);
+    store.create_topic(config).await.unwrap();
+
+    // Register agents
+    let agent1 = streamhouse_metadata::AgentInfo {
+        agent_id: "agent-001".to_string(),
+        address: "10.0.0.1:9090".to_string(),
+        availability_zone: "us-east-1a".to_string(),
+        agent_group: "test".to_string(),
+        last_heartbeat: chrono::Utc::now().timestamp_millis(),
+        started_at: chrono::Utc::now().timestamp_millis(),
+        metadata: HashMap::new(),
+    };
+    let agent2 = streamhouse_metadata::AgentInfo {
+        agent_id: "agent-002".to_string(),
+        address: "10.0.0.2:9090".to_string(),
+        availability_zone: "us-east-1a".to_string(),
+        agent_group: "test".to_string(),
+        last_heartbeat: chrono::Utc::now().timestamp_millis(),
+        started_at: chrono::Utc::now().timestamp_millis(),
+        metadata: HashMap::new(),
+    };
+
+    store.register_agent(agent1).await.unwrap();
+    store.register_agent(agent2).await.unwrap();
+
+    // Acquire lease for partition 0
+    store
+        .acquire_partition_lease(topic_name, 0, "agent-001", 60_000)
+        .await
+        .unwrap();
+
+    // Initiate transfer with very short timeout (1ms)
+    let transfer = store
+        .initiate_lease_transfer(
+            topic_name,
+            0,
+            "agent-001",
+            "agent-002",
+            LeaderChangeReason::GracefulHandoff,
+            1, // 1ms timeout - will be expired immediately
+        )
+        .await
+        .unwrap();
+
+    // Wait a bit to ensure timeout
+    tokio::time::sleep(tokio::time::Duration::from_millis(10)).await;
+
+    // Cleanup should mark the transfer as timed out
+    let cleaned = store.cleanup_timed_out_transfers().await.unwrap();
+    assert!(cleaned >= 1, "Expected at least 1 transfer to be cleaned up");
+
+    // Verify transfer is marked as timed out
+    let timed_out = store.get_lease_transfer(&transfer.transfer_id).await.unwrap();
+    assert!(timed_out.is_some());
+    assert_eq!(timed_out.unwrap().state, LeaseTransferState::TimedOut);
+
+    // Clean up
+    store.delete_topic(topic_name).await.unwrap();
+}
+
+/// Test getting pending transfers for an agent
+async fn test_pending_transfers_for_agent<S: MetadataStore>(store: &S) {
+    let topic_name = "pending_test";
+
+    // Create topic with multiple partitions
+    let config = create_test_topic_config(topic_name, 4);
+    store.create_topic(config).await.unwrap();
+
+    // Register agents
+    let agent1 = streamhouse_metadata::AgentInfo {
+        agent_id: "agent-001".to_string(),
+        address: "10.0.0.1:9090".to_string(),
+        availability_zone: "us-east-1a".to_string(),
+        agent_group: "test".to_string(),
+        last_heartbeat: chrono::Utc::now().timestamp_millis(),
+        started_at: chrono::Utc::now().timestamp_millis(),
+        metadata: HashMap::new(),
+    };
+    let agent2 = streamhouse_metadata::AgentInfo {
+        agent_id: "agent-002".to_string(),
+        address: "10.0.0.2:9090".to_string(),
+        availability_zone: "us-east-1a".to_string(),
+        agent_group: "test".to_string(),
+        last_heartbeat: chrono::Utc::now().timestamp_millis(),
+        started_at: chrono::Utc::now().timestamp_millis(),
+        metadata: HashMap::new(),
+    };
+    let agent3 = streamhouse_metadata::AgentInfo {
+        agent_id: "agent-003".to_string(),
+        address: "10.0.0.3:9090".to_string(),
+        availability_zone: "us-east-1a".to_string(),
+        agent_group: "test".to_string(),
+        last_heartbeat: chrono::Utc::now().timestamp_millis(),
+        started_at: chrono::Utc::now().timestamp_millis(),
+        metadata: HashMap::new(),
+    };
+
+    store.register_agent(agent1).await.unwrap();
+    store.register_agent(agent2).await.unwrap();
+    store.register_agent(agent3).await.unwrap();
+
+    // Agent 1 acquires leases for partitions 0 and 1
+    store
+        .acquire_partition_lease(topic_name, 0, "agent-001", 60_000)
+        .await
+        .unwrap();
+    store
+        .acquire_partition_lease(topic_name, 1, "agent-001", 60_000)
+        .await
+        .unwrap();
+
+    // Agent 3 acquires lease for partition 2
+    store
+        .acquire_partition_lease(topic_name, 2, "agent-003", 60_000)
+        .await
+        .unwrap();
+
+    // Initiate transfers to agent-002
+    store
+        .initiate_lease_transfer(
+            topic_name,
+            0,
+            "agent-001",
+            "agent-002",
+            LeaderChangeReason::GracefulHandoff,
+            60_000,
+        )
+        .await
+        .unwrap();
+
+    store
+        .initiate_lease_transfer(
+            topic_name,
+            1,
+            "agent-001",
+            "agent-002",
+            LeaderChangeReason::GracefulHandoff,
+            60_000,
+        )
+        .await
+        .unwrap();
+
+    // Initiate transfer from agent-003 to agent-002
+    store
+        .initiate_lease_transfer(
+            topic_name,
+            2,
+            "agent-003",
+            "agent-002",
+            LeaderChangeReason::Rebalance,
+            60_000,
+        )
+        .await
+        .unwrap();
+
+    // Get pending transfers for agent-002 (should see 3 incoming transfers)
+    let pending = store.get_pending_transfers_for_agent("agent-002").await.unwrap();
+    assert_eq!(pending.len(), 3, "Expected 3 pending transfers for agent-002");
+
+    // Verify all are targeting agent-002
+    for transfer in &pending {
+        assert_eq!(transfer.to_agent_id, "agent-002");
+        assert_eq!(transfer.state, LeaseTransferState::Pending);
+    }
+
+    // Get pending transfers for agent-001 (includes both outgoing and incoming transfers)
+    // Agent-001 initiated 2 transfers (to agent-002), so it should see 2 outgoing transfers
+    let pending_001 = store.get_pending_transfers_for_agent("agent-001").await.unwrap();
+    assert_eq!(pending_001.len(), 2, "Expected 2 pending transfers for agent-001 (outgoing)");
+
+    // Clean up
+    store.delete_topic(topic_name).await.unwrap();
+}
+
+/// Test that only the source agent can complete a transfer
+#[tokio::test]
+async fn test_transfer_authorization() {
+    let store = SqliteMetadataStore::new(":memory:").await.unwrap();
+    let topic_name = "auth_test";
+
+    // Create topic
+    let config = create_test_topic_config(topic_name, 1);
+    store.create_topic(config).await.unwrap();
+
+    // Register agents
+    let agent1 = streamhouse_metadata::AgentInfo {
+        agent_id: "agent-001".to_string(),
+        address: "10.0.0.1:9090".to_string(),
+        availability_zone: "us-east-1a".to_string(),
+        agent_group: "test".to_string(),
+        last_heartbeat: chrono::Utc::now().timestamp_millis(),
+        started_at: chrono::Utc::now().timestamp_millis(),
+        metadata: HashMap::new(),
+    };
+    let agent2 = streamhouse_metadata::AgentInfo {
+        agent_id: "agent-002".to_string(),
+        address: "10.0.0.2:9090".to_string(),
+        availability_zone: "us-east-1a".to_string(),
+        agent_group: "test".to_string(),
+        last_heartbeat: chrono::Utc::now().timestamp_millis(),
+        started_at: chrono::Utc::now().timestamp_millis(),
+        metadata: HashMap::new(),
+    };
+
+    store.register_agent(agent1).await.unwrap();
+    store.register_agent(agent2).await.unwrap();
+
+    // Agent 1 acquires lease
+    store
+        .acquire_partition_lease(topic_name, 0, "agent-001", 60_000)
+        .await
+        .unwrap();
+
+    // Initiate transfer
+    let transfer = store
+        .initiate_lease_transfer(
+            topic_name,
+            0,
+            "agent-001",
+            "agent-002",
+            LeaderChangeReason::GracefulHandoff,
+            60_000,
+        )
+        .await
+        .unwrap();
+
+    // Wrong agent tries to accept - should fail
+    let result = store.accept_lease_transfer(&transfer.transfer_id, "agent-003").await;
+    assert!(result.is_err(), "Non-target agent should not be able to accept");
+
+    // Correct agent accepts
+    let accepted = store
+        .accept_lease_transfer(&transfer.transfer_id, "agent-002")
+        .await
+        .unwrap();
+    assert_eq!(accepted.state, LeaseTransferState::Accepted);
+
+    // Clean up
+    store.delete_topic(topic_name).await.unwrap();
+}
+
+/// Test multiple concurrent transfers don't interfere
+#[tokio::test]
+async fn test_concurrent_transfers_different_partitions() {
+    let store = SqliteMetadataStore::new(":memory:").await.unwrap();
+    let topic_name = "concurrent_test";
+
+    // Create topic with 4 partitions
+    let config = create_test_topic_config(topic_name, 4);
+    store.create_topic(config).await.unwrap();
+
+    // Register agents
+    for i in 1..=4 {
+        let agent = streamhouse_metadata::AgentInfo {
+            agent_id: format!("agent-{:03}", i),
+            address: format!("10.0.0.{}:9090", i),
+            availability_zone: "us-east-1a".to_string(),
+            agent_group: "test".to_string(),
+            last_heartbeat: chrono::Utc::now().timestamp_millis(),
+            started_at: chrono::Utc::now().timestamp_millis(),
+            metadata: HashMap::new(),
+        };
+        store.register_agent(agent).await.unwrap();
+    }
+
+    // Each agent acquires one partition
+    for i in 0..4 {
+        store
+            .acquire_partition_lease(topic_name, i, &format!("agent-{:03}", i + 1), 60_000)
+            .await
+            .unwrap();
+    }
+
+    // Initiate transfers: each partition transfers to the next agent (circular)
+    let mut transfers = vec![];
+    for i in 0..4 {
+        let from = format!("agent-{:03}", i + 1);
+        let to = format!("agent-{:03}", (i + 1) % 4 + 1);
+        let transfer = store
+            .initiate_lease_transfer(
+                topic_name,
+                i,
+                &from,
+                &to,
+                LeaderChangeReason::Rebalance,
+                60_000,
+            )
+            .await
+            .unwrap();
+        transfers.push(transfer);
+    }
+
+    // All transfers should be pending
+    for transfer in &transfers {
+        let t = store.get_lease_transfer(&transfer.transfer_id).await.unwrap().unwrap();
+        assert_eq!(t.state, LeaseTransferState::Pending);
+    }
+
+    // Accept all transfers
+    for i in 0..4 {
+        let target = format!("agent-{:03}", (i + 1) % 4 + 1);
+        store
+            .accept_lease_transfer(&transfers[i as usize].transfer_id, &target)
+            .await
+            .unwrap();
+    }
+
+    // Complete all transfers
+    for (i, transfer) in transfers.iter().enumerate() {
+        let new_lease = store
+            .complete_lease_transfer(&transfer.transfer_id, (i as u64 + 1) * 100, (i as u64 + 1) * 100 + 1)
+            .await
+            .unwrap();
+
+        // Verify the new leader
+        let expected_leader = format!("agent-{:03}", (i + 1) % 4 + 1);
+        assert_eq!(new_lease.leader_agent_id, expected_leader);
+    }
+
+    // Verify final state: each partition now has a different leader
+    for i in 0..4 {
+        let lease = store.get_partition_lease(topic_name, i).await.unwrap().unwrap();
+        let expected_leader = format!("agent-{:03}", (i + 1) % 4 + 1);
+        assert_eq!(lease.leader_agent_id, expected_leader);
+    }
 
     // Clean up
     store.delete_topic(topic_name).await.unwrap();
