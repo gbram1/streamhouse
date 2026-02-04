@@ -228,6 +228,97 @@ struct SqlGenerationResponse {
     suggestions: Vec<String>,
 }
 
+/// Schema inference request
+#[derive(Debug, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct InferSchemaRequest {
+    /// Topic to analyze
+    pub topic: String,
+    /// Number of sample messages to analyze (default: 100)
+    #[serde(default = "default_sample_size")]
+    pub sample_size: usize,
+    /// Whether to generate AI descriptions for fields (default: true)
+    #[serde(default = "default_generate_descriptions")]
+    pub generate_descriptions: bool,
+}
+
+fn default_sample_size() -> usize {
+    100
+}
+
+fn default_generate_descriptions() -> bool {
+    true
+}
+
+/// Inferred schema response
+#[derive(Debug, Serialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct InferredSchema {
+    /// Topic name
+    pub topic: String,
+    /// Number of messages analyzed
+    pub sample_count: usize,
+    /// Inferred fields
+    pub fields: Vec<InferredField>,
+    /// Index recommendations
+    pub index_recommendations: Vec<IndexRecommendation>,
+    /// Overall schema confidence
+    pub confidence: f32,
+    /// Schema summary (AI-generated)
+    pub summary: Option<String>,
+}
+
+/// Inferred field information
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct InferredField {
+    /// Field path (e.g., "user.id" for nested fields)
+    pub path: String,
+    /// JSON type (string, number, boolean, array, object, null)
+    pub json_type: String,
+    /// Whether field is nullable (appeared null or was missing in samples)
+    pub nullable: bool,
+    /// Occurrence rate (0-1, how often this field appears)
+    pub occurrence_rate: f32,
+    /// Unique values count (if < 100)
+    pub unique_values: Option<usize>,
+    /// Sample values (up to 5)
+    pub sample_values: Vec<serde_json::Value>,
+    /// AI-generated description (if requested)
+    pub description: Option<String>,
+    /// Suggested SQL type for querying
+    pub suggested_sql_type: String,
+}
+
+/// Index recommendation
+#[derive(Debug, Serialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct IndexRecommendation {
+    /// Field path
+    pub field: String,
+    /// Recommendation reason
+    pub reason: String,
+    /// Priority (high, medium, low)
+    pub priority: String,
+    /// Example query that would benefit
+    pub example_query: String,
+}
+
+/// AI schema analysis response
+#[derive(Debug, Deserialize)]
+struct SchemaAnalysisResponse {
+    field_descriptions: HashMap<String, String>,
+    summary: String,
+    index_suggestions: Vec<IndexSuggestion>,
+}
+
+#[derive(Debug, Deserialize)]
+struct IndexSuggestion {
+    field: String,
+    reason: String,
+    priority: String,
+}
+
 /// App state extension for query history
 pub struct AiState {
     pub history: QueryHistoryStore,
@@ -1017,6 +1108,451 @@ pub async fn clear_query_history() -> StatusCode {
     let mut history = QUERY_HISTORY.write().await;
     history.clear();
     StatusCode::NO_CONTENT
+}
+
+/// Infer schema from topic messages
+#[utoipa::path(
+    post,
+    path = "/api/v1/schema/infer",
+    request_body = InferSchemaRequest,
+    responses(
+        (status = 200, description = "Schema inferred successfully", body = InferredSchema),
+        (status = 404, description = "Topic not found", body = AskQueryError),
+        (status = 500, description = "Failed to analyze messages", body = AskQueryError),
+    ),
+    tag = "ai"
+)]
+pub async fn infer_schema(
+    State(state): State<AppState>,
+    Json(req): Json<InferSchemaRequest>,
+) -> Result<Json<InferredSchema>, (StatusCode, Json<AskQueryError>)> {
+    // Check if topic exists
+    let topic = state
+        .metadata
+        .get_topic(&req.topic)
+        .await
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(AskQueryError {
+                    error: "metadata_error".to_string(),
+                    message: format!("Failed to get topic: {}", e),
+                    sql: None,
+                    suggestions: vec![],
+                }),
+            )
+        })?
+        .ok_or_else(|| {
+            (
+                StatusCode::NOT_FOUND,
+                Json(AskQueryError {
+                    error: "topic_not_found".to_string(),
+                    message: format!("Topic '{}' not found", req.topic),
+                    sql: None,
+                    suggestions: vec!["Check the topic name".to_string()],
+                }),
+            )
+        })?;
+
+    // Sample messages from the topic using SQL
+    let executor = streamhouse_sql::SqlExecutor::new(
+        state.metadata.clone(),
+        state.segment_cache.clone(),
+        state.object_store.clone(),
+    );
+
+    let sample_sql = format!(
+        "SELECT value FROM {} LIMIT {}",
+        req.topic,
+        req.sample_size.min(1000)
+    );
+
+    let result = executor
+        .execute(&sample_sql, Some(30000))
+        .await
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(AskQueryError {
+                    error: "sample_error".to_string(),
+                    message: format!("Failed to sample messages: {}", e),
+                    sql: Some(sample_sql.clone()),
+                    suggestions: vec!["Topic may be empty".to_string()],
+                }),
+            )
+        })?;
+
+    // Analyze JSON structure
+    let mut field_stats: HashMap<String, FieldStats> = HashMap::new();
+    let mut sample_count = 0;
+
+    for row in &result.rows {
+        if let Some(value) = row.first() {
+            sample_count += 1;
+            analyze_json_value(value, "", &mut field_stats);
+        }
+    }
+
+    // Convert stats to inferred fields
+    let mut fields: Vec<InferredField> = field_stats
+        .into_iter()
+        .map(|(path, stats)| {
+            let occurrence_rate = stats.count as f32 / sample_count as f32;
+            let nullable = stats.null_count > 0 || occurrence_rate < 1.0;
+            let json_type = determine_json_type(&stats.types);
+            let suggested_sql_type = json_type_to_sql(&json_type);
+
+            InferredField {
+                path,
+                json_type,
+                nullable,
+                occurrence_rate,
+                unique_values: if stats.unique_values.len() < 100 {
+                    Some(stats.unique_values.len())
+                } else {
+                    None
+                },
+                sample_values: stats
+                    .unique_values
+                    .into_iter()
+                    .take(5)
+                    .collect(),
+                description: None,
+                suggested_sql_type,
+            }
+        })
+        .collect();
+
+    // Sort fields by path for consistency
+    fields.sort_by(|a, b| a.path.cmp(&b.path));
+
+    // Generate AI descriptions and recommendations if requested
+    let (descriptions, summary, ai_index_suggestions) = if req.generate_descriptions {
+        if let Ok(api_key) = std::env::var("ANTHROPIC_API_KEY") {
+            match generate_schema_analysis(&api_key, &req.topic, &fields).await {
+                Ok(analysis) => (
+                    Some(analysis.field_descriptions),
+                    Some(analysis.summary),
+                    analysis.index_suggestions,
+                ),
+                Err(e) => {
+                    tracing::warn!("Failed to generate AI schema analysis: {}", e);
+                    (None, None, vec![])
+                }
+            }
+        } else {
+            (None, None, vec![])
+        }
+    } else {
+        (None, None, vec![])
+    };
+
+    // Apply descriptions to fields
+    if let Some(desc_map) = descriptions {
+        for field in &mut fields {
+            field.description = desc_map.get(&field.path).cloned();
+        }
+    }
+
+    // Generate index recommendations
+    let mut index_recommendations = generate_index_recommendations(&fields, &topic);
+
+    // Add AI suggestions
+    for suggestion in ai_index_suggestions {
+        if !index_recommendations.iter().any(|r| r.field == suggestion.field) {
+            index_recommendations.push(IndexRecommendation {
+                field: suggestion.field.clone(),
+                reason: suggestion.reason,
+                priority: suggestion.priority,
+                example_query: format!(
+                    "SELECT * FROM {} WHERE json_extract(value, '$.{}') = 'value' LIMIT 100",
+                    req.topic, suggestion.field
+                ),
+            });
+        }
+    }
+
+    // Calculate overall confidence
+    let confidence = if sample_count >= 50 {
+        0.95
+    } else if sample_count >= 10 {
+        0.8
+    } else if sample_count > 0 {
+        0.6
+    } else {
+        0.0
+    };
+
+    Ok(Json(InferredSchema {
+        topic: req.topic,
+        sample_count,
+        fields,
+        index_recommendations,
+        confidence,
+        summary,
+    }))
+}
+
+/// Field statistics during analysis
+struct FieldStats {
+    count: usize,
+    null_count: usize,
+    types: HashMap<String, usize>,
+    unique_values: Vec<serde_json::Value>,
+}
+
+impl Default for FieldStats {
+    fn default() -> Self {
+        Self {
+            count: 0,
+            null_count: 0,
+            types: HashMap::new(),
+            unique_values: Vec::new(),
+        }
+    }
+}
+
+/// Recursively analyze JSON value and collect field stats
+fn analyze_json_value(
+    value: &serde_json::Value,
+    prefix: &str,
+    stats: &mut HashMap<String, FieldStats>,
+) {
+    match value {
+        serde_json::Value::Object(obj) => {
+            for (key, val) in obj {
+                let path = if prefix.is_empty() {
+                    key.clone()
+                } else {
+                    format!("{}.{}", prefix, key)
+                };
+
+                let field_stats = stats.entry(path.clone()).or_default();
+                field_stats.count += 1;
+
+                match val {
+                    serde_json::Value::Null => {
+                        field_stats.null_count += 1;
+                        *field_stats.types.entry("null".to_string()).or_insert(0) += 1;
+                    }
+                    serde_json::Value::Object(_) => {
+                        *field_stats.types.entry("object".to_string()).or_insert(0) += 1;
+                        analyze_json_value(val, &path, stats);
+                    }
+                    serde_json::Value::Array(arr) => {
+                        *field_stats.types.entry("array".to_string()).or_insert(0) += 1;
+                        // Sample first element type
+                        if let Some(first) = arr.first() {
+                            let elem_type = json_value_type(first);
+                            let array_type = format!("array<{}>", elem_type);
+                            *field_stats.types.entry(array_type).or_insert(0) += 1;
+                        }
+                    }
+                    _ => {
+                        let type_name = json_value_type(val);
+                        *field_stats.types.entry(type_name).or_insert(0) += 1;
+
+                        // Track unique values (up to 100)
+                        if field_stats.unique_values.len() < 100
+                            && !field_stats.unique_values.contains(val)
+                        {
+                            field_stats.unique_values.push(val.clone());
+                        }
+                    }
+                }
+            }
+        }
+        serde_json::Value::String(s) => {
+            // Try to parse as JSON if this looks like it
+            if s.starts_with('{') || s.starts_with('[') {
+                if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(s) {
+                    analyze_json_value(&parsed, prefix, stats);
+                }
+            }
+        }
+        _ => {}
+    }
+}
+
+/// Get JSON type name
+fn json_value_type(value: &serde_json::Value) -> String {
+    match value {
+        serde_json::Value::Null => "null",
+        serde_json::Value::Bool(_) => "boolean",
+        serde_json::Value::Number(n) => {
+            if n.is_i64() {
+                "integer"
+            } else {
+                "number"
+            }
+        }
+        serde_json::Value::String(_) => "string",
+        serde_json::Value::Array(_) => "array",
+        serde_json::Value::Object(_) => "object",
+    }
+    .to_string()
+}
+
+/// Determine primary JSON type from type counts
+fn determine_json_type(types: &HashMap<String, usize>) -> String {
+    types
+        .iter()
+        .filter(|(t, _)| *t != "null")
+        .max_by_key(|(_, count)| *count)
+        .map(|(t, _)| t.clone())
+        .unwrap_or_else(|| "null".to_string())
+}
+
+/// Map JSON type to SQL type
+fn json_type_to_sql(json_type: &str) -> String {
+    match json_type {
+        "string" => "VARCHAR",
+        "integer" => "BIGINT",
+        "number" => "DOUBLE",
+        "boolean" => "BOOLEAN",
+        "array" | "object" => "JSON",
+        _ => "VARCHAR",
+    }
+    .to_string()
+}
+
+/// Generate index recommendations based on field analysis
+fn generate_index_recommendations(
+    fields: &[InferredField],
+    _topic: &streamhouse_metadata::Topic,
+) -> Vec<IndexRecommendation> {
+    let mut recommendations = Vec::new();
+
+    for field in fields {
+        // ID fields are good candidates
+        if field.path.ends_with("_id") || field.path.ends_with("Id") || field.path == "id" {
+            recommendations.push(IndexRecommendation {
+                field: field.path.clone(),
+                reason: "ID field - commonly used for lookups".to_string(),
+                priority: "high".to_string(),
+                example_query: format!(
+                    "SELECT * FROM topic WHERE json_extract(value, '$.{}') = 'some_id' LIMIT 100",
+                    field.path
+                ),
+            });
+        }
+
+        // Status/type fields with low cardinality
+        if (field.path.contains("status") || field.path.contains("type") || field.path.contains("state"))
+            && field.unique_values.is_some()
+            && field.unique_values.unwrap() < 20
+        {
+            recommendations.push(IndexRecommendation {
+                field: field.path.clone(),
+                reason: "Low cardinality field - good for filtering".to_string(),
+                priority: "medium".to_string(),
+                example_query: format!(
+                    "SELECT * FROM topic WHERE json_extract(value, '$.{}') = 'active' LIMIT 100",
+                    field.path
+                ),
+            });
+        }
+
+        // Timestamp fields
+        if field.path.contains("time") || field.path.contains("date") || field.path.contains("_at") {
+            recommendations.push(IndexRecommendation {
+                field: field.path.clone(),
+                reason: "Timestamp field - useful for time-range queries".to_string(),
+                priority: "high".to_string(),
+                example_query: format!(
+                    "SELECT * FROM topic WHERE json_extract(value, '$.{}') >= '2026-01-01' LIMIT 100",
+                    field.path
+                ),
+            });
+        }
+    }
+
+    recommendations
+}
+
+/// Generate AI-powered schema analysis
+async fn generate_schema_analysis(
+    api_key: &str,
+    topic_name: &str,
+    fields: &[InferredField],
+) -> Result<SchemaAnalysisResponse, String> {
+    let client = reqwest::Client::new();
+
+    // Build field summary for the prompt
+    let field_summary: String = fields
+        .iter()
+        .map(|f| {
+            format!(
+                "- {}: {} (nullable: {}, occurrence: {:.0}%, samples: {:?})",
+                f.path,
+                f.json_type,
+                f.nullable,
+                f.occurrence_rate * 100.0,
+                f.sample_values.iter().take(3).collect::<Vec<_>>()
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+
+    let system_prompt = format!(
+        r#"You are analyzing the schema of a data topic called "{}".
+Based on the field analysis below, provide:
+1. A brief description for each field explaining what it likely represents
+2. A summary of what this topic/table contains
+3. Suggestions for which fields would benefit from indexing
+
+Fields:
+{}
+
+Respond with JSON:
+{{
+  "field_descriptions": {{"field.path": "description", ...}},
+  "summary": "Brief description of what this topic contains",
+  "index_suggestions": [
+    {{"field": "field.path", "reason": "why index this", "priority": "high|medium|low"}}
+  ]
+}}"#,
+        topic_name, field_summary
+    );
+
+    let request = ClaudeRequest {
+        model: "claude-sonnet-4-20250514".to_string(),
+        max_tokens: 2048,
+        system: system_prompt,
+        messages: vec![ClaudeMessage {
+            role: "user".to_string(),
+            content: "Analyze this schema and provide descriptions, summary, and index recommendations.".to_string(),
+        }],
+    };
+
+    let response = client
+        .post("https://api.anthropic.com/v1/messages")
+        .header("x-api-key", api_key)
+        .header("anthropic-version", "2023-06-01")
+        .header("content-type", "application/json")
+        .json(&request)
+        .send()
+        .await
+        .map_err(|e| format!("Failed to call AI: {}", e))?;
+
+    if !response.status().is_success() {
+        return Err(format!("AI returned error: {}", response.status()));
+    }
+
+    let claude_response: ClaudeResponse = response
+        .json()
+        .await
+        .map_err(|e| format!("Failed to parse AI response: {}", e))?;
+
+    let text = claude_response
+        .content
+        .first()
+        .map(|c| c.text.clone())
+        .unwrap_or_default();
+
+    let json_text = extract_json(&text);
+    serde_json::from_str(&json_text)
+        .map_err(|e| format!("Failed to parse schema analysis: {}", e))
 }
 
 #[cfg(test)]
