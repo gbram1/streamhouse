@@ -5,6 +5,7 @@
 //! - Producer operations (produce records)
 //! - Consumer operations (consume records, commit offsets)
 
+pub mod materialized_view_maintenance;
 pub mod services;
 
 // Include generated protobuf code
@@ -12,4 +13,5 @@ pub mod pb {
     tonic::include_proto!("streamhouse");
 }
 
+pub use materialized_view_maintenance::{MaintenanceConfig, MaterializedViewMaintenance};
 pub use services::StreamHouseService;

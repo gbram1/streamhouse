@@ -10,6 +10,7 @@ repository.workspace = true
 streamhouse-core = { path = "../streamhouse-core" }
 streamhouse-storage = { path = "../streamhouse-storage" }
 streamhouse-metadata = { path = "../streamhouse-metadata" }
+streamhouse-sql = { path = "../streamhouse-sql" }
 streamhouse-api = { path = "../streamhouse-api" }
 streamhouse-schema-registry = { path = "../streamhouse-schema-registry" }
 streamhouse-client = { path = "../streamhouse-client" }

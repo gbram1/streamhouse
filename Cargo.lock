@@ -4013,6 +4013,7 @@ dependencies = [
  "streamhouse-observability",
  "streamhouse-proto",
  "streamhouse-schema-registry",
+ "streamhouse-sql",
  "streamhouse-storage",
  "tempfile",
  "thiserror 1.0.69",
