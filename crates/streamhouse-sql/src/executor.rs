@@ -1061,12 +1061,14 @@ fn extract_json_path_for_stats(json: &serde_json::Value, path: &str) -> serde_js
     current
 }
 
-// Window grouping types
-type WindowKey = (i64, i64, Option<String>); // (window_start, window_end, group_key)
-type WindowGroups = std::collections::BTreeMap<WindowKey, Vec<MessageRow>>;
+// Window grouping types - exported for use by materialized view maintenance
+/// Window key: (window_start, window_end, group_key)
+pub type WindowKey = (i64, i64, Option<String>);
+/// Map of window key to messages in that window
+pub type WindowGroups = std::collections::BTreeMap<WindowKey, Vec<MessageRow>>;
 
 /// Group messages into tumbling windows
-fn group_into_tumble_windows(
+pub fn group_into_tumble_windows(
     messages: &[MessageRow],
     size_ms: i64,
     group_by: &[String],
@@ -1086,7 +1088,7 @@ fn group_into_tumble_windows(
 }
 
 /// Group messages into hopping (sliding) windows
-fn group_into_hop_windows(
+pub fn group_into_hop_windows(
     messages: &[MessageRow],
     size_ms: i64,
     slide_ms: i64,
@@ -1123,7 +1125,7 @@ fn group_into_hop_windows(
 }
 
 /// Group messages into session windows
-fn group_into_session_windows(
+pub fn group_into_session_windows(
     messages: &[MessageRow],
     gap_ms: i64,
     group_by: &[String],
@@ -1176,7 +1178,7 @@ fn group_into_session_windows(
 }
 
 /// Extract group key from message
-fn extract_group_key(msg: &MessageRow, group_by: &[String]) -> Option<String> {
+pub fn extract_group_key(msg: &MessageRow, group_by: &[String]) -> Option<String> {
     if group_by.is_empty() {
         return None;
     }
@@ -1204,7 +1206,7 @@ fn extract_group_key(msg: &MessageRow, group_by: &[String]) -> Option<String> {
 }
 
 /// Compute aggregation for a window
-fn compute_aggregation(agg: &WindowAggregation, messages: &[MessageRow]) -> serde_json::Value {
+pub fn compute_aggregation(agg: &WindowAggregation, messages: &[MessageRow]) -> serde_json::Value {
     match agg {
         WindowAggregation::Count { .. } => {
             serde_json::Value::Number((messages.len() as i64).into())

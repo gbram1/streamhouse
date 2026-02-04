@@ -59,5 +59,11 @@ pub use executor::SqlExecutor;
 pub use parser::parse_query;
 pub use types::*;
 
+// Re-export window aggregation functions for materialized view maintenance
+pub use executor::{
+    compute_aggregation, extract_group_key, group_into_hop_windows, group_into_session_windows,
+    group_into_tumble_windows, WindowGroups, WindowKey,
+};
+
 /// Result type for SQL operations
 pub type Result<T> = std::result::Result<T, SqlError>;
