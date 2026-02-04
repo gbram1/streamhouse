@@ -247,6 +247,13 @@ impl PostgresMetadataStore {
     pub fn pool(&self) -> &PgPool {
         &self.pool
     }
+
+    fn now_ms() -> i64 {
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_millis() as i64
+    }
 }
 
 #[async_trait]
@@ -1416,6 +1423,920 @@ impl MetadataStore for PostgresMetadataStore {
         .bind(delta)
         .bind(now_ms)
         .bind(now_ms)
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
+    // ============================================================
+    // FAST LEADER HANDOFF (Phase 17)
+    // ============================================================
+
+    async fn initiate_lease_transfer(
+        &self,
+        topic: &str,
+        partition_id: u32,
+        from_agent_id: &str,
+        to_agent_id: &str,
+        reason: LeaderChangeReason,
+        timeout_ms: u32,
+    ) -> Result<LeaseTransfer> {
+        let now_ms = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_millis() as i64;
+        let transfer_id = uuid::Uuid::new_v4().to_string();
+        let timeout_at = now_ms + timeout_ms as i64;
+
+        // Get current lease epoch
+        let lease = self.get_partition_lease(topic, partition_id).await?
+            .ok_or_else(|| MetadataError::NotFoundError(format!(
+                "No lease for {}/{}", topic, partition_id
+            )))?;
+
+        if lease.leader_agent_id != from_agent_id {
+            return Err(MetadataError::ConflictError(format!(
+                "Agent {} is not the current leader", from_agent_id
+            )));
+        }
+
+        let reason_str = reason.to_string();
+        sqlx::query(
+            "INSERT INTO lease_transfers (transfer_id, topic, partition_id, from_agent_id, to_agent_id, from_epoch, state, reason, initiated_at, timeout_at)
+             VALUES ($1, $2, $3, $4, $5, $6, 'pending', $7, $8, $9)"
+        )
+        .bind(&transfer_id)
+        .bind(topic)
+        .bind(partition_id as i32)
+        .bind(from_agent_id)
+        .bind(to_agent_id)
+        .bind(lease.epoch as i64)
+        .bind(&reason_str)
+        .bind(now_ms)
+        .bind(timeout_at)
+        .execute(&self.pool)
+        .await?;
+
+        Ok(LeaseTransfer {
+            transfer_id,
+            topic: topic.to_string(),
+            partition_id,
+            from_agent_id: from_agent_id.to_string(),
+            to_agent_id: to_agent_id.to_string(),
+            from_epoch: lease.epoch,
+            state: LeaseTransferState::Pending,
+            reason,
+            initiated_at: now_ms,
+            completed_at: None,
+            timeout_at,
+            last_flushed_offset: None,
+            high_watermark: None,
+            error: None,
+        })
+    }
+
+    async fn accept_lease_transfer(
+        &self,
+        transfer_id: &str,
+        agent_id: &str,
+    ) -> Result<LeaseTransfer> {
+        let result = sqlx::query(
+            "UPDATE lease_transfers SET state = 'accepted'
+             WHERE transfer_id = $1 AND to_agent_id = $2 AND state = 'pending'"
+        )
+        .bind(transfer_id)
+        .bind(agent_id)
+        .execute(&self.pool)
+        .await?;
+
+        if result.rows_affected() == 0 {
+            return Err(MetadataError::NotFoundError(format!(
+                "Transfer {} not found or not pending for agent {}", transfer_id, agent_id
+            )));
+        }
+
+        self.get_lease_transfer(transfer_id).await?
+            .ok_or_else(|| MetadataError::NotFoundError(format!("Transfer {} not found", transfer_id)))
+    }
+
+    async fn complete_lease_transfer(
+        &self,
+        transfer_id: &str,
+        last_flushed_offset: u64,
+        high_watermark: u64,
+    ) -> Result<PartitionLease> {
+        let now_ms = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_millis() as i64;
+
+        let transfer = self.get_lease_transfer(transfer_id).await?
+            .ok_or_else(|| MetadataError::NotFoundError(format!("Transfer {} not found", transfer_id)))?;
+
+        if transfer.state != LeaseTransferState::Accepted {
+            return Err(MetadataError::ConflictError(format!(
+                "Transfer {} is not in accepted state", transfer_id
+            )));
+        }
+
+        // Update transfer state
+        sqlx::query(
+            "UPDATE lease_transfers SET state = 'completed', completed_at = $1, last_flushed_offset = $2, high_watermark = $3
+             WHERE transfer_id = $4"
+        )
+        .bind(now_ms)
+        .bind(last_flushed_offset as i64)
+        .bind(high_watermark as i64)
+        .bind(transfer_id)
+        .execute(&self.pool)
+        .await?;
+
+        // Transfer the lease to the new agent
+        let new_lease = self.acquire_partition_lease(
+            &transfer.topic,
+            transfer.partition_id,
+            &transfer.to_agent_id,
+            30000,  // Default lease duration
+        ).await?;
+
+        Ok(new_lease)
+    }
+
+    async fn reject_lease_transfer(
+        &self,
+        transfer_id: &str,
+        agent_id: &str,
+        reason: &str,
+    ) -> Result<()> {
+        let result = sqlx::query(
+            "UPDATE lease_transfers SET state = 'rejected', error = $1
+             WHERE transfer_id = $2 AND (from_agent_id = $3 OR to_agent_id = $3) AND state IN ('pending', 'accepted')"
+        )
+        .bind(reason)
+        .bind(transfer_id)
+        .bind(agent_id)
+        .execute(&self.pool)
+        .await?;
+
+        if result.rows_affected() == 0 {
+            return Err(MetadataError::NotFoundError(format!(
+                "Transfer {} not found or not in rejectable state", transfer_id
+            )));
+        }
+        Ok(())
+    }
+
+    async fn get_lease_transfer(&self, transfer_id: &str) -> Result<Option<LeaseTransfer>> {
+        let row = sqlx::query(
+            "SELECT transfer_id, topic, partition_id, from_agent_id, to_agent_id, from_epoch, state, reason, initiated_at, completed_at, timeout_at, last_flushed_offset, high_watermark, error
+             FROM lease_transfers WHERE transfer_id = $1"
+        )
+        .bind(transfer_id)
+        .fetch_optional(&self.pool)
+        .await?;
+
+        Ok(row.map(|r| {
+            let state_str: String = r.get("state");
+            let reason_str: String = r.get("reason");
+            LeaseTransfer {
+                transfer_id: r.get("transfer_id"),
+                topic: r.get("topic"),
+                partition_id: r.get::<i32, _>("partition_id") as u32,
+                from_agent_id: r.get("from_agent_id"),
+                to_agent_id: r.get("to_agent_id"),
+                from_epoch: r.get::<i64, _>("from_epoch") as u64,
+                state: state_str.parse().unwrap_or(LeaseTransferState::Pending),
+                reason: reason_str.parse().unwrap_or(LeaderChangeReason::GracefulHandoff),
+                initiated_at: r.get("initiated_at"),
+                completed_at: r.get("completed_at"),
+                timeout_at: r.get("timeout_at"),
+                last_flushed_offset: r.get::<Option<i64>, _>("last_flushed_offset").map(|v| v as u64),
+                high_watermark: r.get::<Option<i64>, _>("high_watermark").map(|v| v as u64),
+                error: r.get("error"),
+            }
+        }))
+    }
+
+    async fn get_pending_transfers_for_agent(&self, agent_id: &str) -> Result<Vec<LeaseTransfer>> {
+        let rows = sqlx::query(
+            "SELECT transfer_id, topic, partition_id, from_agent_id, to_agent_id, from_epoch, state, reason, initiated_at, completed_at, timeout_at, last_flushed_offset, high_watermark, error
+             FROM lease_transfers
+             WHERE (from_agent_id = $1 OR to_agent_id = $1) AND state IN ('pending', 'accepted')
+             ORDER BY initiated_at"
+        )
+        .bind(agent_id)
+        .fetch_all(&self.pool)
+        .await?;
+
+        Ok(rows.into_iter().map(|r| {
+            let state_str: String = r.get("state");
+            let reason_str: String = r.get("reason");
+            LeaseTransfer {
+                transfer_id: r.get("transfer_id"),
+                topic: r.get("topic"),
+                partition_id: r.get::<i32, _>("partition_id") as u32,
+                from_agent_id: r.get("from_agent_id"),
+                to_agent_id: r.get("to_agent_id"),
+                from_epoch: r.get::<i64, _>("from_epoch") as u64,
+                state: state_str.parse().unwrap_or(LeaseTransferState::Pending),
+                reason: reason_str.parse().unwrap_or(LeaderChangeReason::GracefulHandoff),
+                initiated_at: r.get("initiated_at"),
+                completed_at: r.get("completed_at"),
+                timeout_at: r.get("timeout_at"),
+                last_flushed_offset: r.get::<Option<i64>, _>("last_flushed_offset").map(|v| v as u64),
+                high_watermark: r.get::<Option<i64>, _>("high_watermark").map(|v| v as u64),
+                error: r.get("error"),
+            }
+        }).collect())
+    }
+
+    async fn cleanup_timed_out_transfers(&self) -> Result<u64> {
+        let now_ms = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_millis() as i64;
+
+        let result = sqlx::query(
+            "UPDATE lease_transfers SET state = 'timed_out', error = 'Transfer timed out'
+             WHERE state IN ('pending', 'accepted') AND timeout_at < $1"
+        )
+        .bind(now_ms)
+        .execute(&self.pool)
+        .await?;
+
+        Ok(result.rows_affected())
+    }
+
+    async fn record_leader_change(
+        &self,
+        topic: &str,
+        partition_id: u32,
+        from_agent_id: Option<&str>,
+        to_agent_id: &str,
+        reason: LeaderChangeReason,
+        epoch: u64,
+        gap_ms: i64,
+    ) -> Result<()> {
+        let now_ms = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_millis() as i64;
+        let reason_str = reason.to_string();
+
+        sqlx::query(
+            "INSERT INTO leader_changes (topic, partition_id, from_agent_id, to_agent_id, reason, epoch, gap_ms, changed_at)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8)"
+        )
+        .bind(topic)
+        .bind(partition_id as i32)
+        .bind(from_agent_id)
+        .bind(to_agent_id)
+        .bind(&reason_str)
+        .bind(epoch as i64)
+        .bind(gap_ms)
+        .bind(now_ms)
+        .execute(&self.pool)
+        .await?;
+
+        Ok(())
+    }
+
+    // ============================================================
+    // EXACTLY-ONCE SEMANTICS (Phase 16)
+    // ============================================================
+
+    // ---- Producer Operations ----
+
+    async fn init_producer(&self, config: InitProducerConfig) -> Result<Producer> {
+        let now = Self::now_ms();
+
+        // Check if transactional producer already exists
+        if let Some(ref transactional_id) = config.transactional_id {
+            let existing = self
+                .get_producer_by_transactional_id(transactional_id, config.organization_id.as_deref())
+                .await?;
+
+            if let Some(mut producer) = existing {
+                // Bump epoch to fence old producer instances
+                let new_epoch = producer.epoch + 1;
+                sqlx::query(
+                    "UPDATE producers SET epoch = $1, last_heartbeat = $2, state = 'active' WHERE id = $3"
+                )
+                .bind(new_epoch as i32)
+                .bind(now)
+                .bind(&producer.id)
+                .execute(&self.pool)
+                .await?;
+
+                producer.epoch = new_epoch;
+                producer.last_heartbeat = now;
+                producer.state = ProducerState::Active;
+                return Ok(producer);
+            }
+        }
+
+        // Create new producer
+        let producer_id = uuid::Uuid::new_v4().to_string();
+        let metadata_json = serde_json::to_string(&config.metadata)?;
+
+        sqlx::query(
+            "INSERT INTO producers (id, organization_id, transactional_id, epoch, created_at, last_heartbeat, state, metadata) \
+             VALUES ($1, $2, $3, 0, $4, $5, 'active', $6)"
+        )
+        .bind(&producer_id)
+        .bind(&config.organization_id)
+        .bind(&config.transactional_id)
+        .bind(now)
+        .bind(now)
+        .bind(&metadata_json)
+        .execute(&self.pool)
+        .await?;
+
+        Ok(Producer {
+            id: producer_id,
+            organization_id: config.organization_id,
+            transactional_id: config.transactional_id,
+            epoch: 0,
+            state: ProducerState::Active,
+            created_at: now,
+            last_heartbeat: now,
+            metadata: config.metadata,
+        })
+    }
+
+    async fn get_producer(&self, producer_id: &str) -> Result<Option<Producer>> {
+        let row = sqlx::query(
+            "SELECT id, organization_id, transactional_id, epoch, created_at, last_heartbeat, state, metadata \
+             FROM producers WHERE id = $1"
+        )
+        .bind(producer_id)
+        .fetch_optional(&self.pool)
+        .await?;
+
+        Ok(row.map(|r| {
+            let state_str: String = r.get("state");
+            let metadata_json: Option<String> = r.get("metadata");
+            Producer {
+                id: r.get("id"),
+                organization_id: r.get("organization_id"),
+                transactional_id: r.get("transactional_id"),
+                epoch: r.get::<i32, _>("epoch") as u32,
+                state: state_str.parse().unwrap_or(ProducerState::Active),
+                created_at: r.get("created_at"),
+                last_heartbeat: r.get("last_heartbeat"),
+                metadata: metadata_json.and_then(|s| serde_json::from_str(&s).ok()),
+            }
+        }))
+    }
+
+    async fn get_producer_by_transactional_id(
+        &self,
+        transactional_id: &str,
+        organization_id: Option<&str>,
+    ) -> Result<Option<Producer>> {
+        let row = match organization_id {
+            Some(org_id) => sqlx::query(
+                "SELECT id, organization_id, transactional_id, epoch, created_at, last_heartbeat, state, metadata \
+                 FROM producers WHERE transactional_id = $1 AND organization_id = $2"
+            )
+            .bind(transactional_id)
+            .bind(org_id)
+            .fetch_optional(&self.pool)
+            .await?,
+            None => sqlx::query(
+                "SELECT id, organization_id, transactional_id, epoch, created_at, last_heartbeat, state, metadata \
+                 FROM producers WHERE transactional_id = $1 AND organization_id IS NULL"
+            )
+            .bind(transactional_id)
+            .fetch_optional(&self.pool)
+            .await?,
+        };
+
+        Ok(row.map(|r| {
+            let state_str: String = r.get("state");
+            let metadata_json: Option<String> = r.get("metadata");
+            Producer {
+                id: r.get("id"),
+                organization_id: r.get("organization_id"),
+                transactional_id: r.get("transactional_id"),
+                epoch: r.get::<i32, _>("epoch") as u32,
+                state: state_str.parse().unwrap_or(ProducerState::Active),
+                created_at: r.get("created_at"),
+                last_heartbeat: r.get("last_heartbeat"),
+                metadata: metadata_json.and_then(|s| serde_json::from_str(&s).ok()),
+            }
+        }))
+    }
+
+    async fn update_producer_heartbeat(&self, producer_id: &str) -> Result<()> {
+        let now = Self::now_ms();
+        sqlx::query("UPDATE producers SET last_heartbeat = $1 WHERE id = $2")
+            .bind(now)
+            .bind(producer_id)
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
+
+    async fn fence_producer(&self, producer_id: &str) -> Result<()> {
+        let result = sqlx::query("UPDATE producers SET state = 'fenced' WHERE id = $1")
+            .bind(producer_id)
+            .execute(&self.pool)
+            .await?;
+
+        if result.rows_affected() == 0 {
+            return Err(MetadataError::NotFoundError(format!(
+                "Producer {} not found",
+                producer_id
+            )));
+        }
+
+        Ok(())
+    }
+
+    async fn cleanup_expired_producers(&self, timeout_ms: i64) -> Result<u64> {
+        let cutoff = Self::now_ms() - timeout_ms;
+        let result = sqlx::query(
+            "DELETE FROM producers WHERE last_heartbeat < $1 AND state != 'active'"
+        )
+        .bind(cutoff)
+        .execute(&self.pool)
+        .await?;
+        Ok(result.rows_affected())
+    }
+
+    // ---- Sequence Operations ----
+
+    async fn get_producer_sequence(
+        &self,
+        producer_id: &str,
+        topic: &str,
+        partition_id: u32,
+    ) -> Result<Option<i64>> {
+        let row = sqlx::query(
+            "SELECT last_sequence FROM producer_sequences \
+             WHERE producer_id = $1 AND topic = $2 AND partition_id = $3"
+        )
+        .bind(producer_id)
+        .bind(topic)
+        .bind(partition_id as i32)
+        .fetch_optional(&self.pool)
+        .await?;
+
+        Ok(row.map(|r| r.get::<i64, _>("last_sequence")))
+    }
+
+    async fn update_producer_sequence(
+        &self,
+        producer_id: &str,
+        topic: &str,
+        partition_id: u32,
+        sequence: i64,
+    ) -> Result<()> {
+        let now = Self::now_ms();
+        sqlx::query(
+            "INSERT INTO producer_sequences (producer_id, topic, partition_id, last_sequence, updated_at) \
+             VALUES ($1, $2, $3, $4, $5) \
+             ON CONFLICT(producer_id, topic, partition_id) DO UPDATE SET \
+                last_sequence = EXCLUDED.last_sequence, \
+                updated_at = EXCLUDED.updated_at"
+        )
+        .bind(producer_id)
+        .bind(topic)
+        .bind(partition_id as i32)
+        .bind(sequence)
+        .bind(now)
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
+    async fn check_and_update_sequence(
+        &self,
+        producer_id: &str,
+        topic: &str,
+        partition_id: u32,
+        base_sequence: i64,
+        record_count: u32,
+    ) -> Result<bool> {
+        let mut tx = self.pool.begin().await?;
+        let now = Self::now_ms();
+
+        // Get current sequence
+        let row = sqlx::query(
+            "SELECT last_sequence FROM producer_sequences \
+             WHERE producer_id = $1 AND topic = $2 AND partition_id = $3"
+        )
+        .bind(producer_id)
+        .bind(topic)
+        .bind(partition_id as i32)
+        .fetch_optional(&mut *tx)
+        .await?;
+
+        let last_sequence = row.map(|r| r.get::<i64, _>("last_sequence")).unwrap_or(-1);
+
+        // Check sequence validity
+        if base_sequence <= last_sequence {
+            // Duplicate
+            return Ok(false);
+        }
+
+        if base_sequence > last_sequence + 1 {
+            // Gap in sequence - could be due to producer failure
+            return Err(MetadataError::SequenceError(format!(
+                "Sequence gap: expected {}, got {}",
+                last_sequence + 1,
+                base_sequence
+            )));
+        }
+
+        // Update sequence
+        let new_sequence = base_sequence + record_count as i64 - 1;
+        sqlx::query(
+            "INSERT INTO producer_sequences (producer_id, topic, partition_id, last_sequence, updated_at) \
+             VALUES ($1, $2, $3, $4, $5) \
+             ON CONFLICT(producer_id, topic, partition_id) DO UPDATE SET \
+                last_sequence = EXCLUDED.last_sequence, \
+                updated_at = EXCLUDED.updated_at"
+        )
+        .bind(producer_id)
+        .bind(topic)
+        .bind(partition_id as i32)
+        .bind(new_sequence)
+        .bind(now)
+        .execute(&mut *tx)
+        .await?;
+
+        tx.commit().await?;
+        Ok(true)
+    }
+
+    // ---- Transaction Operations ----
+
+    async fn begin_transaction(&self, producer_id: &str, timeout_ms: u32) -> Result<Transaction> {
+        let now = Self::now_ms();
+        let transaction_id = uuid::Uuid::new_v4().to_string();
+
+        sqlx::query(
+            "INSERT INTO transactions (transaction_id, producer_id, state, timeout_ms, started_at, updated_at) \
+             VALUES ($1, $2, 'ongoing', $3, $4, $5)"
+        )
+        .bind(&transaction_id)
+        .bind(producer_id)
+        .bind(timeout_ms as i32)
+        .bind(now)
+        .bind(now)
+        .execute(&self.pool)
+        .await?;
+
+        Ok(Transaction {
+            transaction_id,
+            producer_id: producer_id.to_string(),
+            state: TransactionState::Ongoing,
+            timeout_ms,
+            started_at: now,
+            updated_at: now,
+            completed_at: None,
+        })
+    }
+
+    async fn get_transaction(&self, transaction_id: &str) -> Result<Option<Transaction>> {
+        let row = sqlx::query(
+            "SELECT transaction_id, producer_id, state, timeout_ms, started_at, updated_at, completed_at \
+             FROM transactions WHERE transaction_id = $1"
+        )
+        .bind(transaction_id)
+        .fetch_optional(&self.pool)
+        .await?;
+
+        Ok(row.map(|r| {
+            let state_str: String = r.get("state");
+            Transaction {
+                transaction_id: r.get("transaction_id"),
+                producer_id: r.get("producer_id"),
+                state: state_str.parse().unwrap_or(TransactionState::Ongoing),
+                timeout_ms: r.get::<i32, _>("timeout_ms") as u32,
+                started_at: r.get("started_at"),
+                updated_at: r.get("updated_at"),
+                completed_at: r.get("completed_at"),
+            }
+        }))
+    }
+
+    async fn add_transaction_partition(
+        &self,
+        transaction_id: &str,
+        topic: &str,
+        partition_id: u32,
+        first_offset: u64,
+    ) -> Result<()> {
+        sqlx::query(
+            "INSERT INTO transaction_partitions (transaction_id, topic, partition_id, first_offset, last_offset) \
+             VALUES ($1, $2, $3, $4, $5) \
+             ON CONFLICT(transaction_id, topic, partition_id) DO NOTHING"
+        )
+        .bind(transaction_id)
+        .bind(topic)
+        .bind(partition_id as i32)
+        .bind(first_offset as i64)
+        .bind(first_offset as i64)
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
+    async fn update_transaction_partition_offset(
+        &self,
+        transaction_id: &str,
+        topic: &str,
+        partition_id: u32,
+        last_offset: u64,
+    ) -> Result<()> {
+        sqlx::query(
+            "UPDATE transaction_partitions SET last_offset = $1 \
+             WHERE transaction_id = $2 AND topic = $3 AND partition_id = $4"
+        )
+        .bind(last_offset as i64)
+        .bind(transaction_id)
+        .bind(topic)
+        .bind(partition_id as i32)
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
+    async fn get_transaction_partitions(
+        &self,
+        transaction_id: &str,
+    ) -> Result<Vec<TransactionPartition>> {
+        let rows = sqlx::query(
+            "SELECT transaction_id, topic, partition_id, first_offset, last_offset \
+             FROM transaction_partitions WHERE transaction_id = $1 ORDER BY topic, partition_id"
+        )
+        .bind(transaction_id)
+        .fetch_all(&self.pool)
+        .await?;
+
+        Ok(rows
+            .into_iter()
+            .map(|r| TransactionPartition {
+                transaction_id: r.get("transaction_id"),
+                topic: r.get("topic"),
+                partition_id: r.get::<i32, _>("partition_id") as u32,
+                first_offset: r.get::<i64, _>("first_offset") as u64,
+                last_offset: r.get::<i64, _>("last_offset") as u64,
+            })
+            .collect())
+    }
+
+    async fn prepare_transaction(&self, transaction_id: &str) -> Result<()> {
+        let now = Self::now_ms();
+        let result = sqlx::query(
+            "UPDATE transactions SET state = 'preparing', updated_at = $1 WHERE transaction_id = $2 AND state = 'ongoing'"
+        )
+        .bind(now)
+        .bind(transaction_id)
+        .execute(&self.pool)
+        .await?;
+
+        if result.rows_affected() == 0 {
+            return Err(MetadataError::TransactionError(format!(
+                "Transaction {} is not in ongoing state",
+                transaction_id
+            )));
+        }
+
+        Ok(())
+    }
+
+    async fn commit_transaction(&self, transaction_id: &str) -> Result<i64> {
+        let now = Self::now_ms();
+
+        // Get transaction partitions for writing markers
+        let partitions = self.get_transaction_partitions(transaction_id).await?;
+
+        let mut tx = self.pool.begin().await?;
+
+        // Update transaction state
+        let result = sqlx::query(
+            "UPDATE transactions SET state = 'committed', updated_at = $1, completed_at = $2 \
+             WHERE transaction_id = $3 AND (state = 'ongoing' OR state = 'preparing')"
+        )
+        .bind(now)
+        .bind(now)
+        .bind(transaction_id)
+        .execute(&mut *tx)
+        .await?;
+
+        if result.rows_affected() == 0 {
+            return Err(MetadataError::TransactionError(format!(
+                "Transaction {} cannot be committed",
+                transaction_id
+            )));
+        }
+
+        // Write commit markers for each partition
+        for partition in &partitions {
+            let marker_id = uuid::Uuid::new_v4().to_string();
+            sqlx::query(
+                "INSERT INTO transaction_markers (id, transaction_id, topic, partition_id, \"offset\", marker_type, created_at) \
+                 VALUES ($1, $2, $3, $4, $5, 'commit', $6)"
+            )
+            .bind(&marker_id)
+            .bind(transaction_id)
+            .bind(&partition.topic)
+            .bind(partition.partition_id as i32)
+            .bind(partition.last_offset as i64)
+            .bind(now)
+            .execute(&mut *tx)
+            .await?;
+
+            // Update LSO for each partition
+            sqlx::query(
+                "INSERT INTO partition_lso (topic, partition_id, last_stable_offset, updated_at) \
+                 VALUES ($1, $2, $3, $4) \
+                 ON CONFLICT(topic, partition_id) DO UPDATE SET \
+                    last_stable_offset = GREATEST(partition_lso.last_stable_offset, EXCLUDED.last_stable_offset), \
+                    updated_at = EXCLUDED.updated_at"
+            )
+            .bind(&partition.topic)
+            .bind(partition.partition_id as i32)
+            .bind((partition.last_offset + 1) as i64)
+            .bind(now)
+            .execute(&mut *tx)
+            .await?;
+        }
+
+        tx.commit().await?;
+        Ok(now)
+    }
+
+    async fn abort_transaction(&self, transaction_id: &str) -> Result<()> {
+        let now = Self::now_ms();
+
+        // Get transaction partitions for writing markers
+        let partitions = self.get_transaction_partitions(transaction_id).await?;
+
+        let mut tx = self.pool.begin().await?;
+
+        // Update transaction state
+        let result = sqlx::query(
+            "UPDATE transactions SET state = 'aborted', updated_at = $1, completed_at = $2 \
+             WHERE transaction_id = $3 AND (state = 'ongoing' OR state = 'preparing')"
+        )
+        .bind(now)
+        .bind(now)
+        .bind(transaction_id)
+        .execute(&mut *tx)
+        .await?;
+
+        if result.rows_affected() == 0 {
+            return Err(MetadataError::TransactionError(format!(
+                "Transaction {} cannot be aborted",
+                transaction_id
+            )));
+        }
+
+        // Write abort markers for each partition
+        for partition in &partitions {
+            let marker_id = uuid::Uuid::new_v4().to_string();
+            sqlx::query(
+                "INSERT INTO transaction_markers (id, transaction_id, topic, partition_id, \"offset\", marker_type, created_at) \
+                 VALUES ($1, $2, $3, $4, $5, 'abort', $6)"
+            )
+            .bind(&marker_id)
+            .bind(transaction_id)
+            .bind(&partition.topic)
+            .bind(partition.partition_id as i32)
+            .bind(partition.last_offset as i64)
+            .bind(now)
+            .execute(&mut *tx)
+            .await?;
+
+            // Update LSO for each partition (even aborted transactions advance the LSO)
+            sqlx::query(
+                "INSERT INTO partition_lso (topic, partition_id, last_stable_offset, updated_at) \
+                 VALUES ($1, $2, $3, $4) \
+                 ON CONFLICT(topic, partition_id) DO UPDATE SET \
+                    last_stable_offset = GREATEST(partition_lso.last_stable_offset, EXCLUDED.last_stable_offset), \
+                    updated_at = EXCLUDED.updated_at"
+            )
+            .bind(&partition.topic)
+            .bind(partition.partition_id as i32)
+            .bind((partition.last_offset + 1) as i64)
+            .bind(now)
+            .execute(&mut *tx)
+            .await?;
+        }
+
+        tx.commit().await?;
+        Ok(())
+    }
+
+    async fn cleanup_completed_transactions(&self, max_age_ms: i64) -> Result<u64> {
+        let cutoff = Self::now_ms() - max_age_ms;
+        let result = sqlx::query(
+            "DELETE FROM transactions WHERE completed_at IS NOT NULL AND completed_at < $1"
+        )
+        .bind(cutoff)
+        .execute(&self.pool)
+        .await?;
+        Ok(result.rows_affected())
+    }
+
+    // ---- Transaction Marker Operations ----
+
+    async fn add_transaction_marker(&self, marker: TransactionMarker) -> Result<()> {
+        let marker_id = uuid::Uuid::new_v4().to_string();
+        let marker_type = match marker.marker_type {
+            TransactionMarkerType::Commit => "commit",
+            TransactionMarkerType::Abort => "abort",
+        };
+        sqlx::query(
+            "INSERT INTO transaction_markers (id, transaction_id, topic, partition_id, \"offset\", marker_type, created_at) \
+             VALUES ($1, $2, $3, $4, $5, $6, $7)"
+        )
+        .bind(&marker_id)
+        .bind(&marker.transaction_id)
+        .bind(&marker.topic)
+        .bind(marker.partition_id as i32)
+        .bind(marker.offset as i64)
+        .bind(marker_type)
+        .bind(marker.timestamp)
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
+    async fn get_transaction_markers(
+        &self,
+        topic: &str,
+        partition_id: u32,
+        min_offset: u64,
+    ) -> Result<Vec<TransactionMarker>> {
+        let rows = sqlx::query(
+            "SELECT transaction_id, topic, partition_id, \"offset\", marker_type, created_at \
+             FROM transaction_markers \
+             WHERE topic = $1 AND partition_id = $2 AND \"offset\" >= $3 \
+             ORDER BY \"offset\""
+        )
+        .bind(topic)
+        .bind(partition_id as i32)
+        .bind(min_offset as i64)
+        .fetch_all(&self.pool)
+        .await?;
+
+        Ok(rows
+            .into_iter()
+            .map(|r| {
+                let marker_type_str: String = r.get("marker_type");
+                TransactionMarker {
+                    transaction_id: r.get("transaction_id"),
+                    topic: r.get("topic"),
+                    partition_id: r.get::<i32, _>("partition_id") as u32,
+                    offset: r.get::<i64, _>("offset") as u64,
+                    marker_type: match marker_type_str.as_str() {
+                        "commit" => TransactionMarkerType::Commit,
+                        _ => TransactionMarkerType::Abort,
+                    },
+                    timestamp: r.get("created_at"),
+                }
+            })
+            .collect())
+    }
+
+    // ---- LSO Operations ----
+
+    async fn get_last_stable_offset(&self, topic: &str, partition_id: u32) -> Result<u64> {
+        let row = sqlx::query(
+            "SELECT last_stable_offset FROM partition_lso WHERE topic = $1 AND partition_id = $2"
+        )
+        .bind(topic)
+        .bind(partition_id as i32)
+        .fetch_optional(&self.pool)
+        .await?;
+
+        Ok(row.map(|r| r.get::<i64, _>("last_stable_offset") as u64).unwrap_or(0))
+    }
+
+    async fn update_last_stable_offset(
+        &self,
+        topic: &str,
+        partition_id: u32,
+        lso: u64,
+    ) -> Result<()> {
+        let now = Self::now_ms();
+        sqlx::query(
+            "INSERT INTO partition_lso (topic, partition_id, last_stable_offset, updated_at) \
+             VALUES ($1, $2, $3, $4) \
+             ON CONFLICT(topic, partition_id) DO UPDATE SET \
+                last_stable_offset = EXCLUDED.last_stable_offset, \
+                updated_at = EXCLUDED.updated_at"
+        )
+        .bind(topic)
+        .bind(partition_id as i32)
+        .bind(lso as i64)
+        .bind(now)
         .execute(&self.pool)
         .await?;
         Ok(())
