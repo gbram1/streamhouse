@@ -93,6 +93,9 @@ pub enum MetadataError {
 
     #[error("Producer fenced: {0}")]
     ProducerFenced(String),
+
+    #[error("Not implemented: {0}")]
+    NotImplemented(String),
 }
 
 impl From<sqlx::migrate::MigrateError> for MetadataError {

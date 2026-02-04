@@ -476,6 +476,101 @@ When using `TABLE(topic)`:
 
 ---
 
+## Materialized Views
+
+Materialized views provide pre-computed aggregations that are automatically maintained as new data arrives. This enables fast queries on streaming data without re-computing aggregations every time.
+
+### Create Materialized View
+
+```sql
+CREATE MATERIALIZED VIEW hourly_sales AS
+SELECT
+  COUNT(*) as order_count,
+  SUM(json_extract(value, '$.amount')) as total_amount,
+  AVG(json_extract(value, '$.amount')) as avg_amount
+FROM orders
+GROUP BY TUMBLE(timestamp, '1 hour');
+```
+
+### Create with Refresh Mode
+
+```sql
+-- Continuous refresh (default) - update as messages arrive
+CREATE MATERIALIZED VIEW realtime_metrics AS
+SELECT COUNT(*) FROM events
+GROUP BY TUMBLE(timestamp, '5 minutes');
+
+-- Periodic refresh - update on schedule
+CREATE MATERIALIZED VIEW daily_summary
+WITH (refresh_mode = 'periodic', interval = '1 hour')
+AS SELECT COUNT(*) FROM orders
+GROUP BY TUMBLE(timestamp, '1 day');
+
+-- Manual refresh - only update on command
+CREATE MATERIALIZED VIEW monthly_report
+WITH (refresh_mode = 'manual')
+AS SELECT SUM(json_extract(value, '$.amount')) FROM orders
+GROUP BY TUMBLE(timestamp, '30 days');
+```
+
+### Replace Existing View
+
+```sql
+CREATE OR REPLACE MATERIALIZED VIEW hourly_sales AS
+SELECT COUNT(*), SUM(json_extract(value, '$.amount')) as total
+FROM orders
+GROUP BY TUMBLE(timestamp, '1 hour');
+```
+
+### Show Materialized Views
+
+```sql
+SHOW MATERIALIZED VIEWS;
+```
+
+Returns: name, source_topic, refresh_mode, status, row_count
+
+### Describe View
+
+```sql
+DESCRIBE MATERIALIZED VIEW hourly_sales;
+```
+
+Returns: detailed view information including query definition, refresh settings, and status.
+
+### Refresh View
+
+```sql
+REFRESH MATERIALIZED VIEW hourly_sales;
+```
+
+Manually triggers a refresh for views with `manual` refresh mode.
+
+### Drop View
+
+```sql
+DROP MATERIALIZED VIEW hourly_sales;
+```
+
+### Refresh Modes
+
+| Mode | Behavior |
+|------|----------|
+| `continuous` | Updates as new messages arrive (default) |
+| `periodic` | Refreshes on a schedule (e.g., every 5 minutes) |
+| `manual` | Only refreshes when REFRESH command is issued |
+
+### Use Cases
+
+| Use Case | Refresh Mode | Window Size |
+|----------|--------------|-------------|
+| Real-time dashboards | continuous | 5-15 minutes |
+| Hourly reports | periodic | 1 hour |
+| Daily summaries | periodic | 1 day |
+| On-demand analytics | manual | varies |
+
+---
+
 ## Vector Similarity Search
 
 StreamHouse supports vector operations for semantic search, RAG (Retrieval Augmented Generation), and recommendation systems.
@@ -613,6 +708,17 @@ LIMIT 5;
 | `euclidean_distance` | `euclidean_distance(path, '[vec]')` | Euclidean distance (>= 0) |
 | `dot_product` | `dot_product(path, '[vec]')` | Dot product |
 | `vector_norm` | `vector_norm(path)` | L2 norm (magnitude) |
+
+### Materialized View Commands
+
+| Command | Syntax | Description |
+|---------|--------|-------------|
+| `CREATE` | `CREATE MATERIALIZED VIEW name AS SELECT...` | Create a new view |
+| `CREATE OR REPLACE` | `CREATE OR REPLACE MATERIALIZED VIEW name AS...` | Create or replace view |
+| `SHOW` | `SHOW MATERIALIZED VIEWS` | List all views |
+| `DESCRIBE` | `DESCRIBE MATERIALIZED VIEW name` | Show view details |
+| `REFRESH` | `REFRESH MATERIALIZED VIEW name` | Manually refresh view |
+| `DROP` | `DROP MATERIALIZED VIEW name` | Delete a view |
 
 ---
 

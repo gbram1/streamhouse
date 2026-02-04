@@ -1295,3 +1295,145 @@ pub struct LeaseTransfer {
     /// Error message if transfer failed.
     pub error: Option<String>,
 }
+
+// ============================================================================
+// Materialized View Types
+// ============================================================================
+
+/// Refresh mode for materialized views
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum MaterializedViewRefreshMode {
+    /// Continuously update as new messages arrive
+    Continuous,
+    /// Refresh periodically on a schedule
+    Periodic {
+        /// Interval in milliseconds
+        interval_ms: i64,
+    },
+    /// Only refresh when explicitly triggered
+    Manual,
+}
+
+impl Default for MaterializedViewRefreshMode {
+    fn default() -> Self {
+        MaterializedViewRefreshMode::Continuous
+    }
+}
+
+/// Status of a materialized view
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum MaterializedViewStatus {
+    /// View is being initialized/bootstrapped
+    Initializing,
+    /// View is actively being maintained
+    Running,
+    /// View maintenance is paused
+    Paused,
+    /// View encountered an error
+    Error,
+}
+
+impl Default for MaterializedViewStatus {
+    fn default() -> Self {
+        MaterializedViewStatus::Initializing
+    }
+}
+
+/// Configuration for creating a materialized view
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CreateMaterializedView {
+    /// View name (unique per organization)
+    pub name: String,
+
+    /// Source topic for the view
+    pub source_topic: String,
+
+    /// SQL query that defines the view
+    pub query_sql: String,
+
+    /// Refresh mode
+    pub refresh_mode: MaterializedViewRefreshMode,
+
+    /// Organization ID (for multi-tenancy)
+    pub organization_id: Option<String>,
+}
+
+/// Materialized view definition and state
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MaterializedView {
+    /// Unique identifier
+    pub id: String,
+
+    /// Organization ID (for multi-tenancy)
+    pub organization_id: String,
+
+    /// View name
+    pub name: String,
+
+    /// Source topic
+    pub source_topic: String,
+
+    /// SQL query that defines the view
+    pub query_sql: String,
+
+    /// Refresh mode
+    pub refresh_mode: MaterializedViewRefreshMode,
+
+    /// Current status
+    pub status: MaterializedViewStatus,
+
+    /// Error message (if status is Error)
+    pub error_message: Option<String>,
+
+    /// Number of rows in the view
+    pub row_count: u64,
+
+    /// Last refresh timestamp (milliseconds since epoch)
+    pub last_refresh_at: Option<i64>,
+
+    /// Created timestamp (milliseconds since epoch)
+    pub created_at: i64,
+
+    /// Updated timestamp (milliseconds since epoch)
+    pub updated_at: i64,
+}
+
+/// Offset tracking for a materialized view partition
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MaterializedViewOffset {
+    /// View ID
+    pub view_id: String,
+
+    /// Partition ID
+    pub partition_id: u32,
+
+    /// Last processed offset (exclusive - next offset to process)
+    pub last_offset: u64,
+
+    /// Last processed timestamp (milliseconds since epoch)
+    pub last_processed_at: i64,
+}
+
+/// Aggregated data row for a materialized view
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MaterializedViewData {
+    /// View ID
+    pub view_id: String,
+
+    /// Aggregation key
+    pub agg_key: String,
+
+    /// Aggregated values
+    pub agg_values: serde_json::Value,
+
+    /// Window start timestamp (for windowed aggregations)
+    pub window_start: Option<i64>,
+
+    /// Window end timestamp (for windowed aggregations)
+    pub window_end: Option<i64>,
+
+    /// Last updated timestamp
+    pub updated_at: i64,
+}

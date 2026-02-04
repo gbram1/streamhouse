@@ -201,6 +201,19 @@ FROM orders o
 JOIN TABLE(users) u ON json_extract(o.value, '$.user_id') = u.key
 LIMIT 50;`,
   },
+  {
+    name: 'Create View',
+    query: `CREATE MATERIALIZED VIEW hourly_sales AS
+SELECT
+  COUNT(*) as order_count,
+  SUM(json_extract(value, '$.amount')) as total
+FROM orders
+GROUP BY TUMBLE(timestamp, '1 hour');`,
+  },
+  {
+    name: 'Show Views',
+    query: `SHOW MATERIALIZED VIEWS;`,
+  },
 ];
 
 export default function SqlWorkbenchPage() {
@@ -526,6 +539,15 @@ export default function SqlWorkbenchPage() {
                   <li>JOIN TABLE(topic) t</li>
                   <li>ON a.key = b.key</li>
                   <li>ON json_extract(...) = ...</li>
+                </ul>
+              </div>
+              <div>
+                <h4 className="font-medium">Materialized Views</h4>
+                <ul className="text-muted-foreground mt-1 space-y-1">
+                  <li>CREATE MATERIALIZED VIEW</li>
+                  <li>SHOW MATERIALIZED VIEWS</li>
+                  <li>DROP MATERIALIZED VIEW</li>
+                  <li>REFRESH MATERIALIZED VIEW</li>
                 </ul>
               </div>
             </div>

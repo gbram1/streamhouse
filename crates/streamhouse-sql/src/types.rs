@@ -17,6 +17,16 @@ pub enum SqlQuery {
     WindowAggregate(WindowAggregateQuery),
     /// JOIN query across multiple topics
     Join(JoinQuery),
+    /// CREATE MATERIALIZED VIEW command
+    CreateMaterializedView(CreateMaterializedViewQuery),
+    /// DROP MATERIALIZED VIEW command
+    DropMaterializedView(String),
+    /// REFRESH MATERIALIZED VIEW command
+    RefreshMaterializedView(String),
+    /// SHOW MATERIALIZED VIEWS command
+    ShowMaterializedViews,
+    /// DESCRIBE MATERIALIZED VIEW command
+    DescribeMaterializedView(String),
 }
 
 /// JOIN type
@@ -99,6 +109,100 @@ pub enum JoinSelectColumn {
         path: String,
         alias: Option<String>,
     },
+}
+
+// ============================================================================
+// Materialized View Types
+// ============================================================================
+
+/// Refresh mode for materialized views
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum RefreshMode {
+    /// Continuously update as new messages arrive (streaming)
+    Continuous,
+    /// Refresh periodically on a schedule
+    Periodic {
+        /// Refresh interval in milliseconds
+        interval_ms: i64,
+    },
+    /// Only refresh when explicitly triggered via REFRESH command
+    Manual,
+}
+
+impl Default for RefreshMode {
+    fn default() -> Self {
+        RefreshMode::Continuous
+    }
+}
+
+/// CREATE MATERIALIZED VIEW query structure
+#[derive(Debug, Clone)]
+pub struct CreateMaterializedViewQuery {
+    /// View name
+    pub name: String,
+    /// Source topic
+    pub source_topic: String,
+    /// The underlying query definition (as SQL string for storage)
+    pub query_sql: String,
+    /// Window specification (for window aggregations)
+    pub window: Option<WindowType>,
+    /// Aggregations to maintain
+    pub aggregations: Vec<WindowAggregation>,
+    /// Group by columns (besides window)
+    pub group_by: Vec<String>,
+    /// WHERE clause filters
+    pub filters: Vec<Filter>,
+    /// Refresh mode
+    pub refresh_mode: RefreshMode,
+    /// Whether to replace existing view if it exists (CREATE OR REPLACE)
+    pub or_replace: bool,
+}
+
+/// Materialized view metadata (stored and returned by DESCRIBE/SHOW)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MaterializedViewInfo {
+    /// View name
+    pub name: String,
+    /// Source topic
+    pub source_topic: String,
+    /// The query definition (as SQL)
+    pub query_sql: String,
+    /// Refresh mode
+    pub refresh_mode: RefreshMode,
+    /// View state (running, paused, error)
+    pub status: MaterializedViewStatus,
+    /// Last refresh timestamp
+    pub last_refresh_at: Option<i64>,
+    /// Last processed offset per partition
+    pub last_offsets: std::collections::HashMap<u32, u64>,
+    /// Number of rows in the view
+    pub row_count: u64,
+    /// Created timestamp
+    pub created_at: i64,
+    /// Updated timestamp
+    pub updated_at: i64,
+}
+
+/// Status of a materialized view
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum MaterializedViewStatus {
+    /// View is actively being maintained
+    Running,
+    /// View maintenance is paused
+    Paused,
+    /// View encountered an error
+    Error(String),
+    /// View is being initialized/bootstrapped
+    Initializing,
+}
+
+impl Default for MaterializedViewStatus {
+    fn default() -> Self {
+        MaterializedViewStatus::Initializing
+    }
 }
 
 /// Window type for streaming aggregations

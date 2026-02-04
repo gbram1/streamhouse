@@ -11,6 +11,9 @@ pub enum SqlError {
     #[error("Topic not found: {0}")]
     TopicNotFound(String),
 
+    #[error("Materialized view not found: {0}")]
+    ViewNotFound(String),
+
     #[error("Invalid query: {0}")]
     InvalidQuery(String),
 

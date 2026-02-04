@@ -2403,6 +2403,77 @@ impl MetadataStore for SqliteMetadataStore {
 
         Ok(())
     }
+
+    // ============================================================
+    // MATERIALIZED VIEW OPERATIONS (SQLite stub implementations)
+    // Note: Full implementation is in PostgreSQL backend
+    // ============================================================
+
+    async fn create_materialized_view(&self, _config: CreateMaterializedView) -> Result<MaterializedView> {
+        Err(MetadataError::NotImplemented("Materialized views not supported in SQLite backend".to_string()))
+    }
+
+    async fn get_materialized_view(&self, _name: &str) -> Result<Option<MaterializedView>> {
+        Ok(None) // No views in SQLite
+    }
+
+    async fn get_materialized_view_by_id(&self, _id: &str) -> Result<Option<MaterializedView>> {
+        Ok(None) // No views in SQLite
+    }
+
+    async fn list_materialized_views(&self) -> Result<Vec<MaterializedView>> {
+        Ok(vec![]) // No views in SQLite
+    }
+
+    async fn update_materialized_view_status(
+        &self,
+        _id: &str,
+        _status: MaterializedViewStatus,
+        _error_message: Option<&str>,
+    ) -> Result<()> {
+        Err(MetadataError::NotImplemented("Materialized views not supported in SQLite backend".to_string()))
+    }
+
+    async fn update_materialized_view_stats(
+        &self,
+        _id: &str,
+        _row_count: u64,
+        _last_refresh_at: i64,
+    ) -> Result<()> {
+        Err(MetadataError::NotImplemented("Materialized views not supported in SQLite backend".to_string()))
+    }
+
+    async fn delete_materialized_view(&self, _name: &str) -> Result<()> {
+        Ok(()) // No-op for SQLite
+    }
+
+    async fn get_materialized_view_offsets(&self, _view_id: &str) -> Result<Vec<MaterializedViewOffset>> {
+        Ok(vec![]) // No views in SQLite
+    }
+
+    async fn update_materialized_view_offset(
+        &self,
+        _view_id: &str,
+        _partition_id: u32,
+        _last_offset: u64,
+    ) -> Result<()> {
+        Err(MetadataError::NotImplemented("Materialized views not supported in SQLite backend".to_string()))
+    }
+
+    async fn get_materialized_view_data(
+        &self,
+        _view_id: &str,
+        _limit: Option<usize>,
+    ) -> Result<Vec<MaterializedViewData>> {
+        Ok(vec![]) // No views in SQLite
+    }
+
+    async fn upsert_materialized_view_data(
+        &self,
+        _data: MaterializedViewData,
+    ) -> Result<()> {
+        Err(MetadataError::NotImplemented("Materialized views not supported in SQLite backend".to_string()))
+    }
 }
 
 #[cfg(test)]

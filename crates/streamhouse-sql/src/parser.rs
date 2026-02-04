@@ -21,6 +21,24 @@ pub fn parse_query(sql: &str) -> Result<SqlQuery> {
     if sql_upper.starts_with("SHOW TOPICS") {
         return Ok(SqlQuery::ShowTopics);
     }
+
+    // Handle SHOW MATERIALIZED VIEWS
+    if sql_upper.starts_with("SHOW MATERIALIZED VIEWS") {
+        return Ok(SqlQuery::ShowMaterializedViews);
+    }
+
+    // Handle DESCRIBE MATERIALIZED VIEW <name>
+    if sql_upper.starts_with("DESCRIBE MATERIALIZED VIEW ") {
+        let name = sql_trimmed
+            .split_whitespace()
+            .nth(3)
+            .ok_or_else(|| SqlError::ParseError("DESCRIBE MATERIALIZED VIEW requires a view name".to_string()))?
+            .trim_matches(';')
+            .to_string();
+        return Ok(SqlQuery::DescribeMaterializedView(name));
+    }
+
+    // Handle regular DESCRIBE (must come after DESCRIBE MATERIALIZED VIEW)
     if sql_upper.starts_with("DESCRIBE ") || sql_upper.starts_with("DESC ") {
         let topic = sql_trimmed
             .split_whitespace()
@@ -29,6 +47,33 @@ pub fn parse_query(sql: &str) -> Result<SqlQuery> {
             .trim_matches(';')
             .to_string();
         return Ok(SqlQuery::DescribeTopic(topic));
+    }
+
+    // Handle DROP MATERIALIZED VIEW <name>
+    if sql_upper.starts_with("DROP MATERIALIZED VIEW ") {
+        let name = sql_trimmed
+            .split_whitespace()
+            .nth(3)
+            .ok_or_else(|| SqlError::ParseError("DROP MATERIALIZED VIEW requires a view name".to_string()))?
+            .trim_matches(';')
+            .to_string();
+        return Ok(SqlQuery::DropMaterializedView(name));
+    }
+
+    // Handle REFRESH MATERIALIZED VIEW <name>
+    if sql_upper.starts_with("REFRESH MATERIALIZED VIEW ") {
+        let name = sql_trimmed
+            .split_whitespace()
+            .nth(3)
+            .ok_or_else(|| SqlError::ParseError("REFRESH MATERIALIZED VIEW requires a view name".to_string()))?
+            .trim_matches(';')
+            .to_string();
+        return Ok(SqlQuery::RefreshMaterializedView(name));
+    }
+
+    // Handle CREATE [OR REPLACE] MATERIALIZED VIEW <name> AS SELECT...
+    if sql_upper.starts_with("CREATE MATERIALIZED VIEW ") || sql_upper.starts_with("CREATE OR REPLACE MATERIALIZED VIEW ") {
+        return parse_create_materialized_view(sql_trimmed);
     }
 
     let ast = Parser::parse_sql(&dialect, sql_trimmed)
@@ -728,6 +773,190 @@ fn parse_interval_string(s: &str) -> Result<i64> {
     };
 
     Ok(value * multiplier)
+}
+
+// ============================================================================
+// Materialized View Parsing
+// ============================================================================
+
+/// Parse CREATE [OR REPLACE] MATERIALIZED VIEW statement
+///
+/// Syntax:
+///   CREATE [OR REPLACE] MATERIALIZED VIEW <name>
+///   [WITH (refresh_mode = 'continuous'|'manual'|'periodic', interval = '5 minutes')]
+///   AS SELECT ... FROM <topic> GROUP BY TUMBLE/HOP/SESSION(...)
+fn parse_create_materialized_view(sql: &str) -> Result<SqlQuery> {
+    let sql_upper = sql.to_uppercase();
+
+    // Check for OR REPLACE
+    let or_replace = sql_upper.contains("OR REPLACE");
+
+    // Extract view name
+    let name_start = if or_replace {
+        sql_upper.find("MATERIALIZED VIEW").unwrap() + 17
+    } else {
+        sql_upper.find("MATERIALIZED VIEW").unwrap() + 17
+    };
+
+    // Find the AS keyword
+    let as_pos = sql_upper.find(" AS ")
+        .ok_or_else(|| SqlError::ParseError("CREATE MATERIALIZED VIEW requires AS keyword".to_string()))?;
+
+    let name_part = sql[name_start..as_pos].trim();
+
+    // Parse optional WITH clause and extract name
+    let (name, refresh_mode) = if let Some(with_pos) = name_part.to_uppercase().find(" WITH ") {
+        let view_name = name_part[..with_pos].trim().to_string();
+        let with_clause = &name_part[with_pos + 6..];
+        let refresh = parse_refresh_mode(with_clause)?;
+        (view_name, refresh)
+    } else {
+        (name_part.to_string(), RefreshMode::Continuous)
+    };
+
+    // Extract the SELECT query after AS
+    let select_sql = &sql[as_pos + 4..];
+
+    // Parse the underlying SELECT query
+    let dialect = GenericDialect {};
+    let ast = Parser::parse_sql(&dialect, select_sql)
+        .map_err(|e| SqlError::ParseError(format!("Invalid SELECT in materialized view: {}", e)))?;
+
+    if ast.is_empty() {
+        return Err(SqlError::ParseError("Empty SELECT query in materialized view".to_string()));
+    }
+
+    let statement = &ast[0];
+
+    match statement {
+        Statement::Query(query) => {
+            let select = match &*query.body {
+                SetExpr::Select(select) => select,
+                _ => {
+                    return Err(SqlError::UnsupportedOperation(
+                        "Materialized views must use a simple SELECT query".to_string(),
+                    ))
+                }
+            };
+
+            // Parse FROM clause to get source topic
+            let source_topic = parse_from_clause(select)?;
+
+            // Parse window and aggregations (materialized views typically use window aggregations)
+            let (window, aggregations, group_by) = parse_mv_window_clause(select)?;
+
+            // Parse WHERE clause filters
+            let filters = if let Some(selection) = &select.selection {
+                parse_where_clause(selection)?
+            } else {
+                vec![]
+            };
+
+            Ok(SqlQuery::CreateMaterializedView(CreateMaterializedViewQuery {
+                name,
+                source_topic,
+                query_sql: select_sql.trim().to_string(),
+                window,
+                aggregations,
+                group_by,
+                filters,
+                refresh_mode,
+                or_replace,
+            }))
+        }
+        _ => Err(SqlError::UnsupportedOperation(
+            "Materialized views must use a SELECT query".to_string(),
+        )),
+    }
+}
+
+/// Parse the refresh mode from WITH clause
+/// Syntax: WITH (refresh_mode = 'continuous', interval = '5 minutes')
+fn parse_refresh_mode(with_clause: &str) -> Result<RefreshMode> {
+    let lower = with_clause.to_lowercase();
+    let trimmed = lower.trim().trim_start_matches('(').trim_end_matches(')');
+
+    // Simple parsing of key=value pairs
+    let mut refresh_mode = "continuous";
+    let mut interval_str: Option<&str> = None;
+
+    for part in trimmed.split(',') {
+        let kv: Vec<&str> = part.split('=').map(|s| s.trim()).collect();
+        if kv.len() == 2 {
+            let key = kv[0].trim_matches(|c| c == '\'' || c == '"');
+            let value = kv[1].trim_matches(|c| c == '\'' || c == '"');
+
+            match key {
+                "refresh_mode" | "refresh" | "mode" => refresh_mode = value,
+                "interval" => interval_str = Some(value),
+                _ => {}
+            }
+        }
+    }
+
+    match refresh_mode {
+        "continuous" | "stream" | "streaming" => Ok(RefreshMode::Continuous),
+        "manual" | "on_demand" => Ok(RefreshMode::Manual),
+        "periodic" | "scheduled" => {
+            let interval_ms = if let Some(interval) = interval_str {
+                parse_interval_string(interval)?
+            } else {
+                // Default to 5 minutes if not specified
+                5 * 60 * 1000
+            };
+            Ok(RefreshMode::Periodic { interval_ms })
+        }
+        _ => Err(SqlError::ParseError(format!(
+            "Unknown refresh mode: '{}'. Use 'continuous', 'manual', or 'periodic'",
+            refresh_mode
+        ))),
+    }
+}
+
+/// Parse window specification and aggregations for materialized views
+fn parse_mv_window_clause(select: &Select) -> Result<(Option<WindowType>, Vec<WindowAggregation>, Vec<String>)> {
+    // Extract expressions from GROUP BY
+    let group_exprs = match &select.group_by {
+        sqlparser::ast::GroupByExpr::All => return Ok((None, vec![], vec![])),
+        sqlparser::ast::GroupByExpr::Expressions(exprs) => exprs,
+    };
+
+    if group_exprs.is_empty() {
+        // No GROUP BY - parse as simple aggregations
+        let aggregations = parse_window_aggregations(select)?;
+        return Ok((None, aggregations, vec![]));
+    }
+
+    // Look for TUMBLE, HOP, or SESSION in the GROUP BY
+    let mut window_type: Option<WindowType> = None;
+    let mut other_group_by: Vec<String> = Vec::new();
+
+    for group_expr in group_exprs {
+        if let Expr::Function(func) = group_expr {
+            let func_name = func.name.to_string().to_uppercase();
+            match func_name.as_str() {
+                "TUMBLE" => {
+                    window_type = Some(parse_tumble_window(func)?);
+                }
+                "HOP" => {
+                    window_type = Some(parse_hop_window(func)?);
+                }
+                "SESSION" => {
+                    window_type = Some(parse_session_window(func)?);
+                }
+                _ => {
+                    other_group_by.push(func.name.to_string());
+                }
+            }
+        } else if let Expr::Identifier(ident) = group_expr {
+            other_group_by.push(ident.value.clone());
+        }
+    }
+
+    // Parse aggregations from SELECT clause
+    let aggregations = parse_window_aggregations(select)?;
+
+    Ok((window_type, aggregations, other_group_by))
 }
 
 /// Parse aggregations from SELECT clause for window query
@@ -2216,6 +2445,164 @@ mod tests {
                 assert!(matches!(&q.filters[0], Filter::PartitionEquals(0)));
             }
             _ => panic!("Expected Join query"),
+        }
+    }
+
+    // Materialized View Tests
+
+    #[test]
+    fn test_parse_show_materialized_views() {
+        let query = parse_query("SHOW MATERIALIZED VIEWS").unwrap();
+        assert!(matches!(query, SqlQuery::ShowMaterializedViews));
+    }
+
+    #[test]
+    fn test_parse_describe_materialized_view() {
+        let query = parse_query("DESCRIBE MATERIALIZED VIEW hourly_sales").unwrap();
+        match query {
+            SqlQuery::DescribeMaterializedView(name) => {
+                assert_eq!(name, "hourly_sales");
+            }
+            _ => panic!("Expected DescribeMaterializedView"),
+        }
+    }
+
+    #[test]
+    fn test_parse_drop_materialized_view() {
+        let query = parse_query("DROP MATERIALIZED VIEW hourly_sales").unwrap();
+        match query {
+            SqlQuery::DropMaterializedView(name) => {
+                assert_eq!(name, "hourly_sales");
+            }
+            _ => panic!("Expected DropMaterializedView"),
+        }
+    }
+
+    #[test]
+    fn test_parse_refresh_materialized_view() {
+        let query = parse_query("REFRESH MATERIALIZED VIEW hourly_sales").unwrap();
+        match query {
+            SqlQuery::RefreshMaterializedView(name) => {
+                assert_eq!(name, "hourly_sales");
+            }
+            _ => panic!("Expected RefreshMaterializedView"),
+        }
+    }
+
+    #[test]
+    fn test_parse_create_materialized_view_basic() {
+        let query = parse_query(
+            "CREATE MATERIALIZED VIEW hourly_sales AS \
+             SELECT COUNT(*) as orders, SUM(json_extract(value, '$.amount')) as total \
+             FROM orders \
+             GROUP BY TUMBLE(timestamp, '1 hour')"
+        ).unwrap();
+        match query {
+            SqlQuery::CreateMaterializedView(q) => {
+                assert_eq!(q.name, "hourly_sales");
+                assert_eq!(q.source_topic, "orders");
+                assert!(!q.or_replace);
+                assert!(matches!(q.refresh_mode, RefreshMode::Continuous));
+                assert!(q.window.is_some());
+                match &q.window {
+                    Some(WindowType::Tumble { size_ms }) => {
+                        assert_eq!(*size_ms, 60 * 60 * 1000); // 1 hour in ms
+                    }
+                    _ => panic!("Expected Tumble window"),
+                }
+            }
+            _ => panic!("Expected CreateMaterializedView"),
+        }
+    }
+
+    #[test]
+    fn test_parse_create_or_replace_materialized_view() {
+        let query = parse_query(
+            "CREATE OR REPLACE MATERIALIZED VIEW daily_totals AS \
+             SELECT COUNT(*) FROM orders GROUP BY TUMBLE(timestamp, '1 day')"
+        ).unwrap();
+        match query {
+            SqlQuery::CreateMaterializedView(q) => {
+                assert_eq!(q.name, "daily_totals");
+                assert!(q.or_replace);
+            }
+            _ => panic!("Expected CreateMaterializedView"),
+        }
+    }
+
+    #[test]
+    fn test_parse_create_materialized_view_with_refresh_mode() {
+        let query = parse_query(
+            "CREATE MATERIALIZED VIEW hourly_sales \
+             WITH (refresh_mode = 'periodic', interval = '5 minutes') \
+             AS SELECT COUNT(*) FROM orders GROUP BY TUMBLE(timestamp, '1 hour')"
+        ).unwrap();
+        match query {
+            SqlQuery::CreateMaterializedView(q) => {
+                assert_eq!(q.name, "hourly_sales");
+                match q.refresh_mode {
+                    RefreshMode::Periodic { interval_ms } => {
+                        assert_eq!(interval_ms, 5 * 60 * 1000);
+                    }
+                    _ => panic!("Expected Periodic refresh mode"),
+                }
+            }
+            _ => panic!("Expected CreateMaterializedView"),
+        }
+    }
+
+    #[test]
+    fn test_parse_create_materialized_view_manual_refresh() {
+        let query = parse_query(
+            "CREATE MATERIALIZED VIEW snapshot \
+             WITH (refresh_mode = 'manual') \
+             AS SELECT COUNT(*) FROM orders GROUP BY TUMBLE(timestamp, '1 day')"
+        ).unwrap();
+        match query {
+            SqlQuery::CreateMaterializedView(q) => {
+                assert!(matches!(q.refresh_mode, RefreshMode::Manual));
+            }
+            _ => panic!("Expected CreateMaterializedView"),
+        }
+    }
+
+    #[test]
+    fn test_parse_create_materialized_view_with_hop_window() {
+        let query = parse_query(
+            "CREATE MATERIALIZED VIEW sliding_avg AS \
+             SELECT AVG(json_extract(value, '$.price')) as avg_price \
+             FROM orders \
+             GROUP BY HOP(timestamp, '10 minutes', '1 minute')"
+        ).unwrap();
+        match query {
+            SqlQuery::CreateMaterializedView(q) => {
+                assert_eq!(q.name, "sliding_avg");
+                match &q.window {
+                    Some(WindowType::Hop { size_ms, slide_ms }) => {
+                        assert_eq!(*size_ms, 10 * 60 * 1000);
+                        assert_eq!(*slide_ms, 1 * 60 * 1000);
+                    }
+                    _ => panic!("Expected Hop window"),
+                }
+            }
+            _ => panic!("Expected CreateMaterializedView"),
+        }
+    }
+
+    #[test]
+    fn test_parse_create_materialized_view_with_filter() {
+        let query = parse_query(
+            "CREATE MATERIALIZED VIEW filtered_sales AS \
+             SELECT COUNT(*) FROM orders \
+             WHERE partition = 0 \
+             GROUP BY TUMBLE(timestamp, '1 hour')"
+        ).unwrap();
+        match query {
+            SqlQuery::CreateMaterializedView(q) => {
+                assert_eq!(q.filters.len(), 1);
+                assert!(matches!(&q.filters[0], Filter::PartitionEquals(0)));
+            }
+            _ => panic!("Expected CreateMaterializedView"),
         }
     }
 }

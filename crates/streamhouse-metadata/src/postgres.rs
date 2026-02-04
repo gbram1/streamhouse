@@ -2341,6 +2341,302 @@ impl MetadataStore for PostgresMetadataStore {
         .await?;
         Ok(())
     }
+
+    // ============================================================
+    // MATERIALIZED VIEW OPERATIONS
+    // ============================================================
+
+    async fn create_materialized_view(&self, config: CreateMaterializedView) -> Result<MaterializedView> {
+        let now = chrono::Utc::now();
+        let id = format!("mv-{}-{}", &config.name, uuid::Uuid::new_v4());
+        let org_id = config.organization_id.clone().unwrap_or_else(|| "00000000-0000-0000-0000-000000000000".to_string());
+
+        // Convert refresh mode to storage format
+        let (refresh_mode_str, interval_ms) = match &config.refresh_mode {
+            MaterializedViewRefreshMode::Continuous => ("continuous", None),
+            MaterializedViewRefreshMode::Periodic { interval_ms } => ("periodic", Some(*interval_ms)),
+            MaterializedViewRefreshMode::Manual => ("manual", None),
+        };
+
+        sqlx::query(
+            "INSERT INTO materialized_views \
+             (id, organization_id, name, source_topic, query_sql, refresh_mode, refresh_interval_ms, status, created_at, updated_at) \
+             VALUES ($1, $2::uuid, $3, $4, $5, $6, $7, 'initializing', $8, $9)"
+        )
+        .bind(&id)
+        .bind(&org_id)
+        .bind(&config.name)
+        .bind(&config.source_topic)
+        .bind(&config.query_sql)
+        .bind(refresh_mode_str)
+        .bind(interval_ms)
+        .bind(now)
+        .bind(now)
+        .execute(&self.pool)
+        .await?;
+
+        Ok(MaterializedView {
+            id,
+            organization_id: org_id,
+            name: config.name,
+            source_topic: config.source_topic,
+            query_sql: config.query_sql,
+            refresh_mode: config.refresh_mode,
+            status: MaterializedViewStatus::Initializing,
+            error_message: None,
+            row_count: 0,
+            last_refresh_at: None,
+            created_at: now.timestamp_millis(),
+            updated_at: now.timestamp_millis(),
+        })
+    }
+
+    async fn get_materialized_view(&self, name: &str) -> Result<Option<MaterializedView>> {
+        let row = sqlx::query(
+            "SELECT id, organization_id, name, source_topic, query_sql, \
+                    refresh_mode, refresh_interval_ms, status, error_message, \
+                    row_count, last_refresh_at, created_at, updated_at \
+             FROM materialized_views WHERE name = $1"
+        )
+        .bind(name)
+        .fetch_optional(&self.pool)
+        .await?;
+
+        Ok(row.map(|r| Self::row_to_materialized_view(r)))
+    }
+
+    async fn get_materialized_view_by_id(&self, id: &str) -> Result<Option<MaterializedView>> {
+        let row = sqlx::query(
+            "SELECT id, organization_id, name, source_topic, query_sql, \
+                    refresh_mode, refresh_interval_ms, status, error_message, \
+                    row_count, last_refresh_at, created_at, updated_at \
+             FROM materialized_views WHERE id = $1"
+        )
+        .bind(id)
+        .fetch_optional(&self.pool)
+        .await?;
+
+        Ok(row.map(|r| Self::row_to_materialized_view(r)))
+    }
+
+    async fn list_materialized_views(&self) -> Result<Vec<MaterializedView>> {
+        let rows = sqlx::query(
+            "SELECT id, organization_id, name, source_topic, query_sql, \
+                    refresh_mode, refresh_interval_ms, status, error_message, \
+                    row_count, last_refresh_at, created_at, updated_at \
+             FROM materialized_views ORDER BY name"
+        )
+        .fetch_all(&self.pool)
+        .await?;
+
+        Ok(rows.into_iter().map(|r| Self::row_to_materialized_view(r)).collect())
+    }
+
+    async fn update_materialized_view_status(
+        &self,
+        id: &str,
+        status: MaterializedViewStatus,
+        error_message: Option<&str>,
+    ) -> Result<()> {
+        let status_str = match status {
+            MaterializedViewStatus::Initializing => "initializing",
+            MaterializedViewStatus::Running => "running",
+            MaterializedViewStatus::Paused => "paused",
+            MaterializedViewStatus::Error => "error",
+        };
+        let now = chrono::Utc::now();
+
+        sqlx::query(
+            "UPDATE materialized_views SET status = $1, error_message = $2, updated_at = $3 WHERE id = $4"
+        )
+        .bind(status_str)
+        .bind(error_message)
+        .bind(now)
+        .bind(id)
+        .execute(&self.pool)
+        .await?;
+
+        Ok(())
+    }
+
+    async fn update_materialized_view_stats(
+        &self,
+        id: &str,
+        row_count: u64,
+        last_refresh_at: i64,
+    ) -> Result<()> {
+        let now = chrono::Utc::now();
+        let refresh_ts = chrono::DateTime::from_timestamp_millis(last_refresh_at)
+            .unwrap_or(now);
+
+        sqlx::query(
+            "UPDATE materialized_views SET row_count = $1, last_refresh_at = $2, updated_at = $3 WHERE id = $4"
+        )
+        .bind(row_count as i64)
+        .bind(refresh_ts)
+        .bind(now)
+        .bind(id)
+        .execute(&self.pool)
+        .await?;
+
+        Ok(())
+    }
+
+    async fn delete_materialized_view(&self, name: &str) -> Result<()> {
+        sqlx::query("DELETE FROM materialized_views WHERE name = $1")
+            .bind(name)
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
+
+    async fn get_materialized_view_offsets(&self, view_id: &str) -> Result<Vec<MaterializedViewOffset>> {
+        let rows = sqlx::query(
+            "SELECT view_id, partition_id, last_offset, last_processed_at \
+             FROM materialized_view_offsets WHERE view_id = $1 ORDER BY partition_id"
+        )
+        .bind(view_id)
+        .fetch_all(&self.pool)
+        .await?;
+
+        Ok(rows.into_iter().map(|r| {
+            let last_processed: chrono::DateTime<chrono::Utc> = r.get("last_processed_at");
+            MaterializedViewOffset {
+                view_id: r.get("view_id"),
+                partition_id: r.get::<i32, _>("partition_id") as u32,
+                last_offset: r.get::<i64, _>("last_offset") as u64,
+                last_processed_at: last_processed.timestamp_millis(),
+            }
+        }).collect())
+    }
+
+    async fn update_materialized_view_offset(
+        &self,
+        view_id: &str,
+        partition_id: u32,
+        last_offset: u64,
+    ) -> Result<()> {
+        let now = chrono::Utc::now();
+
+        sqlx::query(
+            "INSERT INTO materialized_view_offsets (view_id, partition_id, last_offset, last_processed_at) \
+             VALUES ($1, $2, $3, $4) \
+             ON CONFLICT(view_id, partition_id) DO UPDATE SET \
+                last_offset = EXCLUDED.last_offset, \
+                last_processed_at = EXCLUDED.last_processed_at"
+        )
+        .bind(view_id)
+        .bind(partition_id as i32)
+        .bind(last_offset as i64)
+        .bind(now)
+        .execute(&self.pool)
+        .await?;
+
+        Ok(())
+    }
+
+    async fn get_materialized_view_data(
+        &self,
+        view_id: &str,
+        limit: Option<usize>,
+    ) -> Result<Vec<MaterializedViewData>> {
+        let limit_val = limit.unwrap_or(1000) as i64;
+
+        let rows = sqlx::query(
+            "SELECT view_id, agg_key, agg_values, window_start, window_end, updated_at \
+             FROM materialized_view_data WHERE view_id = $1 ORDER BY agg_key LIMIT $2"
+        )
+        .bind(view_id)
+        .bind(limit_val)
+        .fetch_all(&self.pool)
+        .await?;
+
+        Ok(rows.into_iter().map(|r| {
+            let updated_at: chrono::DateTime<chrono::Utc> = r.get("updated_at");
+            MaterializedViewData {
+                view_id: r.get("view_id"),
+                agg_key: r.get("agg_key"),
+                agg_values: r.get("agg_values"),
+                window_start: r.get::<Option<i64>, _>("window_start"),
+                window_end: r.get::<Option<i64>, _>("window_end"),
+                updated_at: updated_at.timestamp_millis(),
+            }
+        }).collect())
+    }
+
+    async fn upsert_materialized_view_data(
+        &self,
+        data: MaterializedViewData,
+    ) -> Result<()> {
+        let now = chrono::Utc::now();
+
+        sqlx::query(
+            "INSERT INTO materialized_view_data (view_id, agg_key, agg_values, window_start, window_end, updated_at) \
+             VALUES ($1, $2, $3, $4, $5, $6) \
+             ON CONFLICT(view_id, agg_key) DO UPDATE SET \
+                agg_values = EXCLUDED.agg_values, \
+                window_start = EXCLUDED.window_start, \
+                window_end = EXCLUDED.window_end, \
+                updated_at = EXCLUDED.updated_at"
+        )
+        .bind(&data.view_id)
+        .bind(&data.agg_key)
+        .bind(&data.agg_values)
+        .bind(data.window_start)
+        .bind(data.window_end)
+        .bind(now)
+        .execute(&self.pool)
+        .await?;
+
+        Ok(())
+    }
+}
+
+impl PostgresMetadataStore {
+    /// Helper to convert a database row to MaterializedView
+    fn row_to_materialized_view(r: sqlx::postgres::PgRow) -> MaterializedView {
+        use sqlx::Row;
+
+        let refresh_mode_str: String = r.get("refresh_mode");
+        let interval_ms: Option<i64> = r.get("refresh_interval_ms");
+        let refresh_mode = match refresh_mode_str.as_str() {
+            "continuous" => MaterializedViewRefreshMode::Continuous,
+            "periodic" => MaterializedViewRefreshMode::Periodic {
+                interval_ms: interval_ms.unwrap_or(300000),
+            },
+            "manual" => MaterializedViewRefreshMode::Manual,
+            _ => MaterializedViewRefreshMode::Continuous,
+        };
+
+        let status_str: String = r.get("status");
+        let status = match status_str.as_str() {
+            "initializing" => MaterializedViewStatus::Initializing,
+            "running" => MaterializedViewStatus::Running,
+            "paused" => MaterializedViewStatus::Paused,
+            "error" => MaterializedViewStatus::Error,
+            _ => MaterializedViewStatus::Initializing,
+        };
+
+        let created_at: chrono::DateTime<chrono::Utc> = r.get("created_at");
+        let updated_at: chrono::DateTime<chrono::Utc> = r.get("updated_at");
+        let last_refresh_at: Option<chrono::DateTime<chrono::Utc>> = r.get("last_refresh_at");
+        let org_id: uuid::Uuid = r.get("organization_id");
+
+        MaterializedView {
+            id: r.get("id"),
+            organization_id: org_id.to_string(),
+            name: r.get("name"),
+            source_topic: r.get("source_topic"),
+            query_sql: r.get("query_sql"),
+            refresh_mode,
+            status,
+            error_message: r.get("error_message"),
+            row_count: r.get::<i64, _>("row_count") as u64,
+            last_refresh_at: last_refresh_at.map(|t| t.timestamp_millis()),
+            created_at: created_at.timestamp_millis(),
+            updated_at: updated_at.timestamp_millis(),
+        }
+    }
 }
 
 #[cfg(test)]
