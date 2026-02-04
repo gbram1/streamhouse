@@ -15,6 +15,9 @@ import {
   HardDrive,
   Bell,
   Terminal,
+  Building2,
+  Key,
+  Settings,
 } from 'lucide-react';
 
 const navigation = [
@@ -75,6 +78,19 @@ const navigation = [
   },
 ];
 
+const settingsNavigation = [
+  {
+    name: 'Organizations',
+    href: '/settings/organizations',
+    icon: Building2,
+  },
+  {
+    name: 'API Keys',
+    href: '/settings/api-keys',
+    icon: Key,
+  },
+];
+
 export function Sidebar() {
   const pathname = usePathname();
 
@@ -109,6 +125,34 @@ export function Sidebar() {
             </Link>
           );
         })}
+
+        {/* Settings Section */}
+        <div className="pt-4 mt-4 border-t border-sidebar-accent/50">
+          <div className="flex items-center gap-2 px-3 py-2 text-xs font-semibold uppercase text-sidebar-foreground/60">
+            <Settings className="h-4 w-4" />
+            <span>Settings</span>
+          </div>
+          {settingsNavigation.map((item) => {
+            const isActive = pathname === item.href || pathname.startsWith(item.href + '/');
+            const Icon = item.icon;
+
+            return (
+              <Link
+                key={item.name}
+                href={item.href}
+                className={cn(
+                  'flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors',
+                  isActive
+                    ? 'bg-sidebar-accent text-sidebar-accent-foreground'
+                    : 'text-sidebar-foreground hover:bg-sidebar-accent/50'
+                )}
+              >
+                <Icon className="h-5 w-5" />
+                <span>{item.name}</span>
+              </Link>
+            );
+          })}
+        </div>
       </nav>
 
       {/* Footer */}

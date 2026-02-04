@@ -95,6 +95,38 @@ pub fn create_router(state: AppState) -> Router {
         .route("/metrics/storage", get(handlers::metrics::get_storage_metrics))
         // SQL
         .route("/sql", post(handlers::sql::execute_sql))
+        // Organizations
+        .route(
+            "/organizations",
+            get(handlers::organizations::list_organizations)
+                .post(handlers::organizations::create_organization),
+        )
+        .route(
+            "/organizations/:id",
+            get(handlers::organizations::get_organization)
+                .patch(handlers::organizations::update_organization)
+                .delete(handlers::organizations::delete_organization),
+        )
+        .route(
+            "/organizations/:id/quota",
+            get(handlers::organizations::get_organization_quota),
+        )
+        .route(
+            "/organizations/:id/usage",
+            get(handlers::organizations::get_organization_usage),
+        )
+        // API Keys (under organizations)
+        .route(
+            "/organizations/:org_id/api-keys",
+            get(handlers::api_keys::list_api_keys)
+                .post(handlers::api_keys::create_api_key),
+        )
+        // API Keys (by ID)
+        .route(
+            "/api-keys/:id",
+            get(handlers::api_keys::get_api_key)
+                .delete(handlers::api_keys::revoke_api_key),
+        )
         .with_state(state.clone());
 
     // OpenAPI documentation
@@ -163,6 +195,17 @@ pub async fn serve(router: Router, port: u16) -> Result<(), Box<dyn std::error::
         handlers::metrics::get_agent_metrics,
         handlers::metrics::health_check,
         handlers::sql::execute_sql,
+        handlers::organizations::list_organizations,
+        handlers::organizations::get_organization,
+        handlers::organizations::create_organization,
+        handlers::organizations::update_organization,
+        handlers::organizations::delete_organization,
+        handlers::organizations::get_organization_quota,
+        handlers::organizations::get_organization_usage,
+        handlers::api_keys::list_api_keys,
+        handlers::api_keys::get_api_key,
+        handlers::api_keys::create_api_key,
+        handlers::api_keys::revoke_api_key,
     ),
     components(schemas(
         models::Topic,
@@ -204,6 +247,14 @@ pub async fn serve(router: Router, port: u16) -> Result<(), Box<dyn std::error::
         handlers::sql::SqlQueryResponse,
         handlers::sql::SqlErrorResponse,
         handlers::sql::ColumnInfo,
+        handlers::organizations::OrganizationResponse,
+        handlers::organizations::CreateOrganizationRequest,
+        handlers::organizations::UpdateOrganizationRequest,
+        handlers::organizations::OrganizationQuotaResponse,
+        handlers::organizations::OrganizationUsageResponse,
+        handlers::api_keys::ApiKeyResponse,
+        handlers::api_keys::ApiKeyCreatedResponse,
+        handlers::api_keys::CreateApiKeyRequest,
     )),
     tags(
         (name = "topics", description = "Topic management"),
@@ -214,6 +265,8 @@ pub async fn serve(router: Router, port: u16) -> Result<(), Box<dyn std::error::
         (name = "metrics", description = "Cluster metrics"),
         (name = "health", description = "Health checks"),
         (name = "sql", description = "SQL query engine"),
+        (name = "organizations", description = "Organization management for multi-tenancy"),
+        (name = "api-keys", description = "API key management for authentication"),
     ),
     info(
         title = "StreamHouse API",

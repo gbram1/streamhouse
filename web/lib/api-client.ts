@@ -80,6 +80,14 @@ class ApiClient {
       method: 'DELETE',
     });
   }
+
+  // PATCH request
+  async patch<T>(endpoint: string, body?: unknown): Promise<T> {
+    return this.request<T>(endpoint, {
+      method: 'PATCH',
+      body: body ? JSON.stringify(body) : undefined,
+    });
+  }
 }
 
 export const apiClient = new ApiClient();
@@ -126,4 +134,14 @@ export const API_ENDPOINTS = {
   wsMetrics: '/api/v1/ws/metrics',
   wsLogs: '/api/v1/ws/logs',
   wsAlerts: '/api/v1/ws/alerts',
+
+  // Organizations
+  organizations: '/api/v1/organizations',
+  organization: (id: string) => `/api/v1/organizations/${encodeURIComponent(id)}`,
+  organizationQuota: (id: string) => `/api/v1/organizations/${encodeURIComponent(id)}/quota`,
+  organizationUsage: (id: string) => `/api/v1/organizations/${encodeURIComponent(id)}/usage`,
+  organizationApiKeys: (orgId: string) => `/api/v1/organizations/${encodeURIComponent(orgId)}/api-keys`,
+
+  // API Keys
+  apiKey: (id: string) => `/api/v1/api-keys/${encodeURIComponent(id)}`,
 } as const;
