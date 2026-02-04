@@ -18,6 +18,7 @@ import {
   Building2,
   Key,
   Settings,
+  Sparkles,
 } from 'lucide-react';
 
 const navigation = [
@@ -60,6 +61,11 @@ const navigation = [
     name: 'SQL Workbench',
     href: '/sql',
     icon: Terminal,
+  },
+  {
+    name: 'AI Query',
+    href: '/ai',
+    icon: Sparkles,
   },
   {
     name: 'Performance',
