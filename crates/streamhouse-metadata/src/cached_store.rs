@@ -105,8 +105,9 @@
 //! - Memory: (10K × 500B) + (1M × 200B) = 205 MB
 
 use crate::{
-    AgentInfo, ApiKey, ConsumerOffset, CreateApiKey, CreateOrganization, InitProducerConfig,
-    LeaderChangeReason, LeaseTransfer, MetadataStore, Organization, OrganizationPlan,
+    AgentInfo, ApiKey, ConsumerOffset, CreateApiKey, CreateMaterializedView, CreateOrganization,
+    InitProducerConfig, LeaderChangeReason, LeaseTransfer, MaterializedView, MaterializedViewData,
+    MaterializedViewOffset, MaterializedViewStatus, MetadataStore, Organization, OrganizationPlan,
     OrganizationQuota, OrganizationStatus, OrganizationUsage, Partition, PartitionLease, Producer,
     Result, SegmentInfo, Topic, TopicConfig, Transaction, TransactionMarker, TransactionPartition,
 };
@@ -984,6 +985,76 @@ impl<S: MetadataStore + 'static> MetadataStore for CachedMetadataStore<S> {
         self.inner
             .record_leader_change(topic, partition_id, from_agent_id, to_agent_id, reason, epoch, gap_ms)
             .await
+    }
+
+    // ============================================================
+    // MATERIALIZED VIEW OPERATIONS (pass through to inner store)
+    // ============================================================
+
+    async fn create_materialized_view(&self, config: CreateMaterializedView) -> Result<MaterializedView> {
+        self.inner.create_materialized_view(config).await
+    }
+
+    async fn get_materialized_view(&self, name: &str) -> Result<Option<MaterializedView>> {
+        self.inner.get_materialized_view(name).await
+    }
+
+    async fn get_materialized_view_by_id(&self, id: &str) -> Result<Option<MaterializedView>> {
+        self.inner.get_materialized_view_by_id(id).await
+    }
+
+    async fn list_materialized_views(&self) -> Result<Vec<MaterializedView>> {
+        self.inner.list_materialized_views().await
+    }
+
+    async fn update_materialized_view_status(
+        &self,
+        id: &str,
+        status: MaterializedViewStatus,
+        error_message: Option<&str>,
+    ) -> Result<()> {
+        self.inner.update_materialized_view_status(id, status, error_message).await
+    }
+
+    async fn update_materialized_view_stats(
+        &self,
+        id: &str,
+        row_count: u64,
+        last_refresh_at: i64,
+    ) -> Result<()> {
+        self.inner.update_materialized_view_stats(id, row_count, last_refresh_at).await
+    }
+
+    async fn delete_materialized_view(&self, name: &str) -> Result<()> {
+        self.inner.delete_materialized_view(name).await
+    }
+
+    async fn get_materialized_view_offsets(&self, view_id: &str) -> Result<Vec<MaterializedViewOffset>> {
+        self.inner.get_materialized_view_offsets(view_id).await
+    }
+
+    async fn update_materialized_view_offset(
+        &self,
+        view_id: &str,
+        partition_id: u32,
+        last_offset: u64,
+    ) -> Result<()> {
+        self.inner.update_materialized_view_offset(view_id, partition_id, last_offset).await
+    }
+
+    async fn get_materialized_view_data(
+        &self,
+        view_id: &str,
+        limit: Option<usize>,
+    ) -> Result<Vec<MaterializedViewData>> {
+        self.inner.get_materialized_view_data(view_id, limit).await
+    }
+
+    async fn upsert_materialized_view_data(
+        &self,
+        data: MaterializedViewData,
+    ) -> Result<()> {
+        self.inner.upsert_materialized_view_data(data).await
     }
 }
 

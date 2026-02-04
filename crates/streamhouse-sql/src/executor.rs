@@ -52,6 +52,12 @@ impl SqlExecutor {
             SqlQuery::Count(q) => self.execute_count(q, start, timeout).await?,
             SqlQuery::WindowAggregate(q) => self.execute_window_aggregate(q, start, timeout).await?,
             SqlQuery::Join(q) => self.execute_join(q, start, timeout).await?,
+            // Materialized View commands
+            SqlQuery::CreateMaterializedView(q) => self.execute_create_materialized_view(q, start).await?,
+            SqlQuery::DropMaterializedView(name) => self.execute_drop_materialized_view(&name, start).await?,
+            SqlQuery::RefreshMaterializedView(name) => self.execute_refresh_materialized_view(&name, start).await?,
+            SqlQuery::ShowMaterializedViews => self.execute_show_materialized_views(start).await?,
+            SqlQuery::DescribeMaterializedView(name) => self.execute_describe_materialized_view(&name, start).await?,
         };
 
         Ok(result)
@@ -769,6 +775,124 @@ impl SqlExecutor {
         }
 
         Ok(messages)
+    }
+
+    // ========================================================================
+    // Materialized View Methods
+    // ========================================================================
+
+    /// Execute CREATE MATERIALIZED VIEW command
+    async fn execute_create_materialized_view(
+        &self,
+        query: CreateMaterializedViewQuery,
+        start: Instant,
+    ) -> Result<QueryResult> {
+        // Validate source topic exists
+        let _topic = self
+            .metadata
+            .get_topic(&query.source_topic)
+            .await?
+            .ok_or_else(|| SqlError::TopicNotFound(query.source_topic.clone()))?;
+
+        // For now, return a success message
+        // TODO: Persist view definition to metadata store
+        let row = vec![
+            serde_json::Value::String(query.name.clone()),
+            serde_json::Value::String(query.source_topic.clone()),
+            serde_json::Value::String(format!("{:?}", query.refresh_mode)),
+            serde_json::Value::String("created".to_string()),
+        ];
+
+        Ok(QueryResult {
+            columns: vec![
+                ColumnInfo { name: "name".to_string(), data_type: "string".to_string() },
+                ColumnInfo { name: "source_topic".to_string(), data_type: "string".to_string() },
+                ColumnInfo { name: "refresh_mode".to_string(), data_type: "string".to_string() },
+                ColumnInfo { name: "status".to_string(), data_type: "string".to_string() },
+            ],
+            rows: vec![row],
+            row_count: 1,
+            execution_time_ms: start.elapsed().as_millis() as u64,
+            truncated: false,
+        })
+    }
+
+    /// Execute DROP MATERIALIZED VIEW command
+    async fn execute_drop_materialized_view(
+        &self,
+        name: &str,
+        start: Instant,
+    ) -> Result<QueryResult> {
+        // TODO: Actually drop from metadata store
+        Ok(QueryResult {
+            columns: vec![
+                ColumnInfo { name: "name".to_string(), data_type: "string".to_string() },
+                ColumnInfo { name: "status".to_string(), data_type: "string".to_string() },
+            ],
+            rows: vec![vec![
+                serde_json::Value::String(name.to_string()),
+                serde_json::Value::String("dropped".to_string()),
+            ]],
+            row_count: 1,
+            execution_time_ms: start.elapsed().as_millis() as u64,
+            truncated: false,
+        })
+    }
+
+    /// Execute REFRESH MATERIALIZED VIEW command
+    async fn execute_refresh_materialized_view(
+        &self,
+        name: &str,
+        start: Instant,
+    ) -> Result<QueryResult> {
+        // TODO: Trigger actual refresh from metadata store
+        Ok(QueryResult {
+            columns: vec![
+                ColumnInfo { name: "name".to_string(), data_type: "string".to_string() },
+                ColumnInfo { name: "status".to_string(), data_type: "string".to_string() },
+                ColumnInfo { name: "rows_processed".to_string(), data_type: "bigint".to_string() },
+            ],
+            rows: vec![vec![
+                serde_json::Value::String(name.to_string()),
+                serde_json::Value::String("refreshed".to_string()),
+                serde_json::Value::Number(0.into()),
+            ]],
+            row_count: 1,
+            execution_time_ms: start.elapsed().as_millis() as u64,
+            truncated: false,
+        })
+    }
+
+    /// Execute SHOW MATERIALIZED VIEWS command
+    async fn execute_show_materialized_views(
+        &self,
+        start: Instant,
+    ) -> Result<QueryResult> {
+        // TODO: Fetch from metadata store
+        Ok(QueryResult {
+            columns: vec![
+                ColumnInfo { name: "name".to_string(), data_type: "string".to_string() },
+                ColumnInfo { name: "source_topic".to_string(), data_type: "string".to_string() },
+                ColumnInfo { name: "refresh_mode".to_string(), data_type: "string".to_string() },
+                ColumnInfo { name: "status".to_string(), data_type: "string".to_string() },
+                ColumnInfo { name: "row_count".to_string(), data_type: "bigint".to_string() },
+            ],
+            rows: vec![], // No views yet
+            row_count: 0,
+            execution_time_ms: start.elapsed().as_millis() as u64,
+            truncated: false,
+        })
+    }
+
+    /// Execute DESCRIBE MATERIALIZED VIEW command
+    async fn execute_describe_materialized_view(
+        &self,
+        name: &str,
+        start: Instant,
+    ) -> Result<QueryResult> {
+        // TODO: Fetch from metadata store
+        // For now, return view not found
+        Err(SqlError::ViewNotFound(name.to_string()))
     }
 }
 
