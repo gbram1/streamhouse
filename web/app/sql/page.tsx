@@ -86,6 +86,84 @@ const EXAMPLE_QUERIES = [
 FROM orders
 LIMIT 50;`,
   },
+  {
+    name: 'Anomaly Detection',
+    query: `SELECT
+  offset,
+  json_extract(value, '$.amount') as amount,
+  zscore(json_extract(value, '$.amount')) as z_score,
+  anomaly(json_extract(value, '$.amount'), 2.0) as is_anomaly
+FROM orders
+LIMIT 100;`,
+  },
+  {
+    name: 'Find Outliers',
+    query: `SELECT *
+FROM orders
+WHERE zscore(json_extract(value, '$.amount')) > 2.0
+LIMIT 50;`,
+  },
+  {
+    name: 'Moving Average',
+    query: `SELECT
+  offset,
+  json_extract(value, '$.price') as price,
+  moving_avg(json_extract(value, '$.price'), 10) as ma_10
+FROM metrics
+LIMIT 100;`,
+  },
+  {
+    name: 'Statistics',
+    query: `SELECT
+  avg(json_extract(value, '$.latency')) as avg_latency,
+  stddev(json_extract(value, '$.latency')) as stddev_latency
+FROM metrics
+LIMIT 1000;`,
+  },
+  {
+    name: 'Tumbling Window',
+    query: `SELECT
+  COUNT(*) as order_count,
+  SUM(json_extract(value, '$.amount')) as total_amount
+FROM orders
+GROUP BY TUMBLE(timestamp, '5 minutes');`,
+  },
+  {
+    name: 'Sliding Window',
+    query: `SELECT
+  AVG(json_extract(value, '$.latency')) as avg_latency,
+  MAX(json_extract(value, '$.latency')) as max_latency
+FROM metrics
+GROUP BY HOP(timestamp, '10 minutes', '1 minute');`,
+  },
+  {
+    name: 'Session Window',
+    query: `SELECT
+  COUNT(*) as events,
+  FIRST(json_extract(value, '$.action')) as first_action,
+  LAST(json_extract(value, '$.action')) as last_action
+FROM user_events
+GROUP BY SESSION(timestamp, '30 minutes'), key;`,
+  },
+  {
+    name: 'Vector Search',
+    query: `SELECT
+  key,
+  json_extract(value, '$.title') as title,
+  cosine_similarity(json_extract(value, '$.embedding'), '[0.1, 0.2, 0.3]') as score
+FROM documents
+ORDER BY score DESC
+LIMIT 10;`,
+  },
+  {
+    name: 'Nearest Neighbors',
+    query: `SELECT
+  key,
+  euclidean_distance(json_extract(value, '$.vector'), '[1.0, 2.0, 3.0]') as distance
+FROM embeddings
+ORDER BY distance ASC
+LIMIT 5;`,
+  },
 ];
 
 export default function SqlWorkbenchPage() {
@@ -368,6 +446,40 @@ export default function SqlWorkbenchPage() {
                 <h4 className="font-medium">JSON Functions</h4>
                 <ul className="text-muted-foreground mt-1 space-y-1">
                   <li>json_extract(value, &apos;$.field&apos;)</li>
+                </ul>
+              </div>
+              <div>
+                <h4 className="font-medium">Anomaly Detection</h4>
+                <ul className="text-muted-foreground mt-1 space-y-1">
+                  <li>zscore(json_extract(...))</li>
+                  <li>anomaly(..., threshold)</li>
+                  <li>moving_avg(..., window)</li>
+                  <li>stddev(...), avg(...)</li>
+                </ul>
+              </div>
+              <div>
+                <h4 className="font-medium">Window Functions</h4>
+                <ul className="text-muted-foreground mt-1 space-y-1">
+                  <li>TUMBLE(ts, &apos;5 min&apos;)</li>
+                  <li>HOP(ts, size, slide)</li>
+                  <li>SESSION(ts, gap)</li>
+                </ul>
+              </div>
+              <div>
+                <h4 className="font-medium">Aggregations</h4>
+                <ul className="text-muted-foreground mt-1 space-y-1">
+                  <li>COUNT, SUM, AVG</li>
+                  <li>MIN, MAX</li>
+                  <li>FIRST, LAST</li>
+                </ul>
+              </div>
+              <div>
+                <h4 className="font-medium">Vector Search</h4>
+                <ul className="text-muted-foreground mt-1 space-y-1">
+                  <li>cosine_similarity(...)</li>
+                  <li>euclidean_distance(...)</li>
+                  <li>dot_product(...)</li>
+                  <li>vector_norm(...)</li>
                 </ul>
               </div>
             </div>

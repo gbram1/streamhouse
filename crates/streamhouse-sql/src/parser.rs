@@ -41,7 +41,7 @@ pub fn parse_query(sql: &str) -> Result<SqlQuery> {
     let statement = &ast[0];
 
     match statement {
-        Statement::Query(query) => parse_select_query(query),
+        Statement::Query(query) => parse_select_query(query, sql_trimmed),
         _ => Err(SqlError::UnsupportedOperation(format!(
             "Only SELECT queries are supported, got: {:?}",
             statement
@@ -49,7 +49,7 @@ pub fn parse_query(sql: &str) -> Result<SqlQuery> {
     }
 }
 
-fn parse_select_query(query: &sqlparser::ast::Query) -> Result<SqlQuery> {
+fn parse_select_query(query: &sqlparser::ast::Query, original_sql: &str) -> Result<SqlQuery> {
     let select = match &*query.body {
         SetExpr::Select(select) => select,
         _ => {
@@ -58,6 +58,11 @@ fn parse_select_query(query: &sqlparser::ast::Query) -> Result<SqlQuery> {
             ))
         }
     };
+
+    // Check for window aggregate query (GROUP BY with TUMBLE/HOP/SESSION)
+    if let Some(window_query) = try_parse_window_query(select, query, original_sql)? {
+        return Ok(SqlQuery::WindowAggregate(window_query));
+    }
 
     // Check for COUNT(*) query
     if is_count_query(select) {
@@ -112,6 +117,305 @@ fn parse_select_query(query: &sqlparser::ast::Query) -> Result<SqlQuery> {
         limit,
         offset,
     }))
+}
+
+/// Try to parse as a window aggregate query
+fn try_parse_window_query(
+    select: &Select,
+    query: &sqlparser::ast::Query,
+    _original_sql: &str,
+) -> Result<Option<WindowAggregateQuery>> {
+    // Extract expressions from GROUP BY
+    let group_exprs = match &select.group_by {
+        sqlparser::ast::GroupByExpr::All => return Ok(None),
+        sqlparser::ast::GroupByExpr::Expressions(exprs) => exprs,
+    };
+
+    // Check if GROUP BY contains expressions
+    if group_exprs.is_empty() {
+        return Ok(None);
+    }
+
+    // Look for TUMBLE, HOP, or SESSION in the GROUP BY
+    let mut window_type: Option<WindowType> = None;
+    let mut other_group_by: Vec<String> = Vec::new();
+
+    for group_expr in group_exprs {
+        if let Expr::Function(func) = group_expr {
+            let func_name = func.name.to_string().to_uppercase();
+            match func_name.as_str() {
+                "TUMBLE" => {
+                    window_type = Some(parse_tumble_window(func)?);
+                }
+                "HOP" => {
+                    window_type = Some(parse_hop_window(func)?);
+                }
+                "SESSION" => {
+                    window_type = Some(parse_session_window(func)?);
+                }
+                _ => {
+                    // Regular GROUP BY expression
+                    other_group_by.push(func.name.to_string());
+                }
+            }
+        } else if let Expr::Identifier(ident) = group_expr {
+            other_group_by.push(ident.value.clone());
+        }
+    }
+
+    let window = match window_type {
+        Some(w) => w,
+        None => return Ok(None), // No window function found
+    };
+
+    // Parse the rest of the query
+    let topic = parse_from_clause(select)?;
+
+    // Parse aggregations from SELECT
+    let aggregations = parse_window_aggregations(select)?;
+
+    // Parse WHERE clause
+    let filters = if let Some(selection) = &select.selection {
+        parse_where_clause(selection)?
+    } else {
+        vec![]
+    };
+
+    // Parse LIMIT
+    let limit = query
+        .limit
+        .as_ref()
+        .and_then(|e| extract_literal_int(e).map(|n| n as usize));
+
+    Ok(Some(WindowAggregateQuery {
+        topic,
+        window,
+        aggregations,
+        group_by: other_group_by,
+        filters,
+        limit,
+    }))
+}
+
+/// Parse TUMBLE(timestamp, INTERVAL 'duration')
+fn parse_tumble_window(func: &Function) -> Result<WindowType> {
+    let args = &func.args;
+    if args.len() < 2 {
+        return Err(SqlError::ParseError(
+            "TUMBLE requires at least 2 arguments: TUMBLE(timestamp_column, size)".to_string(),
+        ));
+    }
+
+    // Parse window size (second argument)
+    let size_ms = parse_interval_arg(&args[1])?;
+
+    Ok(WindowType::Tumble { size_ms })
+}
+
+/// Parse HOP(timestamp, size, slide)
+fn parse_hop_window(func: &Function) -> Result<WindowType> {
+    let args = &func.args;
+    if args.len() < 3 {
+        return Err(SqlError::ParseError(
+            "HOP requires 3 arguments: HOP(timestamp_column, size, slide)".to_string(),
+        ));
+    }
+
+    let size_ms = parse_interval_arg(&args[1])?;
+    let slide_ms = parse_interval_arg(&args[2])?;
+
+    Ok(WindowType::Hop { size_ms, slide_ms })
+}
+
+/// Parse SESSION(timestamp, gap)
+fn parse_session_window(func: &Function) -> Result<WindowType> {
+    let args = &func.args;
+    if args.len() < 2 {
+        return Err(SqlError::ParseError(
+            "SESSION requires 2 arguments: SESSION(timestamp_column, gap)".to_string(),
+        ));
+    }
+
+    let gap_ms = parse_interval_arg(&args[1])?;
+
+    Ok(WindowType::Session { gap_ms })
+}
+
+/// Parse an interval argument (e.g., INTERVAL '5 minutes' or just a number in ms)
+fn parse_interval_arg(arg: &FunctionArg) -> Result<i64> {
+    match arg {
+        FunctionArg::Unnamed(FunctionArgExpr::Expr(expr)) => parse_interval_expr(expr),
+        _ => Err(SqlError::ParseError("Invalid interval argument".to_string())),
+    }
+}
+
+/// Parse interval expression
+fn parse_interval_expr(expr: &Expr) -> Result<i64> {
+    match expr {
+        // Handle: INTERVAL '5 minutes'
+        Expr::Interval(interval) => {
+            let value_str = match &*interval.value {
+                Expr::Value(SqlValue::SingleQuotedString(s)) => s.clone(),
+                _ => {
+                    return Err(SqlError::ParseError(
+                        "Interval value must be a string".to_string(),
+                    ))
+                }
+            };
+            parse_interval_string(&value_str)
+        }
+        // Handle: plain number (milliseconds)
+        Expr::Value(SqlValue::Number(n, _)) => {
+            n.parse::<i64>()
+                .map_err(|_| SqlError::ParseError("Invalid interval number".to_string()))
+        }
+        // Handle: string like '5 minutes'
+        Expr::Value(SqlValue::SingleQuotedString(s)) => parse_interval_string(s),
+        _ => Err(SqlError::ParseError(format!(
+            "Unsupported interval expression: {:?}",
+            expr
+        ))),
+    }
+}
+
+/// Parse interval string like "5 minutes", "1 hour", "30 seconds"
+fn parse_interval_string(s: &str) -> Result<i64> {
+    let parts: Vec<&str> = s.trim().split_whitespace().collect();
+    if parts.is_empty() {
+        return Err(SqlError::ParseError("Empty interval string".to_string()));
+    }
+
+    let value: i64 = parts[0]
+        .parse()
+        .map_err(|_| SqlError::ParseError(format!("Invalid interval value: {}", parts[0])))?;
+
+    let unit = if parts.len() > 1 {
+        parts[1].to_lowercase()
+    } else {
+        "milliseconds".to_string()
+    };
+
+    let multiplier = match unit.as_str() {
+        "ms" | "millisecond" | "milliseconds" => 1,
+        "s" | "sec" | "second" | "seconds" => 1000,
+        "m" | "min" | "minute" | "minutes" => 60 * 1000,
+        "h" | "hour" | "hours" => 60 * 60 * 1000,
+        "d" | "day" | "days" => 24 * 60 * 60 * 1000,
+        _ => {
+            return Err(SqlError::ParseError(format!(
+                "Unknown interval unit: {}",
+                unit
+            )))
+        }
+    };
+
+    Ok(value * multiplier)
+}
+
+/// Parse aggregations from SELECT clause for window query
+fn parse_window_aggregations(select: &Select) -> Result<Vec<WindowAggregation>> {
+    let mut aggregations = Vec::new();
+
+    for item in &select.projection {
+        match item {
+            SelectItem::UnnamedExpr(expr) => {
+                if let Some(agg) = try_parse_aggregation(expr, None)? {
+                    aggregations.push(agg);
+                }
+            }
+            SelectItem::ExprWithAlias { expr, alias } => {
+                if let Some(agg) = try_parse_aggregation(expr, Some(alias.value.clone()))? {
+                    aggregations.push(agg);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    Ok(aggregations)
+}
+
+/// Try to parse an expression as an aggregation function
+fn try_parse_aggregation(expr: &Expr, alias: Option<String>) -> Result<Option<WindowAggregation>> {
+    if let Expr::Function(func) = expr {
+        let func_name = func.name.to_string().to_uppercase();
+        let args = &func.args;
+
+        match func_name.as_str() {
+            "COUNT" => {
+                // Check for COUNT(DISTINCT ...)
+                if func.distinct {
+                    let column = extract_column_from_arg(&args[0])?;
+                    return Ok(Some(WindowAggregation::CountDistinct { column, alias }));
+                }
+                return Ok(Some(WindowAggregation::Count { alias }));
+            }
+            "SUM" => {
+                let path = extract_path_from_agg_arg(&args[0])?;
+                return Ok(Some(WindowAggregation::Sum { path, alias }));
+            }
+            "AVG" | "MEAN" => {
+                let path = extract_path_from_agg_arg(&args[0])?;
+                return Ok(Some(WindowAggregation::Avg { path, alias }));
+            }
+            "MIN" => {
+                let path = extract_path_from_agg_arg(&args[0])?;
+                return Ok(Some(WindowAggregation::Min { path, alias }));
+            }
+            "MAX" => {
+                let path = extract_path_from_agg_arg(&args[0])?;
+                return Ok(Some(WindowAggregation::Max { path, alias }));
+            }
+            "FIRST" | "FIRST_VALUE" => {
+                let path = extract_path_from_agg_arg(&args[0])?;
+                return Ok(Some(WindowAggregation::First { path, alias }));
+            }
+            "LAST" | "LAST_VALUE" => {
+                let path = extract_path_from_agg_arg(&args[0])?;
+                return Ok(Some(WindowAggregation::Last { path, alias }));
+            }
+            _ => {}
+        }
+    }
+    Ok(None)
+}
+
+/// Extract column name from aggregation argument
+fn extract_column_from_arg(arg: &FunctionArg) -> Result<String> {
+    match arg {
+        FunctionArg::Unnamed(FunctionArgExpr::Expr(Expr::Identifier(ident))) => {
+            Ok(ident.value.clone())
+        }
+        FunctionArg::Unnamed(FunctionArgExpr::Wildcard) => Ok("*".to_string()),
+        _ => Err(SqlError::ParseError(
+            "Expected column name in aggregation".to_string(),
+        )),
+    }
+}
+
+/// Extract JSON path from aggregation argument (handles json_extract or direct path)
+fn extract_path_from_agg_arg(arg: &FunctionArg) -> Result<String> {
+    match arg {
+        FunctionArg::Unnamed(FunctionArgExpr::Expr(Expr::Function(inner_func))) => {
+            let inner_name = inner_func.name.to_string().to_uppercase();
+            if inner_name == "JSON_EXTRACT" {
+                extract_path_from_json_extract(inner_func)
+            } else {
+                Err(SqlError::ParseError(
+                    "Expected json_extract in aggregation".to_string(),
+                ))
+            }
+        }
+        FunctionArg::Unnamed(FunctionArgExpr::Expr(Expr::Value(SqlValue::SingleQuotedString(s)))) => {
+            Ok(s.clone())
+        }
+        FunctionArg::Unnamed(FunctionArgExpr::Expr(Expr::Identifier(ident))) => {
+            Ok(format!("$.{}", ident.value))
+        }
+        _ => Err(SqlError::ParseError(
+            "Invalid aggregation argument".to_string(),
+        )),
+    }
 }
 
 fn is_count_query(select: &Select) -> bool {
@@ -187,13 +491,21 @@ fn parse_select_expr(expr: &Expr, alias: Option<String>) -> Result<SelectColumn>
         Expr::Identifier(ident) => Ok(SelectColumn::Column(ident.value.clone())),
         Expr::Function(func) => {
             let func_name = func.name.to_string().to_uppercase();
-            if func_name == "JSON_EXTRACT" {
-                parse_json_extract_func(func, alias)
-            } else {
-                Err(SqlError::UnsupportedOperation(format!(
+            match func_name.as_str() {
+                "JSON_EXTRACT" => parse_json_extract_func(func, alias),
+                "ZSCORE" => parse_zscore_func(func, alias),
+                "MOVING_AVG" => parse_moving_avg_func(func, alias),
+                "STDDEV" | "STD" => parse_stddev_func(func, alias),
+                "AVG" | "MEAN" => parse_avg_func(func, alias),
+                "ANOMALY" => parse_anomaly_func(func, alias),
+                "COSINE_SIMILARITY" => parse_cosine_similarity_func(func, alias),
+                "EUCLIDEAN_DISTANCE" => parse_euclidean_distance_func(func, alias),
+                "DOT_PRODUCT" => parse_dot_product_func(func, alias),
+                "VECTOR_NORM" | "L2_NORM" => parse_vector_norm_func(func, alias),
+                _ => Err(SqlError::UnsupportedOperation(format!(
                     "Unsupported function: {}",
                     func_name
-                )))
+                ))),
             }
         }
         _ => Err(SqlError::UnsupportedOperation(format!(
@@ -238,6 +550,321 @@ fn parse_json_extract_func(func: &Function, alias: Option<String>) -> Result<Sel
         path,
         alias,
     })
+}
+
+/// Parse zscore(json_extract(value, '$.path')) or zscore(value, '$.path')
+fn parse_zscore_func(func: &Function, alias: Option<String>) -> Result<SelectColumn> {
+    let path = extract_path_from_nested_func_or_direct(func)?;
+    Ok(SelectColumn::ZScore { path, alias })
+}
+
+/// Parse moving_avg(json_extract(value, '$.path'), window_size) or moving_avg(value, '$.path', window_size)
+fn parse_moving_avg_func(func: &Function, alias: Option<String>) -> Result<SelectColumn> {
+    let args = &func.args;
+
+    if args.is_empty() {
+        return Err(SqlError::ParseError(
+            "moving_avg requires at least 1 argument".to_string(),
+        ));
+    }
+
+    // Try to extract path from first argument (could be json_extract or direct path)
+    let (path, window_arg_idx) = match &args[0] {
+        FunctionArg::Unnamed(FunctionArgExpr::Expr(Expr::Function(inner_func))) => {
+            let inner_name = inner_func.name.to_string().to_uppercase();
+            if inner_name == "JSON_EXTRACT" {
+                let p = extract_path_from_json_extract(inner_func)?;
+                (p, 1)
+            } else {
+                return Err(SqlError::ParseError(
+                    "First argument to moving_avg must be json_extract or a column".to_string(),
+                ));
+            }
+        }
+        FunctionArg::Unnamed(FunctionArgExpr::Expr(Expr::Value(SqlValue::SingleQuotedString(s)))) => {
+            // Direct path: moving_avg('$.field', 10)
+            (s.clone(), 1)
+        }
+        _ => {
+            return Err(SqlError::ParseError(
+                "Invalid first argument to moving_avg".to_string(),
+            ));
+        }
+    };
+
+    // Get window size
+    let window_size = if args.len() > window_arg_idx {
+        match &args[window_arg_idx] {
+            FunctionArg::Unnamed(FunctionArgExpr::Expr(Expr::Value(SqlValue::Number(n, _)))) => {
+                n.parse::<usize>().map_err(|_| {
+                    SqlError::ParseError("Window size must be a positive integer".to_string())
+                })?
+            }
+            _ => 10, // Default window size
+        }
+    } else {
+        10 // Default window size
+    };
+
+    Ok(SelectColumn::MovingAvg {
+        path,
+        window_size,
+        alias,
+    })
+}
+
+/// Parse stddev(json_extract(value, '$.path')) or stddev(value, '$.path')
+fn parse_stddev_func(func: &Function, alias: Option<String>) -> Result<SelectColumn> {
+    let path = extract_path_from_nested_func_or_direct(func)?;
+    Ok(SelectColumn::Stddev { path, alias })
+}
+
+/// Parse avg(json_extract(value, '$.path')) or avg(value, '$.path')
+fn parse_avg_func(func: &Function, alias: Option<String>) -> Result<SelectColumn> {
+    let path = extract_path_from_nested_func_or_direct(func)?;
+    Ok(SelectColumn::Avg { path, alias })
+}
+
+/// Parse anomaly(json_extract(value, '$.path'), threshold)
+fn parse_anomaly_func(func: &Function, alias: Option<String>) -> Result<SelectColumn> {
+    let args = &func.args;
+
+    if args.is_empty() {
+        return Err(SqlError::ParseError(
+            "anomaly requires at least 1 argument".to_string(),
+        ));
+    }
+
+    // Try to extract path from first argument
+    let (path, threshold_arg_idx) = match &args[0] {
+        FunctionArg::Unnamed(FunctionArgExpr::Expr(Expr::Function(inner_func))) => {
+            let inner_name = inner_func.name.to_string().to_uppercase();
+            if inner_name == "JSON_EXTRACT" {
+                let p = extract_path_from_json_extract(inner_func)?;
+                (p, 1)
+            } else {
+                return Err(SqlError::ParseError(
+                    "First argument to anomaly must be json_extract or a path".to_string(),
+                ));
+            }
+        }
+        FunctionArg::Unnamed(FunctionArgExpr::Expr(Expr::Value(SqlValue::SingleQuotedString(s)))) => {
+            (s.clone(), 1)
+        }
+        _ => {
+            return Err(SqlError::ParseError(
+                "Invalid first argument to anomaly".to_string(),
+            ));
+        }
+    };
+
+    // Get threshold (default 2.0 = ~95% confidence)
+    let threshold = if args.len() > threshold_arg_idx {
+        match &args[threshold_arg_idx] {
+            FunctionArg::Unnamed(FunctionArgExpr::Expr(Expr::Value(SqlValue::Number(n, _)))) => {
+                n.parse::<f64>().map_err(|_| {
+                    SqlError::ParseError("Threshold must be a number".to_string())
+                })?
+            }
+            _ => 2.0,
+        }
+    } else {
+        2.0
+    };
+
+    Ok(SelectColumn::Anomaly {
+        path,
+        threshold,
+        alias,
+    })
+}
+
+/// Extract JSON path from a nested json_extract call or direct path argument
+fn extract_path_from_nested_func_or_direct(func: &Function) -> Result<String> {
+    let args = &func.args;
+
+    if args.is_empty() {
+        return Err(SqlError::ParseError(
+            "Function requires at least 1 argument".to_string(),
+        ));
+    }
+
+    match &args[0] {
+        // Nested: zscore(json_extract(value, '$.path'))
+        FunctionArg::Unnamed(FunctionArgExpr::Expr(Expr::Function(inner_func))) => {
+            let inner_name = inner_func.name.to_string().to_uppercase();
+            if inner_name == "JSON_EXTRACT" {
+                extract_path_from_json_extract(inner_func)
+            } else {
+                Err(SqlError::ParseError(
+                    "Nested function must be json_extract".to_string(),
+                ))
+            }
+        }
+        // Direct: zscore('$.path')
+        FunctionArg::Unnamed(FunctionArgExpr::Expr(Expr::Value(SqlValue::SingleQuotedString(s)))) => {
+            Ok(s.clone())
+        }
+        _ => Err(SqlError::ParseError(
+            "Argument must be json_extract function or a string path".to_string(),
+        )),
+    }
+}
+
+/// Extract path from json_extract(value, '$.path') function
+fn extract_path_from_json_extract(func: &Function) -> Result<String> {
+    let args = &func.args;
+    if args.len() != 2 {
+        return Err(SqlError::ParseError(
+            "json_extract requires 2 arguments".to_string(),
+        ));
+    }
+
+    match &args[1] {
+        FunctionArg::Unnamed(FunctionArgExpr::Expr(Expr::Value(SqlValue::SingleQuotedString(s)))) => {
+            Ok(s.clone())
+        }
+        _ => Err(SqlError::ParseError(
+            "Second argument to json_extract must be a string path".to_string(),
+        )),
+    }
+}
+
+/// Parse cosine_similarity(vector_path, query_vector) or cosine_similarity(json_extract(...), query_vector)
+fn parse_cosine_similarity_func(func: &Function, alias: Option<String>) -> Result<SelectColumn> {
+    let (path, query_vector) = parse_vector_similarity_args(func)?;
+    Ok(SelectColumn::CosineSimilarity { path, query_vector, alias })
+}
+
+/// Parse euclidean_distance(vector_path, query_vector)
+fn parse_euclidean_distance_func(func: &Function, alias: Option<String>) -> Result<SelectColumn> {
+    let (path, query_vector) = parse_vector_similarity_args(func)?;
+    Ok(SelectColumn::EuclideanDistance { path, query_vector, alias })
+}
+
+/// Parse dot_product(vector_path, query_vector)
+fn parse_dot_product_func(func: &Function, alias: Option<String>) -> Result<SelectColumn> {
+    let (path, query_vector) = parse_vector_similarity_args(func)?;
+    Ok(SelectColumn::DotProduct { path, query_vector, alias })
+}
+
+/// Parse vector_norm(vector_path)
+fn parse_vector_norm_func(func: &Function, alias: Option<String>) -> Result<SelectColumn> {
+    let path = extract_path_from_nested_func_or_direct(func)?;
+    Ok(SelectColumn::VectorNorm { path, alias })
+}
+
+/// Parse arguments for vector similarity functions (path, query_vector)
+fn parse_vector_similarity_args(func: &Function) -> Result<(String, Vec<f64>)> {
+    let args = &func.args;
+    if args.len() < 2 {
+        return Err(SqlError::ParseError(
+            "Vector similarity functions require 2 arguments: (vector_path, query_vector)".to_string(),
+        ));
+    }
+
+    // First argument: vector path (json_extract or direct path)
+    let path = match &args[0] {
+        FunctionArg::Unnamed(FunctionArgExpr::Expr(Expr::Function(inner_func))) => {
+            let inner_name = inner_func.name.to_string().to_uppercase();
+            if inner_name == "JSON_EXTRACT" {
+                extract_path_from_json_extract(inner_func)?
+            } else {
+                return Err(SqlError::ParseError(
+                    "First argument must be json_extract or a path".to_string(),
+                ));
+            }
+        }
+        FunctionArg::Unnamed(FunctionArgExpr::Expr(Expr::Value(SqlValue::SingleQuotedString(s)))) => {
+            s.clone()
+        }
+        _ => {
+            return Err(SqlError::ParseError(
+                "Invalid first argument for vector function".to_string(),
+            ));
+        }
+    };
+
+    // Second argument: query vector (array literal or ARRAY[...])
+    let query_vector = parse_vector_arg(&args[1])?;
+
+    Ok((path, query_vector))
+}
+
+/// Parse a vector argument (array of numbers)
+fn parse_vector_arg(arg: &FunctionArg) -> Result<Vec<f64>> {
+    match arg {
+        FunctionArg::Unnamed(FunctionArgExpr::Expr(expr)) => parse_vector_expr(expr),
+        _ => Err(SqlError::ParseError("Invalid vector argument".to_string())),
+    }
+}
+
+/// Parse vector expression (array literal)
+fn parse_vector_expr(expr: &Expr) -> Result<Vec<f64>> {
+    match expr {
+        // Handle ARRAY[1.0, 2.0, 3.0]
+        Expr::Array(sqlparser::ast::Array { elem, .. }) => {
+            let mut vec = Vec::with_capacity(elem.len());
+            for e in elem {
+                match e {
+                    Expr::Value(SqlValue::Number(n, _)) => {
+                        let f: f64 = n.parse().map_err(|_| {
+                            SqlError::ParseError(format!("Invalid number in vector: {}", n))
+                        })?;
+                        vec.push(f);
+                    }
+                    Expr::UnaryOp { op: sqlparser::ast::UnaryOperator::Minus, expr } => {
+                        if let Expr::Value(SqlValue::Number(n, _)) = expr.as_ref() {
+                            let f: f64 = n.parse().map_err(|_| {
+                                SqlError::ParseError(format!("Invalid number in vector: {}", n))
+                            })?;
+                            vec.push(-f);
+                        } else {
+                            return Err(SqlError::ParseError("Invalid vector element".to_string()));
+                        }
+                    }
+                    _ => {
+                        return Err(SqlError::ParseError(
+                            "Vector elements must be numbers".to_string(),
+                        ));
+                    }
+                }
+            }
+            Ok(vec)
+        }
+        // Handle string representation: '[1.0, 2.0, 3.0]'
+        Expr::Value(SqlValue::SingleQuotedString(s)) => {
+            parse_vector_string(s)
+        }
+        _ => Err(SqlError::ParseError(format!(
+            "Unsupported vector expression: {:?}",
+            expr
+        ))),
+    }
+}
+
+/// Parse vector from string representation
+fn parse_vector_string(s: &str) -> Result<Vec<f64>> {
+    let s = s.trim();
+    let s = s.trim_start_matches('[').trim_end_matches(']');
+
+    let mut vec = Vec::new();
+    for part in s.split(',') {
+        let part = part.trim();
+        if part.is_empty() {
+            continue;
+        }
+        let f: f64 = part.parse().map_err(|_| {
+            SqlError::ParseError(format!("Invalid number in vector string: {}", part))
+        })?;
+        vec.push(f);
+    }
+
+    if vec.is_empty() {
+        return Err(SqlError::ParseError("Empty vector".to_string()));
+    }
+
+    Ok(vec)
 }
 
 fn parse_where_clause(expr: &Expr) -> Result<Vec<Filter>> {
@@ -327,11 +954,51 @@ fn parse_equality_filter(left: &Expr, right: &Expr) -> Result<Option<Filter>> {
     // Handle: json_extract(value, '$.path') = value
     if let Expr::Function(func) = left {
         let func_name = func.name.to_string().to_uppercase();
-        if func_name == "JSON_EXTRACT" {
-            if let Some((path, _)) = parse_json_extract_args(func)? {
-                let value = expr_to_json_value(right)?;
-                return Ok(Some(Filter::JsonEquals { path, value }));
+        match func_name.as_str() {
+            "JSON_EXTRACT" => {
+                if let Some((path, _)) = parse_json_extract_args(func)? {
+                    let value = expr_to_json_value(right)?;
+                    return Ok(Some(Filter::JsonEquals { path, value }));
+                }
             }
+            "ANOMALY" => {
+                // Handle: anomaly(json_extract(value, '$.path'), threshold) = true
+                let args = &func.args;
+                if !args.is_empty() {
+                    let (path, threshold_arg_idx) = match &args[0] {
+                        FunctionArg::Unnamed(FunctionArgExpr::Expr(Expr::Function(inner_func))) => {
+                            let inner_name = inner_func.name.to_string().to_uppercase();
+                            if inner_name == "JSON_EXTRACT" {
+                                let p = extract_path_from_json_extract(inner_func)?;
+                                (p, 1)
+                            } else {
+                                return Ok(None);
+                            }
+                        }
+                        FunctionArg::Unnamed(FunctionArgExpr::Expr(Expr::Value(SqlValue::SingleQuotedString(s)))) => {
+                            (s.clone(), 1)
+                        }
+                        _ => return Ok(None),
+                    };
+
+                    let threshold = if args.len() > threshold_arg_idx {
+                        match &args[threshold_arg_idx] {
+                            FunctionArg::Unnamed(FunctionArgExpr::Expr(Expr::Value(SqlValue::Number(n, _)))) => {
+                                n.parse::<f64>().unwrap_or(2.0)
+                            }
+                            _ => 2.0,
+                        }
+                    } else {
+                        2.0
+                    };
+
+                    // Check if comparing to true
+                    if let Expr::Value(SqlValue::Boolean(true)) = right {
+                        return Ok(Some(Filter::AnomalyThreshold { path, threshold }));
+                    }
+                }
+            }
+            _ => {}
         }
     }
 
@@ -379,15 +1046,29 @@ fn parse_comparison_filter(
     // Handle: json_extract(value, '$.path') > value
     if let Expr::Function(func) = left {
         let func_name = func.name.to_string().to_uppercase();
-        if func_name == "JSON_EXTRACT" {
-            if let Some((path, _)) = parse_json_extract_args(func)? {
-                let value = expr_to_json_value(right)?;
-                return Ok(Some(if is_greater {
-                    Filter::JsonGt { path, value }
-                } else {
-                    Filter::JsonLt { path, value }
-                }));
+        match func_name.as_str() {
+            "JSON_EXTRACT" => {
+                if let Some((path, _)) = parse_json_extract_args(func)? {
+                    let value = expr_to_json_value(right)?;
+                    return Ok(Some(if is_greater {
+                        Filter::JsonGt { path, value }
+                    } else {
+                        Filter::JsonLt { path, value }
+                    }));
+                }
             }
+            "ZSCORE" => {
+                // Handle: zscore(json_extract(value, '$.path')) > threshold
+                let path = extract_path_from_nested_func_or_direct(func)?;
+                if let Some(threshold) = extract_literal_float(right) {
+                    return Ok(Some(if is_greater {
+                        Filter::ZScoreGt { path, threshold }
+                    } else {
+                        Filter::ZScoreLt { path, threshold }
+                    }));
+                }
+            }
+            _ => {}
         }
     }
 
@@ -428,6 +1109,17 @@ fn extract_string_value(expr: &Expr) -> Option<String> {
 fn extract_literal_int(expr: &Expr) -> Option<i64> {
     match expr {
         Expr::Value(SqlValue::Number(n, _)) => n.parse().ok(),
+        _ => None,
+    }
+}
+
+fn extract_literal_float(expr: &Expr) -> Option<f64> {
+    match expr {
+        Expr::Value(SqlValue::Number(n, _)) => n.parse().ok(),
+        // Handle unary minus for negative numbers
+        Expr::UnaryOp { op: sqlparser::ast::UnaryOperator::Minus, expr } => {
+            extract_literal_float(expr).map(|v| -v)
+        }
         _ => None,
     }
 }
@@ -513,6 +1205,383 @@ mod tests {
                 assert_eq!(q.filters.len(), 1);
             }
             _ => panic!("Expected Count query"),
+        }
+    }
+
+    // Anomaly Detection Function Tests
+
+    #[test]
+    fn test_parse_zscore() {
+        let query = parse_query("SELECT zscore(json_extract(value, '$.price')) as z FROM orders LIMIT 100").unwrap();
+        match query {
+            SqlQuery::Select(q) => {
+                assert_eq!(q.topic, "orders");
+                assert_eq!(q.columns.len(), 1);
+                match &q.columns[0] {
+                    SelectColumn::ZScore { path, alias } => {
+                        assert_eq!(path, "$.price");
+                        assert_eq!(alias.as_deref(), Some("z"));
+                    }
+                    _ => panic!("Expected ZScore column"),
+                }
+            }
+            _ => panic!("Expected Select query"),
+        }
+    }
+
+    #[test]
+    fn test_parse_zscore_direct_path() {
+        let query = parse_query("SELECT zscore('$.amount') FROM transactions").unwrap();
+        match query {
+            SqlQuery::Select(q) => {
+                match &q.columns[0] {
+                    SelectColumn::ZScore { path, .. } => {
+                        assert_eq!(path, "$.amount");
+                    }
+                    _ => panic!("Expected ZScore column"),
+                }
+            }
+            _ => panic!("Expected Select query"),
+        }
+    }
+
+    #[test]
+    fn test_parse_moving_avg() {
+        let query = parse_query("SELECT moving_avg(json_extract(value, '$.price'), 10) as ma FROM orders").unwrap();
+        match query {
+            SqlQuery::Select(q) => {
+                match &q.columns[0] {
+                    SelectColumn::MovingAvg { path, window_size, alias } => {
+                        assert_eq!(path, "$.price");
+                        assert_eq!(*window_size, 10);
+                        assert_eq!(alias.as_deref(), Some("ma"));
+                    }
+                    _ => panic!("Expected MovingAvg column"),
+                }
+            }
+            _ => panic!("Expected Select query"),
+        }
+    }
+
+    #[test]
+    fn test_parse_stddev() {
+        let query = parse_query("SELECT stddev(json_extract(value, '$.latency')) FROM metrics").unwrap();
+        match query {
+            SqlQuery::Select(q) => {
+                match &q.columns[0] {
+                    SelectColumn::Stddev { path, .. } => {
+                        assert_eq!(path, "$.latency");
+                    }
+                    _ => panic!("Expected Stddev column"),
+                }
+            }
+            _ => panic!("Expected Select query"),
+        }
+    }
+
+    #[test]
+    fn test_parse_avg() {
+        let query = parse_query("SELECT avg(json_extract(value, '$.cpu')) FROM metrics").unwrap();
+        match query {
+            SqlQuery::Select(q) => {
+                match &q.columns[0] {
+                    SelectColumn::Avg { path, .. } => {
+                        assert_eq!(path, "$.cpu");
+                    }
+                    _ => panic!("Expected Avg column"),
+                }
+            }
+            _ => panic!("Expected Select query"),
+        }
+    }
+
+    #[test]
+    fn test_parse_anomaly() {
+        let query = parse_query("SELECT anomaly(json_extract(value, '$.price'), 2.5) as is_anomaly FROM orders").unwrap();
+        match query {
+            SqlQuery::Select(q) => {
+                match &q.columns[0] {
+                    SelectColumn::Anomaly { path, threshold, alias } => {
+                        assert_eq!(path, "$.price");
+                        assert!((*threshold - 2.5).abs() < 0.001);
+                        assert_eq!(alias.as_deref(), Some("is_anomaly"));
+                    }
+                    _ => panic!("Expected Anomaly column"),
+                }
+            }
+            _ => panic!("Expected Select query"),
+        }
+    }
+
+    #[test]
+    fn test_parse_anomaly_default_threshold() {
+        let query = parse_query("SELECT anomaly(json_extract(value, '$.price')) FROM orders").unwrap();
+        match query {
+            SqlQuery::Select(q) => {
+                match &q.columns[0] {
+                    SelectColumn::Anomaly { threshold, .. } => {
+                        assert!((*threshold - 2.0).abs() < 0.001); // Default is 2.0
+                    }
+                    _ => panic!("Expected Anomaly column"),
+                }
+            }
+            _ => panic!("Expected Select query"),
+        }
+    }
+
+    #[test]
+    fn test_parse_zscore_filter() {
+        let query = parse_query("SELECT * FROM orders WHERE zscore(json_extract(value, '$.price')) > 2.0").unwrap();
+        match query {
+            SqlQuery::Select(q) => {
+                assert_eq!(q.filters.len(), 1);
+                match &q.filters[0] {
+                    Filter::ZScoreGt { path, threshold } => {
+                        assert_eq!(path, "$.price");
+                        assert!((*threshold - 2.0).abs() < 0.001);
+                    }
+                    _ => panic!("Expected ZScoreGt filter"),
+                }
+            }
+            _ => panic!("Expected Select query"),
+        }
+    }
+
+    #[test]
+    fn test_parse_zscore_filter_lt() {
+        let query = parse_query("SELECT * FROM orders WHERE zscore(json_extract(value, '$.price')) < -1.5").unwrap();
+        match query {
+            SqlQuery::Select(q) => {
+                assert_eq!(q.filters.len(), 1);
+                match &q.filters[0] {
+                    Filter::ZScoreLt { path, threshold } => {
+                        assert_eq!(path, "$.price");
+                        assert!((*threshold - (-1.5)).abs() < 0.001);
+                    }
+                    _ => panic!("Expected ZScoreLt filter"),
+                }
+            }
+            _ => panic!("Expected Select query"),
+        }
+    }
+
+    #[test]
+    fn test_parse_combined_anomaly_columns() {
+        let query = parse_query(
+            "SELECT json_extract(value, '$.price') as price, \
+             zscore(json_extract(value, '$.price')) as z, \
+             anomaly(json_extract(value, '$.price'), 2.0) as is_outlier \
+             FROM orders LIMIT 100"
+        ).unwrap();
+        match query {
+            SqlQuery::Select(q) => {
+                assert_eq!(q.columns.len(), 3);
+                assert!(matches!(&q.columns[0], SelectColumn::JsonExtract { .. }));
+                assert!(matches!(&q.columns[1], SelectColumn::ZScore { .. }));
+                assert!(matches!(&q.columns[2], SelectColumn::Anomaly { .. }));
+            }
+            _ => panic!("Expected Select query"),
+        }
+    }
+
+    // Window Function Tests
+
+    #[test]
+    fn test_parse_tumble_window() {
+        let query = parse_query(
+            "SELECT COUNT(*) as cnt, SUM(json_extract(value, '$.amount')) as total \
+             FROM orders \
+             GROUP BY TUMBLE(timestamp, '5 minutes')"
+        ).unwrap();
+        match query {
+            SqlQuery::WindowAggregate(q) => {
+                assert_eq!(q.topic, "orders");
+                match &q.window {
+                    WindowType::Tumble { size_ms } => {
+                        assert_eq!(*size_ms, 5 * 60 * 1000); // 5 minutes in ms
+                    }
+                    _ => panic!("Expected Tumble window"),
+                }
+                assert_eq!(q.aggregations.len(), 2);
+            }
+            _ => panic!("Expected WindowAggregate query"),
+        }
+    }
+
+    #[test]
+    fn test_parse_hop_window() {
+        let query = parse_query(
+            "SELECT AVG(json_extract(value, '$.latency')) as avg_latency \
+             FROM metrics \
+             GROUP BY HOP(timestamp, '10 minutes', '5 minutes')"
+        ).unwrap();
+        match query {
+            SqlQuery::WindowAggregate(q) => {
+                assert_eq!(q.topic, "metrics");
+                match &q.window {
+                    WindowType::Hop { size_ms, slide_ms } => {
+                        assert_eq!(*size_ms, 10 * 60 * 1000); // 10 minutes
+                        assert_eq!(*slide_ms, 5 * 60 * 1000); // 5 minutes
+                    }
+                    _ => panic!("Expected Hop window"),
+                }
+            }
+            _ => panic!("Expected WindowAggregate query"),
+        }
+    }
+
+    #[test]
+    fn test_parse_session_window() {
+        let query = parse_query(
+            "SELECT COUNT(*) as events \
+             FROM user_actions \
+             GROUP BY SESSION(timestamp, '30 minutes'), key"
+        ).unwrap();
+        match query {
+            SqlQuery::WindowAggregate(q) => {
+                assert_eq!(q.topic, "user_actions");
+                match &q.window {
+                    WindowType::Session { gap_ms } => {
+                        assert_eq!(*gap_ms, 30 * 60 * 1000); // 30 minutes
+                    }
+                    _ => panic!("Expected Session window"),
+                }
+                assert_eq!(q.group_by, vec!["key"]);
+            }
+            _ => panic!("Expected WindowAggregate query"),
+        }
+    }
+
+    #[test]
+    fn test_parse_interval_variations() {
+        // Test various interval formats
+        assert_eq!(parse_interval_string("5 minutes").unwrap(), 5 * 60 * 1000);
+        assert_eq!(parse_interval_string("1 hour").unwrap(), 60 * 60 * 1000);
+        assert_eq!(parse_interval_string("30 seconds").unwrap(), 30 * 1000);
+        assert_eq!(parse_interval_string("1 day").unwrap(), 24 * 60 * 60 * 1000);
+        assert_eq!(parse_interval_string("100 ms").unwrap(), 100);
+    }
+
+    #[test]
+    fn test_parse_window_with_filter() {
+        let query = parse_query(
+            "SELECT MIN(json_extract(value, '$.price')) as min_price, \
+                    MAX(json_extract(value, '$.price')) as max_price \
+             FROM orders \
+             WHERE partition = 0 \
+             GROUP BY TUMBLE(timestamp, '1 hour')"
+        ).unwrap();
+        match query {
+            SqlQuery::WindowAggregate(q) => {
+                assert_eq!(q.filters.len(), 1);
+                assert!(matches!(&q.filters[0], Filter::PartitionEquals(0)));
+            }
+            _ => panic!("Expected WindowAggregate query"),
+        }
+    }
+
+    // Vector Function Tests
+
+    #[test]
+    fn test_parse_cosine_similarity() {
+        let query = parse_query(
+            "SELECT cosine_similarity(json_extract(value, '$.embedding'), '[0.1, 0.2, 0.3]') as sim \
+             FROM documents LIMIT 10"
+        ).unwrap();
+        match query {
+            SqlQuery::Select(q) => {
+                assert_eq!(q.columns.len(), 1);
+                match &q.columns[0] {
+                    SelectColumn::CosineSimilarity { path, query_vector, alias } => {
+                        assert_eq!(path, "$.embedding");
+                        assert_eq!(query_vector.len(), 3);
+                        assert!((query_vector[0] - 0.1).abs() < 0.001);
+                        assert_eq!(alias.as_deref(), Some("sim"));
+                    }
+                    _ => panic!("Expected CosineSimilarity column"),
+                }
+            }
+            _ => panic!("Expected Select query"),
+        }
+    }
+
+    #[test]
+    fn test_parse_euclidean_distance() {
+        let query = parse_query(
+            "SELECT euclidean_distance('$.vector', '[1.0, 2.0]') as dist FROM points"
+        ).unwrap();
+        match query {
+            SqlQuery::Select(q) => {
+                match &q.columns[0] {
+                    SelectColumn::EuclideanDistance { path, query_vector, .. } => {
+                        assert_eq!(path, "$.vector");
+                        assert_eq!(query_vector, &vec![1.0, 2.0]);
+                    }
+                    _ => panic!("Expected EuclideanDistance column"),
+                }
+            }
+            _ => panic!("Expected Select query"),
+        }
+    }
+
+    #[test]
+    fn test_parse_dot_product() {
+        let query = parse_query(
+            "SELECT dot_product(json_extract(value, '$.features'), '[0.5, 0.5, 0.5]') FROM items"
+        ).unwrap();
+        match query {
+            SqlQuery::Select(q) => {
+                assert!(matches!(&q.columns[0], SelectColumn::DotProduct { .. }));
+            }
+            _ => panic!("Expected Select query"),
+        }
+    }
+
+    #[test]
+    fn test_parse_vector_norm() {
+        let query = parse_query(
+            "SELECT vector_norm(json_extract(value, '$.embedding')) as magnitude FROM docs"
+        ).unwrap();
+        match query {
+            SqlQuery::Select(q) => {
+                match &q.columns[0] {
+                    SelectColumn::VectorNorm { path, alias } => {
+                        assert_eq!(path, "$.embedding");
+                        assert_eq!(alias.as_deref(), Some("magnitude"));
+                    }
+                    _ => panic!("Expected VectorNorm column"),
+                }
+            }
+            _ => panic!("Expected Select query"),
+        }
+    }
+
+    #[test]
+    fn test_parse_vector_string_formats() {
+        // Test various vector string formats
+        assert_eq!(parse_vector_string("[1.0, 2.0, 3.0]").unwrap(), vec![1.0, 2.0, 3.0]);
+        assert_eq!(parse_vector_string("1.5, 2.5").unwrap(), vec![1.5, 2.5]);
+        assert_eq!(parse_vector_string("[0.1]").unwrap(), vec![0.1]);
+    }
+
+    #[test]
+    fn test_parse_vector_search_query() {
+        let query = parse_query(
+            "SELECT key, \
+                    json_extract(value, '$.title') as title, \
+                    cosine_similarity(json_extract(value, '$.embedding'), '[0.1, 0.2, 0.3, 0.4]') as score \
+             FROM documents \
+             ORDER BY score DESC \
+             LIMIT 10"
+        ).unwrap();
+        match query {
+            SqlQuery::Select(q) => {
+                assert_eq!(q.columns.len(), 3);
+                assert_eq!(q.topic, "documents");
+                assert!(q.order_by.is_some());
+                assert_eq!(q.limit, Some(10));
+            }
+            _ => panic!("Expected Select query"),
         }
     }
 }
