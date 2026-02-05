@@ -264,7 +264,10 @@ impl MetadataStore for PostgresMetadataStore {
             .unwrap()
             .as_millis() as i64;
 
-        let config_json = serde_json::to_value(&config.config)?;
+        // Include cleanup_policy in the config map for storage
+        let mut config_map = config.config.clone();
+        config_map.insert("cleanup.policy".to_string(), config.cleanup_policy.as_str().to_string());
+        let config_json = serde_json::to_value(&config_map)?;
         let mut tx = self.pool.begin().await?;
 
         sqlx::query(
@@ -329,11 +332,15 @@ impl MetadataStore for PostgresMetadataStore {
         Ok(row.map(|r| {
             let config: std::collections::HashMap<String, String> =
                 serde_json::from_value(r.get("config")).unwrap_or_default();
+            let cleanup_policy = config.get("cleanup.policy")
+                .map(|s| CleanupPolicy::from_str(s))
+                .unwrap_or_default();
 
             Topic {
                 name: r.get("name"),
                 partition_count: r.get::<i32, _>("partition_count") as u32,
                 retention_ms: r.get("retention_ms"),
+                cleanup_policy,
                 created_at: r.get("created_at"),
                 config,
             }
@@ -353,11 +360,15 @@ impl MetadataStore for PostgresMetadataStore {
             .map(|r| {
                 let config: std::collections::HashMap<String, String> =
                     serde_json::from_value(r.get("config")).unwrap_or_default();
+                let cleanup_policy = config.get("cleanup.policy")
+                    .map(|s| CleanupPolicy::from_str(s))
+                    .unwrap_or_default();
 
                 Topic {
                     name: r.get("name"),
                     partition_count: r.get::<i32, _>("partition_count") as u32,
                     retention_ms: r.get("retention_ms"),
+                    cleanup_policy,
                     created_at: r.get("created_at"),
                     config,
                 }

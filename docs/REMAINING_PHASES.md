@@ -33,24 +33,21 @@
 - ✅ TypeScript/JavaScript client (type-safe, Node.js 18+ compatible)
 - ✅ Java client (Java 11+, builder pattern, Jackson)
 - ✅ Go client (idiomatic, context support, functional options)
+- ✅ SDK test suites (Go, Python, TypeScript, Java - ~120 tests total)
+
+### Phase 9.3-9.4: Advanced Consumer ✅ COMPLETE
+- ✅ Group coordinator (Kafka protocol compatible)
+- ✅ Rebalancing protocol (JoinGroup, SyncGroup, Heartbeat, LeaveGroup)
+- ✅ Generation IDs & state machine (Empty → PreparingRebalance → CompletingRebalance → Stable)
+- ✅ Compacted topics (`cleanup_policy: compact`)
+- ✅ Wildcard subscriptions (`list_topics_matching("events.*")`)
+- ✅ Timestamp-based seeking (`seek_to_timestamp` endpoint)
+- ✅ Manual partition assignment
+- ✅ Compaction background job
 
 ---
 
 ## MEDIUM PRIORITY
-
-### Phase 9.3-9.4: Advanced Consumer (~3d)
-| Sub-phase | Task |
-|-----------|------|
-| **9.3** | **Advanced Consumer Groups** (2d) |
-| 9.3a | Group coordinator |
-| 9.3b | Dynamic partition assignment (range, round-robin, sticky) |
-| 9.3c | Rebalancing protocol (join, sync, heartbeat, leave) |
-| 9.3d | Cooperative rebalancing |
-| **9.4** | **Advanced Consumer Patterns** (1d) |
-| 9.4a | Compacted topics (retain latest per key) |
-| 9.4b | Wildcard subscriptions (`events.*`) |
-| 9.4c | Timestamp-based seeking |
-| 9.4d | Manual partition assignment |
 
 ### Phase 8.2-8.5: Performance (~1 week)
 | Sub-phase | Task |
@@ -246,15 +243,15 @@
 
 | Priority | Phases | Effort |
 |----------|--------|--------|
-| **COMPLETED** | 24, 25, 12.1 | ✅ Done |
-| **MEDIUM** | 9.3-9.4, 8.2-8.5, 10, 11.2, 11.4, 12.2, UI.9 | ~5 weeks |
+| **COMPLETED** | 24, 25, 12.1, 9.3-9.4 | ✅ Done |
+| **MEDIUM** | 8.2-8.5, 10, 11.2, 11.4, 12.2, UI.9 | ~4 weeks |
 | **LOW** | 13, 12.3, 14.2-14.3, 15, 16 | ~6 weeks |
-| **TOTAL REMAINING** | | **~9 weeks** |
+| **TOTAL REMAINING** | | **~8 weeks** |
 
 ### Recommended Order
 ```
-1. Phase 9.3-9.4 (Advanced Consumer) - Kafka parity
-2. Phase 8.2-8.5 (Performance)
-3. Phase 10 (Security/HA/DR)
+1. Phase 8.2-8.5 (Performance)
+2. Phase 10 (Security/HA/DR)
+3. Phase 12.2 (Framework integrations)
 4. Low priority items as needed
 ```

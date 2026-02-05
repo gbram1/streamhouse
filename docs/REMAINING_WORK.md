@@ -1,7 +1,8 @@
 # StreamHouse: Remaining Work & Roadmap
 
-**Date**: January 30, 2026
-**Current Status**: Phase 9 Complete, WAL Core Complete
+**Date**: February 4, 2026
+**Current Status**: v1.0 Production Ready - Client SDKs Complete
+**See Also**: [REMAINING_PHASES.md](./REMAINING_PHASES.md) for latest status
 
 ---
 
@@ -13,9 +14,13 @@
 - ✅ Phase 8.5: Unified Server (single binary)
 - ✅ **Phase 9: Schema Registry PostgreSQL storage + Producer integration**
 - ✅ **Phase 12.4.1: Write-Ahead Log (core functionality)**
+- ✅ **Phase 24: Stream JOINs (INNER, LEFT, RIGHT, FULL)**
+- ✅ **Phase 25: Materialized Views (background maintenance, PostgreSQL storage)**
+- ✅ **Phase 12.1: Client SDKs (Python, TypeScript, Java, Go + test suites)**
+- ✅ **Phase 9.3-9.4: Advanced Consumer (coordinator, compaction, wildcard subscriptions)**
 
-**Remaining Critical Work:** ~150-200 hours to production-ready
-**Most Critical:** Phase 12.4.2 (S3 Throttling Protection)
+**Remaining Critical Work:** ~8 weeks to feature-complete
+**Most Critical:** Phase 8.2-8.5 (Performance)
 
 ---
 
@@ -493,14 +498,20 @@ Full implementation:
 - ✅ MinIO/S3 storage
 - ✅ Unified server binary
 - ✅ Basic metrics
+- ✅ Stream JOINs (INNER, LEFT, RIGHT, FULL)
+- ✅ Materialized Views (continuous/periodic/manual refresh)
+- ✅ SQL Workbench UI
+- ✅ Client SDKs (Python, TypeScript, Java, Go)
+- ✅ SDK test suites (~120 tests across all SDKs)
+- ✅ Advanced Consumer Groups (coordinator, rebalancing protocol)
+- ✅ Compacted topics (cleanup_policy: compact)
+- ✅ Wildcard subscriptions (list_topics_matching)
 
 **What's Missing:**
-- ❌ S3 throttling protection (CRITICAL)
-- ❌ Operational runbooks
-- ❌ Production dashboards
-- ❌ Distributed tracing
+- ❌ Performance optimizations (Phase 8.2-8.5)
+- ❌ Production hardening (security, HA, DR)
+- ❌ Framework integrations (Spring Boot, FastAPI, etc.)
 - ❌ Exactly-once semantics
-- ❌ Dynamic rebalancing
 
 **Risk Level:** MEDIUM
 - Current system works but lacks production hardening

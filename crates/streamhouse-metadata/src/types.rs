@@ -33,6 +33,74 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
+/// Topic cleanup policy.
+///
+/// Determines how old data is handled in a topic.
+///
+/// # Variants
+///
+/// * `Delete` - Delete old segments when retention time/size is exceeded (default)
+/// * `Compact` - Keep only the latest value for each key (log compaction)
+/// * `CompactAndDelete` - Compact first, then delete after retention period
+///
+/// # Examples
+///
+/// ```ignore
+/// // User profiles topic - keep latest state per user
+/// let config = TopicConfig {
+///     name: "user_profiles".to_string(),
+///     partition_count: 10,
+///     cleanup_policy: CleanupPolicy::Compact,
+///     ..Default::default()
+/// };
+///
+/// // Event log - delete after 7 days
+/// let config = TopicConfig {
+///     name: "events".to_string(),
+///     partition_count: 3,
+///     cleanup_policy: CleanupPolicy::Delete,
+///     retention_ms: Some(7 * 24 * 60 * 60 * 1000),
+///     ..Default::default()
+/// };
+/// ```
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum CleanupPolicy {
+    /// Delete old segments based on retention time/size
+    #[default]
+    Delete,
+    /// Keep only the latest value for each key
+    Compact,
+    /// Compact first, then delete after retention period
+    #[serde(rename = "compact,delete")]
+    CompactAndDelete,
+}
+
+impl CleanupPolicy {
+    /// Parse cleanup policy from string (Kafka-compatible format)
+    pub fn from_str(s: &str) -> Self {
+        match s.to_lowercase().as_str() {
+            "compact" => CleanupPolicy::Compact,
+            "compact,delete" | "delete,compact" => CleanupPolicy::CompactAndDelete,
+            _ => CleanupPolicy::Delete,
+        }
+    }
+
+    /// Convert to string (Kafka-compatible format)
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            CleanupPolicy::Delete => "delete",
+            CleanupPolicy::Compact => "compact",
+            CleanupPolicy::CompactAndDelete => "compact,delete",
+        }
+    }
+
+    /// Check if compaction is enabled
+    pub fn is_compacted(&self) -> bool {
+        matches!(self, CleanupPolicy::Compact | CleanupPolicy::CompactAndDelete)
+    }
+}
+
 /// Configuration for creating a new topic.
 ///
 /// This struct is passed to `MetadataStore::create_topic()` to define a new topic's
@@ -67,7 +135,7 @@ use std::collections::HashMap;
 ///     config: HashMap::new(),
 /// };
 /// ```
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct TopicConfig {
     /// Topic name (unique identifier)
     pub name: String,
@@ -78,7 +146,12 @@ pub struct TopicConfig {
     /// Retention period in milliseconds (None = infinite)
     pub retention_ms: Option<i64>,
 
+    /// Cleanup policy (delete, compact, or compact,delete)
+    #[serde(default)]
+    pub cleanup_policy: CleanupPolicy,
+
     /// Additional configuration parameters
+    #[serde(default)]
     pub config: HashMap<String, String>,
 }
 
@@ -113,10 +186,15 @@ pub struct Topic {
     /// Retention period in milliseconds (None = infinite)
     pub retention_ms: Option<i64>,
 
+    /// Cleanup policy (delete, compact, or compact,delete)
+    #[serde(default)]
+    pub cleanup_policy: CleanupPolicy,
+
     /// Creation timestamp (milliseconds since Unix epoch)
     pub created_at: i64,
 
     /// Additional configuration parameters
+    #[serde(default)]
     pub config: HashMap<String, String>,
 }
 

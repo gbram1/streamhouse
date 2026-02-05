@@ -128,6 +128,32 @@ pub use types::*;
 pub use postgres::PostgresMetadataStore;
 
 use async_trait::async_trait;
+use regex::Regex;
+
+/// Convert a glob pattern to a regex for wildcard topic matching.
+///
+/// Supports `*` as wildcard matching any sequence of characters.
+///
+/// # Examples
+///
+/// - `events.*` -> `^events\..*$`
+/// - `*-v2` -> `^.*-v2$`
+/// - `orders` -> `^orders$` (exact match)
+pub fn glob_to_regex(pattern: &str) -> Regex {
+    let mut regex_pattern = String::from("^");
+    for c in pattern.chars() {
+        match c {
+            '*' => regex_pattern.push_str(".*"),
+            '.' | '+' | '?' | '[' | ']' | '{' | '}' | '(' | ')' | '|' | '^' | '$' | '\\' => {
+                regex_pattern.push('\\');
+                regex_pattern.push(c);
+            }
+            _ => regex_pattern.push(c),
+        }
+    }
+    regex_pattern.push('$');
+    Regex::new(&regex_pattern).unwrap_or_else(|_| Regex::new("^$").unwrap())
+}
 
 /// Metadata store trait - abstracts over different storage backends.
 ///
@@ -267,6 +293,47 @@ pub trait MetadataStore: Send + Sync {
     /// Fast for small systems (< 10ms for 1000 topics).
     /// For large systems, consider pagination (future enhancement).
     async fn list_topics(&self) -> Result<Vec<Topic>>;
+
+    /// List topics matching a wildcard pattern.
+    ///
+    /// Supports glob-style patterns where `*` matches any sequence of characters.
+    /// This enables wildcard subscriptions like `events.*` or `orders-*-v2`.
+    ///
+    /// # Arguments
+    ///
+    /// * `pattern` - Glob pattern to match topic names (e.g., "events.*", "logs-*")
+    ///
+    /// # Returns
+    ///
+    /// A vector of topics whose names match the pattern.
+    ///
+    /// # Examples
+    ///
+    /// ```ignore
+    /// // Match all topics starting with "events."
+    /// let topics = store.list_topics_matching("events.*").await?;
+    ///
+    /// // Match all topics ending with "-v2"
+    /// let topics = store.list_topics_matching("*-v2").await?;
+    ///
+    /// // Match exact name (no wildcards)
+    /// let topics = store.list_topics_matching("orders").await?;
+    /// ```
+    ///
+    /// # Pattern Syntax
+    ///
+    /// - `*` matches any sequence of characters (including empty)
+    /// - All other characters match literally
+    /// - Pattern matching is case-sensitive
+    async fn list_topics_matching(&self, pattern: &str) -> Result<Vec<Topic>> {
+        // Default implementation: filter list_topics() results
+        let all_topics = self.list_topics().await?;
+        let regex = glob_to_regex(pattern);
+        Ok(all_topics
+            .into_iter()
+            .filter(|t| regex.is_match(&t.name))
+            .collect())
+    }
 
     // ============================================================
     // PARTITION OPERATIONS

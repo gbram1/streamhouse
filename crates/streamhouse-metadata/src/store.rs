@@ -134,7 +134,10 @@ impl MetadataStore for SqliteMetadataStore {
         let mut tx = self.pool.begin().await?;
 
         let now = Self::now_ms();
-        let config_json = serde_json::to_string(&config.config)?;
+        // Include cleanup_policy in the config map for storage
+        let mut config_map = config.config.clone();
+        config_map.insert("cleanup.policy".to_string(), config.cleanup_policy.as_str().to_string());
+        let config_json = serde_json::to_string(&config_map)?;
 
         // Insert topic
         let result = sqlx::query!(
@@ -204,12 +207,19 @@ impl MetadataStore for SqliteMetadataStore {
         .fetch_optional(&self.pool)
         .await?;
 
-        Ok(row.map(|r| Topic {
-            name: r.name,
-            partition_count: r.partition_count as u32,
-            retention_ms: r.retention_ms,
-            created_at: r.created_at,
-            config: serde_json::from_str(&r.config).unwrap_or_default(),
+        Ok(row.map(|r| {
+            let config: HashMap<String, String> = serde_json::from_str(&r.config).unwrap_or_default();
+            let cleanup_policy = config.get("cleanup.policy")
+                .map(|s| CleanupPolicy::from_str(s))
+                .unwrap_or_default();
+            Topic {
+                name: r.name,
+                partition_count: r.partition_count as u32,
+                retention_ms: r.retention_ms,
+                cleanup_policy,
+                created_at: r.created_at,
+                config,
+            }
         }))
     }
 
@@ -226,12 +236,19 @@ impl MetadataStore for SqliteMetadataStore {
 
         Ok(rows
             .into_iter()
-            .map(|r| Topic {
-                name: r.name,
-                partition_count: r.partition_count as u32,
-                retention_ms: r.retention_ms,
-                created_at: r.created_at,
-                config: serde_json::from_str(&r.config).unwrap_or_default(),
+            .map(|r| {
+                let config: HashMap<String, String> = serde_json::from_str(&r.config).unwrap_or_default();
+                let cleanup_policy = config.get("cleanup.policy")
+                    .map(|s| CleanupPolicy::from_str(s))
+                    .unwrap_or_default();
+                Topic {
+                    name: r.name,
+                    partition_count: r.partition_count as u32,
+                    retention_ms: r.retention_ms,
+                    cleanup_policy,
+                    created_at: r.created_at,
+                    config,
+                }
             })
             .collect())
     }

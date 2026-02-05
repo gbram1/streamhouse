@@ -19,6 +19,7 @@ uuid = { workspace = true }
 sha2 = "0.10"
 rand = "0.8"
 lru = "0.12"
+regex = "1"
 
 [features]
 default = ["sqlite"]
