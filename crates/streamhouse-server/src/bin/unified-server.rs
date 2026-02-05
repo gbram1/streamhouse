@@ -438,21 +438,20 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     tracing::info!("🔄 Partition assignment background task started");
 
     // Start materialized view maintenance task
-    {
-        use streamhouse_server::{MaintenanceConfig, MaterializedViewMaintenance};
+    // Keep shutdown_tx alive for the server lifetime to prevent immediate shutdown
+    use streamhouse_server::{MaintenanceConfig, MaterializedViewMaintenance};
 
-        let maintenance = Arc::new(MaterializedViewMaintenance::new(
-            metadata.clone(),
-            object_store.clone(),
-            cache.clone(),
-            MaintenanceConfig::default(),
-        ));
+    let maintenance = Arc::new(MaterializedViewMaintenance::new(
+        metadata.clone(),
+        object_store.clone(),
+        cache.clone(),
+        MaintenanceConfig::default(),
+    ));
 
-        let (_mv_shutdown_tx, mv_shutdown_rx) = tokio::sync::oneshot::channel();
-        let _mv_handle = maintenance.start(mv_shutdown_rx);
+    let (_mv_shutdown_tx, mv_shutdown_rx) = tokio::sync::oneshot::channel::<()>();
+    let _mv_handle = maintenance.start(mv_shutdown_rx);
 
-        tracing::info!("🔄 Materialized view maintenance task started");
-    }
+    tracing::info!("🔄 Materialized view maintenance task started");
 
     // Create Prometheus client for real metrics (optional)
     let prometheus_client = std::env::var("PROMETHEUS_URL")
