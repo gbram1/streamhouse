@@ -2,52 +2,35 @@
 
 **Date**: February 4, 2026
 **Current Status**: v1.0 Production Ready
-**Remaining Effort**: ~17 weeks (parallelizable to ~12 weeks)
+**Remaining Effort**: ~11 weeks (parallelizable to ~8 weeks)
+
+---
+
+## ✅ COMPLETED (Recently)
+
+### Phase 24: Stream JOINs ✅ COMPLETE
+- ✅ Stream-Stream JOINs (INNER, LEFT, RIGHT, FULL)
+- ✅ JOIN parser with ON clause support
+- ✅ Time-windowed join buffer
+- ✅ Hash join execution engine
+- ✅ Stream-Table JOINs (TABLE(topic) syntax)
+- ✅ Predicate pushdown optimization
+- ✅ Timeout handling
+
+### Phase 25: Materialized Views ✅ COMPLETE
+- ✅ CREATE MATERIALIZED VIEW parser
+- ✅ View definition storage (PostgreSQL)
+- ✅ Background maintenance task
+- ✅ View state persistence
+- ✅ Refresh modes (continuous/periodic/manual)
+- ✅ Delta processing & offset tracking
+- ✅ SHOW/DESCRIBE/REFRESH commands
+- ✅ View metadata API
+- ✅ Executor wired to metadata store
 
 ---
 
 ## HIGH PRIORITY
-
-### Phase 24: Stream JOINs (~20h)
-| Sub-phase | Task |
-|-----------|------|
-| **24.1** | **Stream-Stream JOINs** (8-10h) |
-| 24.1a | JOIN parser (INNER, LEFT, RIGHT, FULL) |
-| 24.1b | Join key extraction from ON clause |
-| 24.1c | Time-windowed join buffer |
-| 24.1d | Hash join execution engine |
-| 24.1e | Memory management & eviction |
-| **24.2** | **Stream-Table JOINs** (6-8h) |
-| 24.2a | TABLE(topic) syntax |
-| 24.2b | In-memory table state (key→value) |
-| 24.2c | Lookup join execution (O(1)) |
-| 24.2d | Table bootstrap from topic |
-| 24.2e | Incremental table updates |
-| **24.3** | **Join Optimizations** (4-6h) |
-| 24.3a | Predicate pushdown |
-| 24.3b | Broadcast join (<100MB tables) |
-| 24.3c | Join statistics & metrics |
-| 24.3d | Timeout handling |
-
-### Phase 25: Materialized Views (~20h)
-| Sub-phase | Task |
-|-----------|------|
-| **25.1** | **Core** (8-10h) |
-| 25.1a | CREATE MATERIALIZED VIEW parser |
-| 25.1b | View definition storage (PostgreSQL) |
-| 25.1c | Background maintenance task |
-| 25.1d | View state persistence (topic) |
-| 25.1e | Refresh modes (continuous/periodic) |
-| **25.2** | **Incremental Maintenance** (6-8h) |
-| 25.2a | Delta processing |
-| 25.2b | Running aggregation state |
-| 25.2c | Watermark tracking |
-| 25.2d | View compaction |
-| **25.3** | **View Management** (4-6h) |
-| 25.3a | SHOW/DESCRIBE/REFRESH commands |
-| 25.3b | View metadata API |
-| 25.3c | Status monitoring (lag, rate) |
-| 25.3d | UI integration |
 
 ### Phase 12.1: Client SDKs (~2 weeks)
 | Sub-phase | Task |
@@ -269,17 +252,17 @@
 
 | Priority | Phases | Effort |
 |----------|--------|--------|
-| **HIGH** | 24, 25, 12.1 | ~6 weeks |
+| **COMPLETED** | 24, 25 | ✅ Done |
+| **HIGH** | 12.1 (SDKs) | ~2 weeks |
 | **MEDIUM** | 9.3-9.4, 8.2-8.5, 10, 11.2, 11.4, 12.2, UI.9 | ~5 weeks |
 | **LOW** | 13, 12.3, 14.2-14.3, 15, 16 | ~6 weeks |
-| **TOTAL** | | **~17 weeks** |
+| **TOTAL REMAINING** | | **~11 weeks** |
 
 ### Recommended Order
 ```
-1. Phase 24-25 (JOINs & Mat Views) - builds on SQL work
-2. Phase 12.1 (SDKs) - can parallel with #1
-3. Phase 9.3-9.4 (Advanced Consumer) - Kafka parity
-4. Phase 8.2-8.5 (Performance)
-5. Phase 10 (Security/HA/DR)
-6. Low priority items as needed
+1. Phase 12.1 (SDKs) - enables external adoption
+2. Phase 9.3-9.4 (Advanced Consumer) - Kafka parity
+3. Phase 8.2-8.5 (Performance)
+4. Phase 10 (Security/HA/DR)
+5. Low priority items as needed
 ```

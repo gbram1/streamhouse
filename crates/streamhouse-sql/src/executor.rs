@@ -4,7 +4,9 @@ use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::time::Instant;
 
-use streamhouse_metadata::MetadataStore;
+use streamhouse_metadata::{
+    CreateMaterializedView, MaterializedViewRefreshMode, MaterializedViewStatus, MetadataStore,
+};
 use streamhouse_storage::SegmentCache;
 
 use crate::error::SqlError;
@@ -781,6 +783,40 @@ impl SqlExecutor {
     // Materialized View Methods
     // ========================================================================
 
+    /// Convert SQL RefreshMode to metadata MaterializedViewRefreshMode
+    fn convert_refresh_mode(mode: &RefreshMode) -> MaterializedViewRefreshMode {
+        match mode {
+            RefreshMode::Continuous => MaterializedViewRefreshMode::Continuous,
+            RefreshMode::Periodic { interval_ms } => {
+                MaterializedViewRefreshMode::Periodic {
+                    interval_ms: *interval_ms,
+                }
+            }
+            RefreshMode::Manual => MaterializedViewRefreshMode::Manual,
+        }
+    }
+
+    /// Format refresh mode for display
+    fn format_refresh_mode(mode: &MaterializedViewRefreshMode) -> String {
+        match mode {
+            MaterializedViewRefreshMode::Continuous => "continuous".to_string(),
+            MaterializedViewRefreshMode::Periodic { interval_ms } => {
+                format!("periodic ({}ms)", interval_ms)
+            }
+            MaterializedViewRefreshMode::Manual => "manual".to_string(),
+        }
+    }
+
+    /// Format status for display
+    fn format_status(status: &MaterializedViewStatus) -> String {
+        match status {
+            MaterializedViewStatus::Initializing => "initializing".to_string(),
+            MaterializedViewStatus::Running => "running".to_string(),
+            MaterializedViewStatus::Paused => "paused".to_string(),
+            MaterializedViewStatus::Error => "error".to_string(),
+        }
+    }
+
     /// Execute CREATE MATERIALIZED VIEW command
     async fn execute_create_materialized_view(
         &self,
@@ -794,13 +830,32 @@ impl SqlExecutor {
             .await?
             .ok_or_else(|| SqlError::TopicNotFound(query.source_topic.clone()))?;
 
-        // For now, return a success message
-        // TODO: Persist view definition to metadata store
+        // Check if view already exists (for CREATE OR REPLACE logic)
+        if let Some(existing) = self.metadata.get_materialized_view(&query.name).await? {
+            if query.or_replace {
+                // Delete the existing view first
+                self.metadata.delete_materialized_view(&query.name).await?;
+            } else {
+                return Err(SqlError::ViewAlreadyExists(existing.name));
+            }
+        }
+
+        // Create the view in the metadata store
+        let config = CreateMaterializedView {
+            name: query.name.clone(),
+            source_topic: query.source_topic.clone(),
+            query_sql: query.query_sql.clone(),
+            refresh_mode: Self::convert_refresh_mode(&query.refresh_mode),
+            organization_id: None, // TODO: Get from context when multi-tenancy is enabled
+        };
+
+        let view = self.metadata.create_materialized_view(config).await?;
+
         let row = vec![
-            serde_json::Value::String(query.name.clone()),
-            serde_json::Value::String(query.source_topic.clone()),
-            serde_json::Value::String(format!("{:?}", query.refresh_mode)),
-            serde_json::Value::String("created".to_string()),
+            serde_json::Value::String(view.name.clone()),
+            serde_json::Value::String(view.source_topic.clone()),
+            serde_json::Value::String(Self::format_refresh_mode(&view.refresh_mode)),
+            serde_json::Value::String(Self::format_status(&view.status)),
         ];
 
         Ok(QueryResult {
@@ -823,7 +878,16 @@ impl SqlExecutor {
         name: &str,
         start: Instant,
     ) -> Result<QueryResult> {
-        // TODO: Actually drop from metadata store
+        // Verify the view exists before deleting
+        let _view = self
+            .metadata
+            .get_materialized_view(name)
+            .await?
+            .ok_or_else(|| SqlError::ViewNotFound(name.to_string()))?;
+
+        // Delete the view from metadata store
+        self.metadata.delete_materialized_view(name).await?;
+
         Ok(QueryResult {
             columns: vec![
                 ColumnInfo { name: "name".to_string(), data_type: "string".to_string() },
@@ -845,17 +909,29 @@ impl SqlExecutor {
         name: &str,
         start: Instant,
     ) -> Result<QueryResult> {
-        // TODO: Trigger actual refresh from metadata store
+        // Get the view to verify it exists and get current row count
+        let view = self
+            .metadata
+            .get_materialized_view(name)
+            .await?
+            .ok_or_else(|| SqlError::ViewNotFound(name.to_string()))?;
+
+        // Set status to Initializing to trigger immediate refresh by maintenance task
+        // The maintenance task will process the view on its next tick
+        self.metadata
+            .update_materialized_view_status(&view.id, MaterializedViewStatus::Initializing, None)
+            .await?;
+
         Ok(QueryResult {
             columns: vec![
                 ColumnInfo { name: "name".to_string(), data_type: "string".to_string() },
                 ColumnInfo { name: "status".to_string(), data_type: "string".to_string() },
-                ColumnInfo { name: "rows_processed".to_string(), data_type: "bigint".to_string() },
+                ColumnInfo { name: "row_count".to_string(), data_type: "bigint".to_string() },
             ],
             rows: vec![vec![
                 serde_json::Value::String(name.to_string()),
-                serde_json::Value::String("refreshed".to_string()),
-                serde_json::Value::Number(0.into()),
+                serde_json::Value::String("refresh_scheduled".to_string()),
+                serde_json::Value::Number(view.row_count.into()),
             ]],
             row_count: 1,
             execution_time_ms: start.elapsed().as_millis() as u64,
@@ -868,7 +944,24 @@ impl SqlExecutor {
         &self,
         start: Instant,
     ) -> Result<QueryResult> {
-        // TODO: Fetch from metadata store
+        // Fetch all views from metadata store
+        let views = self.metadata.list_materialized_views().await?;
+
+        let rows: Vec<Vec<serde_json::Value>> = views
+            .iter()
+            .map(|v| {
+                vec![
+                    serde_json::Value::String(v.name.clone()),
+                    serde_json::Value::String(v.source_topic.clone()),
+                    serde_json::Value::String(Self::format_refresh_mode(&v.refresh_mode)),
+                    serde_json::Value::String(Self::format_status(&v.status)),
+                    serde_json::Value::Number(v.row_count.into()),
+                ]
+            })
+            .collect();
+
+        let row_count = rows.len();
+
         Ok(QueryResult {
             columns: vec![
                 ColumnInfo { name: "name".to_string(), data_type: "string".to_string() },
@@ -877,8 +970,8 @@ impl SqlExecutor {
                 ColumnInfo { name: "status".to_string(), data_type: "string".to_string() },
                 ColumnInfo { name: "row_count".to_string(), data_type: "bigint".to_string() },
             ],
-            rows: vec![], // No views yet
-            row_count: 0,
+            rows,
+            row_count,
             execution_time_ms: start.elapsed().as_millis() as u64,
             truncated: false,
         })
@@ -890,9 +983,71 @@ impl SqlExecutor {
         name: &str,
         start: Instant,
     ) -> Result<QueryResult> {
-        // TODO: Fetch from metadata store
-        // For now, return view not found
-        Err(SqlError::ViewNotFound(name.to_string()))
+        // Fetch the view from metadata store
+        let view = self
+            .metadata
+            .get_materialized_view(name)
+            .await?
+            .ok_or_else(|| SqlError::ViewNotFound(name.to_string()))?;
+
+        // Return detailed view information as key-value pairs
+        let rows = vec![
+            vec![
+                serde_json::Value::String("id".to_string()),
+                serde_json::Value::String(view.id.clone()),
+            ],
+            vec![
+                serde_json::Value::String("name".to_string()),
+                serde_json::Value::String(view.name.clone()),
+            ],
+            vec![
+                serde_json::Value::String("source_topic".to_string()),
+                serde_json::Value::String(view.source_topic.clone()),
+            ],
+            vec![
+                serde_json::Value::String("query_sql".to_string()),
+                serde_json::Value::String(view.query_sql.clone()),
+            ],
+            vec![
+                serde_json::Value::String("refresh_mode".to_string()),
+                serde_json::Value::String(Self::format_refresh_mode(&view.refresh_mode)),
+            ],
+            vec![
+                serde_json::Value::String("status".to_string()),
+                serde_json::Value::String(Self::format_status(&view.status)),
+            ],
+            vec![
+                serde_json::Value::String("error_message".to_string()),
+                serde_json::Value::String(view.error_message.clone().unwrap_or_default()),
+            ],
+            vec![
+                serde_json::Value::String("row_count".to_string()),
+                serde_json::Value::Number(view.row_count.into()),
+            ],
+            vec![
+                serde_json::Value::String("last_refresh_at".to_string()),
+                serde_json::Value::String(
+                    view.last_refresh_at
+                        .map(|t| t.to_string())
+                        .unwrap_or_else(|| "never".to_string()),
+                ),
+            ],
+            vec![
+                serde_json::Value::String("created_at".to_string()),
+                serde_json::Value::String(view.created_at.to_string()),
+            ],
+        ];
+
+        Ok(QueryResult {
+            columns: vec![
+                ColumnInfo { name: "property".to_string(), data_type: "string".to_string() },
+                ColumnInfo { name: "value".to_string(), data_type: "string".to_string() },
+            ],
+            rows,
+            row_count: 10,
+            execution_time_ms: start.elapsed().as_millis() as u64,
+            truncated: false,
+        })
     }
 }
 
