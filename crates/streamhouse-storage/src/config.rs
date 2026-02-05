@@ -75,6 +75,22 @@ pub struct WriteConfig {
     /// Throttle configuration (optional - if None, throttling is disabled)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub throttle_config: Option<ThrottleConfig>,
+
+    // === Phase 8.4 Performance Optimizations ===
+
+    /// Minimum size for multipart upload (default: 8MB)
+    /// Files smaller than this use simple PUT
+    #[serde(default = "default_multipart_threshold")]
+    pub multipart_threshold: usize,
+
+    /// Part size for multipart uploads (default: 8MB)
+    /// Must be >= 5MB per S3 requirements
+    #[serde(default = "default_multipart_part_size")]
+    pub multipart_part_size: usize,
+
+    /// Maximum concurrent upload parts (default: 4)
+    #[serde(default = "default_parallel_upload_parts")]
+    pub parallel_upload_parts: usize,
 }
 
 impl Default for WriteConfig {
@@ -89,6 +105,9 @@ impl Default for WriteConfig {
             s3_upload_retries: default_retries(),
             wal_config: None, // WAL disabled by default
             throttle_config: None, // Throttling disabled by default
+            multipart_threshold: default_multipart_threshold(),
+            multipart_part_size: default_multipart_part_size(),
+            parallel_upload_parts: default_parallel_upload_parts(),
         }
     }
 }
@@ -107,4 +126,16 @@ fn default_block_size() -> usize {
 
 fn default_retries() -> u32 {
     3
+}
+
+fn default_multipart_threshold() -> usize {
+    8 * 1024 * 1024 // 8MB - use multipart for segments larger than this
+}
+
+fn default_multipart_part_size() -> usize {
+    8 * 1024 * 1024 // 8MB per part (S3 minimum is 5MB)
+}
+
+fn default_parallel_upload_parts() -> usize {
+    4 // Upload 4 parts concurrently
 }

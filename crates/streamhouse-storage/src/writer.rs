@@ -456,9 +456,15 @@ impl PartitionWriter {
         Ok(())
     }
 
-    /// Upload segment to S3 with exponential backoff retry and throttling protection
+    /// Upload segment to S3 with exponential backoff retry and throttling protection.
+    /// Uses multipart upload for large segments (Phase 8.4a optimization).
     async fn upload_to_s3(&self, key: &str, data: Bytes) -> Result<()> {
         let path = object_store::path::Path::from(key);
+
+        // Use multipart upload for large segments (Phase 8.4a)
+        if data.len() >= self.config.multipart_threshold {
+            return self.upload_multipart(&path, data).await;
+        }
 
         for attempt in 0..self.config.s3_upload_retries {
             // Check throttle before attempting upload (Phase 12.4.2)
@@ -572,6 +578,96 @@ impl PartitionWriter {
         }
 
         unreachable!()
+    }
+
+    /// Upload segment using multipart upload for large files (Phase 8.4a).
+    ///
+    /// Benefits:
+    /// - Better throughput for large segments
+    /// - Streaming upload (memory efficient)
+    ///
+    /// Note: In object_store 0.9, put_multipart returns an AsyncWrite stream.
+    /// For true parallel uploads, we'd need to chunk and spawn tasks.
+    async fn upload_multipart(&self, path: &object_store::path::Path, data: Bytes) -> Result<()> {
+        use tokio::io::AsyncWriteExt;
+
+        let part_size = self.config.multipart_part_size;
+        let num_parts = (data.len() + part_size - 1) / part_size;
+
+        tracing::debug!(
+            path = %path,
+            size = data.len(),
+            part_size,
+            num_parts,
+            "Starting multipart upload (Phase 8.4a)"
+        );
+
+        // Check throttle before starting multipart upload
+        if let Some(ref throttle) = self.throttle {
+            match throttle.acquire(S3Operation::Put).await {
+                crate::throttle::ThrottleDecision::Allow => {}
+                crate::throttle::ThrottleDecision::RateLimited => {
+                    return Err(Error::S3RateLimited);
+                }
+                crate::throttle::ThrottleDecision::CircuitOpen => {
+                    return Err(Error::S3CircuitOpen);
+                }
+            }
+        }
+
+        let start = std::time::Instant::now();
+
+        // Start multipart upload - returns (multipart_id, writer)
+        let (_multipart_id, mut writer) = match self.object_store.put_multipart(path).await {
+            Ok(upload) => upload,
+            Err(e) => {
+                if let Some(ref throttle) = self.throttle {
+                    throttle.report_result(S3Operation::Put, false, false).await;
+                }
+                return Err(Error::S3UploadFailed(format!("Failed to start multipart: {}", e)));
+            }
+        };
+
+        // Write data in chunks (streams efficiently to S3)
+        for (i, chunk) in data.chunks(part_size).enumerate() {
+            tracing::trace!(part = i, size = chunk.len(), "Writing part");
+
+            if let Err(e) = writer.write_all(chunk).await {
+                if let Some(ref throttle) = self.throttle {
+                    throttle.report_result(S3Operation::Put, false, false).await;
+                }
+                return Err(Error::S3UploadFailed(format!("Part write failed: {}", e)));
+            }
+        }
+
+        // Complete the multipart upload by shutting down the writer
+        match writer.shutdown().await {
+            Ok(_) => {
+                let duration = start.elapsed().as_secs_f64();
+                streamhouse_observability::metrics::S3_LATENCY
+                    .with_label_values(&["PUT_MULTIPART"])
+                    .observe(duration);
+
+                if let Some(ref throttle) = self.throttle {
+                    throttle.report_result(S3Operation::Put, true, false).await;
+                }
+
+                tracing::info!(
+                    path = %path,
+                    size = data.len(),
+                    num_parts,
+                    duration_secs = duration,
+                    "Multipart upload completed successfully (Phase 8.4a)"
+                );
+                Ok(())
+            }
+            Err(e) => {
+                if let Some(ref throttle) = self.throttle {
+                    throttle.report_result(S3Operation::Put, false, false).await;
+                }
+                Err(Error::S3UploadFailed(format!("Multipart upload failed: {}", e)))
+            }
+        }
     }
 
     /// Flush any buffered data to S3.

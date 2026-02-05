@@ -24,6 +24,7 @@ tracing = { workspace = true }
 async-trait = { workspace = true }
 lru = { workspace = true }
 futures = { workspace = true }
+bloomfilter = "1.0"
 
 [dev-dependencies]
 criterion = { workspace = true }

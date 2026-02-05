@@ -239,6 +239,7 @@ mod tests {
                 partition_count: 1,
                 retention_ms: None,
                 config: HashMap::new(),
+                cleanup_policy: Default::default(),
             })
             .await
             .unwrap();
@@ -382,6 +383,7 @@ mod tests {
                 partition_count: 1,
                 retention_ms: None,
                 config: HashMap::new(),
+                cleanup_policy: Default::default(),
             })
             .await
             .unwrap();

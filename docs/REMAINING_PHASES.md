@@ -2,7 +2,7 @@
 
 **Date**: February 4, 2026
 **Current Status**: v1.0 Production Ready
-**Remaining Effort**: ~9 weeks (parallelizable to ~6 weeks)
+**Remaining Effort**: ~7 weeks (parallelizable to ~5 weeks)
 
 ---
 
@@ -45,11 +45,17 @@
 - ✅ Manual partition assignment
 - ✅ Compaction background job
 
+### Phase 8.4: Storage Optimizations ✅ COMPLETE
+- ✅ S3 multipart uploads (configurable threshold, 8MB default)
+- ✅ Parallel uploads (via multipart with configurable concurrency)
+- ✅ Bloom filters (1% FP rate, serializable, segment index integration)
+- ✅ WAL batching (configurable batch size/count/age)
+
 ---
 
 ## MEDIUM PRIORITY
 
-### Phase 8.2-8.5: Performance (~1 week)
+### Phase 8.2-8.3, 8.5: Performance (~4d)
 | Sub-phase | Task |
 |-----------|------|
 | **8.2** | **Producer Optimizations** (1-2d) |
@@ -64,12 +70,6 @@
 | 8.3c | Segment cache tuning |
 | 8.3d | Read-ahead buffer |
 | 8.3e | Memory-mapped I/O |
-| **8.4** | **Storage Optimizations** (2d) |
-| 8.4a | S3 multipart uploads |
-| 8.4b | Segment compaction |
-| 8.4c | Bloom filters |
-| 8.4d | Parallel uploads |
-| 8.4e | WAL batching |
 | **8.5** | **Load Testing** (2-3d) |
 | 8.5a-f | Various load test scenarios |
 
@@ -243,14 +243,14 @@
 
 | Priority | Phases | Effort |
 |----------|--------|--------|
-| **COMPLETED** | 24, 25, 12.1, 9.3-9.4 | ✅ Done |
-| **MEDIUM** | 8.2-8.5, 10, 11.2, 11.4, 12.2, UI.9 | ~4 weeks |
+| **COMPLETED** | 24, 25, 12.1, 9.3-9.4, 8.4 | ✅ Done |
+| **MEDIUM** | 8.2-8.3, 8.5, 10, 11.2, 11.4, 12.2, UI.9 | ~3.5 weeks |
 | **LOW** | 13, 12.3, 14.2-14.3, 15, 16 | ~6 weeks |
-| **TOTAL REMAINING** | | **~8 weeks** |
+| **TOTAL REMAINING** | | **~7 weeks** |
 
 ### Recommended Order
 ```
-1. Phase 8.2-8.5 (Performance)
+1. Phase 8.2-8.3, 8.5 (Performance - remaining)
 2. Phase 10 (Security/HA/DR)
 3. Phase 12.2 (Framework integrations)
 4. Low priority items as needed

@@ -85,6 +85,7 @@ use crate::{
 };
 use async_trait::async_trait;
 use sqlx::sqlite::{SqliteConnectOptions, SqlitePool, SqlitePoolOptions};
+use std::collections::HashMap;
 use std::path::Path;
 use std::str::FromStr;
 

@@ -34,6 +34,7 @@ async fn create_test_metadata() -> Arc<dyn MetadataStore> {
             partition_count: 1,
             retention_ms: Some(86400000),
             config: Default::default(),
+            cleanup_policy: Default::default(),
         })
         .await
         .unwrap();
@@ -72,6 +73,7 @@ async fn test_rate_limiting_rejects_excess_requests() {
         s3_upload_retries: 3,
         wal_config: None,
         throttle_config: Some(throttle_config),
+        ..Default::default()
     };
 
     let mut writer = PartitionWriter::new(
@@ -174,6 +176,7 @@ async fn test_circuit_breaker_opens_on_failures() {
         s3_upload_retries: 3,
         wal_config: None,
         throttle_config: Some(throttle_config),
+        ..Default::default()
     };
 
     let writer = PartitionWriter::new(
@@ -215,6 +218,7 @@ async fn test_throttle_allows_normal_operations() {
         s3_upload_retries: 3,
         wal_config: None,
         throttle_config: Some(throttle_config),
+        ..Default::default()
     };
 
     let mut writer = PartitionWriter::new(
@@ -277,6 +281,7 @@ async fn test_rate_recovery_after_pause() {
         s3_upload_retries: 3,
         wal_config: None,
         throttle_config: Some(throttle_config),
+        ..Default::default()
     };
 
     let mut writer = PartitionWriter::new(

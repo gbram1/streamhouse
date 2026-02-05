@@ -150,6 +150,7 @@
 //! 4. **gRPC API** - Expose Kafka-compatible API
 //! 5. **CLI tool** - Admin and testing interface
 
+pub mod bloom;
 pub mod cache;
 pub mod circuit_breaker;
 pub mod config;
@@ -166,6 +167,7 @@ pub mod wal;
 pub mod writer;
 pub mod writer_pool;
 
+pub use bloom::{BloomFilterConfig, BloomFilterStats, SegmentBloomFilter};
 pub use cache::{CacheStats, SegmentCache};
 pub use circuit_breaker::{CircuitBreaker, CircuitBreakerConfig, CircuitState};
 pub use config::WriteConfig;
