@@ -197,6 +197,7 @@ pub async fn create_topic(
         name: req.name.clone(),
         partition_count: req.partitions,
         retention_ms: None,
+        cleanup_policy: Default::default(),
         config: std::collections::HashMap::new(),
     };
 

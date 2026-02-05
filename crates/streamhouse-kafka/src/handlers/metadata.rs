@@ -65,6 +65,7 @@ pub async fn handle_metadata(
                     name: topic_name.clone(),
                     partition_count: 1,
                     retention_ms: None,
+                    cleanup_policy: Default::default(),
                     config: std::collections::HashMap::new(),
                 };
                 if let Err(e) = state.metadata.create_topic(config).await {

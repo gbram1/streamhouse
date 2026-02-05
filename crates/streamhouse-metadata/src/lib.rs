@@ -107,6 +107,7 @@
 //! - Safe to share across async tasks via Arc<>
 
 pub mod auth;
+pub mod backup;
 pub mod cached_store;
 pub mod error;
 pub mod quota;
@@ -118,6 +119,7 @@ pub mod types;
 pub mod postgres;
 
 pub use auth::{ApiKeyAuth, AuthError, AuthResult};
+pub use backup::{MetadataBackup, RestoreStats};
 pub use cached_store::{CacheConfig, CacheMetrics, CachedMetadataStore};
 pub use error::{MetadataError, Result};
 pub use quota::{QuotaCheck, QuotaEnforcer, QuotaSummary};

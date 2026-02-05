@@ -40,8 +40,28 @@ async-trait = "0.1"
 # Error handling
 thiserror = "1.0"
 
+# Cryptography for API key hashing, JWT, and SCRAM
+sha2 = "0.10"
+jsonwebtoken = "9"
+hmac = "0.12"
+pbkdf2 = "0.12"
+
+# OAuth2/OIDC support
+getrandom = "0.2"
+urlencoding = "2.1"
+base64 = "0.22"
+
+# TLS support
+rustls = "0.23"
+rustls-pemfile = "2"
+tokio-rustls = "0.26"
+axum-server = { version = "0.7", features = ["tls-rustls"] }
+
 # UUID generation
 uuid = { version = "1.0", features = ["v4"] }
+
+# System utilities
+hostname = "0.4"
 
 # Lazy initialization
 lazy_static = "1.4"

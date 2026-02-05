@@ -88,6 +88,9 @@ pub enum MetadataError {
     #[error("Sequence error: {0}")]
     SequenceError(String),
 
+    #[error("Internal error: {0}")]
+    InternalError(String),
+
     #[error("Transaction error: {0}")]
     TransactionError(String),
 
