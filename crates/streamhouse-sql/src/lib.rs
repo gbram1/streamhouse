@@ -1,8 +1,14 @@
 //! StreamHouse SQL Query Engine
 //!
 //! Provides SQL-based message querying for StreamHouse topics.
-//! This is a simplified SQL engine focused on point-in-time queries,
-//! not continuous stream processing.
+//! This engine supports both point-in-time queries and streaming window aggregations.
+//!
+//! ## Performance
+//!
+//! Uses Apache Arrow and DataFusion for high-performance query execution:
+//! - Columnar data format for cache-efficient processing
+//! - Vectorized operations for filters and aggregations
+//! - SIMD-optimized computations where available
 //!
 //! ## Supported SQL
 //!
@@ -34,6 +40,14 @@
 //! -- Count messages
 //! SELECT COUNT(*) FROM orders WHERE partition = 0;
 //!
+//! -- Window aggregations (tumbling windows)
+//! SELECT
+//!     window_start, window_end,
+//!     COUNT(*) as event_count,
+//!     SUM(json_extract(value, '$.amount')) as total
+//! FROM orders
+//! GROUP BY TUMBLE(timestamp, INTERVAL '1' HOUR);
+//!
 //! -- Show topics
 //! SHOW TOPICS;
 //!
@@ -43,17 +57,18 @@
 //!
 //! ## Limitations
 //!
-//! - No GROUP BY (no aggregations across messages)
-//! - No JOINs
+//! - Max 10,000 rows per query (configurable)
+//! - 30 second default timeout
 //! - No INSERT/UPDATE/DELETE (read-only)
 //! - No subqueries
-//! - Max 10,000 rows per query
 
+mod arrow_executor;
 mod error;
 mod executor;
 mod parser;
 mod types;
 
+pub use arrow_executor::ArrowExecutor;
 pub use error::SqlError;
 pub use executor::SqlExecutor;
 pub use parser::parse_query;

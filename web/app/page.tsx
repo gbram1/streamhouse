@@ -93,13 +93,19 @@ export default function Home() {
             </Link>
 
             <nav className="hidden items-center gap-8 lg:flex">
-              {["Product", "Docs", "Use Cases", "Blog"].map((item) => (
+              {[
+                { name: "Product", href: "/product" },
+                { name: "How it Works", href: "/how-it-works" },
+                { name: "Docs", href: "/docs" },
+                { name: "Use Cases", href: "/use-cases" },
+                { name: "Blog", href: "/blog" },
+              ].map((item) => (
                 <Link
-                  key={item}
-                  href={`/${item.toLowerCase().replace(" ", "-")}`}
+                  key={item.name}
+                  href={item.href}
                   className="text-sm text-slate-600 transition-colors hover:text-slate-900"
                 >
-                  {item}
+                  {item.name}
                 </Link>
               ))}
             </nav>
