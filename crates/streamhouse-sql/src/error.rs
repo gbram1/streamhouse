@@ -14,6 +14,9 @@ pub enum SqlError {
     #[error("Materialized view not found: {0}")]
     ViewNotFound(String),
 
+    #[error("Materialized view already exists: {0}")]
+    ViewAlreadyExists(String),
+
     #[error("Invalid query: {0}")]
     InvalidQuery(String),
 
