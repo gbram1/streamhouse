@@ -1,13 +1,14 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import Link from "next/link";
+import { DashboardLayout } from "@/components/layout/dashboard-layout";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Separator } from "@/components/ui/separator";
 import { Badge } from "@/components/ui/badge";
+import { Skeleton } from "@/components/ui/skeleton";
+import { Textarea } from "@/components/ui/textarea";
 import {
   Select,
   SelectContent,
@@ -15,8 +16,9 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Zap, Send, Loader2, AlertCircle, CheckCircle, Clock } from "lucide-react";
+import { Send, Loader2, AlertCircle, CheckCircle, Clock, Trash2, Copy, Database } from "lucide-react";
 import { apiClient } from "@/lib/api/client";
+import { cn } from "@/lib/utils";
 import type { Topic } from "@/lib/api/client";
 
 interface SentMessage {
@@ -132,242 +134,256 @@ export default function ConsolePage() {
     }
   };
 
+  // Clear message log
+  const clearMessages = () => setSentMessages([]);
+
+  // Copy value to clipboard
+  const copyToClipboard = (text: string) => {
+    navigator.clipboard.writeText(text);
+  };
+
   return (
-    <div className="min-h-screen bg-gray-50 dark:bg-gray-950">
-      {/* Header */}
-      <header className="border-b bg-white dark:bg-gray-900">
-        <div className="container mx-auto px-4 py-4">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center space-x-2">
-              <Zap className="h-8 w-8 text-blue-600" />
-              <h1 className="text-2xl font-bold">StreamHouse</h1>
-            </div>
-            <nav className="flex items-center space-x-4">
-              <Link href="/dashboard">
-                <Button variant="ghost">Dashboard</Button>
-              </Link>
-              <Link href="/topics">
-                <Button variant="ghost">Topics</Button>
-              </Link>
-              <Link href="/schemas">
-                <Button variant="ghost">Schemas</Button>
-              </Link>
-              <Link href="/agents">
-                <Button variant="ghost">Agents</Button>
-              </Link>
-              <Link href="/console">
-                <Button variant="default">Console</Button>
-              </Link>
-              <Button variant="outline">Sign Out</Button>
-            </nav>
-          </div>
-        </div>
-      </header>
-
-      {/* Main Content */}
-      <main className="container mx-auto px-4 py-8">
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          {/* Producer Form */}
-          <Card>
-            <CardHeader>
-              <CardTitle>Produce Message</CardTitle>
-              <CardDescription>
-                Send messages to any topic through the web console
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              {/* Topic Selector */}
-              <div className="space-y-2">
-                <Label htmlFor="topic">Topic</Label>
-                {loadingTopics ? (
-                  <div className="flex items-center space-x-2 text-muted-foreground">
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                    <span className="text-sm">Loading topics...</span>
-                  </div>
-                ) : topicsError ? (
-                  <div className="flex items-center space-x-2 text-red-600 text-sm">
-                    <AlertCircle className="h-4 w-4" />
-                    <span>{topicsError}</span>
-                  </div>
-                ) : topics.length === 0 ? (
-                  <div className="flex items-center space-x-2 text-muted-foreground text-sm">
-                    <AlertCircle className="h-4 w-4" />
-                    <span>No topics found. Create a topic first.</span>
-                  </div>
-                ) : (
-                  <Select value={selectedTopic} onValueChange={setSelectedTopic}>
-                    <SelectTrigger>
-                      <SelectValue placeholder="Select a topic" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {topics.map((topic) => (
-                        <SelectItem key={topic.name} value={topic.name}>
-                          {topic.name} ({topic.partitions} partitions)
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                )}
-              </div>
-
-              {/* Partition Selector */}
-              <div className="space-y-2">
-                <Label htmlFor="partition">Partition</Label>
-                <Select value={partition} onValueChange={setPartition}>
+    <DashboardLayout
+      title="Producer Console"
+      description="Send test messages to your topics"
+    >
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        {/* Producer Form */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Send className="h-5 w-5" />
+              Produce Message
+            </CardTitle>
+            <CardDescription>
+              Send messages to any topic through the web console
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-5">
+            {/* Topic Selector */}
+            <div className="space-y-2">
+              <Label htmlFor="topic">Topic</Label>
+              {loadingTopics ? (
+                <Skeleton className="h-10 w-full" />
+              ) : topicsError ? (
+                <div className="flex items-center space-x-2 text-red-600 text-sm p-3 bg-red-50 dark:bg-red-950/50 rounded-md border border-red-200 dark:border-red-800">
+                  <AlertCircle className="h-4 w-4 shrink-0" />
+                  <span>{topicsError}</span>
+                </div>
+              ) : topics.length === 0 ? (
+                <div className="flex items-center space-x-2 text-muted-foreground text-sm p-3 bg-muted/50 rounded-md border">
+                  <Database className="h-4 w-4 shrink-0" />
+                  <span>No topics found. Create a topic first.</span>
+                </div>
+              ) : (
+                <Select value={selectedTopic} onValueChange={setSelectedTopic}>
                   <SelectTrigger>
-                    <SelectValue placeholder="Select partition" />
+                    <SelectValue placeholder="Select a topic" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="auto">Auto (round-robin)</SelectItem>
-                    {Array.from({ length: maxPartition + 1 }, (_, i) => (
-                      <SelectItem key={i} value={i.toString()}>
-                        Partition {i}
+                    {topics.map((topic) => (
+                      <SelectItem key={topic.name} value={topic.name}>
+                        <div className="flex items-center gap-2">
+                          <span>{topic.name}</span>
+                          <Badge variant="secondary" className="text-xs">
+                            {topic.partitions} partitions
+                          </Badge>
+                        </div>
                       </SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
-              </div>
+              )}
+            </div>
 
-              {/* Message Key */}
-              <div className="space-y-2">
-                <Label htmlFor="key">Key (optional)</Label>
-                <Input
-                  id="key"
-                  placeholder="user123"
-                  value={messageKey}
-                  onChange={(e) => setMessageKey(e.target.value)}
-                  disabled={sending || !selectedTopic}
-                />
-                <p className="text-xs text-muted-foreground">
-                  Messages with the same key go to the same partition
-                </p>
-              </div>
+            {/* Partition Selector */}
+            <div className="space-y-2">
+              <Label htmlFor="partition">Partition</Label>
+              <Select value={partition} onValueChange={setPartition} disabled={!selectedTopic}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Select partition" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="auto">Auto (round-robin)</SelectItem>
+                  {Array.from({ length: maxPartition + 1 }, (_, i) => (
+                    <SelectItem key={i} value={i.toString()}>
+                      Partition {i}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
 
-              {/* Message Value */}
-              <div className="space-y-2">
+            {/* Message Key */}
+            <div className="space-y-2">
+              <Label htmlFor="key">Key (optional)</Label>
+              <Input
+                id="key"
+                placeholder="user-123"
+                value={messageKey}
+                onChange={(e) => setMessageKey(e.target.value)}
+                disabled={sending || !selectedTopic}
+                className="font-mono text-sm"
+              />
+              <p className="text-xs text-muted-foreground">
+                Messages with the same key are routed to the same partition
+              </p>
+            </div>
+
+            {/* Message Value */}
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
                 <Label htmlFor="value">Value</Label>
-                <textarea
-                  id="value"
-                  placeholder='{"order_id": 42, "amount": 99.99}'
-                  value={messageValue}
-                  onChange={(e) => setMessageValue(e.target.value)}
-                  onKeyDown={handleKeyPress}
-                  disabled={sending || !selectedTopic}
-                  className="w-full min-h-[120px] px-3 py-2 text-sm border border-input bg-background rounded-md focus:outline-none focus:ring-2 focus:ring-ring"
-                />
-                <p className="text-xs text-muted-foreground">
-                  Press Cmd/Ctrl + Enter to send
-                </p>
+                <span className="text-xs text-muted-foreground">
+                  {messageValue.length} characters
+                </span>
               </div>
+              <Textarea
+                id="value"
+                placeholder='{"order_id": 42, "amount": 99.99, "user": "alice"}'
+                value={messageValue}
+                onChange={(e) => setMessageValue(e.target.value)}
+                onKeyDown={handleKeyPress}
+                disabled={sending || !selectedTopic}
+                className="min-h-[150px] font-mono text-sm resize-y"
+              />
+              <p className="text-xs text-muted-foreground">
+                Press <kbd className="px-1.5 py-0.5 bg-muted rounded text-xs">⌘</kbd> + <kbd className="px-1.5 py-0.5 bg-muted rounded text-xs">Enter</kbd> to send
+              </p>
+            </div>
 
-              <Separator />
+            {/* Send Button */}
+            <Button
+              onClick={handleSendMessage}
+              disabled={sending || !selectedTopic || !messageValue}
+              className="w-full"
+              size="lg"
+            >
+              {sending ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  Sending...
+                </>
+              ) : (
+                <>
+                  <Send className="mr-2 h-4 w-4" />
+                  Send Message
+                </>
+              )}
+            </Button>
+          </CardContent>
+        </Card>
 
-              {/* Send Button */}
-              <Button
-                onClick={handleSendMessage}
-                disabled={sending || !selectedTopic || !messageValue}
-                className="w-full"
-              >
-                {sending ? (
-                  <>
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                    Sending...
-                  </>
-                ) : (
-                  <>
-                    <Send className="mr-2 h-4 w-4" />
-                    Send Message
-                  </>
-                )}
-              </Button>
-            </CardContent>
-          </Card>
-
-          {/* Recent Messages Log */}
-          <Card>
-            <CardHeader>
+        {/* Recent Messages Log */}
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-4">
+            <div>
               <CardTitle>Recent Messages</CardTitle>
               <CardDescription>
-                Last 50 messages sent from this console
+                Last {sentMessages.length} of 50 messages
               </CardDescription>
-            </CardHeader>
-            <CardContent>
-              {sentMessages.length === 0 ? (
-                <div className="text-center text-muted-foreground py-8">
-                  <Send className="h-12 w-12 mx-auto mb-4 opacity-50" />
-                  <p>No messages sent yet</p>
-                  <p className="text-xs mt-2">Send a message to see it here</p>
+            </div>
+            {sentMessages.length > 0 && (
+              <Button variant="ghost" size="sm" onClick={clearMessages}>
+                <Trash2 className="mr-2 h-4 w-4" />
+                Clear
+              </Button>
+            )}
+          </CardHeader>
+          <CardContent>
+            {sentMessages.length === 0 ? (
+              <div className="text-center text-muted-foreground py-12">
+                <div className="mx-auto w-12 h-12 rounded-full bg-muted/50 flex items-center justify-center mb-4">
+                  <Send className="h-6 w-6 opacity-50" />
                 </div>
-              ) : (
-                <div className="space-y-3 max-h-[600px] overflow-y-auto">
-                  {sentMessages.map((msg) => (
-                    <div
-                      key={msg.id}
-                      className={`p-4 rounded-lg border ${
-                        msg.status === 'success'
-                          ? 'bg-green-50 dark:bg-green-950 border-green-200 dark:border-green-800'
-                          : 'bg-red-50 dark:bg-red-950 border-red-200 dark:border-red-800'
-                      }`}
-                    >
-                      <div className="flex items-start justify-between mb-2">
-                        <div className="flex items-center space-x-2">
-                          {msg.status === 'success' ? (
+                <p className="font-medium">No messages sent yet</p>
+                <p className="text-sm mt-1">Send a message to see it here</p>
+              </div>
+            ) : (
+              <div className="space-y-3 max-h-[550px] overflow-y-auto pr-2">
+                {sentMessages.map((msg) => (
+                  <div
+                    key={msg.id}
+                    className={cn(
+                      "p-4 rounded-lg border transition-colors",
+                      msg.status === 'success'
+                        ? 'bg-green-500/5 border-green-500/20 hover:bg-green-500/10'
+                        : 'bg-red-500/5 border-red-500/20 hover:bg-red-500/10'
+                    )}
+                  >
+                    <div className="flex items-start justify-between mb-3">
+                      <div className="flex items-center gap-2">
+                        {msg.status === 'success' ? (
+                          <div className="h-6 w-6 rounded-full bg-green-500/20 flex items-center justify-center">
                             <CheckCircle className="h-4 w-4 text-green-600" />
-                          ) : (
+                          </div>
+                        ) : (
+                          <div className="h-6 w-6 rounded-full bg-red-500/20 flex items-center justify-center">
                             <AlertCircle className="h-4 w-4 text-red-600" />
-                          )}
-                          <span className="font-medium text-sm">
-                            {msg.status === 'success' ? 'Sent' : 'Failed'}
-                          </span>
-                        </div>
-                        <div className="flex items-center space-x-1 text-xs text-muted-foreground">
-                          <Clock className="h-3 w-3" />
-                          <span>{msg.timestamp.toLocaleTimeString()}</span>
-                        </div>
-                      </div>
-
-                      <div className="space-y-1 text-sm">
-                        <div className="flex items-center space-x-2">
-                          <span className="text-muted-foreground">Topic:</span>
-                          <Badge variant="outline">{msg.topic}</Badge>
-                        </div>
-                        {msg.status === 'success' && (
-                          <>
-                            <div className="flex items-center space-x-2">
-                              <span className="text-muted-foreground">Partition:</span>
-                              <code className="text-xs">{msg.partition}</code>
-                            </div>
-                            <div className="flex items-center space-x-2">
-                              <span className="text-muted-foreground">Offset:</span>
-                              <code className="text-xs">{msg.offset}</code>
-                            </div>
-                          </>
-                        )}
-                        <div className="flex items-start space-x-2">
-                          <span className="text-muted-foreground">Key:</span>
-                          <code className="text-xs break-all">{msg.key}</code>
-                        </div>
-                        <div className="flex items-start space-x-2">
-                          <span className="text-muted-foreground">Value:</span>
-                          <code className="text-xs break-all bg-white dark:bg-gray-900 px-2 py-1 rounded">
-                            {msg.value}
-                          </code>
-                        </div>
-                        {msg.error && (
-                          <div className="flex items-start space-x-2 mt-2 pt-2 border-t border-red-200 dark:border-red-800">
-                            <span className="text-red-600 font-medium">Error:</span>
-                            <span className="text-red-600 text-xs">{msg.error}</span>
                           </div>
                         )}
+                        <div>
+                          <span className="font-medium text-sm">
+                            {msg.status === 'success' ? 'Sent successfully' : 'Failed to send'}
+                          </span>
+                          <div className="flex items-center gap-1 text-xs text-muted-foreground">
+                            <Clock className="h-3 w-3" />
+                            {msg.timestamp.toLocaleTimeString()}
+                          </div>
+                        </div>
                       </div>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-7 w-7"
+                        onClick={() => copyToClipboard(msg.value)}
+                        title="Copy value"
+                      >
+                        <Copy className="h-3.5 w-3.5" />
+                      </Button>
                     </div>
-                  ))}
-                </div>
-              )}
-            </CardContent>
-          </Card>
-        </div>
-      </main>
-    </div>
+
+                    <div className="space-y-2 text-sm">
+                      <div className="flex items-center gap-2">
+                        <span className="text-muted-foreground w-16">Topic</span>
+                        <Badge variant="outline" className="font-mono text-xs">{msg.topic}</Badge>
+                      </div>
+                      {msg.status === 'success' && (
+                        <div className="flex items-center gap-4">
+                          <div className="flex items-center gap-2">
+                            <span className="text-muted-foreground w-16">Partition</span>
+                            <code className="text-xs bg-muted px-1.5 py-0.5 rounded">{msg.partition}</code>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <span className="text-muted-foreground">Offset</span>
+                            <code className="text-xs bg-muted px-1.5 py-0.5 rounded">{msg.offset}</code>
+                          </div>
+                        </div>
+                      )}
+                      <div className="flex items-start gap-2">
+                        <span className="text-muted-foreground w-16 shrink-0">Key</span>
+                        <code className="text-xs font-mono break-all">{msg.key}</code>
+                      </div>
+                      <div className="flex items-start gap-2">
+                        <span className="text-muted-foreground w-16 shrink-0">Value</span>
+                        <code className="text-xs font-mono break-all bg-muted/50 px-2 py-1 rounded max-h-20 overflow-auto block w-full">
+                          {msg.value}
+                        </code>
+                      </div>
+                      {msg.error && (
+                        <div className="mt-2 pt-2 border-t border-red-200 dark:border-red-800">
+                          <span className="text-red-600 font-medium text-xs">Error: </span>
+                          <span className="text-red-600 text-xs">{msg.error}</span>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      </div>
+    </DashboardLayout>
   );
 }

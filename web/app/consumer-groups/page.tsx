@@ -1,12 +1,15 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import Link from "next/link";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
+import { DashboardLayout } from "@/components/layout/dashboard-layout";
+import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Zap, Loader2, AlertCircle, Users, TrendingUp, Database } from "lucide-react";
+import { MetricCard } from "@/components/ui/metric-card";
+import { DataTable, Column } from "@/components/ui/data-table";
+import { Skeleton, SkeletonChart } from "@/components/ui/skeleton";
+import { EmptyConsumerGroups } from "@/components/ui/empty-state";
+import { BarChart } from "@/components/charts/bar-chart";
+import { Users, TrendingUp, Database, AlertTriangle, CheckCircle2 } from "lucide-react";
 import { apiClient } from "@/lib/api/client";
 import type { ConsumerGroupInfo } from "@/lib/api/client";
 
@@ -18,7 +21,6 @@ export default function ConsumerGroupsPage() {
   useEffect(() => {
     const fetchGroups = async () => {
       try {
-        setLoading(true);
         const data = await apiClient.listConsumerGroups();
         setGroups(data);
         setError(null);
@@ -31,263 +33,206 @@ export default function ConsumerGroupsPage() {
     };
 
     fetchGroups();
-    // Refresh every 10 seconds
     const interval = setInterval(fetchGroups, 10000);
     return () => clearInterval(interval);
   }, []);
 
-  if (loading && groups.length === 0) {
-    return (
-      <div className="min-h-screen bg-gray-50 dark:bg-gray-950">
-        <header className="border-b bg-white dark:bg-gray-900">
-          <div className="container mx-auto px-4 py-4">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center space-x-2">
-                <Zap className="h-8 w-8 text-blue-600" />
-                <h1 className="text-2xl font-bold">StreamHouse</h1>
-              </div>
-              <nav className="flex items-center space-x-4">
-                <Link href="/dashboard">
-                  <Button variant="ghost">Dashboard</Button>
-                </Link>
-                <Link href="/topics">
-                  <Button variant="ghost">Topics</Button>
-                </Link>
-                <Link href="/agents">
-                  <Button variant="ghost">Agents</Button>
-                </Link>
-                <Link href="/consumer-groups">
-                  <Button variant="default">Consumer Groups</Button>
-                </Link>
-                <Link href="/console">
-                  <Button variant="ghost">Console</Button>
-                </Link>
-                <Button variant="outline">Sign Out</Button>
-              </nav>
-            </div>
-          </div>
-        </header>
-        <main className="container mx-auto px-4 py-8 flex items-center justify-center">
-          <div className="flex items-center space-x-2">
-            <Loader2 className="h-6 w-6 animate-spin" />
-            <span>Loading consumer groups...</span>
-          </div>
-        </main>
-      </div>
-    );
-  }
-
-  if (error) {
-    return (
-      <div className="min-h-screen bg-gray-50 dark:bg-gray-950">
-        <header className="border-b bg-white dark:bg-gray-900">
-          <div className="container mx-auto px-4 py-4">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center space-x-2">
-                <Zap className="h-8 w-8 text-blue-600" />
-                <h1 className="text-2xl font-bold">StreamHouse</h1>
-              </div>
-              <nav className="flex items-center space-x-4">
-                <Link href="/dashboard">
-                  <Button variant="ghost">Dashboard</Button>
-                </Link>
-                <Link href="/topics">
-                  <Button variant="ghost">Topics</Button>
-                </Link>
-                <Link href="/agents">
-                  <Button variant="ghost">Agents</Button>
-                </Link>
-                <Link href="/consumer-groups">
-                  <Button variant="default">Consumer Groups</Button>
-                </Link>
-                <Link href="/console">
-                  <Button variant="ghost">Console</Button>
-                </Link>
-                <Button variant="outline">Sign Out</Button>
-              </nav>
-            </div>
-          </div>
-        </header>
-        <main className="container mx-auto px-4 py-8">
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center space-x-2 text-red-600">
-                <AlertCircle className="h-5 w-5" />
-                <span>Error</span>
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              <p>{error}</p>
-              <Button onClick={() => window.location.reload()} className="mt-4">
-                Retry
-              </Button>
-            </CardContent>
-          </Card>
-        </main>
-      </div>
-    );
-  }
-
   const totalLag = groups.reduce((sum, g) => sum + g.totalLag, 0);
   const totalPartitions = groups.reduce((sum, g) => sum + g.partitionCount, 0);
+  const caughtUpCount = groups.filter(g => g.totalLag === 0).length;
+  const laggingCount = groups.filter(g => g.totalLag > 1000).length;
+
+  // Prepare lag data for chart (top 10 groups by lag)
+  const lagChartData = groups
+    .filter(g => g.totalLag > 0)
+    .sort((a, b) => b.totalLag - a.totalLag)
+    .slice(0, 10)
+    .map(g => ({
+      group: g.groupId.length > 12 ? g.groupId.slice(0, 12) + '...' : g.groupId,
+      lag: g.totalLag,
+    }));
+
+  const columns: Column<ConsumerGroupInfo>[] = [
+    {
+      id: 'groupId',
+      header: 'Group ID',
+      accessorKey: 'groupId',
+      sortable: true,
+      cell: (row) => (
+        <code className="text-xs bg-muted px-2 py-1 rounded font-mono">
+          {row.groupId}
+        </code>
+      ),
+    },
+    {
+      id: 'topics',
+      header: 'Topics',
+      cell: (row) => (
+        <div className="flex flex-wrap gap-1 max-w-50">
+          {row.topics.slice(0, 3).map((topic) => (
+            <Badge key={topic} variant="outline" className="text-xs">
+              {topic}
+            </Badge>
+          ))}
+          {row.topics.length > 3 && (
+            <Badge variant="secondary" className="text-xs">
+              +{row.topics.length - 3} more
+            </Badge>
+          )}
+        </div>
+      ),
+    },
+    {
+      id: 'partitions',
+      header: 'Partitions',
+      accessorKey: 'partitionCount',
+      sortable: true,
+      cell: (row) => (
+        <Badge variant="outline">{row.partitionCount}</Badge>
+      ),
+    },
+    {
+      id: 'lag',
+      header: 'Total Lag',
+      accessorKey: 'totalLag',
+      sortable: true,
+      cell: (row) => (
+        <span className={`font-mono text-sm ${row.totalLag > 1000 ? 'text-red-600 font-bold' : ''}`}>
+          {row.totalLag.toLocaleString()}
+        </span>
+      ),
+    },
+    {
+      id: 'status',
+      header: 'Status',
+      sortable: true,
+      accessorFn: (row) => {
+        if (row.totalLag === 0) return 'caught-up';
+        if (row.totalLag > 1000) return 'lagging';
+        return 'normal';
+      },
+      cell: (row) => {
+        const lagStatus = row.totalLag === 0 ? 'caught-up' : row.totalLag > 1000 ? 'lagging' : 'normal';
+        return (
+          <Badge
+            variant="secondary"
+            className={
+              lagStatus === 'caught-up' ? 'bg-green-500/20 text-green-700 dark:text-green-400 border-green-500/30' :
+              lagStatus === 'lagging' ? 'bg-red-500/20 text-red-700 dark:text-red-400 border-red-500/30' :
+              'bg-yellow-500/20 text-yellow-700 dark:text-yellow-400 border-yellow-500/30'
+            }
+          >
+            {lagStatus === 'caught-up' && <CheckCircle2 className="mr-1 h-3 w-3" />}
+            {lagStatus === 'lagging' && <AlertTriangle className="mr-1 h-3 w-3" />}
+            {lagStatus === 'caught-up' ? 'Caught Up' : lagStatus === 'lagging' ? 'Lagging' : 'Normal'}
+          </Badge>
+        );
+      },
+    },
+  ];
+
+  const MetricSkeleton = () => (
+    <Card className="p-6">
+      <div className="flex items-center justify-between">
+        <Skeleton className="h-4 w-24" />
+        <Skeleton className="h-5 w-5 rounded" />
+      </div>
+      <div className="mt-3">
+        <Skeleton className="h-8 w-16" />
+        <Skeleton className="mt-2 h-3 w-20" />
+      </div>
+    </Card>
+  );
 
   return (
-    <div className="min-h-screen bg-gray-50 dark:bg-gray-950">
-      {/* Header */}
-      <header className="border-b bg-white dark:bg-gray-900">
-        <div className="container mx-auto px-4 py-4">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center space-x-2">
-              <Zap className="h-8 w-8 text-blue-600" />
-              <h1 className="text-2xl font-bold">StreamHouse</h1>
+    <DashboardLayout
+      title="Consumer Groups"
+      description="Monitor consumer group lag and consumption progress"
+    >
+      {/* Stats Overview */}
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        {loading ? (
+          <>
+            <MetricSkeleton />
+            <MetricSkeleton />
+            <MetricSkeleton />
+            <MetricSkeleton />
+          </>
+        ) : (
+          <>
+            <MetricCard
+              title="Consumer Groups"
+              value={groups.length.toString()}
+              description="Active groups"
+              icon={Users}
+            />
+            <MetricCard
+              title="Total Lag"
+              value={totalLag.toLocaleString()}
+              description="Messages behind"
+              icon={TrendingUp}
+              className={totalLag > 10000 ? 'border-red-500/30' : ''}
+            />
+            <MetricCard
+              title="Caught Up"
+              value={caughtUpCount.toString()}
+              description="Groups at head"
+              icon={CheckCircle2}
+              className="border-green-500/30"
+            />
+            <MetricCard
+              title="Total Partitions"
+              value={totalPartitions.toString()}
+              description="Being consumed"
+              icon={Database}
+            />
+          </>
+        )}
+      </div>
+
+      {/* Lag Visualization */}
+      <Card className="mt-6 p-6">
+        <div className="mb-4">
+          <h3 className="text-lg font-semibold">Consumer Lag Distribution</h3>
+          <p className="text-sm text-muted-foreground">Top 10 consumer groups by lag</p>
+        </div>
+        {loading ? (
+          <SkeletonChart height={250} />
+        ) : lagChartData.length > 0 ? (
+          <BarChart
+            data={lagChartData}
+            xKey="group"
+            bars={[{ key: 'lag', color: '#f59e0b', name: 'Messages Behind' }]}
+            height={250}
+          />
+        ) : (
+          <div className="flex h-64 items-center justify-center text-muted-foreground">
+            <div className="text-center">
+              <CheckCircle2 className="mx-auto h-12 w-12 text-green-500 opacity-50 mb-4" />
+              <p>All consumer groups are caught up!</p>
+              <p className="text-sm mt-1">No lag detected across all groups</p>
             </div>
-            <nav className="flex items-center space-x-4">
-              <Link href="/dashboard">
-                <Button variant="ghost">Dashboard</Button>
-              </Link>
-              <Link href="/topics">
-                <Button variant="ghost">Topics</Button>
-              </Link>
-              <Link href="/agents">
-                <Button variant="ghost">Agents</Button>
-              </Link>
-              <Link href="/consumer-groups">
-                <Button variant="default">Consumer Groups</Button>
-              </Link>
-              <Link href="/console">
-                <Button variant="ghost">Console</Button>
-              </Link>
-              <Button variant="outline">Sign Out</Button>
-            </nav>
           </div>
+        )}
+      </Card>
+
+      {/* Consumer Groups Table */}
+      <Card className="mt-6">
+        <div className="p-6">
+          <DataTable
+            data={groups}
+            columns={columns}
+            isLoading={loading}
+            loadingRows={5}
+            searchKey="groupId"
+            searchPlaceholder="Search consumer groups..."
+            pageSize={10}
+            pageSizeOptions={[10, 25, 50]}
+            getRowId={(row) => row.groupId}
+            emptyState={<EmptyConsumerGroups />}
+          />
         </div>
-      </header>
-
-      {/* Main Content */}
-      <main className="container mx-auto px-4 py-8">
-        {/* Stats Overview */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Consumer Groups</CardTitle>
-              <Users className="h-4 w-4 text-muted-foreground" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold">{groups.length}</div>
-              <p className="text-xs text-muted-foreground">
-                Active consumer groups
-              </p>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Total Lag</CardTitle>
-              <TrendingUp className="h-4 w-4 text-muted-foreground" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold">{totalLag.toLocaleString()}</div>
-              <p className="text-xs text-muted-foreground">
-                Messages behind
-              </p>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Total Partitions</CardTitle>
-              <Database className="h-4 w-4 text-muted-foreground" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold">{totalPartitions}</div>
-              <p className="text-xs text-muted-foreground">
-                Being consumed
-              </p>
-            </CardContent>
-          </Card>
-        </div>
-
-        {/* Consumer Groups Table */}
-        <Card>
-          <CardHeader>
-            <CardTitle>Consumer Groups</CardTitle>
-            <CardDescription>
-              Monitor consumer group lag and consumption progress
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Group ID</TableHead>
-                  <TableHead>Topics</TableHead>
-                  <TableHead>Partitions</TableHead>
-                  <TableHead>Total Lag</TableHead>
-                  <TableHead>Status</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {groups.length === 0 ? (
-                  <TableRow>
-                    <TableCell colSpan={5} className="text-center text-muted-foreground">
-                      <div className="py-8">
-                        <Users className="h-12 w-12 mx-auto mb-4 opacity-50" />
-                        <p>No consumer groups found</p>
-                        <p className="text-xs mt-2">Consumer groups will appear here when they start consuming</p>
-                      </div>
-                    </TableCell>
-                  </TableRow>
-                ) : (
-                  groups.map((group) => {
-                    const lagStatus = group.totalLag === 0 ? 'caught-up' : group.totalLag > 1000 ? 'lagging' : 'normal';
-
-                    return (
-                      <TableRow key={group.groupId}>
-                        <TableCell className="font-medium">
-                          <code className="text-xs bg-gray-100 dark:bg-gray-800 px-2 py-1 rounded">
-                            {group.groupId}
-                          </code>
-                        </TableCell>
-                        <TableCell>
-                          <div className="flex flex-wrap gap-1">
-                            {group.topics.map((topic) => (
-                              <Badge key={topic} variant="outline" className="text-xs">
-                                {topic}
-                              </Badge>
-                            ))}
-                          </div>
-                        </TableCell>
-                        <TableCell>
-                          <Badge variant="outline">{group.partitionCount}</Badge>
-                        </TableCell>
-                        <TableCell>
-                          <span className={`font-mono text-sm ${
-                            group.totalLag > 1000 ? 'text-red-600 font-bold' : ''
-                          }`}>
-                            {group.totalLag.toLocaleString()}
-                          </span>
-                        </TableCell>
-                        <TableCell>
-                          <Badge
-                            variant={lagStatus === 'caught-up' ? 'default' : 'secondary'}
-                            className={
-                              lagStatus === 'caught-up' ? 'bg-green-500' :
-                              lagStatus === 'lagging' ? 'bg-red-500' : 'bg-yellow-500'
-                            }
-                          >
-                            {lagStatus === 'caught-up' ? 'Caught Up' :
-                             lagStatus === 'lagging' ? 'Lagging' : 'Normal'}
-                          </Badge>
-                        </TableCell>
-                      </TableRow>
-                    );
-                  })
-                )}
-              </TableBody>
-            </Table>
-          </CardContent>
-        </Card>
-      </main>
-    </div>
+      </Card>
+    </DashboardLayout>
   );
 }

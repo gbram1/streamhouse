@@ -26,9 +26,10 @@ const timeRanges: { value: TimeRange; label: string }[] = [
 interface HeaderProps {
   title: React.ReactNode;
   description?: string;
+  actions?: React.ReactNode;
 }
 
-export function Header({ title, description }: HeaderProps) {
+export function Header({ title, description, actions }: HeaderProps) {
   const theme = useAppStore((state) => state.theme);
   const setTheme = useAppStore((state) => state.setTheme);
   const timeRange = useAppStore((state) => state.timeRange);
@@ -38,12 +39,15 @@ export function Header({ title, description }: HeaderProps) {
 
   return (
     <div className="flex h-16 items-center justify-between border-b bg-background px-6">
-      {/* Title */}
-      <div>
-        <h2 className="text-2xl font-bold text-foreground">{title}</h2>
-        {description && (
-          <p className="text-sm text-muted-foreground">{description}</p>
-        )}
+      {/* Title and Actions */}
+      <div className="flex items-center gap-4">
+        <div>
+          <h2 className="text-2xl font-bold text-foreground">{title}</h2>
+          {description && (
+            <p className="text-sm text-muted-foreground">{description}</p>
+          )}
+        </div>
+        {actions && <div className="ml-4">{actions}</div>}
       </div>
 
       {/* Controls */}

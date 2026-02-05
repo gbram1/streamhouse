@@ -3,10 +3,30 @@
 import { DashboardLayout } from '@/components/layout/dashboard-layout';
 import { MetricCard } from '@/components/ui/metric-card';
 import { Card } from '@/components/ui/card';
-import { LineChart } from '@/components/charts/line-chart';
-import { Database, Users, Activity, HardDrive, Heart, Server, FileCode2 } from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { AreaChart } from '@/components/charts/area-chart';
+import { BarChart } from '@/components/charts/bar-chart';
+import { Skeleton, SkeletonCard, SkeletonChart } from '@/components/ui/skeleton';
+import { NoDataAvailable } from '@/components/ui/empty-state';
+import {
+  Database,
+  Users,
+  Activity,
+  HardDrive,
+  Heart,
+  Server,
+  FileCode2,
+  Plus,
+  Search,
+  Terminal,
+  FileSearch,
+  ArrowRight,
+  TrendingUp,
+  TrendingDown,
+} from 'lucide-react';
 import { useEffect, useState } from 'react';
-import { formatBytes } from '@/lib/utils';
+import { formatBytes, cn } from '@/lib/utils';
+import Link from 'next/link';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080';
 
@@ -14,6 +34,12 @@ interface ThroughputPoint {
   timestamp: number;
   messagesPerSecond: number;
   bytesPerSecond: number;
+  time?: string;
+}
+
+interface ConsumerLagPoint {
+  topic: string;
+  lag: number;
 }
 
 interface DashboardMetrics {
@@ -24,6 +50,7 @@ interface DashboardMetrics {
   partitionsCount: number;
   schemasCount: number;
   messagesPerSecond: number;
+  messagesPerSecondTrend?: number;
 }
 
 export default function Dashboard() {
@@ -37,6 +64,7 @@ export default function Dashboard() {
     messagesPerSecond: 0,
   });
   const [throughputData, setThroughputData] = useState<ThroughputPoint[]>([]);
+  const [consumerLagData, setConsumerLagData] = useState<ConsumerLagPoint[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -44,36 +72,54 @@ export default function Dashboard() {
       try {
         // Fetch all metrics in parallel
         const [topics, agents, consumerGroups, storage, schemas, throughput] = await Promise.all([
-          fetch(`${API_URL}/api/v1/topics`).then(r => r.json()),
-          fetch(`${API_URL}/api/v1/agents`).then(r => r.json()),
-          fetch(`${API_URL}/api/v1/consumer-groups`).then(r => r.json()),
-          fetch(`${API_URL}/api/v1/metrics/storage`).then(r => r.json()),
+          fetch(`${API_URL}/api/v1/topics`).then(r => r.json()).catch(() => []),
+          fetch(`${API_URL}/api/v1/agents`).then(r => r.json()).catch(() => []),
+          fetch(`${API_URL}/api/v1/consumer-groups`).then(r => r.json()).catch(() => []),
+          fetch(`${API_URL}/api/v1/metrics/storage`).then(r => r.json()).catch(() => ({ totalSizeBytes: 0 })),
           fetch(`${API_URL}/schemas/subjects`).then(r => r.json()).catch(() => []),
           fetch(`${API_URL}/api/v1/metrics/throughput?time_range=5m`).then(r => r.json()).catch(() => []),
         ]);
 
         // Calculate partitions count from topics
-        const partitionsCount = topics.reduce((acc: number, topic: any) =>
+        const partitionsCount = (topics || []).reduce((acc: number, topic: any) =>
           acc + (topic.partition_count || topic.partitions || 0), 0);
 
-        // Get latest throughput
+        // Get latest and previous throughput for trend calculation
         const latestThroughput = throughput.length > 0 ? throughput[throughput.length - 1] : null;
+        const previousThroughput = throughput.length > 1 ? throughput[throughput.length - 2] : null;
+
+        // Calculate trend percentage
+        let trend: number | undefined;
+        if (latestThroughput && previousThroughput && previousThroughput.messagesPerSecond > 0) {
+          trend = Math.round(((latestThroughput.messagesPerSecond - previousThroughput.messagesPerSecond) / previousThroughput.messagesPerSecond) * 100);
+        }
 
         // Format throughput data for chart
-        const formattedThroughput = throughput.map((point: any) => ({
+        const formattedThroughput = (throughput || []).map((point: any) => ({
           ...point,
           time: new Date(point.timestamp * 1000).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }),
         }));
         setThroughputData(formattedThroughput);
 
+        // Prepare consumer lag data from consumer groups
+        const lagData: ConsumerLagPoint[] = (consumerGroups || [])
+          .filter((g: any) => g.totalLag > 0)
+          .slice(0, 5)
+          .map((g: any) => ({
+            topic: g.groupId.length > 15 ? g.groupId.slice(0, 15) + '...' : g.groupId,
+            lag: g.totalLag,
+          }));
+        setConsumerLagData(lagData);
+
         setMetrics({
-          topicsCount: topics.length,
-          agentsCount: agents.length,
-          consumerGroupsCount: consumerGroups.length,
-          totalStorageBytes: storage.totalSizeBytes || 0,
+          topicsCount: (topics || []).length,
+          agentsCount: (agents || []).length,
+          consumerGroupsCount: (consumerGroups || []).length,
+          totalStorageBytes: storage?.totalSizeBytes || 0,
           partitionsCount,
-          schemasCount: schemas.length || 0,
+          schemasCount: (schemas || []).length || 0,
           messagesPerSecond: Math.round(latestThroughput?.messagesPerSecond || 0),
+          messagesPerSecondTrend: trend,
         });
       } catch (error) {
         console.error('Failed to fetch dashboard metrics:', error);
@@ -83,9 +129,23 @@ export default function Dashboard() {
     };
 
     fetchMetrics();
-    const interval = setInterval(fetchMetrics, 5000); // Refresh every 5 seconds
+    const interval = setInterval(fetchMetrics, 5000);
     return () => clearInterval(interval);
   }, []);
+
+  // Skeleton loading for metric cards
+  const MetricSkeleton = () => (
+    <Card className="p-6">
+      <div className="flex items-center justify-between">
+        <Skeleton className="h-4 w-24" />
+        <Skeleton className="h-5 w-5 rounded" />
+      </div>
+      <div className="mt-3">
+        <Skeleton className="h-8 w-16" />
+        <Skeleton className="mt-2 h-3 w-20" />
+      </div>
+    </Card>
+  );
 
   return (
     <DashboardLayout
@@ -93,137 +153,235 @@ export default function Dashboard() {
       description="System health and performance at a glance"
     >
       {/* Metrics Grid */}
-      <div className="grid grid-cols-1 gap-6 md:grid-cols-2 lg:grid-cols-4">
-        <MetricCard
-          title="Messages/sec"
-          value={loading ? '...' : metrics.messagesPerSecond.toString()}
-          description="Real-time throughput"
-          icon={Activity}
-        />
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        {loading ? (
+          <>
+            <MetricSkeleton />
+            <MetricSkeleton />
+            <MetricSkeleton />
+            <MetricSkeleton />
+            <MetricSkeleton />
+            <MetricSkeleton />
+            <MetricSkeleton />
+            <MetricSkeleton />
+          </>
+        ) : (
+          <>
+            <MetricCard
+              title="Messages/sec"
+              value={metrics.messagesPerSecond.toLocaleString()}
+              description="Real-time throughput"
+              icon={Activity}
+              trend={metrics.messagesPerSecondTrend !== undefined ? {
+                value: metrics.messagesPerSecondTrend,
+                label: "vs previous"
+              } : undefined}
+            />
 
-        <MetricCard
-          title="Active Topics"
-          value={loading ? '...' : metrics.topicsCount.toString()}
-          description="Event streams"
-          icon={Database}
-        />
+            <MetricCard
+              title="Active Topics"
+              value={metrics.topicsCount.toString()}
+              description="Event streams"
+              icon={Database}
+            />
 
-        <MetricCard
-          title="Active Consumers"
-          value={loading ? '...' : metrics.consumerGroupsCount.toString()}
-          description="Consumer groups"
-          icon={Users}
-        />
+            <MetricCard
+              title="Consumer Groups"
+              value={metrics.consumerGroupsCount.toString()}
+              description="Active consumers"
+              icon={Users}
+            />
 
-        <MetricCard
-          title="Total Storage"
-          value={loading ? '...' : formatBytes(metrics.totalStorageBytes)}
-          description="Across all topics"
-          icon={HardDrive}
-        />
+            <MetricCard
+              title="Total Storage"
+              value={formatBytes(metrics.totalStorageBytes)}
+              description="Across all topics"
+              icon={HardDrive}
+            />
 
-        <MetricCard
-          title="System Health"
-          value="Healthy"
-          description="Overall status"
-          icon={Heart}
-          className="border-green-500/50"
-        />
+            <MetricCard
+              title="System Health"
+              value="Healthy"
+              description="All systems operational"
+              icon={Heart}
+              className="border-green-500/30 bg-green-500/5"
+            />
 
-        <MetricCard
-          title="Active Agents"
-          value={loading ? '...' : metrics.agentsCount.toString()}
-          description="Stateless brokers"
-          icon={Server}
-        />
+            <MetricCard
+              title="Active Agents"
+              value={metrics.agentsCount.toString()}
+              description="Stateless brokers"
+              icon={Server}
+            />
 
-        <MetricCard
-          title="Schemas"
-          value={loading ? '...' : metrics.schemasCount.toString()}
-          description="Registered schemas"
-          icon={FileCode2}
-        />
+            <MetricCard
+              title="Schemas"
+              value={metrics.schemasCount.toString()}
+              description="Registered schemas"
+              icon={FileCode2}
+            />
 
-        <MetricCard
-          title="Partitions"
-          value={loading ? '...' : metrics.partitionsCount.toString()}
-          description="Total partitions"
-          icon={Database}
-        />
+            <MetricCard
+              title="Partitions"
+              value={metrics.partitionsCount.toString()}
+              description="Total partitions"
+              icon={Database}
+            />
+          </>
+        )}
       </div>
 
       {/* Charts Section */}
       <div className="mt-6 grid grid-cols-1 gap-6 lg:grid-cols-2">
         {/* Message Throughput Chart */}
         <Card className="p-6">
-          <h3 className="text-lg font-semibold mb-4">Message Throughput</h3>
-          {loading ? (
-            <div className="flex h-64 items-center justify-center text-muted-foreground">
-              <p>Loading...</p>
+          <div className="flex items-center justify-between mb-4">
+            <div>
+              <h3 className="text-lg font-semibold">Message Throughput</h3>
+              <p className="text-sm text-muted-foreground">Messages per second over time</p>
             </div>
+            {!loading && throughputData.length > 0 && (
+              <div className="flex items-center gap-1 text-sm">
+                {metrics.messagesPerSecondTrend !== undefined && metrics.messagesPerSecondTrend > 0 ? (
+                  <TrendingUp className="h-4 w-4 text-green-500" />
+                ) : metrics.messagesPerSecondTrend !== undefined && metrics.messagesPerSecondTrend < 0 ? (
+                  <TrendingDown className="h-4 w-4 text-red-500" />
+                ) : null}
+                <span className="font-medium">{metrics.messagesPerSecond.toLocaleString()}/s</span>
+              </div>
+            )}
+          </div>
+          {loading ? (
+            <SkeletonChart height={250} />
           ) : throughputData.length > 0 ? (
-            <LineChart
+            <AreaChart
               data={throughputData}
               xKey="time"
-              lines={[
+              areas={[
                 { key: 'messagesPerSecond', color: '#3b82f6', name: 'Messages/sec' },
               ]}
               height={250}
             />
           ) : (
-            <div className="flex h-64 items-center justify-center text-muted-foreground">
-              <p>No throughput data available</p>
+            <div className="h-64">
+              <NoDataAvailable
+                message="No throughput data available yet"
+                description="Start producing messages to see throughput metrics"
+              />
             </div>
           )}
         </Card>
 
         {/* Consumer Lag Summary */}
         <Card className="p-6">
-          <h3 className="text-lg font-semibold mb-4">Consumer Lag Summary</h3>
-          <div className="flex h-64 items-center justify-center text-muted-foreground">
-            <p>Consumer lag chart coming soon</p>
-          </div>
-        </Card>
-      </div>
-
-      {/* Recent Activity */}
-      <div className="mt-6">
-        <Card className="p-6">
-          <h3 className="text-lg font-semibold">Recent Activity</h3>
-          <div className="mt-4 space-y-4">
-            <div className="text-sm text-muted-foreground">
-              <p>• No recent activity</p>
+          <div className="flex items-center justify-between mb-4">
+            <div>
+              <h3 className="text-lg font-semibold">Consumer Lag</h3>
+              <p className="text-sm text-muted-foreground">Top 5 consumer groups by lag</p>
             </div>
+            {!loading && (
+              <Link href="/consumer-groups">
+                <Button variant="ghost" size="sm">
+                  View All
+                  <ArrowRight className="ml-1 h-4 w-4" />
+                </Button>
+              </Link>
+            )}
           </div>
+          {loading ? (
+            <SkeletonChart height={250} />
+          ) : consumerLagData.length > 0 ? (
+            <BarChart
+              data={consumerLagData}
+              xKey="topic"
+              bars={[
+                { key: 'lag', color: '#f59e0b', name: 'Messages Behind' },
+              ]}
+              height={250}
+            />
+          ) : (
+            <div className="h-64">
+              <NoDataAvailable
+                message="No consumer lag detected"
+                description="All consumer groups are caught up"
+              />
+            </div>
+          )}
         </Card>
       </div>
 
       {/* Quick Actions */}
-      <div className="mt-6 grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-4">
-        <Card className="p-6 hover:bg-accent cursor-pointer transition-colors">
-          <h4 className="font-medium">Create Topic</h4>
-          <p className="mt-2 text-sm text-muted-foreground">
-            Add a new event stream
-          </p>
-        </Card>
-        <Card className="p-6 hover:bg-accent cursor-pointer transition-colors">
-          <h4 className="font-medium">View All Topics</h4>
-          <p className="mt-2 text-sm text-muted-foreground">
-            Browse and manage topics
-          </p>
-        </Card>
-        <Card className="p-6 hover:bg-accent cursor-pointer transition-colors">
-          <h4 className="font-medium">Monitor Consumers</h4>
-          <p className="mt-2 text-sm text-muted-foreground">
-            Check consumer lag
-          </p>
-        </Card>
-        <Card className="p-6 hover:bg-accent cursor-pointer transition-colors">
-          <h4 className="font-medium">Browse Schemas</h4>
-          <p className="mt-2 text-sm text-muted-foreground">
-            View schema registry
-          </p>
-        </Card>
+      <div className="mt-6">
+        <h3 className="text-lg font-semibold mb-4">Quick Actions</h3>
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          <Link href="/topics/new" className="block">
+            <Card className="p-5 hover:bg-accent cursor-pointer transition-all hover:shadow-md group">
+              <div className="flex items-start gap-4">
+                <div className="rounded-lg bg-blue-500/10 p-2.5 text-blue-500 group-hover:bg-blue-500/20">
+                  <Plus className="h-5 w-5" />
+                </div>
+                <div className="flex-1">
+                  <h4 className="font-medium">Create Topic</h4>
+                  <p className="mt-1 text-sm text-muted-foreground">
+                    Add a new event stream
+                  </p>
+                </div>
+                <ArrowRight className="h-4 w-4 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity" />
+              </div>
+            </Card>
+          </Link>
+
+          <Link href="/topics" className="block">
+            <Card className="p-5 hover:bg-accent cursor-pointer transition-all hover:shadow-md group">
+              <div className="flex items-start gap-4">
+                <div className="rounded-lg bg-purple-500/10 p-2.5 text-purple-500 group-hover:bg-purple-500/20">
+                  <Search className="h-5 w-5" />
+                </div>
+                <div className="flex-1">
+                  <h4 className="font-medium">Browse Topics</h4>
+                  <p className="mt-1 text-sm text-muted-foreground">
+                    View and manage topics
+                  </p>
+                </div>
+                <ArrowRight className="h-4 w-4 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity" />
+              </div>
+            </Card>
+          </Link>
+
+          <Link href="/console" className="block">
+            <Card className="p-5 hover:bg-accent cursor-pointer transition-all hover:shadow-md group">
+              <div className="flex items-start gap-4">
+                <div className="rounded-lg bg-green-500/10 p-2.5 text-green-500 group-hover:bg-green-500/20">
+                  <Terminal className="h-5 w-5" />
+                </div>
+                <div className="flex-1">
+                  <h4 className="font-medium">Producer Console</h4>
+                  <p className="mt-1 text-sm text-muted-foreground">
+                    Send test messages
+                  </p>
+                </div>
+                <ArrowRight className="h-4 w-4 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity" />
+              </div>
+            </Card>
+          </Link>
+
+          <Link href="/sql" className="block">
+            <Card className="p-5 hover:bg-accent cursor-pointer transition-all hover:shadow-md group">
+              <div className="flex items-start gap-4">
+                <div className="rounded-lg bg-orange-500/10 p-2.5 text-orange-500 group-hover:bg-orange-500/20">
+                  <FileSearch className="h-5 w-5" />
+                </div>
+                <div className="flex-1">
+                  <h4 className="font-medium">SQL Workbench</h4>
+                  <p className="mt-1 text-sm text-muted-foreground">
+                    Query your streams
+                  </p>
+                </div>
+                <ArrowRight className="h-4 w-4 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity" />
+              </div>
+            </Card>
+          </Link>
+        </div>
       </div>
     </DashboardLayout>
   );
