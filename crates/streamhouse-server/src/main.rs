@@ -154,6 +154,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         s3_upload_retries: 3,
         wal_config: None, // WAL disabled by default
         throttle_config: None, // Throttling disabled by default
+        ..Default::default()
     };
 
     // Create writer pool

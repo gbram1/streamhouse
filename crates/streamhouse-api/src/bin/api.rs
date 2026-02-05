@@ -122,6 +122,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         });
 
     // Create app state
+    // Auth is disabled by default in development; enable with STREAMHOUSE_AUTH_ENABLED=true
+    let auth_enabled = std::env::var("STREAMHOUSE_AUTH_ENABLED")
+        .map(|v| v == "true" || v == "1")
+        .unwrap_or(false);
     let state = AppState {
         metadata,
         producer: Some(Arc::new(producer)),
@@ -129,6 +133,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         object_store,
         segment_cache,
         prometheus: prometheus_client,
+        auth_config: streamhouse_api::AuthConfig {
+            enabled: auth_enabled,
+            ..Default::default()
+        },
     };
 
     // Create router

@@ -111,6 +111,7 @@ impl StreamHouse for StreamHouseService {
             name: req.name.clone(),
             partition_count: req.partition_count,
             retention_ms: req.retention_ms.map(|v| v as i64),
+            cleanup_policy: Default::default(),
             config: req.config,
         };
 

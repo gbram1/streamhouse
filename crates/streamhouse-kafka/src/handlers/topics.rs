@@ -208,6 +208,7 @@ async fn create_topic(state: &KafkaServerState, request: &CreateTopicRequest) ->
         name: request.name.clone(),
         partition_count: num_partitions as u32,
         retention_ms: None,
+        cleanup_policy: Default::default(),
         config: HashMap::new(),
     };
 

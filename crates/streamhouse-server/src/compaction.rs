@@ -188,7 +188,7 @@ impl CompactionTask {
         // Get segments for this partition
         let segments = self
             .metadata
-            .get_segments(topic, partition_id, 0)
+            .get_segments(topic, partition_id)
             .await
             .map_err(|e| CompactionError::Metadata(e.to_string()))?;
 

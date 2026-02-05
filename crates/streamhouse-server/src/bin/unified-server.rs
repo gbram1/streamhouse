@@ -222,6 +222,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         s3_upload_retries: 3,
         wal_config: None, // WAL disabled by default
         throttle_config,
+        ..Default::default()
     };
 
     // Create writer pool
@@ -462,6 +463,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         });
 
     // Create REST API state (use WriterPool directly in unified server)
+    // Auth is disabled by default in development; enable with --enable-auth flag
+    let auth_enabled = std::env::var("STREAMHOUSE_AUTH_ENABLED")
+        .map(|v| v == "true" || v == "1")
+        .unwrap_or(false);
     let api_state = streamhouse_api::AppState {
         metadata: metadata.clone(),
         producer: None,
@@ -469,6 +474,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         object_store: object_store.clone(),
         segment_cache: cache.clone(),
         prometheus: prometheus_client,
+        auth_config: streamhouse_api::AuthConfig {
+            enabled: auth_enabled,
+            ..Default::default()
+        },
     };
 
     // Create REST API router
