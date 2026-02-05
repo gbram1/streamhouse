@@ -2,7 +2,7 @@
 
 **Date**: February 4, 2026
 **Current Status**: v1.0 Production Ready
-**Remaining Effort**: ~11 weeks (parallelizable to ~8 weeks)
+**Remaining Effort**: ~9 weeks (parallelizable to ~6 weeks)
 
 ---
 
@@ -28,17 +28,11 @@
 - ✅ View metadata API
 - ✅ Executor wired to metadata store
 
----
-
-## HIGH PRIORITY
-
-### Phase 12.1: Client SDKs (~2 weeks)
-| Sub-phase | Task |
-|-----------|------|
-| 12.1a | Python client (asyncio, type hints) - 3-4d |
-| 12.1b | JavaScript/TypeScript client - 3-4d |
-| 12.1c | Java client (Kafka-compatible API) - 2-3d |
-| 12.1d | Go client (idiomatic, context support) - 2-3d |
+### Phase 12.1: Client SDKs ✅ COMPLETE
+- ✅ Python client (asyncio, type hints, sync/async support)
+- ✅ TypeScript/JavaScript client (type-safe, Node.js 18+ compatible)
+- ✅ Java client (Java 11+, builder pattern, Jackson)
+- ✅ Go client (idiomatic, context support, functional options)
 
 ---
 
@@ -252,17 +246,15 @@
 
 | Priority | Phases | Effort |
 |----------|--------|--------|
-| **COMPLETED** | 24, 25 | ✅ Done |
-| **HIGH** | 12.1 (SDKs) | ~2 weeks |
+| **COMPLETED** | 24, 25, 12.1 | ✅ Done |
 | **MEDIUM** | 9.3-9.4, 8.2-8.5, 10, 11.2, 11.4, 12.2, UI.9 | ~5 weeks |
 | **LOW** | 13, 12.3, 14.2-14.3, 15, 16 | ~6 weeks |
-| **TOTAL REMAINING** | | **~11 weeks** |
+| **TOTAL REMAINING** | | **~9 weeks** |
 
 ### Recommended Order
 ```
-1. Phase 12.1 (SDKs) - enables external adoption
-2. Phase 9.3-9.4 (Advanced Consumer) - Kafka parity
-3. Phase 8.2-8.5 (Performance)
-4. Phase 10 (Security/HA/DR)
-5. Low priority items as needed
+1. Phase 9.3-9.4 (Advanced Consumer) - Kafka parity
+2. Phase 8.2-8.5 (Performance)
+3. Phase 10 (Security/HA/DR)
+4. Low priority items as needed
 ```
