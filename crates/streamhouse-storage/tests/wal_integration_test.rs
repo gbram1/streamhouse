@@ -32,6 +32,7 @@ async fn create_test_metadata() -> Arc<dyn MetadataStore> {
             partition_count: 1,
             retention_ms: Some(86400000),
             config: Default::default(),
+            cleanup_policy: Default::default(),
         })
         .await
         .unwrap();
@@ -53,8 +54,10 @@ fn create_write_config_with_wal(wal_dir: std::path::PathBuf) -> WriteConfig {
             directory: wal_dir,
             sync_policy: SyncPolicy::Always, // Force sync for test reliability
             max_size_bytes: 1024 * 1024,
+            ..Default::default()
         }),
         throttle_config: None,
+        ..Default::default()
     }
 }
 
@@ -302,6 +305,7 @@ async fn test_concurrent_partition_wals() {
             partition_count: 3,
             retention_ms: Some(86400000),
             config: Default::default(),
+            cleanup_policy: Default::default(),
         })
         .await
         .unwrap();
@@ -393,6 +397,7 @@ async fn test_wal_disabled_mode() {
         s3_upload_retries: 3,
         wal_config: None, // WAL disabled
         throttle_config: None,
+        ..Default::default()
     };
 
     let mut writer = PartitionWriter::new(
