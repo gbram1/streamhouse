@@ -29,10 +29,10 @@ tokio-util = { version = "0.7", features = ["codec"] }
 async-trait = "0.1"
 futures = "0.3"
 
-# Data processing
-arrow = "50.0"
-datafusion = "35.0"
-parquet = "50.0"
+# Data processing (Arrow/DataFusion for high-performance query execution)
+arrow = "53.0"
+datafusion = "43.0"
+parquet = "53.0"
 
 # Storage
 object_store = { version = "0.9", features = ["aws", "http"] }

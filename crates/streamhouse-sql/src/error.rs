@@ -40,4 +40,10 @@ pub enum SqlError {
 
     #[error("JSON error: {0}")]
     JsonError(#[from] serde_json::Error),
+
+    #[error("Arrow error: {0}")]
+    ArrowError(String),
+
+    #[error("DataFusion error: {0}")]
+    DataFusionError(String),
 }
