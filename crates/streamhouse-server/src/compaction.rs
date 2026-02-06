@@ -28,7 +28,7 @@ use tokio::time::interval;
 use tracing::{debug, error, info, warn};
 
 use object_store::ObjectStore;
-use streamhouse_metadata::{CleanupPolicy, MetadataStore};
+use streamhouse_metadata::MetadataStore;
 use streamhouse_storage::SegmentCache;
 
 /// Compaction configuration
@@ -200,7 +200,7 @@ impl CompactionTask {
         }
 
         // Build key -> latest record map
-        let mut key_map: HashMap<String, (u64, Vec<u8>)> = HashMap::new();
+        let _key_map: HashMap<String, (u64, Vec<u8>)> = HashMap::new();
         let mut records_processed = 0u64;
         let now_ms = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
@@ -247,6 +247,7 @@ impl CompactionTask {
 
 /// Result of compacting a partition
 #[derive(Debug, Default)]
+#[allow(dead_code)]
 struct CompactionResult {
     records_processed: u64,
     keys_removed: u64,
