@@ -95,6 +95,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             topic: TOPIC_NAME.to_string(),
             partition,
             records,
+            producer_id: None,
+            producer_epoch: None,
+            base_sequence: None,
+            transaction_id: None,
         };
         client.produce_batch(request).await?;
     }
@@ -119,6 +123,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             topic: TOPIC_NAME.to_string(),
             partition,
             records,
+            producer_id: None,
+            producer_epoch: None,
+            base_sequence: None,
+            transaction_id: None,
         };
 
         let response = client.produce_batch(request).await?;

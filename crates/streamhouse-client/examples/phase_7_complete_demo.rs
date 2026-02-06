@@ -10,7 +10,7 @@
 
 use std::collections::HashMap;
 use std::sync::Arc;
-use streamhouse_metadata::{MetadataStore, SqliteMetadataStore, TopicConfig};
+use streamhouse_metadata::{CleanupPolicy, MetadataStore, SqliteMetadataStore, TopicConfig};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -50,6 +50,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             name: topic_name.to_string(),
             partition_count: 4,
             retention_ms: Some(86400000), // 24 hours
+            cleanup_policy: CleanupPolicy::default(),
             config: HashMap::new(),
         };
 

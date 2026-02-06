@@ -2511,6 +2511,7 @@ mod tests {
             name: "test".to_string(),
             partition_count: 3,
             retention_ms: None,
+            cleanup_policy: CleanupPolicy::default(),
             config: HashMap::new(),
         };
 
@@ -2533,6 +2534,7 @@ mod tests {
             name: "test".to_string(),
             partition_count: 1,
             retention_ms: None,
+            cleanup_policy: CleanupPolicy::default(),
             config: HashMap::new(),
         };
 
@@ -2553,6 +2555,7 @@ mod tests {
                 name: "test".to_string(),
                 partition_count: 1,
                 retention_ms: None,
+                cleanup_policy: CleanupPolicy::default(),
                 config: HashMap::new(),
             })
             .await
@@ -2625,6 +2628,7 @@ mod tests {
                 name: "test".to_string(),
                 partition_count: 1,
                 retention_ms: None,
+                cleanup_policy: CleanupPolicy::default(),
                 config: HashMap::new(),
             })
             .await

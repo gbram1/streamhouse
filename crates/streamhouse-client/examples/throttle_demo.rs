@@ -9,22 +9,42 @@
 //! Usage:
 //!   cargo run --example throttle_demo
 
-use streamhouse_client::{Producer, ProducerBuilder};
-use bytes::Bytes;
+use std::collections::HashMap;
+use std::sync::Arc;
 use std::time::{Duration, Instant};
+use streamhouse_client::Producer;
+use streamhouse_metadata::{CleanupPolicy, MetadataStore, SqliteMetadataStore, TopicConfig};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    println!("🧪 S3 Throttling Protection Demo\n");
-    println!("=" .repeat(60));
+    println!("S3 Throttling Protection Demo\n");
+    println!("{}", "=".repeat(60));
+
+    // Setup metadata store
+    let temp_dir = tempfile::tempdir()?;
+    let db_path = temp_dir.path().join("throttle_demo.db");
+    let metadata: Arc<dyn MetadataStore> =
+        Arc::new(SqliteMetadataStore::new(db_path.to_str().unwrap()).await?);
+
+    // Create topic
+    metadata
+        .create_topic(TopicConfig {
+            name: "throttle-test".to_string(),
+            partition_count: 3,
+            retention_ms: Some(86400000),
+            cleanup_policy: CleanupPolicy::default(),
+            config: HashMap::new(),
+        })
+        .await?;
 
     // Create producer
-    let producer = ProducerBuilder::new()
-        .agent_address("http://localhost:50051")
+    let producer = Producer::builder()
+        .metadata_store(metadata)
+        .agent_group("default")
         .build()
         .await?;
 
-    println!("\n✓ Producer connected to agent");
+    println!("\nProducer connected to agent");
     println!("  Agent should have throttling enabled by default");
     println!("  (THROTTLE_ENABLED=true, rate limits: PUT=3000/s)\n");
 
@@ -33,7 +53,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut total_success = 0;
     let mut total_throttled = 0;
 
-    println!("📤 Sending bursts of 50 messages each...\n");
+    println!("Sending bursts of 50 messages each...\n");
 
     for batch in 0..10 {
         let start = Instant::now();
@@ -41,10 +61,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         let mut batch_throttled = 0;
 
         for i in 0..50 {
-            let key = format!("batch-{}-msg-{}", batch, i).into_bytes();
+            let key = format!("batch-{}-msg-{}", batch, i);
             let value = vec![0u8; 10000]; // 10KB per message
 
-            match producer.send(topic, Some(&key), &value, None).await {
+            match producer
+                .send(topic, Some(key.as_bytes()), &value, None)
+                .await
+            {
                 Ok(_) => {
                     batch_success += 1;
                 }
@@ -53,11 +76,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     if err_str.contains("RESOURCE_EXHAUSTED") || err_str.contains("rate limit") {
                         batch_throttled += 1;
                     } else if err_str.contains("UNAVAILABLE") || err_str.contains("circuit") {
-                        println!("  ⚠ Circuit breaker open - backing off");
+                        println!("  Circuit breaker open - backing off");
                         batch_throttled += 1;
                         tokio::time::sleep(Duration::from_millis(100)).await;
                     } else {
-                        eprintln!("  ❌ Unexpected error: {}", e);
+                        eprintln!("  Unexpected error: {}", e);
                     }
                 }
             }
@@ -76,18 +99,23 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         tokio::time::sleep(Duration::from_millis(50)).await;
     }
 
-    println!("\n" .repeat(1));
-    println!("=" .repeat(60));
-    println!("📊 Final Results:");
+    println!();
+    println!("{}", "=".repeat(60));
+    println!("Final Results:");
     println!("  - Total sent successfully: {}", total_success);
     println!("  - Total throttled: {}", total_throttled);
-    println!("  - Throttle rate: {:.1}%", (total_throttled as f64 / (total_success + total_throttled) as f64) * 100.0);
+    if total_success + total_throttled > 0 {
+        println!(
+            "  - Throttle rate: {:.1}%",
+            (total_throttled as f64 / (total_success + total_throttled) as f64) * 100.0
+        );
+    }
 
     if total_throttled > 0 {
-        println!("\n✅ Throttling protection is WORKING!");
+        println!("\nThrottling protection is WORKING!");
         println!("   The system rejected excess requests to stay within S3 limits.");
     } else {
-        println!("\n⚠ No throttling observed");
+        println!("\nNo throttling observed");
         println!("   Either limits are high enough, or agent has throttling disabled.");
     }
 

@@ -77,6 +77,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         s3_upload_retries: 3,
         wal_config: None,
         throttle_config: None,
+        multipart_threshold: 8 * 1024 * 1024,
+        multipart_part_size: 8 * 1024 * 1024,
+        parallel_upload_parts: 4,
     };
 
     println!("📤 Step 4: Writing 100 messages across {} partitions", topic_info.partition_count);

@@ -4,7 +4,7 @@
 
 use std::sync::Arc;
 use std::time::Duration;
-use streamhouse_metadata::{MetadataStore, TopicConfig};
+use streamhouse_metadata::{CleanupPolicy, MetadataStore, TopicConfig};
 
 /// Test that producer can register schema and consumer can resolve it
 ///
@@ -34,6 +34,7 @@ async fn test_end_to_end_schema_flow() {
             name: "test-schema-topic".to_string(),
             partition_count: 1,
             retention_ms: None,
+            cleanup_policy: CleanupPolicy::default(),
             config: Default::default(),
         })
         .await
@@ -158,6 +159,7 @@ async fn test_schema_caching() {
             name: "test-cache-topic".to_string(),
             partition_count: 1,
             retention_ms: None,
+            cleanup_policy: CleanupPolicy::default(),
             config: Default::default(),
         })
         .await
@@ -230,6 +232,7 @@ async fn test_compatibility_checking() {
             name: "test-compat-topic".to_string(),
             partition_count: 1,
             retention_ms: None,
+            cleanup_policy: CleanupPolicy::default(),
             config: Default::default(),
         })
         .await

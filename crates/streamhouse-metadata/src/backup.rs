@@ -242,7 +242,7 @@ mod tests {
         let backup = MetadataBackup::new().with_description("Test backup");
 
         let json = backup.to_json().unwrap();
-        assert!(json.contains("\"version\":1"));
+        assert!(json.contains("\"version\": 1"));
         assert!(json.contains("Test backup"));
 
         let restored = MetadataBackup::from_json(&json).unwrap();

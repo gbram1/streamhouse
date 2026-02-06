@@ -10,7 +10,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 use streamhouse_client::{Consumer, OffsetReset};
-use streamhouse_metadata::{MetadataStore, SqliteMetadataStore, TopicConfig};
+use streamhouse_metadata::{CleanupPolicy, MetadataStore, SqliteMetadataStore, TopicConfig};
 use streamhouse_storage::{PartitionWriter, WriteConfig};
 use tempfile::TempDir;
 
@@ -42,6 +42,7 @@ async fn setup_test_env_with_topic(
         name: topic_name.to_string(),
         partition_count: 2,
         retention_ms: None,
+        cleanup_policy: CleanupPolicy::default(),
         config: HashMap::new(),
     };
     metadata.create_topic(config).await.unwrap();

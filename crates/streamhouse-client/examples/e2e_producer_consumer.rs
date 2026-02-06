@@ -17,7 +17,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 use streamhouse_client::{Consumer, OffsetReset, Producer};
-use streamhouse_metadata::{MetadataStore, SqliteMetadataStore, TopicConfig};
+use streamhouse_metadata::{CleanupPolicy, MetadataStore, SqliteMetadataStore, TopicConfig};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -48,6 +48,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             name: "orders".to_string(),
             partition_count: 3,
             retention_ms: Some(86400000),
+            cleanup_policy: CleanupPolicy::default(),
             config: HashMap::new(),
         })
         .await?;
@@ -57,6 +58,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             name: "processed_orders".to_string(),
             partition_count: 3,
             retention_ms: Some(86400000),
+            cleanup_policy: CleanupPolicy::default(),
             config: HashMap::new(),
         })
         .await?;

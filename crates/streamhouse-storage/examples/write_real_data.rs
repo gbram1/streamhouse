@@ -14,7 +14,7 @@ use bytes::Bytes;
 use object_store::{aws::AmazonS3Builder, ObjectStore};
 use std::collections::HashMap;
 use std::sync::Arc;
-use streamhouse_metadata::{MetadataStore, SqliteMetadataStore, TopicConfig};
+use streamhouse_metadata::{CleanupPolicy, MetadataStore, SqliteMetadataStore, TopicConfig};
 use streamhouse_storage::{PartitionReader, PartitionWriter, SegmentCache, WriteConfig};
 
 fn current_timestamp() -> u64 {
@@ -69,6 +69,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             name: topic.to_string(),
             partition_count: 2,
             retention_ms: Some(604800000), // 7 days
+            cleanup_policy: CleanupPolicy::default(),
             config: HashMap::new(),
         })
         .await?;
@@ -89,6 +90,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         s3_upload_retries: 3,
         wal_config: None,
         throttle_config: None,
+        multipart_threshold: 8 * 1024 * 1024,
+        multipart_part_size: 8 * 1024 * 1024,
+        parallel_upload_parts: 4,
     };
 
     let mut writer = PartitionWriter::new(

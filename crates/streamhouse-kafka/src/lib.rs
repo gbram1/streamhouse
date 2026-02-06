@@ -24,13 +24,14 @@
 //!
 //! ## Usage
 //!
-//! ```rust,no_run
-//! use streamhouse_kafka::{KafkaServer, KafkaServerConfig};
+//! ```rust,ignore
+//! use streamhouse_kafka::{KafkaServer, KafkaServerConfig, KafkaServerState};
+//! use std::sync::Arc;
 //!
 //! #[tokio::main]
 //! async fn main() {
-//!     let config = KafkaServerConfig::default();
-//!     let server = KafkaServer::new(config, metadata, writer_pool, segment_cache, object_store).await.unwrap();
+//!     let state = Arc::new(KafkaServerState { /* ... */ });
+//!     let server = KafkaServer::new(state);
 //!     server.run().await.unwrap();
 //! }
 //! ```
