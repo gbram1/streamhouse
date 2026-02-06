@@ -250,7 +250,10 @@ impl PartitionWriter {
         };
 
         // Initialize throttle coordinator if configured
-        let throttle = config.throttle_config.as_ref().map(|throttle_config| ThrottleCoordinator::new(throttle_config.clone()));
+        let throttle = config
+            .throttle_config
+            .as_ref()
+            .map(|throttle_config| ThrottleCoordinator::new(throttle_config.clone()));
 
         Ok(Self {
             topic,

@@ -574,7 +574,6 @@ pub enum OrganizationPlan {
     Enterprise,
 }
 
-
 impl std::fmt::Display for OrganizationPlan {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
@@ -610,7 +609,6 @@ pub enum OrganizationStatus {
     /// Organization is deleted (soft delete)
     Deleted,
 }
-
 
 impl std::fmt::Display for OrganizationStatus {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -929,7 +927,6 @@ pub enum ProducerState {
     Expired,
 }
 
-
 impl std::fmt::Display for ProducerState {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
@@ -1032,7 +1029,6 @@ pub enum TransactionState {
     /// Transaction has been aborted.
     Aborted,
 }
-
 
 impl std::fmt::Display for TransactionState {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -1224,7 +1220,6 @@ pub enum LeaderChangeReason {
     Initial,
 }
 
-
 impl std::fmt::Display for LeaderChangeReason {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
@@ -1272,7 +1267,6 @@ pub enum LeaseTransferState {
     /// Transfer failed for other reasons.
     Failed,
 }
-
 
 impl std::fmt::Display for LeaseTransferState {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -1374,7 +1368,6 @@ pub enum MaterializedViewRefreshMode {
     Manual,
 }
 
-
 /// Status of a materialized view
 #[derive(Debug, Default, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -1389,7 +1382,6 @@ pub enum MaterializedViewStatus {
     /// View encountered an error
     Error,
 }
-
 
 /// Configuration for creating a materialized view
 #[derive(Debug, Clone, Serialize, Deserialize)]

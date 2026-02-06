@@ -1398,8 +1398,9 @@ impl MetadataStore for SqliteMetadataStore {
                     max_connections,
                 },
             )
-            .unwrap_or_else(|| {
-                OrganizationQuota { organization_id: organization_id.to_string(), ..Default::default() }
+            .unwrap_or_else(|| OrganizationQuota {
+                organization_id: organization_id.to_string(),
+                ..Default::default()
             }))
     }
 

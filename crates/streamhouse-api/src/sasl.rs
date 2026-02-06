@@ -851,9 +851,7 @@ impl ScramClient {
     pub fn verify_server_final(&self, server_final: &str) -> Result<bool> {
         // Check for error
         if let Some(error_msg) = server_final.strip_prefix("e=") {
-            return Err(ScramError::AuthenticationFailed(
-                error_msg.to_string(),
-            ));
+            return Err(ScramError::AuthenticationFailed(error_msg.to_string()));
         }
 
         // Parse server signature
