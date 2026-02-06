@@ -1602,6 +1602,7 @@ pub trait MetadataStore: Send + Sync {
     async fn cleanup_timed_out_transfers(&self) -> Result<u64>;
 
     /// Record a leadership change event for metrics/tracking.
+    #[allow(clippy::too_many_arguments)]
     async fn record_leader_change(
         &self,
         topic: &str,

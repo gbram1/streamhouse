@@ -155,7 +155,7 @@ impl MetadataBackup {
                 name: topic_backup.topic.name.clone(),
                 partition_count: topic_backup.topic.partition_count,
                 retention_ms: topic_backup.topic.retention_ms,
-                cleanup_policy: topic_backup.topic.cleanup_policy.clone(),
+                cleanup_policy: topic_backup.topic.cleanup_policy,
                 config: HashMap::new(),
             };
             match store.create_topic(config).await {
@@ -186,7 +186,7 @@ impl MetadataBackup {
             let config = CreateOrganization {
                 name: org_backup.organization.name.clone(),
                 slug: org_backup.organization.slug.clone(),
-                plan: org_backup.organization.plan.clone(),
+                plan: org_backup.organization.plan,
                 settings: HashMap::new(),
             };
             match store.create_organization(config).await {

@@ -1374,9 +1374,7 @@ impl MetadataStore for PostgresMetadataStore {
                 max_connections: r.get("max_connections"),
             })
             .unwrap_or_else(|| {
-                let mut quota = OrganizationQuota::default();
-                quota.organization_id = organization_id.to_string();
-                quota
+                OrganizationQuota { organization_id: organization_id.to_string(), ..Default::default() }
             }))
     }
 
@@ -2505,7 +2503,7 @@ impl MetadataStore for PostgresMetadataStore {
         .fetch_optional(&self.pool)
         .await?;
 
-        Ok(row.map(|r| Self::row_to_materialized_view(r)))
+        Ok(row.map(Self::row_to_materialized_view))
     }
 
     async fn get_materialized_view_by_id(&self, id: &str) -> Result<Option<MaterializedView>> {
@@ -2519,7 +2517,7 @@ impl MetadataStore for PostgresMetadataStore {
         .fetch_optional(&self.pool)
         .await?;
 
-        Ok(row.map(|r| Self::row_to_materialized_view(r)))
+        Ok(row.map(Self::row_to_materialized_view))
     }
 
     async fn list_materialized_views(&self) -> Result<Vec<MaterializedView>> {
@@ -2534,7 +2532,7 @@ impl MetadataStore for PostgresMetadataStore {
 
         Ok(rows
             .into_iter()
-            .map(|r| Self::row_to_materialized_view(r))
+            .map(Self::row_to_materialized_view)
             .collect())
     }
 

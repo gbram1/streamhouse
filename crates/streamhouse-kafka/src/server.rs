@@ -199,7 +199,7 @@ impl BoundKafkaServer {
 
 /// Per-connection state
 struct ConnectionState {
-    addr: SocketAddr,
+    _addr: SocketAddr,
     client_id: Option<String>,
 }
 
@@ -214,7 +214,7 @@ async fn handle_connection(
 
     let mut framed = Framed::new(stream, KafkaCodec::new());
     let mut conn_state = ConnectionState {
-        addr,
+        _addr: addr,
         client_id: None,
     };
 
@@ -254,7 +254,7 @@ async fn handle_connection(
 /// Route request to appropriate handler
 async fn handle_request(
     state: &Arc<KafkaServerState>,
-    conn_state: &ConnectionState,
+    _conn_state: &ConnectionState,
     header: &RequestHeader,
     body: &mut BytesMut,
 ) -> KafkaResult<BytesMut> {

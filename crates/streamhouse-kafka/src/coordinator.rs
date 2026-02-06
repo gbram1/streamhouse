@@ -17,10 +17,10 @@ use crate::error::{ErrorCode, KafkaResult};
 /// Session timeout bounds
 const MIN_SESSION_TIMEOUT_MS: i32 = 6000;
 const MAX_SESSION_TIMEOUT_MS: i32 = 300000;
-const DEFAULT_SESSION_TIMEOUT_MS: i32 = 30000;
+const _DEFAULT_SESSION_TIMEOUT_MS: i32 = 30000;
 
 /// Rebalance timeout
-const REBALANCE_TIMEOUT_MS: i32 = 60000;
+const _REBALANCE_TIMEOUT_MS: i32 = 60000;
 
 /// Consumer group state machine
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -109,11 +109,6 @@ impl ConsumerGroup {
         self.state_timestamp = Instant::now();
     }
 
-    /// Check if all members have joined
-    fn all_members_joined(&self) -> bool {
-        self.pending_members.is_empty()
-    }
-
     /// Get all member IDs
     pub fn member_ids(&self) -> Vec<String> {
         self.members.keys().cloned().collect()
@@ -146,14 +141,14 @@ impl ConsumerGroup {
 /// Group coordinator manages all consumer groups
 pub struct GroupCoordinator {
     groups: DashMap<String, RwLock<ConsumerGroup>>,
-    metadata: Arc<dyn MetadataStore>,
+    _metadata: Arc<dyn MetadataStore>,
 }
 
 impl GroupCoordinator {
     pub fn new(metadata: Arc<dyn MetadataStore>) -> Self {
         Self {
             groups: DashMap::new(),
-            metadata,
+            _metadata: metadata,
         }
     }
 
@@ -168,6 +163,7 @@ impl GroupCoordinator {
     }
 
     /// Handle JoinGroup request
+    #[allow(clippy::too_many_arguments)]
     pub async fn join_group(
         &self,
         group_id: &str,

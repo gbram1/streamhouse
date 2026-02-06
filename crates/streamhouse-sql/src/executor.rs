@@ -265,10 +265,10 @@ impl SqlExecutor {
             });
 
             // Apply statistical filters if any
-            if !stat_filters.is_empty() {
-                if !msg.matches_filters_with_context(&stat_filters, ctx_with_idx.as_ref()) {
-                    continue;
-                }
+            if !stat_filters.is_empty()
+                && !msg.matches_filters_with_context(&stat_filters, ctx_with_idx.as_ref())
+            {
+                continue;
             }
 
             // Skip offset
@@ -749,7 +749,7 @@ impl SqlExecutor {
                 break;
             }
             // Periodic timeout check during projection
-            if rows.len() % 1000 == 0 && start.elapsed().as_millis() as u64 > timeout_ms {
+            if rows.len().is_multiple_of(1000) && start.elapsed().as_millis() as u64 > timeout_ms {
                 return Err(SqlError::Timeout(timeout_ms));
             }
             let row = project_join_row(

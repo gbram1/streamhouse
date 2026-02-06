@@ -532,7 +532,7 @@ pub async fn handle_describe_groups(
         groups
     } else {
         // Legacy protocol
-        parse_array(body, |b| parse_string(b))?
+        parse_array(body, parse_string)?
     };
 
     debug!("DescribeGroups: groups={:?}", groups);
@@ -662,9 +662,6 @@ pub async fn handle_list_groups(
             Ok(state)
         })?;
         skip_tagged_fields(body)?;
-    } else if header.api_version >= 4 {
-        // v4 with states filter
-        let _states_filter = parse_array(body, |b| parse_string(b))?;
     }
 
     debug!("ListGroups");

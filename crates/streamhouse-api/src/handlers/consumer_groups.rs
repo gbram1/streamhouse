@@ -259,8 +259,8 @@ pub async fn reset_offsets(
     let offsets_to_reset: Vec<_> = current_offsets
         .iter()
         .filter(|o| {
-            let topic_match = req.topic.as_ref().map_or(true, |t| &o.topic == t);
-            let partition_match = req.partition.map_or(true, |p| o.partition_id == p);
+            let topic_match = req.topic.as_ref().is_none_or(|t| &o.topic == t);
+            let partition_match = req.partition.is_none_or(|p| o.partition_id == p);
             topic_match && partition_match
         })
         .collect();
@@ -404,7 +404,7 @@ pub async fn seek_to_timestamp(
     // Filter to the specified topic and partition
     let offsets_to_update: Vec<_> = current_offsets
         .iter()
-        .filter(|o| o.topic == req.topic && req.partition.map_or(true, |p| o.partition_id == p))
+        .filter(|o| o.topic == req.topic && req.partition.is_none_or(|p| o.partition_id == p))
         .collect();
 
     // If no existing offsets for this topic, create them for all partitions

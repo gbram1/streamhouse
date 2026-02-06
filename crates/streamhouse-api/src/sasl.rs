@@ -95,6 +95,7 @@ pub enum ScramMechanism {
 
 impl ScramMechanism {
     /// Parse mechanism from string
+    #[allow(clippy::should_implement_trait)]
     pub fn from_str(s: &str) -> Result<Self> {
         match s.to_uppercase().as_str() {
             "SCRAM-SHA-256" => Ok(ScramMechanism::ScramSha256),
@@ -809,7 +810,7 @@ impl ScramClient {
         let client_key = client_key_hmac.finalize().into_bytes();
 
         // StoredKey = H(ClientKey)
-        let stored_key = Sha256::digest(&client_key);
+        let stored_key = Sha256::digest(client_key);
 
         // ClientSignature = HMAC(StoredKey, AuthMessage)
         let mut client_sig_hmac = Hmac::<Sha256>::new_from_slice(&stored_key).unwrap();
@@ -831,7 +832,7 @@ impl ScramClient {
         let client_key = client_key_hmac.finalize().into_bytes();
 
         // StoredKey = H(ClientKey)
-        let stored_key = Sha512::digest(&client_key);
+        let stored_key = Sha512::digest(client_key);
 
         // ClientSignature = HMAC(StoredKey, AuthMessage)
         let mut client_sig_hmac = Hmac::<Sha512>::new_from_slice(&stored_key).unwrap();
@@ -849,15 +850,15 @@ impl ScramClient {
     /// Verify server-final-message
     pub fn verify_server_final(&self, server_final: &str) -> Result<bool> {
         // Check for error
-        if server_final.starts_with("e=") {
+        if let Some(error_msg) = server_final.strip_prefix("e=") {
             return Err(ScramError::AuthenticationFailed(
-                server_final[2..].to_string(),
+                error_msg.to_string(),
             ));
         }
 
         // Parse server signature
-        let server_signature = if server_final.starts_with("v=") {
-            &server_final[2..]
+        let server_signature = if let Some(sig) = server_final.strip_prefix("v=") {
+            sig
         } else {
             return Err(ScramError::InvalidFormat(
                 "Invalid server-final format".to_string(),

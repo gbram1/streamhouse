@@ -144,6 +144,7 @@ impl AclAction {
     }
 
     /// Convert from string
+    #[allow(clippy::should_implement_trait)]
     pub fn from_str(s: &str) -> Option<Self> {
         match s.to_lowercase().as_str() {
             "read" => Some(AclAction::Read),
@@ -242,13 +243,11 @@ fn pattern_matches(pattern: &str, value: &str) -> bool {
         return true;
     }
 
-    if pattern.ends_with('*') {
-        let prefix = &pattern[..pattern.len() - 1];
+    if let Some(prefix) = pattern.strip_suffix('*') {
         return value.starts_with(prefix);
     }
 
-    if pattern.starts_with('*') {
-        let suffix = &pattern[1..];
+    if let Some(suffix) = pattern.strip_prefix('*') {
         return value.ends_with(suffix);
     }
 
@@ -668,7 +667,7 @@ where
         // Skip if ACL not enabled
         if !self.config.enabled {
             let future = self.inner.call(request);
-            return Box::pin(async move { future.await });
+            return Box::pin(future);
         }
 
         let checker = self.checker.clone();

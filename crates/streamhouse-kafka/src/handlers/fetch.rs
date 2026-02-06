@@ -343,10 +343,7 @@ async fn fetch_partition(
     let high_watermark = partition_info.high_watermark as i64;
 
     // Read records from storage
-    let records = match read_records(state, topic_name, partition_id, offset, max_bytes).await {
-        Ok(records) => Some(records),
-        Err(_) => None,
-    };
+    let records = read_records(state, topic_name, partition_id, offset, max_bytes).await.ok();
 
     FetchPartitionResponse {
         partition_index: partition_id as i32,
@@ -375,7 +372,7 @@ async fn read_records(
     );
 
     // Estimate max records based on max_bytes (assume ~100 bytes per record average)
-    let max_records = (max_bytes / 100).max(1).min(10000);
+    let max_records = (max_bytes / 100).clamp(1, 10000);
 
     // Read records from storage
     let read_result = match reader.read(offset, max_records).await {

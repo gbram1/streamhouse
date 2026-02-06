@@ -40,7 +40,7 @@
 //! Target: 50K+ records/sec per agent with p99 latency < 10ms
 
 use std::sync::Arc;
-use streamhouse_metadata::{LeaderChangeReason, LeaseTransfer, MetadataStore, ProducerState};
+use streamhouse_metadata::{LeaderChangeReason, MetadataStore, ProducerState};
 use streamhouse_proto::producer::{
     producer_service_server::ProducerService, AbortTransactionRequest, AbortTransactionResponse,
     BeginTransactionRequest, BeginTransactionResponse, CommitTransactionRequest,
@@ -1100,6 +1100,7 @@ pub struct AgentCoordinationImpl {
     lease_manager: Arc<LeaseManager>,
 
     /// Metadata store for querying agent and partition info
+    #[allow(dead_code)]
     metadata_store: Arc<dyn MetadataStore>,
 
     /// Writer pool for flushing data before transfer

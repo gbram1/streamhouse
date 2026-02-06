@@ -497,13 +497,11 @@ impl LeaseManager {
         }
 
         // Round-robin distribute leases among available agents
-        let mut agent_idx = 0;
         let mut transfers_initiated = 0;
         let mut transfers_failed = 0;
 
-        for (topic, partition_id) in leases {
+        for (agent_idx, (topic, partition_id)) in leases.into_iter().enumerate() {
             let target_agent = &available_agents[agent_idx % available_agents.len()];
-            agent_idx += 1;
 
             match self
                 .initiate_transfer(

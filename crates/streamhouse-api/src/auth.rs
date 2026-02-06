@@ -303,7 +303,7 @@ where
         // Skip auth for routes that don't require it
         if self.required_permission == RequiredPermission::None {
             let future = self.inner.call(request);
-            return Box::pin(async move { future.await });
+            return Box::pin(future);
         }
 
         let metadata = self.metadata.clone();

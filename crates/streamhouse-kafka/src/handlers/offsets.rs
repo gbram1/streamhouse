@@ -190,7 +190,7 @@ async fn get_partition_offset(
     let offset = match timestamp {
         -1 => partition.high_watermark as i64,
         -2 => 0, // Earliest is always 0 for now
-        ts => {
+        _ts => {
             // TODO: Implement timestamp-based lookup
             partition.high_watermark as i64
         }
@@ -212,7 +212,7 @@ pub async fn handle_offset_commit(
     body: &mut BytesMut,
 ) -> KafkaResult<BytesMut> {
     // Parse request
-    let (group_id, generation_id, member_id, topics) = if header.api_version >= 8 {
+    let (group_id, _generation_id, _member_id, topics) = if header.api_version >= 8 {
         // Compact protocol
         let group_id = parse_compact_string(body)?;
         let generation_id = body.get_i32();

@@ -255,17 +255,16 @@ fn check_protobuf_backward_compatible(
 
     // Check for removed required fields (field in writer but not in reader)
     for (&number, writer_field) in &writer_fields {
-        if !reader_fields.contains_key(&number) {
-            if writer_field.label
+        if !reader_fields.contains_key(&number)
+            && writer_field.label
                 == Some(prost_types::field_descriptor_proto::Label::Required as i32)
-            {
-                tracing::warn!(
-                    field_number = number,
-                    field_name = ?writer_field.name,
-                    "Required field removed from schema"
-                );
-                return Ok(false);
-            }
+        {
+            tracing::warn!(
+                field_number = number,
+                field_name = ?writer_field.name,
+                "Required field removed from schema"
+            );
+            return Ok(false);
         }
     }
 

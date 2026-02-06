@@ -70,9 +70,12 @@ pub mod pb {
 }
 
 mod commands;
+#[allow(dead_code)]
 mod config;
+#[allow(dead_code)]
 mod format;
 mod repl;
+#[allow(dead_code)]
 mod rest_client;
 
 use pb::stream_house_client::StreamHouseClient;

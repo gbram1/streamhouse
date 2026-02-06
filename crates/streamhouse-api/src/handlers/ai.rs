@@ -486,7 +486,7 @@ async fn build_schema_context(
             context.push_str("    - offset (BIGINT): Message offset within partition\n");
             context.push_str("    - timestamp (TIMESTAMP): Message timestamp\n");
             context.push_str("    - headers (JSON): Message headers\n");
-            context.push_str("\n");
+            context.push('\n');
         }
     }
 
@@ -1304,22 +1304,12 @@ pub async fn infer_schema(
 }
 
 /// Field statistics during analysis
+#[derive(Default)]
 struct FieldStats {
     count: usize,
     null_count: usize,
     types: HashMap<String, usize>,
     unique_values: Vec<serde_json::Value>,
-}
-
-impl Default for FieldStats {
-    fn default() -> Self {
-        Self {
-            count: 0,
-            null_count: 0,
-            types: HashMap::new(),
-            unique_values: Vec::new(),
-        }
-    }
 }
 
 /// Recursively analyze JSON value and collect field stats

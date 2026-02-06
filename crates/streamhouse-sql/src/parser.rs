@@ -432,7 +432,7 @@ fn parse_column_ref(expr: &Expr) -> Result<(String, String)> {
                     FunctionArg::Unnamed(FunctionArgExpr::Expr(Expr::CompoundIdentifier(
                         parts,
                     ))) => {
-                        if parts.len() >= 1 {
+                        if !parts.is_empty() {
                             parts[0].value.clone()
                         } else {
                             return Err(SqlError::ParseError(
@@ -765,7 +765,7 @@ fn parse_interval_expr(expr: &Expr) -> Result<i64> {
 
 /// Parse interval string like "5 minutes", "1 hour", "30 seconds"
 fn parse_interval_string(s: &str) -> Result<i64> {
-    let parts: Vec<&str> = s.trim().split_whitespace().collect();
+    let parts: Vec<&str> = s.split_whitespace().collect();
     if parts.is_empty() {
         return Err(SqlError::ParseError("Empty interval string".to_string()));
     }
@@ -814,11 +814,7 @@ fn parse_create_materialized_view(sql: &str) -> Result<SqlQuery> {
     let or_replace = sql_upper.contains("OR REPLACE");
 
     // Extract view name
-    let name_start = if or_replace {
-        sql_upper.find("MATERIALIZED VIEW").unwrap() + 17
-    } else {
-        sql_upper.find("MATERIALIZED VIEW").unwrap() + 17
-    };
+    let name_start = sql_upper.find("MATERIALIZED VIEW").unwrap() + 17;
 
     // Find the AS keyword
     let as_pos = sql_upper.find(" AS ").ok_or_else(|| {

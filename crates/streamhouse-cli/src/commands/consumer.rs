@@ -119,6 +119,7 @@ struct ResetOffsetsRequest {
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
+#[allow(dead_code)]
 pub struct ResetOffsetsResponse {
     pub success: bool,
     pub partitions_reset: usize,
@@ -145,6 +146,7 @@ struct SeekToTimestampRequest {
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
+#[allow(dead_code)]
 pub struct SeekToTimestampResponse {
     pub success: bool,
     pub partitions_updated: usize,
@@ -153,6 +155,7 @@ pub struct SeekToTimestampResponse {
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
+#[allow(dead_code)]
 pub struct SeekOffsetDetail {
     pub topic: String,
     pub partition: u32,
@@ -163,6 +166,7 @@ pub struct SeekOffsetDetail {
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
+#[allow(dead_code)]
 pub struct DeleteConsumerGroupResponse {
     pub success: bool,
     pub group_id: String,

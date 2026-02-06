@@ -78,6 +78,7 @@ pub enum CleanupPolicy {
 
 impl CleanupPolicy {
     /// Parse cleanup policy from string (Kafka-compatible format)
+    #[allow(clippy::should_implement_trait)]
     pub fn from_str(s: &str) -> Self {
         match s.to_lowercase().as_str() {
             "compact" => CleanupPolicy::Compact,
@@ -561,10 +562,11 @@ pub struct Organization {
 }
 
 /// Organization billing plan.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum OrganizationPlan {
     /// Free tier with limited resources
+    #[default]
     Free,
     /// Professional tier with higher limits
     Pro,
@@ -572,11 +574,6 @@ pub enum OrganizationPlan {
     Enterprise,
 }
 
-impl Default for OrganizationPlan {
-    fn default() -> Self {
-        OrganizationPlan::Free
-    }
-}
 
 impl std::fmt::Display for OrganizationPlan {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -602,10 +599,11 @@ impl std::str::FromStr for OrganizationPlan {
 }
 
 /// Organization account status.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum OrganizationStatus {
     /// Organization is active and can use all features
+    #[default]
     Active,
     /// Organization is suspended (e.g., payment issues)
     Suspended,
@@ -613,11 +611,6 @@ pub enum OrganizationStatus {
     Deleted,
 }
 
-impl Default for OrganizationStatus {
-    fn default() -> Self {
-        OrganizationStatus::Active
-    }
-}
 
 impl std::fmt::Display for OrganizationStatus {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -924,10 +917,11 @@ pub struct Producer {
 }
 
 /// Producer state.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ProducerState {
     /// Producer is active and can send records.
+    #[default]
     Active,
     /// Producer has been fenced by a newer instance.
     Fenced,
@@ -935,11 +929,6 @@ pub enum ProducerState {
     Expired,
 }
 
-impl Default for ProducerState {
-    fn default() -> Self {
-        Self::Active
-    }
-}
 
 impl std::fmt::Display for ProducerState {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -1030,10 +1019,11 @@ pub struct Transaction {
 }
 
 /// Transaction state.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum TransactionState {
     /// Transaction is ongoing, records being added.
+    #[default]
     Ongoing,
     /// Transaction is preparing to commit (two-phase commit).
     Preparing,
@@ -1043,11 +1033,6 @@ pub enum TransactionState {
     Aborted,
 }
 
-impl Default for TransactionState {
-    fn default() -> Self {
-        Self::Ongoing
-    }
-}
 
 impl std::fmt::Display for TransactionState {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -1223,7 +1208,7 @@ pub enum AckMode {
 /// Reason for leadership change.
 ///
 /// Used for tracking and metrics to understand why leadership changed.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum LeaderChangeReason {
     /// Lease expired due to agent failure or network partition.
@@ -1235,14 +1220,10 @@ pub enum LeaderChangeReason {
     /// Rebalance triggered by partition reassignment.
     Rebalance,
     /// Initial lease acquisition (no previous leader).
+    #[default]
     Initial,
 }
 
-impl Default for LeaderChangeReason {
-    fn default() -> Self {
-        Self::Initial
-    }
-}
 
 impl std::fmt::Display for LeaderChangeReason {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -1272,10 +1253,11 @@ impl std::str::FromStr for LeaderChangeReason {
 }
 
 /// State of a pending lease transfer.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum LeaseTransferState {
     /// Transfer has been initiated but not yet accepted.
+    #[default]
     Pending,
     /// Transfer has been accepted, waiting for data sync.
     Accepted,
@@ -1291,11 +1273,6 @@ pub enum LeaseTransferState {
     Failed,
 }
 
-impl Default for LeaseTransferState {
-    fn default() -> Self {
-        Self::Pending
-    }
-}
 
 impl std::fmt::Display for LeaseTransferState {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -1382,10 +1359,11 @@ pub struct LeaseTransfer {
 // ============================================================================
 
 /// Refresh mode for materialized views
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Default, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum MaterializedViewRefreshMode {
     /// Continuously update as new messages arrive
+    #[default]
     Continuous,
     /// Refresh periodically on a schedule
     Periodic {
@@ -1396,17 +1374,13 @@ pub enum MaterializedViewRefreshMode {
     Manual,
 }
 
-impl Default for MaterializedViewRefreshMode {
-    fn default() -> Self {
-        MaterializedViewRefreshMode::Continuous
-    }
-}
 
 /// Status of a materialized view
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Default, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum MaterializedViewStatus {
     /// View is being initialized/bootstrapped
+    #[default]
     Initializing,
     /// View is actively being maintained
     Running,
@@ -1416,11 +1390,6 @@ pub enum MaterializedViewStatus {
     Error,
 }
 
-impl Default for MaterializedViewStatus {
-    fn default() -> Self {
-        MaterializedViewStatus::Initializing
-    }
-}
 
 /// Configuration for creating a materialized view
 #[derive(Debug, Clone, Serialize, Deserialize)]

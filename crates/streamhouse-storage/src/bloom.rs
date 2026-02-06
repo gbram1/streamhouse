@@ -138,7 +138,7 @@ impl SegmentBloomFilter {
 
     /// Get the size of the bloom filter in bytes
     pub fn size_bytes(&self) -> usize {
-        (self.bloom.number_of_bits() as usize + 7) / 8
+        (self.bloom.number_of_bits() as usize).div_ceil(8)
     }
 
     /// Get the number of hash functions used

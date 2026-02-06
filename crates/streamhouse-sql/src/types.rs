@@ -116,10 +116,11 @@ pub enum JoinSelectColumn {
 // ============================================================================
 
 /// Refresh mode for materialized views
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "lowercase")]
 pub enum RefreshMode {
     /// Continuously update as new messages arrive (streaming)
+    #[default]
     Continuous,
     /// Refresh periodically on a schedule
     Periodic {
@@ -130,11 +131,6 @@ pub enum RefreshMode {
     Manual,
 }
 
-impl Default for RefreshMode {
-    fn default() -> Self {
-        RefreshMode::Continuous
-    }
-}
 
 /// CREATE MATERIALIZED VIEW query structure
 #[derive(Debug, Clone)]
@@ -186,7 +182,7 @@ pub struct MaterializedViewInfo {
 }
 
 /// Status of a materialized view
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "lowercase")]
 pub enum MaterializedViewStatus {
     /// View is actively being maintained
@@ -196,13 +192,8 @@ pub enum MaterializedViewStatus {
     /// View encountered an error
     Error(String),
     /// View is being initialized/bootstrapped
+    #[default]
     Initializing,
-}
-
-impl Default for MaterializedViewStatus {
-    fn default() -> Self {
-        MaterializedViewStatus::Initializing
-    }
 }
 
 /// Window type for streaming aggregations
@@ -685,6 +676,7 @@ impl MessageRow {
             .all(|filter| self.matches_filter_with_context(filter, ctx))
     }
 
+    #[allow(dead_code)]
     fn matches_filter(&self, filter: &Filter) -> bool {
         self.matches_filter_with_context(filter, None)
     }
