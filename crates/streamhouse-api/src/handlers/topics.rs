@@ -26,11 +26,9 @@ fn decode_message_value(data: &[u8]) -> String {
     if payload.len() >= 4 && &payload[0..3] == b"Obj" {
         if let Ok(reader) = Reader::new(payload) {
             let mut records: Vec<serde_json::Value> = Vec::new();
-            for value in reader {
-                if let Ok(avro_value) = value {
-                    if let Some(json) = avro_to_json(&avro_value) {
-                        records.push(json);
-                    }
+            for avro_value in reader.flatten() {
+                if let Some(json) = avro_to_json(&avro_value) {
+                    records.push(json);
                 }
             }
             // Return first record if single, otherwise array

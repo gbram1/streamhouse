@@ -50,7 +50,7 @@ pub async fn handle_produce(
         (acks, timeout_ms, topics)
     } else {
         // Legacy protocol (v0-v8)
-        let transactional_id = if header.api_version >= 3 {
+        let _transactional_id = if header.api_version >= 3 {
             parse_nullable_string(body)?
         } else {
             None
@@ -269,7 +269,7 @@ async fn process_records(
 struct ParsedRecord {
     key: Option<Vec<u8>>,
     value: Vec<u8>,
-    headers: Vec<(String, Vec<u8>)>,
+    _headers: Vec<(String, Vec<u8>)>,
 }
 
 /// Parse a Kafka RecordBatch
@@ -282,7 +282,7 @@ fn parse_record_batch(data: &[u8]) -> KafkaResult<Vec<ParsedRecord>> {
 
     // RecordBatch header
     let _base_offset = buf.get_i64();
-    let batch_length = buf.get_i32() as usize;
+    let _batch_length = buf.get_i32() as usize;
     let _partition_leader_epoch = buf.get_i32();
     let magic = buf.get_i8();
 
@@ -379,7 +379,7 @@ fn parse_record(buf: &mut BytesMut) -> KafkaResult<ParsedRecord> {
     Ok(ParsedRecord {
         key,
         value,
-        headers,
+        _headers: headers,
     })
 }
 

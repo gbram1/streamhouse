@@ -133,6 +133,7 @@ impl RateLimiter {
     }
 
     /// Get remaining capacity.
+    #[allow(dead_code)]
     fn remaining(&self) -> i64 {
         self.max_count - self.count
     }

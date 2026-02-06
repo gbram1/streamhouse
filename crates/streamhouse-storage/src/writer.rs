@@ -250,11 +250,7 @@ impl PartitionWriter {
         };
 
         // Initialize throttle coordinator if configured
-        let throttle = if let Some(ref throttle_config) = config.throttle_config {
-            Some(ThrottleCoordinator::new(throttle_config.clone()))
-        } else {
-            None
-        };
+        let throttle = config.throttle_config.as_ref().map(|throttle_config| ThrottleCoordinator::new(throttle_config.clone()));
 
         Ok(Self {
             topic,
@@ -592,7 +588,7 @@ impl PartitionWriter {
         use tokio::io::AsyncWriteExt;
 
         let part_size = self.config.multipart_part_size;
-        let num_parts = (data.len() + part_size - 1) / part_size;
+        let num_parts = data.len().div_ceil(part_size);
 
         tracing::debug!(
             path = %path,

@@ -1135,7 +1135,7 @@ mod tests {
         encode_string(&mut buf, "alpha");
         encode_string(&mut buf, "beta");
 
-        let result = parse_array(&mut buf, |b| parse_string(b)).unwrap();
+        let result = parse_array(&mut buf, parse_string).unwrap();
         assert_eq!(result, vec!["alpha".to_string(), "beta".to_string()]);
     }
 

@@ -1399,9 +1399,7 @@ impl MetadataStore for SqliteMetadataStore {
                 },
             )
             .unwrap_or_else(|| {
-                let mut quota = OrganizationQuota::default();
-                quota.organization_id = organization_id.to_string();
-                quota
+                OrganizationQuota { organization_id: organization_id.to_string(), ..Default::default() }
             }))
     }
 
@@ -2329,7 +2327,7 @@ impl MetadataStore for SqliteMetadataStore {
             "INSERT INTO leader_changes (topic, partition_id, from_agent_id, to_agent_id, reason, epoch, gap_ms, changed_at) \
              VALUES ('{}', {}, '{}', '{}', '{}', {}, 0, {})",
             transfer.topic, transfer.partition_id, transfer.from_agent_id,
-            transfer.to_agent_id, transfer.reason.to_string(), new_epoch, now
+            transfer.to_agent_id, transfer.reason, new_epoch, now
         );
         sqlx::query(&change_query).execute(&mut *tx).await?;
 

@@ -57,7 +57,7 @@
 use std::sync::Arc;
 
 use streamhouse_metadata::tenant::TenantContext;
-use streamhouse_metadata::{ApiKey, MetadataStore, Organization, OrganizationQuota};
+use streamhouse_metadata::MetadataStore;
 
 use crate::error::{KafkaError, KafkaResult};
 
@@ -201,7 +201,7 @@ impl<S: MetadataStore> KafkaTenantResolver<S> {
         client_id: &str,
     ) -> KafkaResult<Option<KafkaTenantContext>> {
         // Check if client_id starts with a key prefix pattern (sk_live_, sk_test_)
-        let prefix = if client_id.starts_with("sk_live_") || client_id.starts_with("sk_test_") {
+        let _prefix = if client_id.starts_with("sk_live_") || client_id.starts_with("sk_test_") {
             // Extract the first 20 chars (sk_live_ + 12 chars of key prefix)
             if client_id.len() >= 20 {
                 &client_id[..20]
@@ -217,8 +217,8 @@ impl<S: MetadataStore> KafkaTenantResolver<S> {
         // For now, we'll use the full client_id as the key if it looks like one.
         if client_id.starts_with("sk_") && client_id.len() >= 32 {
             // This looks like a full API key in client_id
-            let parts: Vec<&str> = client_id.splitn(2, |c| c == '_').collect();
-            if parts.len() >= 1 {
+            let parts: Vec<&str> = client_id.splitn(2, '_').collect();
+            if !parts.is_empty() {
                 // Try to use the full client_id as an API key
                 match self.resolve_sasl_plain(client_id, client_id).await {
                     Ok(ctx) => {

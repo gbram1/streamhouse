@@ -195,7 +195,7 @@ impl JwtConfig {
         public_key_pem: &[u8],
     ) -> Result<Self, JwtError> {
         let encoding_key = private_key_pem
-            .map(|key| EncodingKey::from_rsa_pem(key))
+            .map(EncodingKey::from_rsa_pem)
             .transpose()
             .map_err(|e| JwtError::ConfigError(format!("Invalid RSA private key: {}", e)))?;
 
@@ -218,7 +218,7 @@ impl JwtConfig {
         public_key_pem: &[u8],
     ) -> Result<Self, JwtError> {
         let encoding_key = private_key_pem
-            .map(|key| EncodingKey::from_ec_pem(key))
+            .map(EncodingKey::from_ec_pem)
             .transpose()
             .map_err(|e| JwtError::ConfigError(format!("Invalid ECDSA private key: {}", e)))?;
 
@@ -579,7 +579,7 @@ where
         // Skip auth for routes that don't require it
         if self.required_permission == RequiredPermission::None {
             let future = self.inner.call(request);
-            return Box::pin(async move { future.await });
+            return Box::pin(future);
         }
 
         let service = self.service.clone();

@@ -358,7 +358,7 @@ pub enum BackupStatus {
 }
 
 /// Metadata about backup contents
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct BackupMetadata {
     /// Number of topics backed up
     pub topic_count: usize,
@@ -370,18 +370,6 @@ pub struct BackupMetadata {
     pub user_count: usize,
     /// Number of schemas backed up
     pub schema_count: usize,
-}
-
-impl Default for BackupMetadata {
-    fn default() -> Self {
-        Self {
-            topic_count: 0,
-            consumer_group_count: 0,
-            acl_count: 0,
-            user_count: 0,
-            schema_count: 0,
-        }
-    }
 }
 
 /// Snapshot of system state for backup/recovery

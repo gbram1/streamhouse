@@ -612,7 +612,7 @@ impl OAuthService {
 
         let response = self
             .http_client
-            .post(&self.config.provider.token_endpoint())
+            .post(self.config.provider.token_endpoint())
             .header(header::ACCEPT, "application/json")
             .form(&params)
             .send()
@@ -685,7 +685,7 @@ impl OAuthService {
     pub async fn get_user_info(&self, access_token: &str) -> Result<UserInfo> {
         let response = self
             .http_client
-            .get(&self.config.provider.userinfo_endpoint())
+            .get(self.config.provider.userinfo_endpoint())
             .header(header::AUTHORIZATION, format!("Bearer {}", access_token))
             .header(header::ACCEPT, "application/json")
             .send()
@@ -718,7 +718,7 @@ impl OAuthService {
 
         let response = self
             .http_client
-            .post(&self.config.provider.token_endpoint())
+            .post(self.config.provider.token_endpoint())
             .header(header::ACCEPT, "application/json")
             .form(&params)
             .send()

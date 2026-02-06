@@ -591,20 +591,20 @@ impl FailoverManager {
                 node.failed_checks += 1;
 
                 // Check if threshold exceeded
-                if node.failed_checks >= self.config.unhealthy_threshold {
-                    if old_status.is_healthy() {
-                        node.health = HealthStatus::Unhealthy;
+                if node.failed_checks >= self.config.unhealthy_threshold
+                    && old_status.is_healthy()
+                {
+                    node.health = HealthStatus::Unhealthy;
 
-                        let _ = self.event_tx.send(FailoverEvent::HealthChanged {
-                            node_id: node_id.to_string(),
-                            old_status,
-                            new_status: HealthStatus::Unhealthy,
-                        });
+                    let _ = self.event_tx.send(FailoverEvent::HealthChanged {
+                        node_id: node_id.to_string(),
+                        old_status,
+                        new_status: HealthStatus::Unhealthy,
+                    });
 
-                        let _ = self.event_tx.send(FailoverEvent::NodeDown {
-                            node_id: node_id.to_string(),
-                        });
-                    }
+                    let _ = self.event_tx.send(FailoverEvent::NodeDown {
+                        node_id: node_id.to_string(),
+                    });
                 }
             }
         }

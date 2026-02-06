@@ -66,6 +66,7 @@ struct SqlQueryResponse {
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
+#[allow(dead_code)]
 struct ColumnInfo {
     name: String,
     data_type: String,
@@ -73,6 +74,7 @@ struct ColumnInfo {
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
+#[allow(dead_code)]
 struct SqlErrorResponse {
     error: String,
     message: String,

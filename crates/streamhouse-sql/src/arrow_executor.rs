@@ -54,6 +54,7 @@ pub struct ArrowExecutor {
     segment_cache: Arc<SegmentCache>,
     object_store: Arc<dyn object_store::ObjectStore>,
     /// Cached DataFusion session context for query execution
+    #[allow(dead_code)]
     ctx: Mutex<SessionContext>,
 }
 
@@ -125,6 +126,7 @@ impl ArrowExecutor {
     }
 
     /// Build column info for window query results
+    #[allow(dead_code)]
     fn build_window_columns(&self, query: &WindowAggregateQuery) -> Vec<ColumnInfo> {
         let mut columns = vec![
             ColumnInfo {
@@ -194,6 +196,7 @@ impl ArrowExecutor {
     }
 
     /// Convert Arrow RecordBatches to Row format for API compatibility
+    #[allow(dead_code)]
     fn record_batches_to_rows(&self, batches: &[RecordBatch]) -> Result<Vec<Row>> {
         let mut rows = Vec::new();
 
@@ -220,6 +223,7 @@ impl ArrowExecutor {
     }
 
     /// Convert an Arrow array value at a given index to JSON
+    #[allow(dead_code)]
     fn array_value_to_json(&self, array: &ArrayRef, index: usize) -> Result<serde_json::Value> {
         if array.is_null(index) {
             return Ok(serde_json::Value::Null);
@@ -481,6 +485,7 @@ impl ArrowExecutor {
 
     /// Perform fast tumbling window aggregation using Arrow
     /// This is optimized for the most common case
+    #[allow(clippy::too_many_arguments)]
     pub async fn execute_tumble_aggregate(
         &self,
         topic: &str,
