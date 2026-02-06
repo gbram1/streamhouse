@@ -92,6 +92,7 @@ criterion = "0.5"
 
 # Formatting
 colored = "2.1"
+comfy-table = "=7.1.0"  # Pin to avoid unstable feature in 7.2.x
 
 # User directories
 dirs = "5.0"
@@ -104,3 +105,4 @@ axum = { version = "0.7", features = ["macros"] }
 opt-level = 3
 lto = true
 codegen-units = 1
+strip = true

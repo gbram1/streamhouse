@@ -56,10 +56,10 @@ function SkeletonTable({ rows = 5 }: { rows?: number }) {
   )
 }
 
-function SkeletonChart({ className }: { className?: string }) {
+function SkeletonChart({ className, height = 256 }: { className?: string; height?: number }) {
   return (
     <div className={cn("w-full", className)}>
-      <div className="flex items-end justify-between gap-2 h-64">
+      <div className="flex items-end justify-between gap-2" style={{ height }}>
         {Array.from({ length: 12 }).map((_, i) => (
           <Skeleton
             key={i}

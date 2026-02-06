@@ -192,12 +192,12 @@ export function EmptySearchResults({ query }: { query: string }) {
   )
 }
 
-export function NoDataAvailable({ message }: { message?: string }) {
+export function NoDataAvailable({ message, description }: { message?: string; description?: string }) {
   return (
     <EmptyState
       icon={Activity}
-      title="No data available"
-      description={message || "Data will appear here once it becomes available."}
+      title={message || "No data available"}
+      description={description || "Data will appear here once it becomes available."}
       variant="compact"
     />
   )
