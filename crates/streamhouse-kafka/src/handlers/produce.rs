@@ -8,7 +8,7 @@ use tracing::{debug, warn};
 use crate::codec::{
     encode_compact_string, encode_empty_tagged_fields, encode_string, encode_unsigned_varint,
     parse_array, parse_compact_array, parse_compact_nullable_bytes, parse_compact_string,
-    parse_nullable_bytes, parse_nullable_string, parse_string, RequestHeader, skip_tagged_fields,
+    parse_nullable_bytes, parse_nullable_string, parse_string, skip_tagged_fields, RequestHeader,
 };
 use crate::error::{ErrorCode, KafkaError, KafkaResult};
 use crate::server::KafkaServerState;
@@ -275,9 +275,7 @@ struct ParsedRecord {
 /// Parse a Kafka RecordBatch
 fn parse_record_batch(data: &[u8]) -> KafkaResult<Vec<ParsedRecord>> {
     if data.len() < 61 {
-        return Err(KafkaError::Protocol(
-            "RecordBatch too short".to_string(),
-        ));
+        return Err(KafkaError::Protocol("RecordBatch too short".to_string()));
     }
 
     let mut buf = BytesMut::from(data);
@@ -391,7 +389,9 @@ fn parse_varint(buf: &mut BytesMut) -> KafkaResult<i64> {
 
     loop {
         if buf.is_empty() {
-            return Err(KafkaError::Protocol("Buffer too short for varint".to_string()));
+            return Err(KafkaError::Protocol(
+                "Buffer too short for varint".to_string(),
+            ));
         }
 
         let byte = buf.get_u8();
@@ -436,8 +436,8 @@ fn decompress(data: &BytesMut, compression: CompressionType) -> KafkaResult<Vec<
             Ok(decompressed)
         }
         CompressionType::Zstd => {
-            let decompressed = zstd::decode_all(&data[..])
-                .map_err(|e| KafkaError::Compression(e.to_string()))?;
+            let decompressed =
+                zstd::decode_all(&data[..]).map_err(|e| KafkaError::Compression(e.to_string()))?;
             Ok(decompressed)
         }
     }

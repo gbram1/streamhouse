@@ -334,7 +334,9 @@ impl ClientFinalMessage {
 
         Ok(Self {
             channel_binding: channel_binding.ok_or_else(|| {
-                ScramError::InvalidFormat("Missing channel binding (c=) in client-final".to_string())
+                ScramError::InvalidFormat(
+                    "Missing channel binding (c=) in client-final".to_string(),
+                )
             })?,
             nonce: nonce.ok_or_else(|| {
                 ScramError::InvalidFormat("Missing nonce (r=) in client-final".to_string())
@@ -382,12 +384,8 @@ impl ScramServer {
         getrandom::getrandom(&mut salt).map_err(|e| ScramError::Internal(e.to_string()))?;
 
         // Derive keys
-        let (stored_key, server_key) = self.derive_keys(
-            password,
-            &salt,
-            self.config.iteration_count,
-            mechanism,
-        );
+        let (stored_key, server_key) =
+            self.derive_keys(password, &salt, self.config.iteration_count, mechanism);
 
         let creds = StoredCredentials {
             username: username.to_string(),
@@ -425,12 +423,8 @@ impl ScramServer {
         mechanism: ScramMechanism,
     ) -> (Vec<u8>, Vec<u8>) {
         match mechanism {
-            ScramMechanism::ScramSha256 => {
-                self.derive_keys_sha256(password, salt, iterations)
-            }
-            ScramMechanism::ScramSha512 => {
-                self.derive_keys_sha512(password, salt, iterations)
-            }
+            ScramMechanism::ScramSha256 => self.derive_keys_sha256(password, salt, iterations),
+            ScramMechanism::ScramSha512 => self.derive_keys_sha512(password, salt, iterations),
         }
     }
 
@@ -442,12 +436,7 @@ impl ScramServer {
     ) -> (Vec<u8>, Vec<u8>) {
         // SaltedPassword = Hi(password, salt, i)
         let mut salted_password = vec![0u8; 32];
-        pbkdf2_hmac::<Sha256>(
-            password.as_bytes(),
-            salt,
-            iterations,
-            &mut salted_password,
-        );
+        pbkdf2_hmac::<Sha256>(password.as_bytes(), salt, iterations, &mut salted_password);
 
         // ClientKey = HMAC(SaltedPassword, "Client Key")
         let mut client_key_hmac = Hmac::<Sha256>::new_from_slice(&salted_password).unwrap();
@@ -473,12 +462,7 @@ impl ScramServer {
     ) -> (Vec<u8>, Vec<u8>) {
         // SaltedPassword = Hi(password, salt, i)
         let mut salted_password = vec![0u8; 64];
-        pbkdf2_hmac::<Sha512>(
-            password.as_bytes(),
-            salt,
-            iterations,
-            &mut salted_password,
-        );
+        pbkdf2_hmac::<Sha512>(password.as_bytes(), salt, iterations, &mut salted_password);
 
         // ClientKey = HMAC(SaltedPassword, "Client Key")
         let mut client_key_hmac = Hmac::<Sha512>::new_from_slice(&salted_password).unwrap();
@@ -753,9 +737,8 @@ impl ScramClient {
         let nonce = nonce.ok_or_else(|| {
             ScramError::InvalidFormat("Missing nonce in server-first".to_string())
         })?;
-        let salt = salt.ok_or_else(|| {
-            ScramError::InvalidFormat("Missing salt in server-first".to_string())
-        })?;
+        let salt = salt
+            .ok_or_else(|| ScramError::InvalidFormat("Missing salt in server-first".to_string()))?;
         let iterations = iterations.ok_or_else(|| {
             ScramError::InvalidFormat("Missing iterations in server-first".to_string())
         })?;
@@ -812,7 +795,11 @@ impl ScramClient {
         self.auth_message = Some(auth_message);
         self.salted_password = Some(salted_password);
 
-        Ok(format!("{},p={}", client_final_without_proof, STANDARD.encode(&proof)))
+        Ok(format!(
+            "{},p={}",
+            client_final_without_proof,
+            STANDARD.encode(&proof)
+        ))
     }
 
     fn compute_proof_sha256(&self, salted_password: &[u8], auth_message: &str) -> Vec<u8> {
@@ -882,10 +869,7 @@ impl ScramClient {
             .as_ref()
             .ok_or(ScramError::InvalidState)?;
 
-        let auth_message = self
-            .auth_message
-            .as_ref()
-            .ok_or(ScramError::InvalidState)?;
+        let auth_message = self.auth_message.as_ref().ok_or(ScramError::InvalidState)?;
 
         // Compute expected server signature
         let expected = match self.mechanism {
@@ -946,7 +930,8 @@ mod tests {
 
     #[test]
     fn test_client_final_parsing() {
-        let msg = "c=biws,r=fyko+d2lbbFgONRv9qkxdawL3rfcNHYJY1ZVvWVs7j,p=v0X8v3Bz2T0CJGbJQyF0X+HI4Ts=";
+        let msg =
+            "c=biws,r=fyko+d2lbbFgONRv9qkxdawL3rfcNHYJY1ZVvWVs7j,p=v0X8v3Bz2T0CJGbJQyF0X+HI4Ts=";
         let parsed = ClientFinalMessage::parse(msg).unwrap();
 
         assert_eq!(parsed.channel_binding, "biws");

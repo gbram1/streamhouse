@@ -131,11 +131,16 @@ pub async fn produce_batch(
         // Group records by partition for efficient batching
         let mut by_partition: HashMap<u32, Vec<(usize, &BatchRecord)>> = HashMap::new();
         for (idx, record) in req.records.iter().enumerate() {
-            let partition = record.partition.unwrap_or(idx as u32 % topic.partition_count);
+            let partition = record
+                .partition
+                .unwrap_or(idx as u32 % topic.partition_count);
             if partition >= topic.partition_count {
                 return Err(StatusCode::BAD_REQUEST);
             }
-            by_partition.entry(partition).or_default().push((idx, record));
+            by_partition
+                .entry(partition)
+                .or_default()
+                .push((idx, record));
         }
 
         // Write to each partition

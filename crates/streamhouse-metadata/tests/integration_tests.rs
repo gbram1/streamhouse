@@ -6,8 +6,8 @@
 use std::collections::HashMap;
 use streamhouse_metadata::{
     CacheConfig, CachedMetadataStore, CleanupPolicy, InitProducerConfig, LeaderChangeReason,
-    LeaseTransferState, MetadataStore, ProducerState, SegmentInfo, SqliteMetadataStore, TopicConfig,
-    TransactionState,
+    LeaseTransferState, MetadataStore, ProducerState, SegmentInfo, SqliteMetadataStore,
+    TopicConfig, TransactionState,
 };
 
 #[cfg(feature = "postgres")]
@@ -591,7 +591,10 @@ async fn test_idempotent_producer_operations<S: MetadataStore>(store: &S) {
 
     assert!(!producer2.id.is_empty());
     assert_eq!(producer2.epoch, 0);
-    assert_eq!(producer2.transactional_id, Some("txn-producer-1".to_string()));
+    assert_eq!(
+        producer2.transactional_id,
+        Some("txn-producer-1".to_string())
+    );
 
     // 3. Re-initialize same transactional producer - should bump epoch
     let producer2_v2 = store
@@ -659,10 +662,7 @@ async fn test_transaction_operations<S: MetadataStore>(store: &S) {
         .unwrap();
 
     // 1. Begin transaction
-    let txn = store
-        .begin_transaction(&producer.id, 60000)
-        .await
-        .unwrap();
+    let txn = store.begin_transaction(&producer.id, 60000).await.unwrap();
 
     assert!(!txn.transaction_id.is_empty());
     assert_eq!(txn.producer_id, producer.id);
@@ -690,7 +690,10 @@ async fn test_transaction_operations<S: MetadataStore>(store: &S) {
     let _retrieved = retrieved.unwrap();
 
     // Get partitions separately
-    let partitions = store.get_transaction_partitions(&txn.transaction_id).await.unwrap();
+    let partitions = store
+        .get_transaction_partitions(&txn.transaction_id)
+        .await
+        .unwrap();
     assert_eq!(partitions.len(), 2);
 
     // 5. Commit transaction
@@ -702,10 +705,7 @@ async fn test_transaction_operations<S: MetadataStore>(store: &S) {
     assert_eq!(committed.unwrap().state, TransactionState::Committed);
 
     // 6. Test abort flow with a new transaction
-    let txn2 = store
-        .begin_transaction(&producer.id, 60000)
-        .await
-        .unwrap();
+    let txn2 = store.begin_transaction(&producer.id, 60000).await.unwrap();
 
     store
         .add_transaction_partition(&txn2.transaction_id, topic_name, 2, 300)
@@ -971,7 +971,10 @@ async fn test_lease_transfer_lifecycle<S: MetadataStore>(store: &S) {
     assert_eq!(transfer.reason, LeaderChangeReason::GracefulHandoff);
 
     // 3. Verify we can get the transfer
-    let retrieved = store.get_lease_transfer(&transfer.transfer_id).await.unwrap();
+    let retrieved = store
+        .get_lease_transfer(&transfer.transfer_id)
+        .await
+        .unwrap();
     assert!(retrieved.is_some());
     let retrieved = retrieved.unwrap();
     assert_eq!(retrieved.transfer_id, transfer.transfer_id);
@@ -996,7 +999,10 @@ async fn test_lease_transfer_lifecycle<S: MetadataStore>(store: &S) {
     assert!(new_lease.epoch > initial_epoch); // Epoch should have incremented
 
     // 7. Verify the transfer is marked completed
-    let completed_transfer = store.get_lease_transfer(&transfer.transfer_id).await.unwrap();
+    let completed_transfer = store
+        .get_lease_transfer(&transfer.transfer_id)
+        .await
+        .unwrap();
     assert!(completed_transfer.is_some());
     let completed_transfer = completed_transfer.unwrap();
     assert_eq!(completed_transfer.state, LeaseTransferState::Completed);
@@ -1066,12 +1072,19 @@ async fn test_lease_transfer_rejection<S: MetadataStore>(store: &S) {
 
     // Target agent rejects the transfer
     store
-        .reject_lease_transfer(&transfer.transfer_id, "agent-002", "Not ready for leadership")
+        .reject_lease_transfer(
+            &transfer.transfer_id,
+            "agent-002",
+            "Not ready for leadership",
+        )
         .await
         .unwrap();
 
     // Verify transfer is rejected
-    let rejected = store.get_lease_transfer(&transfer.transfer_id).await.unwrap();
+    let rejected = store
+        .get_lease_transfer(&transfer.transfer_id)
+        .await
+        .unwrap();
     assert!(rejected.is_some());
     let rejected = rejected.unwrap();
     assert_eq!(rejected.state, LeaseTransferState::Rejected);
@@ -1210,10 +1223,16 @@ async fn test_transfer_timeout_cleanup<S: MetadataStore>(store: &S) {
 
     // Cleanup should mark the transfer as timed out
     let cleaned = store.cleanup_timed_out_transfers().await.unwrap();
-    assert!(cleaned >= 1, "Expected at least 1 transfer to be cleaned up");
+    assert!(
+        cleaned >= 1,
+        "Expected at least 1 transfer to be cleaned up"
+    );
 
     // Verify transfer is marked as timed out
-    let timed_out = store.get_lease_transfer(&transfer.transfer_id).await.unwrap();
+    let timed_out = store
+        .get_lease_transfer(&transfer.transfer_id)
+        .await
+        .unwrap();
     assert!(timed_out.is_some());
     assert_eq!(timed_out.unwrap().state, LeaseTransferState::TimedOut);
 
@@ -1317,8 +1336,15 @@ async fn test_pending_transfers_for_agent<S: MetadataStore>(store: &S) {
         .unwrap();
 
     // Get pending transfers for agent-002 (should see 3 incoming transfers)
-    let pending = store.get_pending_transfers_for_agent("agent-002").await.unwrap();
-    assert_eq!(pending.len(), 3, "Expected 3 pending transfers for agent-002");
+    let pending = store
+        .get_pending_transfers_for_agent("agent-002")
+        .await
+        .unwrap();
+    assert_eq!(
+        pending.len(),
+        3,
+        "Expected 3 pending transfers for agent-002"
+    );
 
     // Verify all are targeting agent-002
     for transfer in &pending {
@@ -1328,8 +1354,15 @@ async fn test_pending_transfers_for_agent<S: MetadataStore>(store: &S) {
 
     // Get pending transfers for agent-001 (includes both outgoing and incoming transfers)
     // Agent-001 initiated 2 transfers (to agent-002), so it should see 2 outgoing transfers
-    let pending_001 = store.get_pending_transfers_for_agent("agent-001").await.unwrap();
-    assert_eq!(pending_001.len(), 2, "Expected 2 pending transfers for agent-001 (outgoing)");
+    let pending_001 = store
+        .get_pending_transfers_for_agent("agent-001")
+        .await
+        .unwrap();
+    assert_eq!(
+        pending_001.len(),
+        2,
+        "Expected 2 pending transfers for agent-001 (outgoing)"
+    );
 
     // Clean up
     store.delete_topic(topic_name).await.unwrap();
@@ -1388,8 +1421,13 @@ async fn test_transfer_authorization() {
         .unwrap();
 
     // Wrong agent tries to accept - should fail
-    let result = store.accept_lease_transfer(&transfer.transfer_id, "agent-003").await;
-    assert!(result.is_err(), "Non-target agent should not be able to accept");
+    let result = store
+        .accept_lease_transfer(&transfer.transfer_id, "agent-003")
+        .await;
+    assert!(
+        result.is_err(),
+        "Non-target agent should not be able to accept"
+    );
 
     // Correct agent accepts
     let accepted = store
@@ -1455,7 +1493,11 @@ async fn test_concurrent_transfers_different_partitions() {
 
     // All transfers should be pending
     for transfer in &transfers {
-        let t = store.get_lease_transfer(&transfer.transfer_id).await.unwrap().unwrap();
+        let t = store
+            .get_lease_transfer(&transfer.transfer_id)
+            .await
+            .unwrap()
+            .unwrap();
         assert_eq!(t.state, LeaseTransferState::Pending);
     }
 
@@ -1471,7 +1513,11 @@ async fn test_concurrent_transfers_different_partitions() {
     // Complete all transfers
     for (i, transfer) in transfers.iter().enumerate() {
         let new_lease = store
-            .complete_lease_transfer(&transfer.transfer_id, (i as u64 + 1) * 100, (i as u64 + 1) * 100 + 1)
+            .complete_lease_transfer(
+                &transfer.transfer_id,
+                (i as u64 + 1) * 100,
+                (i as u64 + 1) * 100 + 1,
+            )
             .await
             .unwrap();
 
@@ -1482,7 +1528,11 @@ async fn test_concurrent_transfers_different_partitions() {
 
     // Verify final state: each partition now has a different leader
     for i in 0..4 {
-        let lease = store.get_partition_lease(topic_name, i).await.unwrap().unwrap();
+        let lease = store
+            .get_partition_lease(topic_name, i)
+            .await
+            .unwrap()
+            .unwrap();
         let expected_leader = format!("agent-{:03}", (i + 1) % 4 + 1);
         assert_eq!(lease.leader_agent_id, expected_leader);
     }

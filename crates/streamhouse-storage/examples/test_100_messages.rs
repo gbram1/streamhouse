@@ -31,13 +31,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!();
 
     // Connect to PostgreSQL
-    let database_url = std::env::var("DATABASE_URL")
-        .unwrap_or_else(|_| "postgresql://streamhouse:streamhouse_dev@localhost:5432/streamhouse_metadata".to_string());
+    let database_url = std::env::var("DATABASE_URL").unwrap_or_else(|_| {
+        "postgresql://streamhouse:streamhouse_dev@localhost:5432/streamhouse_metadata".to_string()
+    });
 
     println!("📊 Step 1: Connect to PostgreSQL metadata store");
-    let metadata: Arc<dyn MetadataStore> = Arc::new(
-        PostgresMetadataStore::new(&database_url).await?
-    );
+    let metadata: Arc<dyn MetadataStore> =
+        Arc::new(PostgresMetadataStore::new(&database_url).await?);
     println!("   ✅ Connected to PostgreSQL");
     println!();
 
@@ -60,10 +60,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let topic = "test-topic";
     println!("📝 Step 3: Check topic '{}'", topic);
 
-    let topic_info = metadata.get_topic(topic).await?
+    let topic_info = metadata
+        .get_topic(topic)
+        .await?
         .ok_or("Topic 'test-topic' does not exist")?;
 
-    println!("   ✅ Topic exists with {} partitions", topic_info.partition_count);
+    println!(
+        "   ✅ Topic exists with {} partitions",
+        topic_info.partition_count
+    );
     println!();
 
     // Configure writes with throttling
@@ -82,14 +87,20 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         parallel_upload_parts: 4,
     };
 
-    println!("📤 Step 4: Writing 100 messages across {} partitions", topic_info.partition_count);
+    println!(
+        "📤 Step 4: Writing 100 messages across {} partitions",
+        topic_info.partition_count
+    );
     println!();
 
     let messages_per_partition = 100 / topic_info.partition_count as usize;
     let mut total_sent = 0;
 
     for partition_id in 0..topic_info.partition_count {
-        println!("   Partition {}: Writing {} messages...", partition_id, messages_per_partition);
+        println!(
+            "   Partition {}: Writing {} messages...",
+            partition_id, messages_per_partition
+        );
 
         let mut writer = PartitionWriter::new(
             topic.to_string(),
@@ -97,7 +108,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             object_store.clone(),
             metadata.clone(),
             write_config.clone(),
-        ).await?;
+        )
+        .await?;
 
         for i in 0..messages_per_partition {
             let msg_id = partition_id as usize * messages_per_partition + i;
@@ -109,11 +121,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 msg_id, partition_id, msg_id, timestamp
             );
 
-            writer.append(
-                Some(Bytes::from(key)),
-                Bytes::from(value),
-                timestamp,
-            ).await?;
+            writer
+                .append(Some(Bytes::from(key)), Bytes::from(value), timestamp)
+                .await?;
 
             total_sent += 1;
 
@@ -136,12 +146,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         let partition = metadata.get_partition(topic, partition_id).await?.unwrap();
         let segments = metadata.get_segments(topic, partition_id).await?;
 
-        println!("   Partition {} watermark: {} ({} segments)",
-            partition_id, partition.high_watermark, segments.len());
+        println!(
+            "   Partition {} watermark: {} ({} segments)",
+            partition_id,
+            partition.high_watermark,
+            segments.len()
+        );
 
         for seg in &segments {
-            println!("     • offsets {}-{}, {} records, {} bytes",
-                seg.base_offset, seg.end_offset, seg.record_count, seg.size_bytes);
+            println!(
+                "     • offsets {}-{}, {} records, {} bytes",
+                seg.base_offset, seg.end_offset, seg.record_count, seg.size_bytes
+            );
             println!("       s3://{}/{}", seg.s3_bucket, seg.s3_key);
         }
     }

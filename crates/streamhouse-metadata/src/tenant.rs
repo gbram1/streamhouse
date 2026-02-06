@@ -23,7 +23,9 @@
 //! }
 //! ```
 
-use crate::{ApiKey, MetadataStore, Organization, OrganizationQuota, Result, DEFAULT_ORGANIZATION_ID};
+use crate::{
+    ApiKey, MetadataStore, Organization, OrganizationQuota, Result, DEFAULT_ORGANIZATION_ID,
+};
 use sha2::{Digest, Sha256};
 use std::sync::Arc;
 
@@ -228,10 +230,7 @@ impl<S: MetadataStore> ApiKeyValidator<S> {
         }
 
         // Get organization quotas
-        let quota = self
-            .store
-            .get_organization_quota(&organization.id)
-            .await?;
+        let quota = self.store.get_organization_quota(&organization.id).await?;
 
         Ok(TenantContext {
             organization,
@@ -269,10 +268,7 @@ pub fn generate_api_key(prefix: &str) -> (String, String, String) {
 
     // Generate 32 random bytes
     let random_bytes: [u8; 32] = rng.gen();
-    let random_part: String = random_bytes
-        .iter()
-        .map(|b| format!("{:02x}", b))
-        .collect();
+    let random_part: String = random_bytes.iter().map(|b| format!("{:02x}", b)).collect();
 
     // Format: prefix_randomhex
     let raw_key = format!("{}_{}", prefix, random_part);

@@ -8,13 +8,13 @@ use std::path::PathBuf;
 pub struct Config {
     /// Server address (REST API)
     pub rest_api_url: String,
-    
+
     /// gRPC server address (legacy)
     pub grpc_url: Option<String>,
-    
+
     /// Default output format
     pub output_format: OutputFormat,
-    
+
     /// Enable colored output
     pub colored: bool,
 }
@@ -43,7 +43,7 @@ impl Config {
     /// Load config from file or create default
     pub fn load() -> Result<Self> {
         let path = Self::config_path()?;
-        
+
         if path.exists() {
             let contents = std::fs::read_to_string(&path)?;
             let config: Config = toml::from_str(&contents)?;
@@ -52,22 +52,22 @@ impl Config {
             Ok(Config::default())
         }
     }
-    
+
     /// Save config to file
     pub fn save(&self) -> Result<()> {
         let path = Self::config_path()?;
-        
+
         // Create parent directory if it doesn't exist
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent)?;
         }
-        
+
         let contents = toml::to_string_pretty(self)?;
         std::fs::write(&path, contents)?;
-        
+
         Ok(())
     }
-    
+
     /// Get config file path (~/.streamhouse/config.toml)
     fn config_path() -> Result<PathBuf> {
         let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());

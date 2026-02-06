@@ -125,7 +125,10 @@ impl PrometheusClient {
     }
 
     /// Get throughput metrics (messages per second)
-    pub async fn get_throughput(&self, time_range: &str) -> Result<Vec<TimeSeriesPoint>, PrometheusError> {
+    pub async fn get_throughput(
+        &self,
+        time_range: &str,
+    ) -> Result<Vec<TimeSeriesPoint>, PrometheusError> {
         let (start, end, step) = self.parse_time_range(time_range);
 
         // Query rate of producer records
@@ -137,7 +140,10 @@ impl PrometheusClient {
     }
 
     /// Get bytes throughput
-    pub async fn get_bytes_throughput(&self, time_range: &str) -> Result<Vec<TimeSeriesPoint>, PrometheusError> {
+    pub async fn get_bytes_throughput(
+        &self,
+        time_range: &str,
+    ) -> Result<Vec<TimeSeriesPoint>, PrometheusError> {
         let (start, end, step) = self.parse_time_range(time_range);
 
         let query = "sum(rate(streamhouse_producer_bytes_total[1m]))";
@@ -148,7 +154,10 @@ impl PrometheusClient {
     }
 
     /// Get latency percentiles
-    pub async fn get_latency_percentiles(&self, time_range: &str) -> Result<LatencyPercentiles, PrometheusError> {
+    pub async fn get_latency_percentiles(
+        &self,
+        time_range: &str,
+    ) -> Result<LatencyPercentiles, PrometheusError> {
         let (start, end, step) = self.parse_time_range(time_range);
 
         // Query p50, p95, p99 latencies
@@ -168,7 +177,10 @@ impl PrometheusClient {
     }
 
     /// Get error rate
-    pub async fn get_error_rate(&self, time_range: &str) -> Result<Vec<TimeSeriesPoint>, PrometheusError> {
+    pub async fn get_error_rate(
+        &self,
+        time_range: &str,
+    ) -> Result<Vec<TimeSeriesPoint>, PrometheusError> {
         let (start, end, step) = self.parse_time_range(time_range);
 
         // Query error rate as percentage
@@ -185,7 +197,10 @@ impl PrometheusClient {
     }
 
     /// Get error count
-    pub async fn get_error_count(&self, time_range: &str) -> Result<Vec<TimeSeriesPoint>, PrometheusError> {
+    pub async fn get_error_count(
+        &self,
+        time_range: &str,
+    ) -> Result<Vec<TimeSeriesPoint>, PrometheusError> {
         let (start, end, step) = self.parse_time_range(time_range);
 
         let query = "sum(increase(streamhouse_producer_errors_total[1m]))";
@@ -202,7 +217,11 @@ impl PrometheusClient {
 
         if let PrometheusData::Vector(results) = response.data {
             if let Some(result) = results.first() {
-                return result.value.1.parse().map_err(|_| PrometheusError::ParseFailed("Invalid value".to_string()));
+                return result
+                    .value
+                    .1
+                    .parse()
+                    .map_err(|_| PrometheusError::ParseFailed("Invalid value".to_string()));
             }
         }
 
@@ -222,7 +241,11 @@ impl PrometheusClient {
 
         if let PrometheusData::Vector(results) = response.data {
             if let Some(result) = results.first() {
-                return result.value.1.parse().map_err(|_| PrometheusError::ParseFailed("Invalid value".to_string()));
+                return result
+                    .value
+                    .1
+                    .parse()
+                    .map_err(|_| PrometheusError::ParseFailed("Invalid value".to_string()));
             }
         }
 
@@ -249,7 +272,10 @@ impl PrometheusClient {
     }
 
     /// Extract time series from Prometheus response
-    fn extract_time_series(&self, response: &PrometheusResponse) -> Result<Vec<TimeSeriesPoint>, PrometheusError> {
+    fn extract_time_series(
+        &self,
+        response: &PrometheusResponse,
+    ) -> Result<Vec<TimeSeriesPoint>, PrometheusError> {
         match &response.data {
             PrometheusData::Matrix(results) => {
                 if let Some(result) = results.first() {
@@ -265,15 +291,13 @@ impl PrometheusClient {
                     Ok(vec![])
                 }
             }
-            PrometheusData::Vector(results) => {
-                Ok(results
-                    .iter()
-                    .map(|r| TimeSeriesPoint {
-                        timestamp: r.value.0 as i64,
-                        value: r.value.1.parse().unwrap_or(0.0),
-                    })
-                    .collect())
-            }
+            PrometheusData::Vector(results) => Ok(results
+                .iter()
+                .map(|r| TimeSeriesPoint {
+                    timestamp: r.value.0 as i64,
+                    value: r.value.1.parse().unwrap_or(0.0),
+                })
+                .collect()),
             _ => Ok(vec![]),
         }
     }

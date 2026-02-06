@@ -383,7 +383,9 @@ impl AclChecker {
                     .iter()
                     .filter(|e| {
                         let principal_matches = principal_filter
-                            .map(|p| pattern_matches(p, &e.principal) || pattern_matches(&e.principal, p))
+                            .map(|p| {
+                                pattern_matches(p, &e.principal) || pattern_matches(&e.principal, p)
+                            })
                             .unwrap_or(true);
                         let resource_matches = resource_type_filter
                             .map(|r| e.resource.resource_type() == r)
@@ -397,7 +399,12 @@ impl AclChecker {
     }
 
     /// Check if an action is allowed
-    pub fn check(&self, principal: &str, resource: &AclResource, action: AclAction) -> AclCheckResult {
+    pub fn check(
+        &self,
+        principal: &str,
+        resource: &AclResource,
+        action: AclAction,
+    ) -> AclCheckResult {
         // Check cache first
         let cache_key = (
             principal.to_string(),
@@ -427,14 +434,18 @@ impl AclChecker {
         let result = if let Ok(entries) = self.entries.read() {
             // Deny entries take precedence - check them first
             for entry in entries.iter() {
-                if entry.permission == AclPermission::Deny && entry.matches(principal, resource, action) {
+                if entry.permission == AclPermission::Deny
+                    && entry.matches(principal, resource, action)
+                {
                     return AclCheckResult::denied(entry.clone());
                 }
             }
 
             // Then check allow entries
             for entry in entries.iter() {
-                if entry.permission == AclPermission::Allow && entry.matches(principal, resource, action) {
+                if entry.permission == AclPermission::Allow
+                    && entry.matches(principal, resource, action)
+                {
                     return AclCheckResult::allowed(entry.clone());
                 }
             }
@@ -508,7 +519,8 @@ pub struct AclLayer {
 }
 
 /// Function type for extracting resources from requests
-type ResourceExtractor = std::sync::Arc<dyn Fn(&str, &str) -> Option<(AclResource, AclAction)> + Send + Sync>;
+type ResourceExtractor =
+    std::sync::Arc<dyn Fn(&str, &str) -> Option<(AclResource, AclAction)> + Send + Sync>;
 
 impl AclLayer {
     /// Create a new ACL layer with default resource extraction
@@ -576,13 +588,9 @@ fn default_resource_extractor(method: &str, path: &str) -> Option<(AclResource, 
         }
 
         // Consumer groups
-        ["api", "v1", "consumer-groups"] => {
-            Some((AclResource::All, AclAction::Describe))
-        }
+        ["api", "v1", "consumer-groups"] => Some((AclResource::All, AclAction::Describe)),
         // commit must come before the wildcard pattern
-        ["api", "v1", "consumer-groups", "commit"] => {
-            Some((AclResource::All, AclAction::Write))
-        }
+        ["api", "v1", "consumer-groups", "commit"] => Some((AclResource::All, AclAction::Write)),
         ["api", "v1", "consumer-groups", group_id] => {
             let action = match method {
                 "GET" => AclAction::Describe,
@@ -592,9 +600,10 @@ fn default_resource_extractor(method: &str, path: &str) -> Option<(AclResource, 
             Some((AclResource::ConsumerGroup(group_id.to_string()), action))
         }
         ["api", "v1", "consumer-groups", group_id, "reset"]
-        | ["api", "v1", "consumer-groups", group_id, "seek"] => {
-            Some((AclResource::ConsumerGroup(group_id.to_string()), AclAction::Alter))
-        }
+        | ["api", "v1", "consumer-groups", group_id, "seek"] => Some((
+            AclResource::ConsumerGroup(group_id.to_string()),
+            AclAction::Alter,
+        )),
 
         // Organizations (admin)
         ["api", "v1", "organizations"] | ["api", "v1", "organizations", ..] => {
@@ -602,14 +611,10 @@ fn default_resource_extractor(method: &str, path: &str) -> Option<(AclResource, 
         }
 
         // API keys (admin)
-        ["api", "v1", "api-keys", ..] => {
-            Some((AclResource::Cluster, AclAction::Admin))
-        }
+        ["api", "v1", "api-keys", ..] => Some((AclResource::Cluster, AclAction::Admin)),
 
         // SQL
-        ["api", "v1", "sql"] => {
-            Some((AclResource::All, AclAction::Read))
-        }
+        ["api", "v1", "sql"] => Some((AclResource::All, AclAction::Read)),
 
         // Health/metrics - no ACL needed
         ["health"] | ["live"] | ["ready"] | ["metrics"] => None,
@@ -695,7 +700,8 @@ where
 
             // Also check if authenticated key has admin permission
             if config.admin_bypass {
-                if let Some(auth_key) = request.extensions().get::<crate::auth::AuthenticatedKey>() {
+                if let Some(auth_key) = request.extensions().get::<crate::auth::AuthenticatedKey>()
+                {
                     if auth_key.permissions.iter().any(|p| p == "admin") {
                         return inner.call(request).await;
                     }
@@ -761,12 +767,32 @@ mod tests {
 
     #[test]
     fn test_acl_entry_matching() {
-        let entry = AclEntry::allow("user:alice", AclResource::Topic("orders-*".to_string()), AclAction::Read);
+        let entry = AclEntry::allow(
+            "user:alice",
+            AclResource::Topic("orders-*".to_string()),
+            AclAction::Read,
+        );
 
-        assert!(entry.matches("user:alice", &AclResource::Topic("orders-eu".to_string()), AclAction::Read));
-        assert!(!entry.matches("user:bob", &AclResource::Topic("orders-eu".to_string()), AclAction::Read));
-        assert!(!entry.matches("user:alice", &AclResource::Topic("payments".to_string()), AclAction::Read));
-        assert!(!entry.matches("user:alice", &AclResource::Topic("orders-eu".to_string()), AclAction::Write));
+        assert!(entry.matches(
+            "user:alice",
+            &AclResource::Topic("orders-eu".to_string()),
+            AclAction::Read
+        ));
+        assert!(!entry.matches(
+            "user:bob",
+            &AclResource::Topic("orders-eu".to_string()),
+            AclAction::Read
+        ));
+        assert!(!entry.matches(
+            "user:alice",
+            &AclResource::Topic("payments".to_string()),
+            AclAction::Read
+        ));
+        assert!(!entry.matches(
+            "user:alice",
+            &AclResource::Topic("orders-eu".to_string()),
+            AclAction::Write
+        ));
     }
 
     #[test]
@@ -831,11 +857,7 @@ mod tests {
         let checker = AclChecker::new();
 
         // Allow all for everyone
-        checker.add_entry(AclEntry::allow(
-            "*",
-            AclResource::All,
-            AclAction::All,
-        ));
+        checker.add_entry(AclEntry::allow("*", AclResource::All, AclAction::All));
 
         // But deny specific user
         checker.add_entry(AclEntry::deny(
@@ -863,7 +885,11 @@ mod tests {
     fn test_remove_entry() {
         let checker = AclChecker::new();
 
-        let entry = AclEntry::allow("user:test", AclResource::Topic("*".to_string()), AclAction::Read);
+        let entry = AclEntry::allow(
+            "user:test",
+            AclResource::Topic("*".to_string()),
+            AclAction::Read,
+        );
         let entry_id = entry.id.clone();
 
         checker.add_entry(entry);
@@ -882,19 +908,28 @@ mod tests {
     fn test_default_resource_extractor() {
         // Topic list
         let result = default_resource_extractor("GET", "/api/v1/topics");
-        assert!(matches!(result, Some((AclResource::All, AclAction::Describe))));
+        assert!(matches!(
+            result,
+            Some((AclResource::All, AclAction::Describe))
+        ));
 
         // Topic get
         let result = default_resource_extractor("GET", "/api/v1/topics/orders");
-        assert!(matches!(result, Some((AclResource::Topic(name), AclAction::Describe)) if name == "orders"));
+        assert!(
+            matches!(result, Some((AclResource::Topic(name), AclAction::Describe)) if name == "orders")
+        );
 
         // Topic delete
         let result = default_resource_extractor("DELETE", "/api/v1/topics/orders");
-        assert!(matches!(result, Some((AclResource::Topic(name), AclAction::Delete)) if name == "orders"));
+        assert!(
+            matches!(result, Some((AclResource::Topic(name), AclAction::Delete)) if name == "orders")
+        );
 
         // Consumer group
         let result = default_resource_extractor("GET", "/api/v1/consumer-groups/my-group");
-        assert!(matches!(result, Some((AclResource::ConsumerGroup(name), AclAction::Describe)) if name == "my-group"));
+        assert!(
+            matches!(result, Some((AclResource::ConsumerGroup(name), AclAction::Describe)) if name == "my-group")
+        );
 
         // Health endpoint - no ACL
         let result = default_resource_extractor("GET", "/health");

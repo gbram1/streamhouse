@@ -663,11 +663,7 @@ impl<S: MetadataStore + 'static> MetadataStore for CachedMetadataStore<S> {
         self.inner.list_organizations().await
     }
 
-    async fn update_organization_status(
-        &self,
-        id: &str,
-        status: OrganizationStatus,
-    ) -> Result<()> {
+    async fn update_organization_status(&self, id: &str, status: OrganizationStatus) -> Result<()> {
         self.inner.update_organization_status(id, status).await
     }
 
@@ -729,7 +725,10 @@ impl<S: MetadataStore + 'static> MetadataStore for CachedMetadataStore<S> {
         self.inner.set_organization_quota(quota).await
     }
 
-    async fn get_organization_usage(&self, organization_id: &str) -> Result<Vec<OrganizationUsage>> {
+    async fn get_organization_usage(
+        &self,
+        organization_id: &str,
+    ) -> Result<Vec<OrganizationUsage>> {
         self.inner.get_organization_usage(organization_id).await
     }
 
@@ -822,7 +821,13 @@ impl<S: MetadataStore + 'static> MetadataStore for CachedMetadataStore<S> {
         record_count: u32,
     ) -> Result<bool> {
         self.inner
-            .check_and_update_sequence(producer_id, topic, partition_id, base_sequence, record_count)
+            .check_and_update_sequence(
+                producer_id,
+                topic,
+                partition_id,
+                base_sequence,
+                record_count,
+            )
             .await
     }
 
@@ -926,7 +931,14 @@ impl<S: MetadataStore + 'static> MetadataStore for CachedMetadataStore<S> {
         timeout_ms: u32,
     ) -> Result<LeaseTransfer> {
         self.inner
-            .initiate_lease_transfer(topic, partition_id, from_agent_id, to_agent_id, reason, timeout_ms)
+            .initiate_lease_transfer(
+                topic,
+                partition_id,
+                from_agent_id,
+                to_agent_id,
+                reason,
+                timeout_ms,
+            )
             .await
     }
 
@@ -935,7 +947,9 @@ impl<S: MetadataStore + 'static> MetadataStore for CachedMetadataStore<S> {
         transfer_id: &str,
         agent_id: &str,
     ) -> Result<LeaseTransfer> {
-        self.inner.accept_lease_transfer(transfer_id, agent_id).await
+        self.inner
+            .accept_lease_transfer(transfer_id, agent_id)
+            .await
     }
 
     async fn complete_lease_transfer(
@@ -983,7 +997,15 @@ impl<S: MetadataStore + 'static> MetadataStore for CachedMetadataStore<S> {
         gap_ms: i64,
     ) -> Result<()> {
         self.inner
-            .record_leader_change(topic, partition_id, from_agent_id, to_agent_id, reason, epoch, gap_ms)
+            .record_leader_change(
+                topic,
+                partition_id,
+                from_agent_id,
+                to_agent_id,
+                reason,
+                epoch,
+                gap_ms,
+            )
             .await
     }
 
@@ -991,7 +1013,10 @@ impl<S: MetadataStore + 'static> MetadataStore for CachedMetadataStore<S> {
     // MATERIALIZED VIEW OPERATIONS (pass through to inner store)
     // ============================================================
 
-    async fn create_materialized_view(&self, config: CreateMaterializedView) -> Result<MaterializedView> {
+    async fn create_materialized_view(
+        &self,
+        config: CreateMaterializedView,
+    ) -> Result<MaterializedView> {
         self.inner.create_materialized_view(config).await
     }
 
@@ -1013,7 +1038,9 @@ impl<S: MetadataStore + 'static> MetadataStore for CachedMetadataStore<S> {
         status: MaterializedViewStatus,
         error_message: Option<&str>,
     ) -> Result<()> {
-        self.inner.update_materialized_view_status(id, status, error_message).await
+        self.inner
+            .update_materialized_view_status(id, status, error_message)
+            .await
     }
 
     async fn update_materialized_view_stats(
@@ -1022,14 +1049,19 @@ impl<S: MetadataStore + 'static> MetadataStore for CachedMetadataStore<S> {
         row_count: u64,
         last_refresh_at: i64,
     ) -> Result<()> {
-        self.inner.update_materialized_view_stats(id, row_count, last_refresh_at).await
+        self.inner
+            .update_materialized_view_stats(id, row_count, last_refresh_at)
+            .await
     }
 
     async fn delete_materialized_view(&self, name: &str) -> Result<()> {
         self.inner.delete_materialized_view(name).await
     }
 
-    async fn get_materialized_view_offsets(&self, view_id: &str) -> Result<Vec<MaterializedViewOffset>> {
+    async fn get_materialized_view_offsets(
+        &self,
+        view_id: &str,
+    ) -> Result<Vec<MaterializedViewOffset>> {
         self.inner.get_materialized_view_offsets(view_id).await
     }
 
@@ -1039,7 +1071,9 @@ impl<S: MetadataStore + 'static> MetadataStore for CachedMetadataStore<S> {
         partition_id: u32,
         last_offset: u64,
     ) -> Result<()> {
-        self.inner.update_materialized_view_offset(view_id, partition_id, last_offset).await
+        self.inner
+            .update_materialized_view_offset(view_id, partition_id, last_offset)
+            .await
     }
 
     async fn get_materialized_view_data(
@@ -1050,10 +1084,7 @@ impl<S: MetadataStore + 'static> MetadataStore for CachedMetadataStore<S> {
         self.inner.get_materialized_view_data(view_id, limit).await
     }
 
-    async fn upsert_materialized_view_data(
-        &self,
-        data: MaterializedViewData,
-    ) -> Result<()> {
+    async fn upsert_materialized_view_data(&self, data: MaterializedViewData) -> Result<()> {
         self.inner.upsert_materialized_view_data(data).await
     }
 }

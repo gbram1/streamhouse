@@ -200,7 +200,10 @@ impl MaterializedViewMaintenance {
         let parsed_query = self.parse_view_query(&view.query_sql)?;
 
         // 3. Get current offsets for all partitions
-        let current_offsets = self.metadata.get_materialized_view_offsets(&view.id).await?;
+        let current_offsets = self
+            .metadata
+            .get_materialized_view_offsets(&view.id)
+            .await?;
 
         let offset_map: HashMap<u32, u64> = current_offsets
             .iter()
@@ -379,7 +382,9 @@ impl MaterializedViewMaintenance {
 
     /// Check if a message matches all filters
     fn matches_filters(&self, msg: &MessageRow, filters: &[Filter]) -> bool {
-        filters.iter().all(|filter| self.matches_filter(msg, filter))
+        filters
+            .iter()
+            .all(|filter| self.matches_filter(msg, filter))
     }
 
     /// Check if a message matches a single filter
@@ -507,10 +512,7 @@ fn extract_json_path(json: &serde_json::Value, path: &str) -> serde_json::Value 
 }
 
 /// Compare two JSON values for ordering
-fn compare_json_values(
-    a: &serde_json::Value,
-    b: &serde_json::Value,
-) -> Option<std::cmp::Ordering> {
+fn compare_json_values(a: &serde_json::Value, b: &serde_json::Value) -> Option<std::cmp::Ordering> {
     match (a, b) {
         (serde_json::Value::Number(a), serde_json::Value::Number(b)) => {
             let a = a.as_f64()?;

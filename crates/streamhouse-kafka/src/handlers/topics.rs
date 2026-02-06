@@ -13,7 +13,7 @@ use crate::codec::{
     encode_compact_nullable_string, encode_compact_string, encode_empty_tagged_fields,
     encode_nullable_string, encode_string, encode_unsigned_varint, parse_array,
     parse_compact_array, parse_compact_nullable_string, parse_compact_string,
-    parse_nullable_string, parse_string, RequestHeader, skip_tagged_fields,
+    parse_nullable_string, parse_string, skip_tagged_fields, RequestHeader,
 };
 use crate::error::{ErrorCode, KafkaResult};
 use crate::server::KafkaServerState;
@@ -195,7 +195,10 @@ struct CreateTopicResponse {
     replication_factor: i16,
 }
 
-async fn create_topic(state: &KafkaServerState, request: &CreateTopicRequest) -> CreateTopicResponse {
+async fn create_topic(
+    state: &KafkaServerState,
+    request: &CreateTopicRequest,
+) -> CreateTopicResponse {
     // Default partition count to 1 if not specified
     let num_partitions = if request.num_partitions <= 0 {
         1
@@ -274,9 +277,7 @@ pub async fn handle_delete_topics(
         (topics, timeout_ms)
     } else {
         // Legacy protocol
-        let topics = parse_array(body, |b| {
-            Ok(Some(parse_string(b)?))
-        })?;
+        let topics = parse_array(body, |b| Ok(Some(parse_string(b)?)))?;
         let timeout_ms = body.get_i32();
         (topics, timeout_ms)
     };
@@ -284,7 +285,10 @@ pub async fn handle_delete_topics(
     // Filter out None values
     let topic_names: Vec<String> = topics.into_iter().flatten().collect();
 
-    debug!("DeleteTopics: topics={:?}, timeout={}", topic_names, timeout_ms);
+    debug!(
+        "DeleteTopics: topics={:?}, timeout={}",
+        topic_names, timeout_ms
+    );
 
     // Delete topics
     let mut topic_responses = Vec::new();

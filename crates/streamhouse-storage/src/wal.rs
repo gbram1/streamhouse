@@ -864,11 +864,18 @@ mod tests {
         // Append second record (should still be under 200 bytes threshold)
         wal.append(Some(b"key2"), &value).await.unwrap();
         let pending_after_second = wal.batch_pending_bytes().await;
-        assert!(pending_after_second > pending_after_first, "Second record should add to batch");
+        assert!(
+            pending_after_second > pending_after_first,
+            "Second record should add to batch"
+        );
 
         // Append third record - this should trigger flush (exceeds 200 bytes)
         wal.append(Some(b"key3"), &value).await.unwrap();
-        assert_eq!(wal.batch_pending_count().await, 0, "Batch should have flushed");
+        assert_eq!(
+            wal.batch_pending_count().await,
+            0,
+            "Batch should have flushed"
+        );
 
         // Verify all records persisted
         let records = wal.recover().await.unwrap();

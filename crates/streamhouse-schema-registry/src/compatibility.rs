@@ -138,8 +138,9 @@ fn check_protobuf_compatibility(
 
     // Parse existing schema as FileDescriptorSet
     let existing_bytes = existing.schema.as_bytes();
-    let existing_fds = FileDescriptorSet::decode(existing_bytes)
-        .map_err(|e| SchemaError::InvalidSchema(format!("Invalid existing Protobuf schema: {}", e)))?;
+    let existing_fds = FileDescriptorSet::decode(existing_bytes).map_err(|e| {
+        SchemaError::InvalidSchema(format!("Invalid existing Protobuf schema: {}", e))
+    })?;
 
     // Parse new schema as FileDescriptorSet
     let new_bytes = new_schema.as_bytes();
@@ -216,7 +217,9 @@ fn check_protobuf_backward_compatible(
     for (&number, reader_field) in &reader_fields {
         if let Some(writer_field) = writer_fields.get(&number) {
             // Field exists in both - check type compatibility
-            if let (Some(reader_type_int), Some(writer_type_int)) = (reader_field.r#type, writer_field.r#type) {
+            if let (Some(reader_type_int), Some(writer_type_int)) =
+                (reader_field.r#type, writer_field.r#type)
+            {
                 // Convert i32 to Type enum
                 if let (Some(reader_type), Some(writer_type)) = (
                     Type::try_from(reader_type_int).ok(),
@@ -237,7 +240,9 @@ fn check_protobuf_backward_compatible(
             // Field only in reader
             // For backward compatibility, reader can have new fields
             // as long as they're not required
-            if reader_field.label == Some(prost_types::field_descriptor_proto::Label::Required as i32) {
+            if reader_field.label
+                == Some(prost_types::field_descriptor_proto::Label::Required as i32)
+            {
                 tracing::warn!(
                     field_number = number,
                     field_name = ?reader_field.name,
@@ -251,7 +256,9 @@ fn check_protobuf_backward_compatible(
     // Check for removed required fields (field in writer but not in reader)
     for (&number, writer_field) in &writer_fields {
         if !reader_fields.contains_key(&number) {
-            if writer_field.label == Some(prost_types::field_descriptor_proto::Label::Required as i32) {
+            if writer_field.label
+                == Some(prost_types::field_descriptor_proto::Label::Required as i32)
+            {
                 tracing::warn!(
                     field_number = number,
                     field_name = ?writer_field.name,
@@ -339,13 +346,13 @@ fn check_json_backward_compatible(
     // 2. Type restrictions in new schema must be looser than or equal to old schema
     // 3. Additional properties allowed in new if disallowed in old
 
-    let old_obj = old_schema.as_object().ok_or_else(|| {
-        SchemaError::InvalidSchema("Schema must be an object".to_string())
-    })?;
+    let old_obj = old_schema
+        .as_object()
+        .ok_or_else(|| SchemaError::InvalidSchema("Schema must be an object".to_string()))?;
 
-    let new_obj = new_schema.as_object().ok_or_else(|| {
-        SchemaError::InvalidSchema("Schema must be an object".to_string())
-    })?;
+    let new_obj = new_schema
+        .as_object()
+        .ok_or_else(|| SchemaError::InvalidSchema("Schema must be an object".to_string()))?;
 
     // Check required fields
     let old_required = old_obj
@@ -392,7 +399,9 @@ fn check_json_backward_compatible(
     }
 
     // Check properties if this is an object schema
-    if let (Some(old_props), Some(new_props)) = (old_obj.get("properties"), new_obj.get("properties")) {
+    if let (Some(old_props), Some(new_props)) =
+        (old_obj.get("properties"), new_obj.get("properties"))
+    {
         let old_props_obj = old_props.as_object();
         let new_props_obj = new_props.as_object();
 
@@ -559,7 +568,10 @@ mod tests {
         );
 
         assert!(result.is_ok());
-        assert!(result.unwrap(), "Removing required field should be backward compatible");
+        assert!(
+            result.unwrap(),
+            "Removing required field should be backward compatible"
+        );
     }
 
     #[test]
@@ -599,7 +611,10 @@ mod tests {
         );
 
         assert!(result.is_ok());
-        assert!(!result.unwrap(), "Adding required field should not be backward compatible");
+        assert!(
+            !result.unwrap(),
+            "Adding required field should not be backward compatible"
+        );
     }
 
     #[test]
@@ -636,7 +651,10 @@ mod tests {
         );
 
         assert!(result.is_ok());
-        assert!(result.unwrap(), "Widening integer to number should be backward compatible");
+        assert!(
+            result.unwrap(),
+            "Widening integer to number should be backward compatible"
+        );
     }
 
     #[test]
@@ -677,7 +695,10 @@ mod tests {
 
         assert!(result.is_ok());
         // Adding optional field is both backward and forward compatible
-        assert!(result.unwrap(), "Adding optional field should be fully compatible");
+        assert!(
+            result.unwrap(),
+            "Adding optional field should be fully compatible"
+        );
     }
 
     // ========================================================================
@@ -745,8 +766,7 @@ mod tests {
     fn test_avro_none_mode_always_compatible() {
         let old_schema =
             r#"{"type": "record", "name": "User", "fields": [{"name": "name", "type": "string"}]}"#;
-        let new_schema =
-            r#"{"type": "record", "name": "Completely", "fields": [{"name": "different", "type": "int"}]}"#;
+        let new_schema = r#"{"type": "record", "name": "Completely", "fields": [{"name": "different", "type": "int"}]}"#;
 
         let existing = Schema {
             id: 1,
@@ -803,8 +823,7 @@ mod tests {
     fn test_avro_backward_incompatible_new_required_field() {
         let old_schema =
             r#"{"type": "record", "name": "User", "fields": [{"name": "name", "type": "string"}]}"#;
-        let new_schema =
-            r#"{"type": "record", "name": "User", "fields": [{"name": "name", "type": "string"}, {"name": "age", "type": "int"}]}"#;
+        let new_schema = r#"{"type": "record", "name": "User", "fields": [{"name": "name", "type": "string"}, {"name": "age", "type": "int"}]}"#;
 
         let existing = Schema {
             id: 1,
@@ -853,15 +872,17 @@ mod tests {
         );
 
         assert!(result.is_ok());
-        assert!(result.unwrap(), "Removing a field should be backward compatible");
+        assert!(
+            result.unwrap(),
+            "Removing a field should be backward compatible"
+        );
     }
 
     #[test]
     fn test_avro_backward_incompatible_name_change() {
         let old_schema =
             r#"{"type": "record", "name": "User", "fields": [{"name": "name", "type": "string"}]}"#;
-        let new_schema =
-            r#"{"type": "record", "name": "Person", "fields": [{"name": "name", "type": "string"}]}"#;
+        let new_schema = r#"{"type": "record", "name": "Person", "fields": [{"name": "name", "type": "string"}]}"#;
 
         let existing = Schema {
             id: 1,
@@ -881,7 +902,10 @@ mod tests {
         );
 
         assert!(result.is_ok());
-        assert!(!result.unwrap(), "Changing record name should be incompatible");
+        assert!(
+            !result.unwrap(),
+            "Changing record name should be incompatible"
+        );
     }
 
     #[test]
@@ -909,7 +933,10 @@ mod tests {
         );
 
         assert!(result.is_ok());
-        assert!(!result.unwrap(), "Changing field type from string to int should be incompatible");
+        assert!(
+            !result.unwrap(),
+            "Changing field type from string to int should be incompatible"
+        );
     }
 
     #[test]
@@ -943,10 +970,8 @@ mod tests {
 
     #[test]
     fn test_avro_backward_compatible_float_to_double_promotion() {
-        let old_schema =
-            r#"{"type": "record", "name": "Event", "fields": [{"name": "value", "type": "float"}]}"#;
-        let new_schema =
-            r#"{"type": "record", "name": "Event", "fields": [{"name": "value", "type": "double"}]}"#;
+        let old_schema = r#"{"type": "record", "name": "Event", "fields": [{"name": "value", "type": "float"}]}"#;
+        let new_schema = r#"{"type": "record", "name": "Event", "fields": [{"name": "value", "type": "double"}]}"#;
 
         let existing = Schema {
             id: 1,
@@ -998,7 +1023,10 @@ mod tests {
         );
 
         assert!(result.is_ok());
-        assert!(result.unwrap(), "Removing optional field should be forward compatible");
+        assert!(
+            result.unwrap(),
+            "Removing optional field should be forward compatible"
+        );
     }
 
     #[test]
@@ -1025,7 +1053,10 @@ mod tests {
         );
 
         assert!(result.is_ok());
-        assert!(result.unwrap(), "Adding field with default should be forward compatible");
+        assert!(
+            result.unwrap(),
+            "Adding field with default should be forward compatible"
+        );
     }
 
     // ========================================================================
@@ -1056,15 +1087,17 @@ mod tests {
         );
 
         assert!(result.is_ok());
-        assert!(result.unwrap(), "Adding optional field should be fully compatible");
+        assert!(
+            result.unwrap(),
+            "Adding optional field should be fully compatible"
+        );
     }
 
     #[test]
     fn test_avro_full_incompatible_required_field() {
         let old_schema =
             r#"{"type": "record", "name": "User", "fields": [{"name": "name", "type": "string"}]}"#;
-        let new_schema =
-            r#"{"type": "record", "name": "User", "fields": [{"name": "name", "type": "string"}, {"name": "age", "type": "int"}]}"#;
+        let new_schema = r#"{"type": "record", "name": "User", "fields": [{"name": "name", "type": "string"}, {"name": "age", "type": "int"}]}"#;
 
         let existing = Schema {
             id: 1,
@@ -1197,7 +1230,11 @@ mod tests {
 
         assert!(result.is_err());
         let err_msg = format!("{}", result.unwrap_err());
-        assert!(err_msg.contains("Invalid existing Avro schema"), "Error: {}", err_msg);
+        assert!(
+            err_msg.contains("Invalid existing Avro schema"),
+            "Error: {}",
+            err_msg
+        );
     }
 
     #[test]
@@ -1224,7 +1261,11 @@ mod tests {
 
         assert!(result.is_err());
         let err_msg = format!("{}", result.unwrap_err());
-        assert!(err_msg.contains("Invalid new Avro schema"), "Error: {}", err_msg);
+        assert!(
+            err_msg.contains("Invalid new Avro schema"),
+            "Error: {}",
+            err_msg
+        );
     }
 
     // ========================================================================
@@ -1260,7 +1301,11 @@ mod tests {
             );
 
             assert!(result.is_ok(), "Schema {} should parse", schema_str);
-            assert!(result.unwrap(), "Same primitive type {} should be compatible", schema_str);
+            assert!(
+                result.unwrap(),
+                "Same primitive type {} should be compatible",
+                schema_str
+            );
         }
     }
 
@@ -1320,7 +1365,10 @@ mod tests {
         );
 
         assert!(result.is_ok());
-        assert!(result.unwrap(), "Identical JSON schemas should be compatible");
+        assert!(
+            result.unwrap(),
+            "Identical JSON schemas should be compatible"
+        );
     }
 
     #[test]
@@ -1359,7 +1407,10 @@ mod tests {
         );
 
         assert!(result.is_ok());
-        assert!(result.unwrap(), "Adding required field should be forward compatible");
+        assert!(
+            result.unwrap(),
+            "Adding required field should be forward compatible"
+        );
     }
 
     #[test]
@@ -1398,7 +1449,10 @@ mod tests {
         );
 
         assert!(result.is_ok());
-        assert!(!result.unwrap(), "Removing required field should NOT be forward compatible");
+        assert!(
+            !result.unwrap(),
+            "Removing required field should NOT be forward compatible"
+        );
     }
 
     #[test]
@@ -1463,7 +1517,10 @@ mod tests {
         );
 
         assert!(result.is_ok());
-        assert!(!result.unwrap(), "Changing root type from object to array should be incompatible");
+        assert!(
+            !result.unwrap(),
+            "Changing root type from object to array should be incompatible"
+        );
     }
 
     #[test]
@@ -1576,7 +1633,10 @@ mod tests {
         );
 
         assert!(result.is_ok());
-        assert!(result.unwrap(), "Adding optional property with no required constraint is backward compatible");
+        assert!(
+            result.unwrap(),
+            "Adding optional property with no required constraint is backward compatible"
+        );
     }
 
     // ========================================================================
@@ -1606,7 +1666,10 @@ mod tests {
         );
 
         assert!(result.is_ok());
-        assert!(result.unwrap(), "New type array superset of old should be backward compatible");
+        assert!(
+            result.unwrap(),
+            "New type array superset of old should be backward compatible"
+        );
     }
 
     #[test]
@@ -1632,7 +1695,10 @@ mod tests {
         );
 
         assert!(result.is_ok());
-        assert!(result.unwrap(), "Single type that is in old array should be compatible");
+        assert!(
+            result.unwrap(),
+            "Single type that is in old array should be compatible"
+        );
     }
 
     #[test]
@@ -1658,7 +1724,10 @@ mod tests {
         );
 
         assert!(result.is_ok());
-        assert!(result.unwrap(), "Old single type contained in new array should be compatible");
+        assert!(
+            result.unwrap(),
+            "Old single type contained in new array should be compatible"
+        );
     }
 
     // ========================================================================

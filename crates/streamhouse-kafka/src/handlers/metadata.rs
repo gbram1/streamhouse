@@ -8,8 +8,8 @@ use tracing::{debug, info};
 use crate::codec::{
     encode_compact_nullable_string, encode_compact_string, encode_empty_tagged_fields,
     encode_nullable_string, encode_string, encode_unsigned_varint, parse_array,
-    parse_compact_array, parse_compact_nullable_string, parse_nullable_string, RequestHeader,
-    skip_tagged_fields,
+    parse_compact_array, parse_compact_nullable_string, parse_nullable_string, skip_tagged_fields,
+    RequestHeader,
 };
 use crate::error::{ErrorCode, KafkaResult};
 use crate::server::KafkaServerState;
@@ -23,11 +23,15 @@ pub async fn handle_metadata(
     // Parse request
     let topics = if header.api_version >= 9 {
         // Compact protocol
-        parse_compact_array(body, |b| parse_compact_nullable_string(b).map(|s| s.unwrap_or_default()))?
+        parse_compact_array(body, |b| {
+            parse_compact_nullable_string(b).map(|s| s.unwrap_or_default())
+        })?
     } else {
         // Legacy protocol
         if header.api_version >= 1 {
-            parse_array(body, |b| parse_nullable_string(b).map(|s| s.unwrap_or_default()))?
+            parse_array(body, |b| {
+                parse_nullable_string(b).map(|s| s.unwrap_or_default())
+            })?
         } else {
             parse_array(body, |b| {
                 let len = b.get_i16() as usize;
@@ -49,10 +53,16 @@ pub async fn handle_metadata(
         skip_tagged_fields(body)?;
     }
 
-    debug!("Metadata request for topics: {:?}, auto_create: {}", topics, allow_auto_topic_creation);
+    debug!(
+        "Metadata request for topics: {:?}, auto_create: {}",
+        topics, allow_auto_topic_creation
+    );
 
     // Get topic metadata from store
-    let mut all_topics = state.metadata.list_topics().await
+    let mut all_topics = state
+        .metadata
+        .list_topics()
+        .await
         .map_err(|e| crate::error::KafkaError::MetadataStore(e.to_string()))?;
 
     // Auto-create topics if requested and allowed

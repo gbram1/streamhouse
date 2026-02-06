@@ -528,8 +528,8 @@ impl PartitionWriter {
                         .inc();
 
                     // Check if this is a throttle error (503 SlowDown) (Phase 12.4.2)
-                    let is_throttle_error = e.to_string().contains("SlowDown")
-                        || e.to_string().contains("503");
+                    let is_throttle_error =
+                        e.to_string().contains("SlowDown") || e.to_string().contains("503");
 
                     // Report failure to throttle coordinator (Phase 12.4.2)
                     if let Some(ref throttle) = self.throttle {
@@ -556,8 +556,8 @@ impl PartitionWriter {
                         .inc();
 
                     // Check if this is a throttle error (503 SlowDown) (Phase 12.4.2)
-                    let is_throttle_error = e.to_string().contains("SlowDown")
-                        || e.to_string().contains("503");
+                    let is_throttle_error =
+                        e.to_string().contains("SlowDown") || e.to_string().contains("503");
 
                     // Report final failure to throttle coordinator (Phase 12.4.2)
                     if let Some(ref throttle) = self.throttle {
@@ -624,7 +624,10 @@ impl PartitionWriter {
                 if let Some(ref throttle) = self.throttle {
                     throttle.report_result(S3Operation::Put, false, false).await;
                 }
-                return Err(Error::S3UploadFailed(format!("Failed to start multipart: {}", e)));
+                return Err(Error::S3UploadFailed(format!(
+                    "Failed to start multipart: {}",
+                    e
+                )));
             }
         };
 
@@ -665,7 +668,10 @@ impl PartitionWriter {
                 if let Some(ref throttle) = self.throttle {
                     throttle.report_result(S3Operation::Put, false, false).await;
                 }
-                Err(Error::S3UploadFailed(format!("Multipart upload failed: {}", e)))
+                Err(Error::S3UploadFailed(format!(
+                    "Multipart upload failed: {}",
+                    e
+                )))
             }
         }
     }

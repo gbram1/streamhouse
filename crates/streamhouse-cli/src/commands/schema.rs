@@ -105,10 +105,7 @@ pub enum ConfigCommands {
 }
 
 /// Handle schema commands
-pub async fn handle_schema_command(
-    command: SchemaCommands,
-    registry_url: &str,
-) -> Result<()> {
+pub async fn handle_schema_command(command: SchemaCommands, registry_url: &str) -> Result<()> {
     let client = SchemaRegistryClient::new(registry_url);
 
     match command {
@@ -308,9 +305,7 @@ async fn handle_config_command(
             subject,
             compatibility,
         } => {
-            let config = client
-                .set_subject_config(&subject, &compatibility)
-                .await?;
+            let config = client.set_subject_config(&subject, &compatibility).await?;
 
             println!("✅ Compatibility updated:");
             println!("  Subject: {}", subject);

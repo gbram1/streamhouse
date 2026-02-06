@@ -180,12 +180,11 @@ impl<S: MetadataStore> ApiKeyAuth<S> {
     /// Returns the tenant context for the authenticated key.
     pub async fn authenticate(&self, api_key: Option<&str>) -> AuthResult<TenantContext> {
         match api_key {
-            Some(key) => {
-                self.validator
-                    .validate(key)
-                    .await
-                    .map_err(|e| AuthError::InternalError(e.to_string()))
-            }
+            Some(key) => self
+                .validator
+                .validate(key)
+                .await
+                .map_err(|e| AuthError::InternalError(e.to_string())),
             None => {
                 if self.allow_anonymous {
                     self.validator
@@ -219,7 +218,11 @@ impl<S: MetadataStore> ApiKeyAuth<S> {
     /// * `permission` - Required permission (read, write, admin)
     pub fn check_permission(&self, ctx: &TenantContext, permission: &str) -> AuthResult<()> {
         if let Some(ref api_key) = ctx.api_key {
-            if !api_key.permissions.iter().any(|p| p == permission || p == "admin") {
+            if !api_key
+                .permissions
+                .iter()
+                .any(|p| p == permission || p == "admin")
+            {
                 return Err(AuthError::PermissionDenied(permission.to_string()));
             }
         }
@@ -345,7 +348,9 @@ pub mod axum_middleware {
             .and_then(|v| v.to_str().ok());
 
         // Authenticate
-        let tenant = auth.authenticate_from_headers(authorization, x_api_key).await?;
+        let tenant = auth
+            .authenticate_from_headers(authorization, x_api_key)
+            .await?;
 
         // Store tenant context in request extensions
         request.extensions_mut().insert(tenant);

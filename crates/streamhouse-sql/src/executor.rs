@@ -94,14 +94,25 @@ impl SqlExecutor {
             SqlQuery::ShowTopics => self.execute_show_topics().await?,
             SqlQuery::DescribeTopic(topic) => self.execute_describe(&topic).await?,
             SqlQuery::Count(q) => self.execute_count(q, start, timeout).await?,
-            SqlQuery::WindowAggregate(q) => self.execute_window_aggregate(q, start, timeout).await?,
+            SqlQuery::WindowAggregate(q) => {
+                self.execute_window_aggregate(q, start, timeout).await?
+            }
             SqlQuery::Join(q) => self.execute_join(q, start, timeout).await?,
             // Materialized View commands
-            SqlQuery::CreateMaterializedView(q) => self.execute_create_materialized_view(q, start).await?,
-            SqlQuery::DropMaterializedView(name) => self.execute_drop_materialized_view(&name, start).await?,
-            SqlQuery::RefreshMaterializedView(name) => self.execute_refresh_materialized_view(&name, start).await?,
+            SqlQuery::CreateMaterializedView(q) => {
+                self.execute_create_materialized_view(q, start).await?
+            }
+            SqlQuery::DropMaterializedView(name) => {
+                self.execute_drop_materialized_view(&name, start).await?
+            }
+            SqlQuery::RefreshMaterializedView(name) => {
+                self.execute_refresh_materialized_view(&name, start).await?
+            }
             SqlQuery::ShowMaterializedViews => self.execute_show_materialized_views(start).await?,
-            SqlQuery::DescribeMaterializedView(name) => self.execute_describe_materialized_view(&name, start).await?,
+            SqlQuery::DescribeMaterializedView(name) => {
+                self.execute_describe_materialized_view(&name, start)
+                    .await?
+            }
         };
 
         Ok(result)
@@ -121,16 +132,13 @@ impl SqlExecutor {
             .ok_or_else(|| SqlError::TopicNotFound(query.topic.clone()))?;
 
         // Determine which partitions to scan
-        let partition_filter = query
-            .filters
-            .iter()
-            .find_map(|f| {
-                if let Filter::PartitionEquals(p) = f {
-                    Some(*p)
-                } else {
-                    None
-                }
-            });
+        let partition_filter = query.filters.iter().find_map(|f| {
+            if let Filter::PartitionEquals(p) = f {
+                Some(*p)
+            } else {
+                None
+            }
+        });
 
         let partitions: Vec<u32> = if let Some(p) = partition_filter {
             vec![p]
@@ -172,7 +180,11 @@ impl SqlExecutor {
             }
 
             // Get partition info
-            let partition = match self.metadata.get_partition(&query.topic, *partition_id).await? {
+            let partition = match self
+                .metadata
+                .get_partition(&query.topic, *partition_id)
+                .await?
+            {
                 Some(p) => p,
                 None => continue,
             };
@@ -198,7 +210,9 @@ impl SqlExecutor {
 
                 // Apply basic filters (non-statistical)
                 for msg in messages {
-                    let basic_filters: Vec<_> = query.filters.iter()
+                    let basic_filters: Vec<_> = query
+                        .filters
+                        .iter()
                         .filter(|f| !is_statistical_filter(f))
                         .cloned()
                         .collect();
@@ -235,7 +249,9 @@ impl SqlExecutor {
         let skip = query.offset.unwrap_or(0);
         let mut rows: Vec<Row> = Vec::new();
 
-        let stat_filters: Vec<_> = query.filters.iter()
+        let stat_filters: Vec<_> = query
+            .filters
+            .iter()
             .filter(|f| is_statistical_filter(f))
             .cloned()
             .collect();
@@ -315,14 +331,19 @@ impl SqlExecutor {
         let mut count: u64 = 0;
 
         // If no filters other than partition, we can use high watermarks
-        let only_partition_filter = query.filters.iter().all(|f| {
-            matches!(f, Filter::PartitionEquals(_))
-        });
+        let only_partition_filter = query
+            .filters
+            .iter()
+            .all(|f| matches!(f, Filter::PartitionEquals(_)));
 
         if only_partition_filter {
             // Fast path: just sum high watermarks
             for partition_id in partitions {
-                if let Some(partition) = self.metadata.get_partition(&query.topic, partition_id).await? {
+                if let Some(partition) = self
+                    .metadata
+                    .get_partition(&query.topic, partition_id)
+                    .await?
+                {
                     count += partition.high_watermark;
                 }
             }
@@ -415,10 +436,7 @@ impl SqlExecutor {
                 .get_partition(topic_name, partition_id)
                 .await?;
 
-            let segments = self
-                .metadata
-                .get_segments(topic_name, partition_id)
-                .await?;
+            let segments = self.metadata.get_segments(topic_name, partition_id).await?;
 
             let hwm = partition.map(|p| p.high_watermark).unwrap_or(0);
             total_messages += hwm;
@@ -491,7 +509,8 @@ impl SqlExecutor {
 
         // Fall back to original implementation for hop/session windows
         // or when Arrow is disabled
-        self.execute_window_aggregate_legacy(query, start, timeout_ms).await
+        self.execute_window_aggregate_legacy(query, start, timeout_ms)
+            .await
     }
 
     /// Legacy window aggregation (non-Arrow path)
@@ -631,14 +650,18 @@ impl SqlExecutor {
         }
 
         // Load messages from both topics
-        let left_messages = self.load_topic_messages(&query.left.topic, start, timeout_ms).await?;
+        let left_messages = self
+            .load_topic_messages(&query.left.topic, start, timeout_ms)
+            .await?;
 
         // Check timeout after loading left
         if start.elapsed().as_millis() as u64 > timeout_ms {
             return Err(SqlError::Timeout(timeout_ms));
         }
 
-        let right_messages = self.load_topic_messages(&query.right.topic, start, timeout_ms).await?;
+        let right_messages = self
+            .load_topic_messages(&query.right.topic, start, timeout_ms)
+            .await?;
 
         // Check timeout after loading right
         if start.elapsed().as_millis() as u64 > timeout_ms {
@@ -647,13 +670,16 @@ impl SqlExecutor {
 
         // OPTIMIZATION: Predicate pushdown - filter messages before joining
         // Partition filters by which side they apply to based on qualifier
-        let (left_filters, right_filters): (Vec<_>, Vec<_>) = query.filters.iter()
+        let (left_filters, right_filters): (Vec<_>, Vec<_>) = query
+            .filters
+            .iter()
             .partition(|f| filter_applies_to_side(f, &query.left));
 
         let left_messages: Vec<_> = if left_filters.is_empty() {
             left_messages
         } else {
-            left_messages.into_iter()
+            left_messages
+                .into_iter()
                 .filter(|msg| apply_pushdown_filters(msg, &left_filters))
                 .collect()
         };
@@ -661,7 +687,8 @@ impl SqlExecutor {
         let right_messages: Vec<_> = if right_filters.is_empty() {
             right_messages
         } else {
-            right_messages.into_iter()
+            right_messages
+                .into_iter()
                 .filter(|msg| apply_pushdown_filters(msg, &right_filters))
                 .collect()
         };
@@ -725,7 +752,13 @@ impl SqlExecutor {
             if rows.len() % 1000 == 0 && start.elapsed().as_millis() as u64 > timeout_ms {
                 return Err(SqlError::Timeout(timeout_ms));
             }
-            let row = project_join_row(&query.columns, left_msg.as_ref(), right_msg.as_ref(), &query.left, &query.right);
+            let row = project_join_row(
+                &query.columns,
+                left_msg.as_ref(),
+                right_msg.as_ref(),
+                &query.left,
+                &query.right,
+            );
             rows.push(row);
         }
 
@@ -760,10 +793,7 @@ impl SqlExecutor {
                 return Err(SqlError::Timeout(timeout_ms));
             }
 
-            let segments = self
-                .metadata
-                .get_segments(topic_name, partition_id)
-                .await?;
+            let segments = self.metadata.get_segments(topic_name, partition_id).await?;
 
             for segment in segments {
                 let messages = self.read_segment_messages(&segment).await?;
@@ -861,11 +891,9 @@ impl SqlExecutor {
     fn convert_refresh_mode(mode: &RefreshMode) -> MaterializedViewRefreshMode {
         match mode {
             RefreshMode::Continuous => MaterializedViewRefreshMode::Continuous,
-            RefreshMode::Periodic { interval_ms } => {
-                MaterializedViewRefreshMode::Periodic {
-                    interval_ms: *interval_ms,
-                }
-            }
+            RefreshMode::Periodic { interval_ms } => MaterializedViewRefreshMode::Periodic {
+                interval_ms: *interval_ms,
+            },
             RefreshMode::Manual => MaterializedViewRefreshMode::Manual,
         }
     }
@@ -934,10 +962,22 @@ impl SqlExecutor {
 
         Ok(QueryResult {
             columns: vec![
-                ColumnInfo { name: "name".to_string(), data_type: "string".to_string() },
-                ColumnInfo { name: "source_topic".to_string(), data_type: "string".to_string() },
-                ColumnInfo { name: "refresh_mode".to_string(), data_type: "string".to_string() },
-                ColumnInfo { name: "status".to_string(), data_type: "string".to_string() },
+                ColumnInfo {
+                    name: "name".to_string(),
+                    data_type: "string".to_string(),
+                },
+                ColumnInfo {
+                    name: "source_topic".to_string(),
+                    data_type: "string".to_string(),
+                },
+                ColumnInfo {
+                    name: "refresh_mode".to_string(),
+                    data_type: "string".to_string(),
+                },
+                ColumnInfo {
+                    name: "status".to_string(),
+                    data_type: "string".to_string(),
+                },
             ],
             rows: vec![row],
             row_count: 1,
@@ -964,8 +1004,14 @@ impl SqlExecutor {
 
         Ok(QueryResult {
             columns: vec![
-                ColumnInfo { name: "name".to_string(), data_type: "string".to_string() },
-                ColumnInfo { name: "status".to_string(), data_type: "string".to_string() },
+                ColumnInfo {
+                    name: "name".to_string(),
+                    data_type: "string".to_string(),
+                },
+                ColumnInfo {
+                    name: "status".to_string(),
+                    data_type: "string".to_string(),
+                },
             ],
             rows: vec![vec![
                 serde_json::Value::String(name.to_string()),
@@ -998,9 +1044,18 @@ impl SqlExecutor {
 
         Ok(QueryResult {
             columns: vec![
-                ColumnInfo { name: "name".to_string(), data_type: "string".to_string() },
-                ColumnInfo { name: "status".to_string(), data_type: "string".to_string() },
-                ColumnInfo { name: "row_count".to_string(), data_type: "bigint".to_string() },
+                ColumnInfo {
+                    name: "name".to_string(),
+                    data_type: "string".to_string(),
+                },
+                ColumnInfo {
+                    name: "status".to_string(),
+                    data_type: "string".to_string(),
+                },
+                ColumnInfo {
+                    name: "row_count".to_string(),
+                    data_type: "bigint".to_string(),
+                },
             ],
             rows: vec![vec![
                 serde_json::Value::String(name.to_string()),
@@ -1014,10 +1069,7 @@ impl SqlExecutor {
     }
 
     /// Execute SHOW MATERIALIZED VIEWS command
-    async fn execute_show_materialized_views(
-        &self,
-        start: Instant,
-    ) -> Result<QueryResult> {
+    async fn execute_show_materialized_views(&self, start: Instant) -> Result<QueryResult> {
         // Fetch all views from metadata store
         let views = self.metadata.list_materialized_views().await?;
 
@@ -1038,11 +1090,26 @@ impl SqlExecutor {
 
         Ok(QueryResult {
             columns: vec![
-                ColumnInfo { name: "name".to_string(), data_type: "string".to_string() },
-                ColumnInfo { name: "source_topic".to_string(), data_type: "string".to_string() },
-                ColumnInfo { name: "refresh_mode".to_string(), data_type: "string".to_string() },
-                ColumnInfo { name: "status".to_string(), data_type: "string".to_string() },
-                ColumnInfo { name: "row_count".to_string(), data_type: "bigint".to_string() },
+                ColumnInfo {
+                    name: "name".to_string(),
+                    data_type: "string".to_string(),
+                },
+                ColumnInfo {
+                    name: "source_topic".to_string(),
+                    data_type: "string".to_string(),
+                },
+                ColumnInfo {
+                    name: "refresh_mode".to_string(),
+                    data_type: "string".to_string(),
+                },
+                ColumnInfo {
+                    name: "status".to_string(),
+                    data_type: "string".to_string(),
+                },
+                ColumnInfo {
+                    name: "row_count".to_string(),
+                    data_type: "bigint".to_string(),
+                },
             ],
             rows,
             row_count,
@@ -1114,8 +1181,14 @@ impl SqlExecutor {
 
         Ok(QueryResult {
             columns: vec![
-                ColumnInfo { name: "property".to_string(), data_type: "string".to_string() },
-                ColumnInfo { name: "value".to_string(), data_type: "string".to_string() },
+                ColumnInfo {
+                    name: "property".to_string(),
+                    data_type: "string".to_string(),
+                },
+                ColumnInfo {
+                    name: "value".to_string(),
+                    data_type: "string".to_string(),
+                },
             ],
             rows,
             row_count: 10,
@@ -1156,9 +1229,16 @@ fn build_column_info(columns: &[SelectColumn]) -> Vec<ColumnInfo> {
                     data_type: "float".to_string(),
                 });
             }
-            SelectColumn::MovingAvg { alias, path, window_size, .. } => {
+            SelectColumn::MovingAvg {
+                alias,
+                path,
+                window_size,
+                ..
+            } => {
                 result.push(ColumnInfo {
-                    name: alias.clone().unwrap_or_else(|| format!("moving_avg({}, {})", path, window_size)),
+                    name: alias
+                        .clone()
+                        .unwrap_or_else(|| format!("moving_avg({}, {})", path, window_size)),
                     data_type: "float".to_string(),
                 });
             }
@@ -1174,33 +1254,48 @@ fn build_column_info(columns: &[SelectColumn]) -> Vec<ColumnInfo> {
                     data_type: "float".to_string(),
                 });
             }
-            SelectColumn::Anomaly { alias, path, threshold, .. } => {
+            SelectColumn::Anomaly {
+                alias,
+                path,
+                threshold,
+                ..
+            } => {
                 result.push(ColumnInfo {
-                    name: alias.clone().unwrap_or_else(|| format!("anomaly({}, {})", path, threshold)),
+                    name: alias
+                        .clone()
+                        .unwrap_or_else(|| format!("anomaly({}, {})", path, threshold)),
                     data_type: "boolean".to_string(),
                 });
             }
             SelectColumn::CosineSimilarity { alias, path, .. } => {
                 result.push(ColumnInfo {
-                    name: alias.clone().unwrap_or_else(|| format!("cosine_similarity({})", path)),
+                    name: alias
+                        .clone()
+                        .unwrap_or_else(|| format!("cosine_similarity({})", path)),
                     data_type: "float".to_string(),
                 });
             }
             SelectColumn::EuclideanDistance { alias, path, .. } => {
                 result.push(ColumnInfo {
-                    name: alias.clone().unwrap_or_else(|| format!("euclidean_distance({})", path)),
+                    name: alias
+                        .clone()
+                        .unwrap_or_else(|| format!("euclidean_distance({})", path)),
                     data_type: "float".to_string(),
                 });
             }
             SelectColumn::DotProduct { alias, path, .. } => {
                 result.push(ColumnInfo {
-                    name: alias.clone().unwrap_or_else(|| format!("dot_product({})", path)),
+                    name: alias
+                        .clone()
+                        .unwrap_or_else(|| format!("dot_product({})", path)),
                     data_type: "float".to_string(),
                 });
             }
             SelectColumn::VectorNorm { alias, path, .. } => {
                 result.push(ColumnInfo {
-                    name: alias.clone().unwrap_or_else(|| format!("vector_norm({})", path)),
+                    name: alias
+                        .clone()
+                        .unwrap_or_else(|| format!("vector_norm({})", path)),
                     data_type: "float".to_string(),
                 });
             }
@@ -1212,13 +1307,16 @@ fn build_column_info(columns: &[SelectColumn]) -> Vec<ColumnInfo> {
 
 /// Check if any column or filter requires statistics computation
 fn requires_statistics(columns: &[SelectColumn], filters: &[Filter]) -> bool {
-    let has_stat_columns = columns.iter().any(|c| matches!(c,
-        SelectColumn::ZScore { .. } |
-        SelectColumn::MovingAvg { .. } |
-        SelectColumn::Stddev { .. } |
-        SelectColumn::Avg { .. } |
-        SelectColumn::Anomaly { .. }
-    ));
+    let has_stat_columns = columns.iter().any(|c| {
+        matches!(
+            c,
+            SelectColumn::ZScore { .. }
+                | SelectColumn::MovingAvg { .. }
+                | SelectColumn::Stddev { .. }
+                | SelectColumn::Avg { .. }
+                | SelectColumn::Anomaly { .. }
+        )
+    });
 
     let has_stat_filters = filters.iter().any(is_statistical_filter);
 
@@ -1227,10 +1325,9 @@ fn requires_statistics(columns: &[SelectColumn], filters: &[Filter]) -> bool {
 
 /// Check if a filter requires statistics
 fn is_statistical_filter(filter: &Filter) -> bool {
-    matches!(filter,
-        Filter::ZScoreGt { .. } |
-        Filter::ZScoreLt { .. } |
-        Filter::AnomalyThreshold { .. }
+    matches!(
+        filter,
+        Filter::ZScoreGt { .. } | Filter::ZScoreLt { .. } | Filter::AnomalyThreshold { .. }
     )
 }
 
@@ -1240,11 +1337,11 @@ fn collect_stat_paths(columns: &[SelectColumn], filters: &[Filter]) -> HashSet<S
 
     for col in columns {
         match col {
-            SelectColumn::ZScore { path, .. } |
-            SelectColumn::MovingAvg { path, .. } |
-            SelectColumn::Stddev { path, .. } |
-            SelectColumn::Avg { path, .. } |
-            SelectColumn::Anomaly { path, .. } => {
+            SelectColumn::ZScore { path, .. }
+            | SelectColumn::MovingAvg { path, .. }
+            | SelectColumn::Stddev { path, .. }
+            | SelectColumn::Avg { path, .. }
+            | SelectColumn::Anomaly { path, .. } => {
                 paths.insert(path.clone());
             }
             _ => {}
@@ -1253,9 +1350,9 @@ fn collect_stat_paths(columns: &[SelectColumn], filters: &[Filter]) -> HashSet<S
 
     for filter in filters {
         match filter {
-            Filter::ZScoreGt { path, .. } |
-            Filter::ZScoreLt { path, .. } |
-            Filter::AnomalyThreshold { path, .. } => {
+            Filter::ZScoreGt { path, .. }
+            | Filter::ZScoreLt { path, .. }
+            | Filter::AnomalyThreshold { path, .. } => {
                 paths.insert(path.clone());
             }
             _ => {}
@@ -1276,7 +1373,9 @@ fn extract_json_path_for_stats(json: &serde_json::Value, path: &str) -> serde_js
             continue;
         }
         current = match current {
-            serde_json::Value::Object(map) => map.get(part).cloned().unwrap_or(serde_json::Value::Null),
+            serde_json::Value::Object(map) => {
+                map.get(part).cloned().unwrap_or(serde_json::Value::Null)
+            }
             serde_json::Value::Array(arr) => {
                 if let Ok(idx) = part.parse::<usize>() {
                     arr.get(idx).cloned().unwrap_or(serde_json::Value::Null)
@@ -1471,34 +1570,26 @@ pub fn compute_aggregation(agg: &WindowAggregation, messages: &[MessageRow]) -> 
                 serde_json::json!(avg)
             }
         }
-        WindowAggregation::Min { path, .. } => {
-            messages
-                .iter()
-                .filter_map(|m| extract_numeric_from_msg(m, path))
-                .min_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal))
-                .map(|v| serde_json::json!(v))
-                .unwrap_or(serde_json::Value::Null)
-        }
-        WindowAggregation::Max { path, .. } => {
-            messages
-                .iter()
-                .filter_map(|m| extract_numeric_from_msg(m, path))
-                .max_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal))
-                .map(|v| serde_json::json!(v))
-                .unwrap_or(serde_json::Value::Null)
-        }
-        WindowAggregation::First { path, .. } => {
-            messages
-                .first()
-                .map(|m| extract_value_from_msg(m, path))
-                .unwrap_or(serde_json::Value::Null)
-        }
-        WindowAggregation::Last { path, .. } => {
-            messages
-                .last()
-                .map(|m| extract_value_from_msg(m, path))
-                .unwrap_or(serde_json::Value::Null)
-        }
+        WindowAggregation::Min { path, .. } => messages
+            .iter()
+            .filter_map(|m| extract_numeric_from_msg(m, path))
+            .min_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal))
+            .map(|v| serde_json::json!(v))
+            .unwrap_or(serde_json::Value::Null),
+        WindowAggregation::Max { path, .. } => messages
+            .iter()
+            .filter_map(|m| extract_numeric_from_msg(m, path))
+            .max_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal))
+            .map(|v| serde_json::json!(v))
+            .unwrap_or(serde_json::Value::Null),
+        WindowAggregation::First { path, .. } => messages
+            .first()
+            .map(|m| extract_value_from_msg(m, path))
+            .unwrap_or(serde_json::Value::Null),
+        WindowAggregation::Last { path, .. } => messages
+            .last()
+            .map(|m| extract_value_from_msg(m, path))
+            .unwrap_or(serde_json::Value::Null),
     }
 }
 
@@ -1800,29 +1891,69 @@ fn build_join_column_info(
                         // All columns from both tables
                         for prefix in [left.qualifier(), right.qualifier()] {
                             result.extend(vec![
-                                ColumnInfo { name: format!("{}.topic", prefix), data_type: "string".to_string() },
-                                ColumnInfo { name: format!("{}.partition", prefix), data_type: "integer".to_string() },
-                                ColumnInfo { name: format!("{}.offset", prefix), data_type: "bigint".to_string() },
-                                ColumnInfo { name: format!("{}.key", prefix), data_type: "string".to_string() },
-                                ColumnInfo { name: format!("{}.value", prefix), data_type: "string".to_string() },
-                                ColumnInfo { name: format!("{}.timestamp", prefix), data_type: "bigint".to_string() },
+                                ColumnInfo {
+                                    name: format!("{}.topic", prefix),
+                                    data_type: "string".to_string(),
+                                },
+                                ColumnInfo {
+                                    name: format!("{}.partition", prefix),
+                                    data_type: "integer".to_string(),
+                                },
+                                ColumnInfo {
+                                    name: format!("{}.offset", prefix),
+                                    data_type: "bigint".to_string(),
+                                },
+                                ColumnInfo {
+                                    name: format!("{}.key", prefix),
+                                    data_type: "string".to_string(),
+                                },
+                                ColumnInfo {
+                                    name: format!("{}.value", prefix),
+                                    data_type: "string".to_string(),
+                                },
+                                ColumnInfo {
+                                    name: format!("{}.timestamp", prefix),
+                                    data_type: "bigint".to_string(),
+                                },
                             ]);
                         }
                     }
                     Some(qual) => {
                         // All columns from one table
                         result.extend(vec![
-                            ColumnInfo { name: format!("{}.topic", qual), data_type: "string".to_string() },
-                            ColumnInfo { name: format!("{}.partition", qual), data_type: "integer".to_string() },
-                            ColumnInfo { name: format!("{}.offset", qual), data_type: "bigint".to_string() },
-                            ColumnInfo { name: format!("{}.key", qual), data_type: "string".to_string() },
-                            ColumnInfo { name: format!("{}.value", qual), data_type: "string".to_string() },
-                            ColumnInfo { name: format!("{}.timestamp", qual), data_type: "bigint".to_string() },
+                            ColumnInfo {
+                                name: format!("{}.topic", qual),
+                                data_type: "string".to_string(),
+                            },
+                            ColumnInfo {
+                                name: format!("{}.partition", qual),
+                                data_type: "integer".to_string(),
+                            },
+                            ColumnInfo {
+                                name: format!("{}.offset", qual),
+                                data_type: "bigint".to_string(),
+                            },
+                            ColumnInfo {
+                                name: format!("{}.key", qual),
+                                data_type: "string".to_string(),
+                            },
+                            ColumnInfo {
+                                name: format!("{}.value", qual),
+                                data_type: "string".to_string(),
+                            },
+                            ColumnInfo {
+                                name: format!("{}.timestamp", qual),
+                                data_type: "bigint".to_string(),
+                            },
                         ]);
                     }
                 }
             }
-            JoinSelectColumn::QualifiedColumn { qualifier, column, alias } => {
+            JoinSelectColumn::QualifiedColumn {
+                qualifier,
+                column,
+                alias,
+            } => {
                 let name = alias.clone().unwrap_or_else(|| {
                     if qualifier.is_empty() {
                         column.clone()
@@ -1835,9 +1966,16 @@ fn build_join_column_info(
                     "offset" | "timestamp" => "bigint",
                     _ => "string",
                 };
-                result.push(ColumnInfo { name, data_type: data_type.to_string() });
+                result.push(ColumnInfo {
+                    name,
+                    data_type: data_type.to_string(),
+                });
             }
-            JoinSelectColumn::QualifiedJsonExtract { qualifier, path, alias } => {
+            JoinSelectColumn::QualifiedJsonExtract {
+                qualifier,
+                path,
+                alias,
+            } => {
                 let name = alias.clone().unwrap_or_else(|| {
                     if qualifier.is_empty() {
                         path.clone()
@@ -1845,7 +1983,10 @@ fn build_join_column_info(
                         format!("{}.{}", qualifier, path)
                     }
                 });
-                result.push(ColumnInfo { name, data_type: "json".to_string() });
+                result.push(ColumnInfo {
+                    name,
+                    data_type: "json".to_string(),
+                });
             }
         }
     }
@@ -1883,12 +2024,16 @@ fn project_join_row(
                     }
                 }
             }
-            JoinSelectColumn::QualifiedColumn { qualifier, column, .. } => {
+            JoinSelectColumn::QualifiedColumn {
+                qualifier, column, ..
+            } => {
                 let msg = resolve_qualifier(qualifier, left_msg, right_msg, left_ref, right_ref);
                 let value = extract_column_value(msg, column);
                 row.push(value);
             }
-            JoinSelectColumn::QualifiedJsonExtract { qualifier, path, .. } => {
+            JoinSelectColumn::QualifiedJsonExtract {
+                qualifier, path, ..
+            } => {
                 let msg = resolve_qualifier(qualifier, left_msg, right_msg, left_ref, right_ref);
                 let value = if let Some(m) = msg {
                     if let Ok(json) = serde_json::from_str::<serde_json::Value>(&m.value) {
@@ -1914,7 +2059,8 @@ fn message_to_row_values(msg: Option<&MessageRow>) -> Vec<serde_json::Value> {
             serde_json::Value::String(m.topic.clone()),
             serde_json::Value::Number(m.partition.into()),
             serde_json::Value::Number(m.offset.into()),
-            m.key.as_ref()
+            m.key
+                .as_ref()
                 .map(|k| serde_json::Value::String(k.clone()))
                 .unwrap_or(serde_json::Value::Null),
             serde_json::Value::String(m.value.clone()),
@@ -1958,7 +2104,9 @@ fn extract_column_value(msg: Option<&MessageRow>, column: &str) -> serde_json::V
             "topic" => serde_json::Value::String(m.topic.clone()),
             "partition" => serde_json::Value::Number(m.partition.into()),
             "offset" => serde_json::Value::Number(m.offset.into()),
-            "key" => m.key.as_ref()
+            "key" => m
+                .key
+                .as_ref()
                 .map(|k| serde_json::Value::String(k.clone()))
                 .unwrap_or(serde_json::Value::Null),
             "value" => serde_json::Value::String(m.value.clone()),
@@ -1982,7 +2130,10 @@ fn extract_column_value(msg: Option<&MessageRow>, column: &str) -> serde_json::V
 }
 
 /// Build column info for window aggregation results
-fn build_window_column_info(aggregations: &[WindowAggregation], has_group_by: bool) -> Vec<ColumnInfo> {
+fn build_window_column_info(
+    aggregations: &[WindowAggregation],
+    has_group_by: bool,
+) -> Vec<ColumnInfo> {
     let mut columns = vec![
         ColumnInfo {
             name: "window_start".to_string(),
@@ -2003,30 +2154,40 @@ fn build_window_column_info(aggregations: &[WindowAggregation], has_group_by: bo
 
     for agg in aggregations {
         let (name, data_type) = match agg {
-            WindowAggregation::Count { alias } => {
-                (alias.clone().unwrap_or_else(|| "count".to_string()), "bigint")
-            }
-            WindowAggregation::CountDistinct { alias, column } => {
-                (alias.clone().unwrap_or_else(|| format!("count_distinct_{}", column)), "bigint")
-            }
-            WindowAggregation::Sum { alias, path } => {
-                (alias.clone().unwrap_or_else(|| format!("sum_{}", path)), "float")
-            }
-            WindowAggregation::Avg { alias, path } => {
-                (alias.clone().unwrap_or_else(|| format!("avg_{}", path)), "float")
-            }
-            WindowAggregation::Min { alias, path } => {
-                (alias.clone().unwrap_or_else(|| format!("min_{}", path)), "float")
-            }
-            WindowAggregation::Max { alias, path } => {
-                (alias.clone().unwrap_or_else(|| format!("max_{}", path)), "float")
-            }
-            WindowAggregation::First { alias, path } => {
-                (alias.clone().unwrap_or_else(|| format!("first_{}", path)), "json")
-            }
-            WindowAggregation::Last { alias, path } => {
-                (alias.clone().unwrap_or_else(|| format!("last_{}", path)), "json")
-            }
+            WindowAggregation::Count { alias } => (
+                alias.clone().unwrap_or_else(|| "count".to_string()),
+                "bigint",
+            ),
+            WindowAggregation::CountDistinct { alias, column } => (
+                alias
+                    .clone()
+                    .unwrap_or_else(|| format!("count_distinct_{}", column)),
+                "bigint",
+            ),
+            WindowAggregation::Sum { alias, path } => (
+                alias.clone().unwrap_or_else(|| format!("sum_{}", path)),
+                "float",
+            ),
+            WindowAggregation::Avg { alias, path } => (
+                alias.clone().unwrap_or_else(|| format!("avg_{}", path)),
+                "float",
+            ),
+            WindowAggregation::Min { alias, path } => (
+                alias.clone().unwrap_or_else(|| format!("min_{}", path)),
+                "float",
+            ),
+            WindowAggregation::Max { alias, path } => (
+                alias.clone().unwrap_or_else(|| format!("max_{}", path)),
+                "float",
+            ),
+            WindowAggregation::First { alias, path } => (
+                alias.clone().unwrap_or_else(|| format!("first_{}", path)),
+                "json",
+            ),
+            WindowAggregation::Last { alias, path } => (
+                alias.clone().unwrap_or_else(|| format!("last_{}", path)),
+                "json",
+            ),
         };
 
         columns.push(ColumnInfo {

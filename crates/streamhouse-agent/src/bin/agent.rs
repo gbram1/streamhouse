@@ -166,7 +166,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let wal_enabled = std::env::var("WAL_ENABLED")
         .ok()
         .and_then(|s| s.parse::<bool>().ok())
-        .unwrap_or(true);  // Changed to true for production safety
+        .unwrap_or(true); // Changed to true for production safety
 
     let wal_config = if wal_enabled {
         let wal_dir = std::env::var("WAL_DIR").unwrap_or_else(|_| "./data/wal".to_string());

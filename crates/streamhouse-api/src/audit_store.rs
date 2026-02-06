@@ -111,8 +111,7 @@ pub enum AuditBackend {
 
 impl Default for AuditStoreConfig {
     fn default() -> Self {
-        let path = std::env::var("AUDIT_STORE_PATH")
-            .unwrap_or_else(|_| "./audit-logs".to_string());
+        let path = std::env::var("AUDIT_STORE_PATH").unwrap_or_else(|_| "./audit-logs".to_string());
 
         let max_size_mb = std::env::var("AUDIT_STORE_MAX_SIZE_MB")
             .ok()
@@ -541,7 +540,9 @@ impl AuditStore {
 
         let file_path = {
             let guard = self.current_file.read().await;
-            guard.clone().unwrap_or_else(|| self.new_log_file_path(base_path))
+            guard
+                .clone()
+                .unwrap_or_else(|| self.new_log_file_path(base_path))
         };
 
         // Ensure file path is set
@@ -565,7 +566,8 @@ impl AuditStore {
             file.sync_all().await?;
         }
 
-        self.current_size.fetch_add(line.len() as u64, Ordering::SeqCst);
+        self.current_size
+            .fetch_add(line.len() as u64, Ordering::SeqCst);
 
         Ok(())
     }
@@ -587,7 +589,11 @@ impl AuditStore {
     }
 
     /// Query from files
-    async fn query_files(&self, base_path: &Path, query: &AuditQuery) -> Result<Vec<StoredAuditRecord>> {
+    async fn query_files(
+        &self,
+        base_path: &Path,
+        query: &AuditQuery,
+    ) -> Result<Vec<StoredAuditRecord>> {
         let mut results = Vec::new();
         let mut entries = fs::read_dir(base_path).await?;
         let mut log_files: Vec<PathBuf> = Vec::new();
@@ -892,10 +898,7 @@ mod tests {
         assert_eq!(failures.len(), 2);
 
         // Query with limit
-        let limited = store
-            .query(AuditQuery::default().limit(3))
-            .await
-            .unwrap();
+        let limited = store.query(AuditQuery::default().limit(3)).await.unwrap();
         assert_eq!(limited.len(), 3);
     }
 

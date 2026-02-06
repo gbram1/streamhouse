@@ -281,7 +281,13 @@ mod tests {
 
         for (raw, expected) in cases {
             let parsed = ApiKey::from_i16(raw);
-            assert_eq!(parsed, Some(expected), "from_i16({}) should return {:?}", raw, expected);
+            assert_eq!(
+                parsed,
+                Some(expected),
+                "from_i16({}) should return {:?}",
+                raw,
+                expected
+            );
         }
     }
 
@@ -289,7 +295,12 @@ mod tests {
     fn test_api_key_from_i16_invalid_values() {
         // Gaps in the enum
         for invalid in [4, 5, 6, 7, 17] {
-            assert_eq!(ApiKey::from_i16(invalid), None, "from_i16({}) should be None", invalid);
+            assert_eq!(
+                ApiKey::from_i16(invalid),
+                None,
+                "from_i16({}) should be None",
+                invalid
+            );
         }
         // Negative values
         assert_eq!(ApiKey::from_i16(-1), None);
@@ -324,7 +335,11 @@ mod tests {
         for key in keys {
             let raw = key.as_i16();
             let recovered = ApiKey::from_i16(raw).unwrap();
-            assert_eq!(recovered, key, "roundtrip failed for {:?} (raw={})", key, raw);
+            assert_eq!(
+                recovered, key,
+                "roundtrip failed for {:?} (raw={})",
+                key, raw
+            );
         }
     }
 
@@ -431,13 +446,13 @@ mod tests {
         let map: std::collections::HashMap<i16, &ApiVersionRange> =
             versions.iter().map(|v| (v.api_key, v)).collect();
 
-        assert_eq!(map[&0].max_version, 9);   // Produce
-        assert_eq!(map[&1].max_version, 12);  // Fetch
-        assert_eq!(map[&2].max_version, 7);   // ListOffsets
-        assert_eq!(map[&3].max_version, 12);  // Metadata
-        assert_eq!(map[&18].max_version, 3);  // ApiVersions
-        assert_eq!(map[&19].max_version, 7);  // CreateTopics
-        assert_eq!(map[&20].max_version, 6);  // DeleteTopics
+        assert_eq!(map[&0].max_version, 9); // Produce
+        assert_eq!(map[&1].max_version, 12); // Fetch
+        assert_eq!(map[&2].max_version, 7); // ListOffsets
+        assert_eq!(map[&3].max_version, 12); // Metadata
+        assert_eq!(map[&18].max_version, 3); // ApiVersions
+        assert_eq!(map[&19].max_version, 7); // CreateTopics
+        assert_eq!(map[&20].max_version, 6); // DeleteTopics
     }
 
     #[test]
@@ -490,8 +505,14 @@ mod tests {
 
     #[test]
     fn test_isolation_level_equality() {
-        assert_eq!(IsolationLevel::ReadUncommitted, IsolationLevel::ReadUncommitted);
-        assert_ne!(IsolationLevel::ReadUncommitted, IsolationLevel::ReadCommitted);
+        assert_eq!(
+            IsolationLevel::ReadUncommitted,
+            IsolationLevel::ReadUncommitted
+        );
+        assert_ne!(
+            IsolationLevel::ReadUncommitted,
+            IsolationLevel::ReadCommitted
+        );
     }
 
     // ---------------------------------------------------------------
@@ -520,13 +541,25 @@ mod tests {
     fn test_compression_type_from_attributes_masks_upper_bits() {
         // Only the lower 3 bits (0x07) matter for compression
         // e.g. attributes=0b00001001 => lower 3 bits = 1 => Gzip
-        assert_eq!(CompressionType::from_attributes(0x09), CompressionType::Gzip);
+        assert_eq!(
+            CompressionType::from_attributes(0x09),
+            CompressionType::Gzip
+        );
         // attributes=0b11111100 => lower 3 bits = 4 => Zstd
-        assert_eq!(CompressionType::from_attributes(0x0C), CompressionType::Zstd);
+        assert_eq!(
+            CompressionType::from_attributes(0x0C),
+            CompressionType::Zstd
+        );
         // attributes=0xFF => lower 3 bits = 7 => out of range => None (default)
-        assert_eq!(CompressionType::from_attributes(0xFF), CompressionType::None);
+        assert_eq!(
+            CompressionType::from_attributes(0xFF),
+            CompressionType::None
+        );
         // attributes=0b00010010 => lower 3 bits = 2 => Snappy
-        assert_eq!(CompressionType::from_attributes(0x12), CompressionType::Snappy);
+        assert_eq!(
+            CompressionType::from_attributes(0x12),
+            CompressionType::Snappy
+        );
     }
 
     #[test]
@@ -556,17 +589,35 @@ mod tests {
     #[test]
     fn test_timestamp_type_from_attributes() {
         // Bit 3 (0x08) determines timestamp type
-        assert_eq!(TimestampType::from_attributes(0x00), TimestampType::CreateTime);
-        assert_eq!(TimestampType::from_attributes(0x08), TimestampType::LogAppendTime);
-        assert_eq!(TimestampType::from_attributes(0x07), TimestampType::CreateTime);  // bits 0-2 set, bit 3 clear
-        assert_eq!(TimestampType::from_attributes(0x0F), TimestampType::LogAppendTime);  // bit 3 set
+        assert_eq!(
+            TimestampType::from_attributes(0x00),
+            TimestampType::CreateTime
+        );
+        assert_eq!(
+            TimestampType::from_attributes(0x08),
+            TimestampType::LogAppendTime
+        );
+        assert_eq!(
+            TimestampType::from_attributes(0x07),
+            TimestampType::CreateTime
+        ); // bits 0-2 set, bit 3 clear
+        assert_eq!(
+            TimestampType::from_attributes(0x0F),
+            TimestampType::LogAppendTime
+        ); // bit 3 set
     }
 
     #[test]
     fn test_timestamp_type_from_attributes_high_bits_irrelevant() {
         // Only bit 3 matters
-        assert_eq!(TimestampType::from_attributes(0x70), TimestampType::CreateTime);
-        assert_eq!(TimestampType::from_attributes(0x78), TimestampType::LogAppendTime);
+        assert_eq!(
+            TimestampType::from_attributes(0x70),
+            TimestampType::CreateTime
+        );
+        assert_eq!(
+            TimestampType::from_attributes(0x78),
+            TimestampType::LogAppendTime
+        );
     }
 
     #[test]
@@ -574,8 +625,14 @@ mod tests {
         // Attributes can encode both compression (bits 0-2) and timestamp (bit 3)
         // compression=Lz4(3) + timestamp=LogAppendTime(bit3) => 0b00001011 = 0x0B
         let attrs: i16 = 0x0B;
-        assert_eq!(CompressionType::from_attributes(attrs), CompressionType::Lz4);
-        assert_eq!(TimestampType::from_attributes(attrs), TimestampType::LogAppendTime);
+        assert_eq!(
+            CompressionType::from_attributes(attrs),
+            CompressionType::Lz4
+        );
+        assert_eq!(
+            TimestampType::from_attributes(attrs),
+            TimestampType::LogAppendTime
+        );
     }
 
     // ---------------------------------------------------------------

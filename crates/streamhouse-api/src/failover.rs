@@ -376,7 +376,10 @@ impl InMemoryHealthChecker {
 
     /// Set health status for a node
     pub async fn set_status(&self, node_id: &str, status: HealthStatus) {
-        self.status.write().await.insert(node_id.to_string(), status);
+        self.status
+            .write()
+            .await
+            .insert(node_id.to_string(), status);
     }
 }
 
@@ -555,11 +558,7 @@ impl FailoverManager {
     }
 
     /// Update node health based on check result
-    async fn update_node_health(
-        &self,
-        node_id: &str,
-        result: HealthCheckResult,
-    ) -> Result<()> {
+    async fn update_node_health(&self, node_id: &str, result: HealthCheckResult) -> Result<()> {
         let mut nodes = self.nodes.write().await;
 
         if let Some(node) = nodes.get_mut(node_id) {
@@ -843,13 +842,9 @@ mod tests {
         .unwrap();
 
         let health_checker = Arc::new(InMemoryHealthChecker::new());
-        let manager = FailoverManager::new(
-            FailoverConfig::default(),
-            election,
-            health_checker,
-        )
-        .await
-        .unwrap();
+        let manager = FailoverManager::new(FailoverConfig::default(), election, health_checker)
+            .await
+            .unwrap();
 
         // Register nodes
         manager
@@ -893,14 +888,18 @@ mod tests {
         manager.register_node(NodeInfo::new("node-1")).await;
 
         // Initially healthy
-        health_checker.set_status("node-1", HealthStatus::Healthy).await;
+        health_checker
+            .set_status("node-1", HealthStatus::Healthy)
+            .await;
         manager.run_health_checks().await.unwrap();
 
         let node = manager.get_node("node-1").await.unwrap();
         assert_eq!(node.health, HealthStatus::Healthy);
 
         // Simulate failures
-        health_checker.set_status("node-1", HealthStatus::Unhealthy).await;
+        health_checker
+            .set_status("node-1", HealthStatus::Unhealthy)
+            .await;
         manager.run_health_checks().await.unwrap();
         manager.run_health_checks().await.unwrap();
 
@@ -921,13 +920,9 @@ mod tests {
         .unwrap();
 
         let health_checker = Arc::new(InMemoryHealthChecker::new());
-        let manager = FailoverManager::new(
-            FailoverConfig::default(),
-            election,
-            health_checker,
-        )
-        .await
-        .unwrap();
+        let manager = FailoverManager::new(FailoverConfig::default(), election, health_checker)
+            .await
+            .unwrap();
 
         let mut events = manager.subscribe();
 
@@ -935,7 +930,10 @@ mod tests {
         manager.register_node(NodeInfo::new("node-1")).await;
 
         // Trigger failover
-        manager.force_failover("Test failover".to_string()).await.unwrap();
+        manager
+            .force_failover("Test failover".to_string())
+            .await
+            .unwrap();
 
         // Should receive events
         let event = events.try_recv().unwrap();

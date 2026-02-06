@@ -355,12 +355,8 @@ impl LeaderElection {
 
         // Try to acquire based on backend
         let acquired = match &self.config.backend {
-            LeaderBackend::Postgres { .. } => {
-                self.try_acquire_postgres().await?
-            }
-            LeaderBackend::Memory => {
-                self.try_acquire_memory().await?
-            }
+            LeaderBackend::Postgres { .. } => self.try_acquire_postgres().await?,
+            LeaderBackend::Memory => self.try_acquire_memory().await?,
         };
 
         if acquired {
@@ -490,7 +486,9 @@ impl LeaderElection {
 
         if let Some(ref mut existing) = *record {
             if existing.leader_id != self.config.node_id {
-                return Err(LeaderError::LeadershipLost("Another node is leader".to_string()));
+                return Err(LeaderError::LeadershipLost(
+                    "Another node is leader".to_string(),
+                ));
             }
 
             if existing.expires_at < now {
@@ -501,7 +499,9 @@ impl LeaderElection {
             existing.expires_at = now + self.config.lease_duration.as_millis() as i64;
             Ok(())
         } else {
-            Err(LeaderError::LeadershipLost("No leadership record".to_string()))
+            Err(LeaderError::LeadershipLost(
+                "No leadership record".to_string(),
+            ))
         }
     }
 
@@ -828,7 +828,12 @@ mod tests {
 
         // Should receive lost event
         let event = events.try_recv().unwrap();
-        assert!(matches!(event, LeaderEvent::Lost { reason: LostReason::Released }));
+        assert!(matches!(
+            event,
+            LeaderEvent::Lost {
+                reason: LostReason::Released
+            }
+        ));
     }
 
     #[tokio::test]

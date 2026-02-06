@@ -67,7 +67,8 @@
 //! If a schema is incompatible, registration fails with an error.
 
 fn main() {
-    println!("
+    println!(
+        "
 🚀 Producer with Schema Registry Example
 
 This file demonstrates the key features and usage patterns for
@@ -118,5 +119,6 @@ Possible errors:
 
 For a complete working example, see the integration tests or refer
 to the documentation at https://docs.streamhouse.io
-    ");
+    "
+    );
 }

@@ -36,10 +36,18 @@ impl RestClient {
         if !response.status().is_success() {
             let status = response.status();
             let error_text = response.text().await.unwrap_or_default();
-            anyhow::bail!("HTTP {} {}: {}", status.as_u16(), status.as_str(), error_text);
+            anyhow::bail!(
+                "HTTP {} {}: {}",
+                status.as_u16(),
+                status.as_str(),
+                error_text
+            );
         }
 
-        response.json().await.context("Failed to parse JSON response")
+        response
+            .json()
+            .await
+            .context("Failed to parse JSON response")
     }
 
     /// POST request
@@ -60,10 +68,18 @@ impl RestClient {
         if !response.status().is_success() {
             let status = response.status();
             let error_text = response.text().await.unwrap_or_default();
-            anyhow::bail!("HTTP {} {}: {}", status.as_u16(), status.as_str(), error_text);
+            anyhow::bail!(
+                "HTTP {} {}: {}",
+                status.as_u16(),
+                status.as_str(),
+                error_text
+            );
         }
 
-        response.json().await.context("Failed to parse JSON response")
+        response
+            .json()
+            .await
+            .context("Failed to parse JSON response")
     }
 
     /// PUT request
@@ -84,10 +100,18 @@ impl RestClient {
         if !response.status().is_success() {
             let status = response.status();
             let error_text = response.text().await.unwrap_or_default();
-            anyhow::bail!("HTTP {} {}: {}", status.as_u16(), status.as_str(), error_text);
+            anyhow::bail!(
+                "HTTP {} {}: {}",
+                status.as_u16(),
+                status.as_str(),
+                error_text
+            );
         }
 
-        response.json().await.context("Failed to parse JSON response")
+        response
+            .json()
+            .await
+            .context("Failed to parse JSON response")
     }
 
     /// DELETE request
@@ -103,7 +127,12 @@ impl RestClient {
         if !response.status().is_success() {
             let status = response.status();
             let error_text = response.text().await.unwrap_or_default();
-            anyhow::bail!("HTTP {} {}: {}", status.as_u16(), status.as_str(), error_text);
+            anyhow::bail!(
+                "HTTP {} {}: {}",
+                status.as_u16(),
+                status.as_str(),
+                error_text
+            );
         }
 
         Ok(())
@@ -122,10 +151,18 @@ impl RestClient {
         if !response.status().is_success() {
             let status = response.status();
             let error_text = response.text().await.unwrap_or_default();
-            anyhow::bail!("HTTP {} {}: {}", status.as_u16(), status.as_str(), error_text);
+            anyhow::bail!(
+                "HTTP {} {}: {}",
+                status.as_u16(),
+                status.as_str(),
+                error_text
+            );
         }
 
-        response.json().await.context("Failed to parse JSON response")
+        response
+            .json()
+            .await
+            .context("Failed to parse JSON response")
     }
 }
 
@@ -230,7 +267,9 @@ impl SchemaRegistryClient {
         let request = SetCompatibilityRequest {
             compatibility: compatibility.to_string(),
         };
-        self.client.put(&format!("/config/{}", subject), &request).await
+        self.client
+            .put(&format!("/config/{}", subject), &request)
+            .await
     }
 }
 

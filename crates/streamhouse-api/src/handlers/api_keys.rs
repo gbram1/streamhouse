@@ -87,14 +87,10 @@ pub async fn list_api_keys(
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
         .ok_or(StatusCode::NOT_FOUND)?;
 
-    let keys = state
-        .metadata
-        .list_api_keys(&org_id)
-        .await
-        .map_err(|e| {
-            tracing::error!("Failed to list API keys: {}", e);
-            StatusCode::INTERNAL_SERVER_ERROR
-        })?;
+    let keys = state.metadata.list_api_keys(&org_id).await.map_err(|e| {
+        tracing::error!("Failed to list API keys: {}", e);
+        StatusCode::INTERNAL_SERVER_ERROR
+    })?;
 
     let responses: Vec<ApiKeyResponse> = keys
         .into_iter()
@@ -250,14 +246,10 @@ pub async fn revoke_api_key(
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
         .ok_or(StatusCode::NOT_FOUND)?;
 
-    state
-        .metadata
-        .revoke_api_key(&id)
-        .await
-        .map_err(|e| {
-            tracing::error!("Failed to revoke API key: {}", e);
-            StatusCode::INTERNAL_SERVER_ERROR
-        })?;
+    state.metadata.revoke_api_key(&id).await.map_err(|e| {
+        tracing::error!("Failed to revoke API key: {}", e);
+        StatusCode::INTERNAL_SERVER_ERROR
+    })?;
 
     Ok(StatusCode::NO_CONTENT)
 }

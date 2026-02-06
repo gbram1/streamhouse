@@ -5,7 +5,9 @@
 
 use bytes::{BufMut, BytesMut};
 
-use crate::codec::{encode_compact_string, encode_empty_tagged_fields, encode_unsigned_varint, RequestHeader};
+use crate::codec::{
+    encode_compact_string, encode_empty_tagged_fields, encode_unsigned_varint, RequestHeader,
+};
 use crate::error::{ErrorCode, KafkaResult};
 use crate::server::KafkaServerState;
 use crate::types::supported_api_versions;

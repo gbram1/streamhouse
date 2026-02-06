@@ -416,29 +416,21 @@ pub async fn get_topic_messages(
 
         // Try to read segment from object store
         let path = ObjectPath::from(segment.s3_key.clone());
-        let get_result = state
-            .object_store
-            .get(&path)
-            .await
-            .map_err(|e| {
-                tracing::error!("Failed to get segment from S3: {} - {}", segment.s3_key, e);
-                StatusCode::INTERNAL_SERVER_ERROR
-            })?;
+        let get_result = state.object_store.get(&path).await.map_err(|e| {
+            tracing::error!("Failed to get segment from S3: {} - {}", segment.s3_key, e);
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?;
 
-        let segment_bytes = get_result
-            .bytes()
-            .await
-            .map_err(|e| {
-                tracing::error!("Failed to read segment bytes: {}", e);
-                StatusCode::INTERNAL_SERVER_ERROR
-            })?;
+        let segment_bytes = get_result.bytes().await.map_err(|e| {
+            tracing::error!("Failed to read segment bytes: {}", e);
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?;
 
         // Parse segment and read records
-        let reader = SegmentReader::new(Bytes::from(segment_bytes.to_vec()))
-            .map_err(|e| {
-                tracing::error!("Failed to parse segment: {}", e);
-                StatusCode::INTERNAL_SERVER_ERROR
-            })?;
+        let reader = SegmentReader::new(Bytes::from(segment_bytes.to_vec())).map_err(|e| {
+            tracing::error!("Failed to parse segment: {}", e);
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?;
 
         let records = if start_offset > segment.base_offset {
             reader.read_from_offset(start_offset)

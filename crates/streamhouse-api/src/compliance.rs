@@ -359,12 +359,30 @@ impl ComplianceReport {
 
         // Summary metrics
         csv.push_str("Metric,Value\n");
-        csv.push_str(&format!("Total Auth Attempts,{}\n", self.access_control.total_auth_attempts));
-        csv.push_str(&format!("Auth Failure Rate,{:.2}%\n", self.access_control.failure_rate * 100.0));
-        csv.push_str(&format!("Total Data Accesses,{}\n", self.data_access.total_accesses));
-        csv.push_str(&format!("Security Events,{}\n", self.security_incidents.total_events));
-        csv.push_str(&format!("System Uptime,{:.2}%\n", self.availability.uptime_percentage));
-        csv.push_str(&format!("Avg Response Time,{:.2}ms\n\n", self.availability.avg_response_time_ms));
+        csv.push_str(&format!(
+            "Total Auth Attempts,{}\n",
+            self.access_control.total_auth_attempts
+        ));
+        csv.push_str(&format!(
+            "Auth Failure Rate,{:.2}%\n",
+            self.access_control.failure_rate * 100.0
+        ));
+        csv.push_str(&format!(
+            "Total Data Accesses,{}\n",
+            self.data_access.total_accesses
+        ));
+        csv.push_str(&format!(
+            "Security Events,{}\n",
+            self.security_incidents.total_events
+        ));
+        csv.push_str(&format!(
+            "System Uptime,{:.2}%\n",
+            self.availability.uptime_percentage
+        ));
+        csv.push_str(&format!(
+            "Avg Response Time,{:.2}ms\n\n",
+            self.availability.avg_response_time_ms
+        ));
 
         // Findings
         csv.push_str("Finding ID,Severity,Category,Description\n");
@@ -508,17 +526,16 @@ impl ComplianceReporter {
             .or_else(|| records.last().map(|r| r.entry.timestamp))
             .unwrap_or_else(|| Utc::now().timestamp_millis());
 
-        let start_dt = DateTime::from_timestamp_millis(start)
-            .unwrap_or_else(Utc::now);
-        let end_dt = DateTime::from_timestamp_millis(end)
-            .unwrap_or_else(Utc::now);
+        let start_dt = DateTime::from_timestamp_millis(start).unwrap_or_else(Utc::now);
+        let end_dt = DateTime::from_timestamp_millis(end).unwrap_or_else(Utc::now);
 
         (start_dt.to_rfc3339(), end_dt.to_rfc3339())
     }
 
     fn analyze_access_control(&self, records: &[StoredAuditRecord]) -> AccessControlSummary {
         let mut by_method: HashMap<String, u64> = HashMap::new();
-        let mut unique_principals: std::collections::HashSet<String> = std::collections::HashSet::new();
+        let mut unique_principals: std::collections::HashSet<String> =
+            std::collections::HashSet::new();
         let mut total_auth = 0u64;
         let mut successful = 0u64;
         let mut failed = 0u64;
@@ -578,7 +595,13 @@ impl ComplianceReporter {
             }
 
             // Extract resource from path
-            let resource = record.entry.path.split('/').take(4).collect::<Vec<_>>().join("/");
+            let resource = record
+                .entry
+                .path
+                .split('/')
+                .take(4)
+                .collect::<Vec<_>>()
+                .join("/");
             *resources.entry(resource).or_insert(0) += 1;
         }
 
@@ -660,7 +683,9 @@ impl ComplianceReporter {
                 successful += 1;
             } else {
                 failed += 1;
-                *errors_by_status.entry(record.entry.status_code).or_insert(0) += 1;
+                *errors_by_status
+                    .entry(record.entry.status_code)
+                    .or_insert(0) += 1;
             }
         }
 
@@ -748,7 +773,9 @@ impl ComplianceReporter {
                     _ => None,
                 },
                 evidence: vec!["Request success rate analysis".to_string()],
-                recommendation: Some("Investigate error patterns and improve system reliability".to_string()),
+                recommendation: Some(
+                    "Investigate error patterns and improve system reliability".to_string(),
+                ),
             });
             finding_id += 1;
         }
@@ -769,7 +796,9 @@ impl ComplianceReporter {
                     _ => None,
                 },
                 evidence: vec!["Anomaly detection analysis".to_string()],
-                recommendation: Some("Review detected anomalies and implement additional monitoring".to_string()),
+                recommendation: Some(
+                    "Review detected anomalies and implement additional monitoring".to_string(),
+                ),
             });
             finding_id += 1;
         }
@@ -786,35 +815,43 @@ impl ComplianceReporter {
                 ),
                 control: None,
                 evidence: vec!["Response time analysis".to_string()],
-                recommendation: Some("Optimize slow endpoints and consider caching strategies".to_string()),
+                recommendation: Some(
+                    "Optimize slow endpoints and consider caching strategies".to_string(),
+                ),
             });
         }
 
         findings
     }
 
-    fn generate_recommendations(
-        &self,
-        framework: Framework,
-        findings: &[Finding],
-    ) -> Vec<String> {
+    fn generate_recommendations(&self, framework: Framework, findings: &[Finding]) -> Vec<String> {
         let mut recommendations = Vec::new();
 
         // Framework-specific recommendations
         match framework {
             Framework::Soc2 => {
-                recommendations.push("Maintain continuous audit logging for all system access".to_string());
-                recommendations.push("Implement multi-factor authentication for administrative access".to_string());
-                recommendations.push("Conduct regular access reviews and revoke unused credentials".to_string());
+                recommendations
+                    .push("Maintain continuous audit logging for all system access".to_string());
+                recommendations.push(
+                    "Implement multi-factor authentication for administrative access".to_string(),
+                );
+                recommendations.push(
+                    "Conduct regular access reviews and revoke unused credentials".to_string(),
+                );
             }
             Framework::Gdpr => {
-                recommendations.push("Ensure data subject access requests can be fulfilled within 30 days".to_string());
-                recommendations.push("Implement data retention policies and automated deletion".to_string());
+                recommendations.push(
+                    "Ensure data subject access requests can be fulfilled within 30 days"
+                        .to_string(),
+                );
+                recommendations
+                    .push("Implement data retention policies and automated deletion".to_string());
                 recommendations.push("Maintain records of processing activities".to_string());
             }
             Framework::Hipaa => {
                 recommendations.push("Encrypt all PHI at rest and in transit".to_string());
-                recommendations.push("Implement automatic logoff for inactive sessions".to_string());
+                recommendations
+                    .push("Implement automatic logoff for inactive sessions".to_string());
                 recommendations.push("Conduct regular risk assessments".to_string());
             }
             Framework::PciDss => {
@@ -845,8 +882,14 @@ impl ComplianceReporter {
         availability: &AvailabilitySummary,
         findings: &[Finding],
     ) -> String {
-        let critical_findings = findings.iter().filter(|f| f.severity == FindingSeverity::Critical).count();
-        let high_findings = findings.iter().filter(|f| f.severity == FindingSeverity::High).count();
+        let critical_findings = findings
+            .iter()
+            .filter(|f| f.severity == FindingSeverity::Critical)
+            .count();
+        let high_findings = findings
+            .iter()
+            .filter(|f| f.severity == FindingSeverity::High)
+            .count();
 
         let overall_status = if critical_findings > 0 {
             "requires immediate attention"
@@ -896,7 +939,11 @@ mod tests {
             client_ip: Some("127.0.0.1".to_string()),
             user_agent: Some("test-client/1.0".to_string()),
             success: status_code < 400,
-            error: if status_code >= 400 { Some("Error".to_string()) } else { None },
+            error: if status_code >= 400 {
+                Some("Error".to_string())
+            } else {
+                None
+            },
             timestamp: chrono::Utc::now().timestamp_millis(),
         }
     }
@@ -910,7 +957,10 @@ mod tests {
         for i in 0..10 {
             let status = if i % 5 == 0 { 401 } else { 200 };
             let method = if i % 3 == 0 { "POST" } else { "GET" };
-            store.append(&mock_audit_entry(i, status, method)).await.unwrap();
+            store
+                .append(&mock_audit_entry(i, status, method))
+                .await
+                .unwrap();
         }
 
         let reporter = ComplianceReporter::new(store);
@@ -930,7 +980,10 @@ mod tests {
         let store = AuditStore::new(config).await.unwrap();
 
         for i in 0..5 {
-            store.append(&mock_audit_entry(i, 200, "GET")).await.unwrap();
+            store
+                .append(&mock_audit_entry(i, 200, "GET"))
+                .await
+                .unwrap();
         }
 
         let reporter = ComplianceReporter::new(store);
@@ -940,7 +993,10 @@ mod tests {
             .unwrap();
 
         assert_eq!(report.metadata.framework, Framework::Gdpr);
-        assert!(report.recommendations.iter().any(|r| r.contains("data subject")));
+        assert!(report
+            .recommendations
+            .iter()
+            .any(|r| r.contains("data subject")));
     }
 
     #[tokio::test]
@@ -951,7 +1007,10 @@ mod tests {
         // Create many failed auth attempts to trigger findings
         for i in 0..20 {
             let status = if i < 15 { 401 } else { 200 }; // 75% failure rate
-            store.append(&mock_audit_entry(i, status, "GET")).await.unwrap();
+            store
+                .append(&mock_audit_entry(i, status, "GET"))
+                .await
+                .unwrap();
         }
 
         let reporter = ComplianceReporter::new(store);
@@ -962,7 +1021,10 @@ mod tests {
 
         // Should have findings for high failure rate
         assert!(!report.findings.is_empty());
-        assert!(report.findings.iter().any(|f| f.category == "Access Control"));
+        assert!(report
+            .findings
+            .iter()
+            .any(|f| f.category == "Access Control"));
     }
 
     #[tokio::test]
@@ -971,7 +1033,10 @@ mod tests {
         let store = AuditStore::new(config).await.unwrap();
 
         for i in 0..5 {
-            store.append(&mock_audit_entry(i, 200, "GET")).await.unwrap();
+            store
+                .append(&mock_audit_entry(i, 200, "GET"))
+                .await
+                .unwrap();
         }
 
         let reporter = ComplianceReporter::new(store);

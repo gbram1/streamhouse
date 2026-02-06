@@ -728,10 +728,7 @@ impl ProducerService for ProducerServiceImpl {
                         error = %e,
                         "Failed to flush durable - S3 upload failed"
                     );
-                    return Err(Status::internal(format!(
-                        "Failed to flush durable: {}",
-                        e
-                    )));
+                    return Err(Status::internal(format!("Failed to flush durable: {}", e)));
                 }
             }
 
@@ -764,7 +761,12 @@ impl ProducerService for ProducerServiceImpl {
             // Update the last offset for this partition in the transaction
             if let Err(e) = self
                 .metadata_store
-                .update_transaction_partition_offset(transaction_id, &req.topic, req.partition, last_offset)
+                .update_transaction_partition_offset(
+                    transaction_id,
+                    &req.topic,
+                    req.partition,
+                    last_offset,
+                )
                 .await
             {
                 error!(
@@ -933,7 +935,11 @@ impl ProducerService for ProducerServiceImpl {
         }
 
         // Commit transaction
-        match self.metadata_store.commit_transaction(&req.transaction_id).await {
+        match self
+            .metadata_store
+            .commit_transaction(&req.transaction_id)
+            .await
+        {
             Ok(commit_timestamp) => {
                 info!(
                     producer_id = %req.producer_id,
@@ -990,7 +996,11 @@ impl ProducerService for ProducerServiceImpl {
         }
 
         // Abort transaction
-        match self.metadata_store.abort_transaction(&req.transaction_id).await {
+        match self
+            .metadata_store
+            .abort_transaction(&req.transaction_id)
+            .await
+        {
             Ok(()) => {
                 info!(
                     producer_id = %req.producer_id,
@@ -1050,7 +1060,10 @@ impl ProducerService for ProducerServiceImpl {
         if producer.state != ProducerState::Active {
             return Ok(Response::new(HeartbeatResponse {
                 valid: false,
-                error: Some(format!("Producer {} is {:?}", req.producer_id, producer.state)),
+                error: Some(format!(
+                    "Producer {} is {:?}",
+                    req.producer_id, producer.state
+                )),
             }));
         }
 
@@ -1186,7 +1199,13 @@ impl AgentCoordination for AgentCoordinationImpl {
 
         match self
             .lease_manager
-            .initiate_transfer(&req.topic, req.partition, &req.to_agent_id, reason, req.timeout_ms)
+            .initiate_transfer(
+                &req.topic,
+                req.partition,
+                &req.to_agent_id,
+                reason,
+                req.timeout_ms,
+            )
             .await
         {
             Ok(transfer_id) => {
@@ -1350,7 +1369,11 @@ impl AgentCoordination for AgentCoordinationImpl {
 
         match self
             .lease_manager
-            .complete_transfer(&req.transfer_id, req.last_flushed_offset, req.high_watermark)
+            .complete_transfer(
+                &req.transfer_id,
+                req.last_flushed_offset,
+                req.high_watermark,
+            )
             .await
         {
             Ok(()) => {
@@ -1371,7 +1394,11 @@ impl AgentCoordination for AgentCoordinationImpl {
                     .with_label_values(&[&req.topic, &req.partition.to_string()])
                     .observe(duration.as_secs_f64());
                 streamhouse_observability::metrics::LEADER_CHANGES_TOTAL
-                    .with_label_values(&[&req.topic, &req.partition.to_string(), "graceful_handoff"])
+                    .with_label_values(&[
+                        &req.topic,
+                        &req.partition.to_string(),
+                        "graceful_handoff",
+                    ])
                     .inc();
 
                 Ok(Response::new(CompleteTransferResponse {

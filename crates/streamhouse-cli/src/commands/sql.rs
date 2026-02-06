@@ -232,7 +232,10 @@ fn print_csv(response: &SqlQueryResponse) -> Result<()> {
 
     // Print rows
     for row in &response.rows {
-        let formatted: Vec<String> = row.iter().map(|cell| escape_csv(&format_cell(cell))).collect();
+        let formatted: Vec<String> = row
+            .iter()
+            .map(|cell| escape_csv(&format_cell(cell)))
+            .collect();
         println!("{}", formatted.join(","));
     }
 

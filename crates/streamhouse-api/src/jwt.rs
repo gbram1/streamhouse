@@ -158,7 +158,10 @@ impl std::fmt::Debug for JwtConfig {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("JwtConfig")
             .field("algorithm", &self.algorithm)
-            .field("encoding_key", &self.encoding_key.as_ref().map(|_| "[REDACTED]"))
+            .field(
+                "encoding_key",
+                &self.encoding_key.as_ref().map(|_| "[REDACTED]"),
+            )
             .field("decoding_key", &"[REDACTED]")
             .field("issuer", &self.issuer)
             .field("audience", &self.audience)
@@ -243,8 +246,7 @@ impl JwtConfig {
             return Ok(None);
         }
 
-        let algorithm = std::env::var("JWT_ALGORITHM")
-            .unwrap_or_else(|_| "HS256".to_string());
+        let algorithm = std::env::var("JWT_ALGORITHM").unwrap_or_else(|_| "HS256".to_string());
 
         let config = match algorithm.to_uppercase().as_str() {
             "HS256" | "HS384" | "HS512" => {
@@ -253,16 +255,20 @@ impl JwtConfig {
                 Self::from_secret(secret.as_bytes())?
             }
             "RS256" | "RS384" | "RS512" => {
-                let public_key_path = std::env::var("JWT_PUBLIC_KEY_PATH")
-                    .map_err(|_| JwtError::ConfigError("JWT_PUBLIC_KEY_PATH not set".to_string()))?;
+                let public_key_path = std::env::var("JWT_PUBLIC_KEY_PATH").map_err(|_| {
+                    JwtError::ConfigError("JWT_PUBLIC_KEY_PATH not set".to_string())
+                })?;
                 let private_key_path = std::env::var("JWT_PRIVATE_KEY_PATH").ok();
 
-                let public_key = std::fs::read(&public_key_path)
-                    .map_err(|e| JwtError::ConfigError(format!("Failed to read public key: {}", e)))?;
+                let public_key = std::fs::read(&public_key_path).map_err(|e| {
+                    JwtError::ConfigError(format!("Failed to read public key: {}", e))
+                })?;
                 let private_key = private_key_path
                     .map(|path| std::fs::read(&path))
                     .transpose()
-                    .map_err(|e| JwtError::ConfigError(format!("Failed to read private key: {}", e)))?;
+                    .map_err(|e| {
+                        JwtError::ConfigError(format!("Failed to read private key: {}", e))
+                    })?;
 
                 let mut cfg = Self::from_rsa(private_key.as_deref(), &public_key)?;
                 cfg.algorithm = match algorithm.to_uppercase().as_str() {
@@ -273,16 +279,20 @@ impl JwtConfig {
                 cfg
             }
             "ES256" | "ES384" => {
-                let public_key_path = std::env::var("JWT_PUBLIC_KEY_PATH")
-                    .map_err(|_| JwtError::ConfigError("JWT_PUBLIC_KEY_PATH not set".to_string()))?;
+                let public_key_path = std::env::var("JWT_PUBLIC_KEY_PATH").map_err(|_| {
+                    JwtError::ConfigError("JWT_PUBLIC_KEY_PATH not set".to_string())
+                })?;
                 let private_key_path = std::env::var("JWT_PRIVATE_KEY_PATH").ok();
 
-                let public_key = std::fs::read(&public_key_path)
-                    .map_err(|e| JwtError::ConfigError(format!("Failed to read public key: {}", e)))?;
+                let public_key = std::fs::read(&public_key_path).map_err(|e| {
+                    JwtError::ConfigError(format!("Failed to read public key: {}", e))
+                })?;
                 let private_key = private_key_path
                     .map(|path| std::fs::read(&path))
                     .transpose()
-                    .map_err(|e| JwtError::ConfigError(format!("Failed to read private key: {}", e)))?;
+                    .map_err(|e| {
+                        JwtError::ConfigError(format!("Failed to read private key: {}", e))
+                    })?;
 
                 let mut cfg = Self::from_ecdsa(private_key.as_deref(), &public_key)?;
                 cfg.algorithm = if algorithm.to_uppercase() == "ES384" {
@@ -292,7 +302,12 @@ impl JwtConfig {
                 };
                 cfg
             }
-            _ => return Err(JwtError::ConfigError(format!("Unsupported algorithm: {}", algorithm))),
+            _ => {
+                return Err(JwtError::ConfigError(format!(
+                    "Unsupported algorithm: {}",
+                    algorithm
+                )))
+            }
         };
 
         // Override with environment variables
@@ -369,12 +384,15 @@ impl JwtService {
         scopes: Vec<String>,
         expiry: Option<Duration>,
     ) -> Result<String, JwtError> {
-        let encoding_key = self.config.encoding_key.as_ref()
-            .ok_or(JwtError::ConfigError("No encoding key configured".to_string()))?;
+        let encoding_key = self
+            .config
+            .encoding_key
+            .as_ref()
+            .ok_or(JwtError::ConfigError(
+                "No encoding key configured".to_string(),
+            ))?;
 
-        let expiry_secs = expiry
-            .unwrap_or(self.config.default_expiry)
-            .as_secs();
+        let expiry_secs = expiry.unwrap_or(self.config.default_expiry).as_secs();
 
         let claims = Claims::new(
             subject,
@@ -387,8 +405,7 @@ impl JwtService {
         );
 
         let header = Header::new(self.config.algorithm);
-        encode(&header, &claims, encoding_key)
-            .map_err(|e| JwtError::TokenGeneration(e.to_string()))
+        encode(&header, &claims, encoding_key).map_err(|e| JwtError::TokenGeneration(e.to_string()))
     }
 
     /// Validate and decode a JWT token
@@ -401,13 +418,15 @@ impl JwtService {
 
         let token_data: TokenData<Claims> = decode(token, &self.config.decoding_key, &validation)
             .map_err(|e| match e.kind() {
-                jsonwebtoken::errors::ErrorKind::ExpiredSignature => JwtError::TokenExpired,
-                jsonwebtoken::errors::ErrorKind::InvalidToken => JwtError::InvalidToken("Malformed token".to_string()),
-                jsonwebtoken::errors::ErrorKind::InvalidSignature => JwtError::InvalidSignature,
-                jsonwebtoken::errors::ErrorKind::InvalidIssuer => JwtError::InvalidIssuer,
-                jsonwebtoken::errors::ErrorKind::InvalidAudience => JwtError::InvalidAudience,
-                _ => JwtError::InvalidToken(e.to_string()),
-            })?;
+            jsonwebtoken::errors::ErrorKind::ExpiredSignature => JwtError::TokenExpired,
+            jsonwebtoken::errors::ErrorKind::InvalidToken => {
+                JwtError::InvalidToken("Malformed token".to_string())
+            }
+            jsonwebtoken::errors::ErrorKind::InvalidSignature => JwtError::InvalidSignature,
+            jsonwebtoken::errors::ErrorKind::InvalidIssuer => JwtError::InvalidIssuer,
+            jsonwebtoken::errors::ErrorKind::InvalidAudience => JwtError::InvalidAudience,
+            _ => JwtError::InvalidToken(e.to_string()),
+        })?;
 
         Ok(token_data.claims)
     }
@@ -461,10 +480,21 @@ impl IntoResponse for JwtError {
             JwtError::TokenGeneration(_) => (StatusCode::INTERNAL_SERVER_ERROR, self.to_string()),
             JwtError::TokenExpired => (StatusCode::UNAUTHORIZED, "Token has expired".to_string()),
             JwtError::InvalidToken(msg) => (StatusCode::UNAUTHORIZED, msg.clone()),
-            JwtError::InvalidSignature => (StatusCode::UNAUTHORIZED, "Invalid token signature".to_string()),
-            JwtError::InvalidIssuer => (StatusCode::UNAUTHORIZED, "Invalid token issuer".to_string()),
-            JwtError::InvalidAudience => (StatusCode::UNAUTHORIZED, "Invalid token audience".to_string()),
-            JwtError::InsufficientPermissions => (StatusCode::FORBIDDEN, "Insufficient permissions".to_string()),
+            JwtError::InvalidSignature => (
+                StatusCode::UNAUTHORIZED,
+                "Invalid token signature".to_string(),
+            ),
+            JwtError::InvalidIssuer => {
+                (StatusCode::UNAUTHORIZED, "Invalid token issuer".to_string())
+            }
+            JwtError::InvalidAudience => (
+                StatusCode::UNAUTHORIZED,
+                "Invalid token audience".to_string(),
+            ),
+            JwtError::InsufficientPermissions => (
+                StatusCode::FORBIDDEN,
+                "Insufficient permissions".to_string(),
+            ),
         };
 
         let body = serde_json::json!({
@@ -568,7 +598,10 @@ where
                     &header[7..] // Skip "Bearer "
                 }
                 _ => {
-                    return Ok(JwtError::InvalidToken("Missing authorization token".to_string()).into_response());
+                    return Ok(
+                        JwtError::InvalidToken("Missing authorization token".to_string())
+                            .into_response(),
+                    );
                 }
             };
 
@@ -671,7 +704,10 @@ where
                     &header[7..] // Skip "Bearer "
                 }
                 _ => {
-                    return Ok(JwtError::InvalidToken("Missing authorization token".to_string()).into_response());
+                    return Ok(
+                        JwtError::InvalidToken("Missing authorization token".to_string())
+                            .into_response(),
+                    );
                 }
             };
 
@@ -721,12 +757,14 @@ mod tests {
     fn test_generate_and_validate_token() {
         let service = JwtService::new(test_config());
 
-        let token = service.generate_token(
-            "user_123",
-            "org_456",
-            vec!["read".to_string(), "write".to_string()],
-            None,
-        ).unwrap();
+        let token = service
+            .generate_token(
+                "user_123",
+                "org_456",
+                vec!["read".to_string(), "write".to_string()],
+                None,
+            )
+            .unwrap();
 
         let claims = service.validate_token(&token).unwrap();
         assert_eq!(claims.sub, "user_123");
@@ -740,13 +778,15 @@ mod tests {
     fn test_token_with_scopes() {
         let service = JwtService::new(test_config());
 
-        let token = service.generate_token_with_scopes(
-            "user_123",
-            "org_456",
-            vec!["read".to_string()],
-            vec!["orders-*".to_string(), "users".to_string()],
-            None,
-        ).unwrap();
+        let token = service
+            .generate_token_with_scopes(
+                "user_123",
+                "org_456",
+                vec!["read".to_string()],
+                vec!["orders-*".to_string(), "users".to_string()],
+                None,
+            )
+            .unwrap();
 
         let claims = service.validate_token(&token).unwrap();
         assert_eq!(claims.scopes, vec!["orders-*", "users"]);
@@ -781,7 +821,7 @@ mod tests {
 
         let header = jsonwebtoken::Header::new(jsonwebtoken::Algorithm::HS256);
         let encoding_key = jsonwebtoken::EncodingKey::from_secret(
-            b"super-secret-key-for-testing-at-least-32-bytes-long"
+            b"super-secret-key-for-testing-at-least-32-bytes-long",
         );
         let token = jsonwebtoken::encode(&header, &claims, &encoding_key).unwrap();
 
@@ -796,18 +836,16 @@ mod tests {
     #[test]
     fn test_invalid_signature() {
         let service1 = JwtService::new(
-            JwtConfig::from_secret(b"super-secret-key-for-testing-at-least-32-bytes-long1").unwrap()
+            JwtConfig::from_secret(b"super-secret-key-for-testing-at-least-32-bytes-long1")
+                .unwrap(),
         );
         let service2 = JwtService::new(
-            JwtConfig::from_secret(b"different-secret-key-for-testing-at-least-32-bytes").unwrap()
+            JwtConfig::from_secret(b"different-secret-key-for-testing-at-least-32-bytes").unwrap(),
         );
 
-        let token = service1.generate_token(
-            "user_123",
-            "org_456",
-            vec!["read".to_string()],
-            None,
-        ).unwrap();
+        let token = service1
+            .generate_token("user_123", "org_456", vec!["read".to_string()], None)
+            .unwrap();
 
         let result = service2.validate_token(&token);
         assert!(matches!(result, Err(JwtError::InvalidSignature)));
@@ -826,7 +864,7 @@ mod tests {
             permissions: vec!["read".to_string()],
             scopes: vec![],
             iat: now - 3600, // Issued an hour ago
-            exp: now - 1,     // Expired 1 second ago
+            exp: now - 1,    // Expired 1 second ago
             iss: "test".to_string(),
             aud: "test".to_string(),
             jti: None,
@@ -860,14 +898,18 @@ mod tests {
     fn test_refresh_token() {
         let service = JwtService::new(test_config());
 
-        let original_token = service.generate_token(
-            "user_123",
-            "org_456",
-            vec!["read".to_string()],
-            Some(Duration::from_secs(60)),
-        ).unwrap();
+        let original_token = service
+            .generate_token(
+                "user_123",
+                "org_456",
+                vec!["read".to_string()],
+                Some(Duration::from_secs(60)),
+            )
+            .unwrap();
 
-        let new_token = service.refresh_token(&original_token, Some(Duration::from_secs(3600))).unwrap();
+        let new_token = service
+            .refresh_token(&original_token, Some(Duration::from_secs(3600)))
+            .unwrap();
 
         // Tokens should be different (different jti and exp)
         assert_ne!(original_token, new_token);

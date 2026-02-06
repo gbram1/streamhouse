@@ -562,7 +562,9 @@ impl ConsumerBuilder {
 
         // Initialize schema registry client if URL provided (Phase 9+)
         let schema_registry = self.schema_registry_url.as_ref().map(|url| {
-            Arc::new(crate::schema_registry_client::SchemaRegistryClient::new(url.clone()))
+            Arc::new(crate::schema_registry_client::SchemaRegistryClient::new(
+                url.clone(),
+            ))
         });
 
         let schema_cache = Arc::new(RwLock::new(HashMap::new()));

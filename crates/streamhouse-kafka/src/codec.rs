@@ -117,9 +117,7 @@ impl RequestHeader {
     /// Parse request header from bytes
     pub fn parse(buf: &mut BytesMut) -> KafkaResult<Self> {
         if buf.len() < 8 {
-            return Err(KafkaError::Protocol(
-                "Request header too short".to_string(),
-            ));
+            return Err(KafkaError::Protocol("Request header too short".to_string()));
         }
 
         let api_key = buf.get_i16();
@@ -158,7 +156,9 @@ impl ResponseHeader {
 /// Parse a nullable string (int16 length + bytes, -1 for null)
 pub fn parse_nullable_string(buf: &mut BytesMut) -> KafkaResult<Option<String>> {
     if buf.len() < 2 {
-        return Err(KafkaError::Protocol("Buffer too short for string".to_string()));
+        return Err(KafkaError::Protocol(
+            "Buffer too short for string".to_string(),
+        ));
     }
 
     let length = buf.get_i16();
@@ -208,18 +208,22 @@ pub fn parse_compact_nullable_string(buf: &mut BytesMut) -> KafkaResult<Option<S
 
 /// Parse a string (int16 length + bytes)
 pub fn parse_string(buf: &mut BytesMut) -> KafkaResult<String> {
-    parse_nullable_string(buf)?.ok_or_else(|| KafkaError::Protocol("Expected non-null string".to_string()))
+    parse_nullable_string(buf)?
+        .ok_or_else(|| KafkaError::Protocol("Expected non-null string".to_string()))
 }
 
 /// Parse a compact string (unsigned varint length + bytes)
 pub fn parse_compact_string(buf: &mut BytesMut) -> KafkaResult<String> {
-    parse_compact_nullable_string(buf)?.ok_or_else(|| KafkaError::Protocol("Expected non-null compact string".to_string()))
+    parse_compact_nullable_string(buf)?
+        .ok_or_else(|| KafkaError::Protocol("Expected non-null compact string".to_string()))
 }
 
 /// Parse nullable bytes (int32 length + bytes, -1 for null)
 pub fn parse_nullable_bytes(buf: &mut BytesMut) -> KafkaResult<Option<Vec<u8>>> {
     if buf.len() < 4 {
-        return Err(KafkaError::Protocol("Buffer too short for bytes".to_string()));
+        return Err(KafkaError::Protocol(
+            "Buffer too short for bytes".to_string(),
+        ));
     }
 
     let length = buf.get_i32();
@@ -267,7 +271,9 @@ where
     F: Fn(&mut BytesMut) -> KafkaResult<T>,
 {
     if buf.len() < 4 {
-        return Err(KafkaError::Protocol("Buffer too short for array".to_string()));
+        return Err(KafkaError::Protocol(
+            "Buffer too short for array".to_string(),
+        ));
     }
 
     let count = buf.get_i32();
@@ -314,7 +320,9 @@ pub fn parse_unsigned_varint(buf: &mut BytesMut) -> KafkaResult<u64> {
 
     loop {
         if buf.is_empty() {
-            return Err(KafkaError::Protocol("Buffer too short for varint".to_string()));
+            return Err(KafkaError::Protocol(
+                "Buffer too short for varint".to_string(),
+            ));
         }
 
         let byte = buf.get_u8();
@@ -436,7 +444,9 @@ pub fn skip_tagged_fields(buf: &mut BytesMut) -> KafkaResult<()> {
         let _tag = parse_unsigned_varint(buf)?;
         let size = parse_unsigned_varint(buf)? as usize;
         if buf.len() < size {
-            return Err(KafkaError::Protocol("Buffer too short for tagged field".to_string()));
+            return Err(KafkaError::Protocol(
+                "Buffer too short for tagged field".to_string(),
+            ));
         }
         buf.advance(size);
     }
@@ -494,7 +504,10 @@ mod tests {
         buf.put_u8(0);
 
         let result = codec.decode(&mut buf).unwrap();
-        assert!(result.is_none(), "Should return None when not enough bytes for length");
+        assert!(
+            result.is_none(),
+            "Should return None when not enough bytes for length"
+        );
     }
 
     #[test]
@@ -507,7 +520,10 @@ mod tests {
         buf.extend_from_slice(&[0u8; 10]);
 
         let result = codec.decode(&mut buf).unwrap();
-        assert!(result.is_none(), "Should return None when payload is incomplete");
+        assert!(
+            result.is_none(),
+            "Should return None when payload is incomplete"
+        );
     }
 
     #[test]
@@ -614,10 +630,10 @@ mod tests {
     #[test]
     fn test_request_header_parse_basic() {
         let mut buf = BytesMut::new();
-        buf.put_i16(3);    // api_key = Metadata
-        buf.put_i16(1);    // api_version = 1
-        buf.put_i32(42);   // correlation_id = 42
-        // client_id = "my-client"
+        buf.put_i16(3); // api_key = Metadata
+        buf.put_i16(1); // api_version = 1
+        buf.put_i32(42); // correlation_id = 42
+                         // client_id = "my-client"
         let client_id = "my-client";
         buf.put_i16(client_id.len() as i16);
         buf.extend_from_slice(client_id.as_bytes());
@@ -632,10 +648,10 @@ mod tests {
     #[test]
     fn test_request_header_parse_null_client_id() {
         let mut buf = BytesMut::new();
-        buf.put_i16(0);    // api_key = Produce
-        buf.put_i16(0);    // api_version = 0
-        buf.put_i32(1);    // correlation_id = 1
-        buf.put_i16(-1);   // null client_id
+        buf.put_i16(0); // api_key = Produce
+        buf.put_i16(0); // api_version = 0
+        buf.put_i32(1); // correlation_id = 1
+        buf.put_i16(-1); // null client_id
 
         let header = RequestHeader::parse(&mut buf).unwrap();
         assert_eq!(header.api_key, 0);
@@ -647,10 +663,10 @@ mod tests {
     #[test]
     fn test_request_header_parse_empty_client_id() {
         let mut buf = BytesMut::new();
-        buf.put_i16(18);   // api_key = ApiVersions
-        buf.put_i16(3);    // api_version = 3
-        buf.put_i32(99);   // correlation_id = 99
-        buf.put_i16(0);    // empty string client_id (length = 0)
+        buf.put_i16(18); // api_key = ApiVersions
+        buf.put_i16(3); // api_version = 3
+        buf.put_i32(99); // correlation_id = 99
+        buf.put_i16(0); // empty string client_id (length = 0)
 
         let header = RequestHeader::parse(&mut buf).unwrap();
         assert_eq!(header.api_key, 18);
@@ -662,7 +678,7 @@ mod tests {
     #[test]
     fn test_request_header_parse_too_short() {
         let mut buf = BytesMut::new();
-        buf.put_i16(0);  // only 2 bytes, need at least 8
+        buf.put_i16(0); // only 2 bytes, need at least 8
 
         let result = RequestHeader::parse(&mut buf);
         assert!(result.is_err());
@@ -671,10 +687,10 @@ mod tests {
     #[test]
     fn test_request_header_parse_negative_correlation() {
         let mut buf = BytesMut::new();
-        buf.put_i16(1);     // api_key
-        buf.put_i16(0);     // api_version
-        buf.put_i32(-1);    // correlation_id (negative is valid in protocol)
-        buf.put_i16(-1);    // null client_id
+        buf.put_i16(1); // api_key
+        buf.put_i16(0); // api_version
+        buf.put_i32(-1); // correlation_id (negative is valid in protocol)
+        buf.put_i16(-1); // null client_id
 
         let header = RequestHeader::parse(&mut buf).unwrap();
         assert_eq!(header.correlation_id, -1);
@@ -1212,7 +1228,7 @@ mod tests {
         encode_unsigned_varint(&mut buf, 1); // 1 tagged field
         encode_unsigned_varint(&mut buf, 0); // tag=0
         encode_unsigned_varint(&mut buf, 100); // size=100
-        // but no data follows
+                                               // but no data follows
 
         let result = skip_tagged_fields(&mut buf);
         assert!(result.is_err());
@@ -1247,7 +1263,10 @@ mod tests {
         assert_eq!(parse_string(&mut buf).unwrap(), "topic-name");
         assert_eq!(buf.get_i32(), 42);
         assert_eq!(parse_nullable_string(&mut buf).unwrap(), None);
-        assert_eq!(parse_nullable_bytes(&mut buf).unwrap(), Some(vec![0xDE, 0xAD]));
+        assert_eq!(
+            parse_nullable_bytes(&mut buf).unwrap(),
+            Some(vec![0xDE, 0xAD])
+        );
         assert_eq!(parse_signed_varint(&mut buf).unwrap(), -999);
 
         assert!(buf.is_empty());

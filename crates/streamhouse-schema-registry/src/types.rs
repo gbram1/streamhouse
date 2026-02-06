@@ -249,7 +249,11 @@ mod tests {
 
     #[test]
     fn test_schema_format_serde_roundtrip() {
-        for format in [SchemaFormat::Avro, SchemaFormat::Protobuf, SchemaFormat::Json] {
+        for format in [
+            SchemaFormat::Avro,
+            SchemaFormat::Protobuf,
+            SchemaFormat::Json,
+        ] {
             let json = serde_json::to_string(&format).unwrap();
             let deserialized: SchemaFormat = serde_json::from_str(&json).unwrap();
             assert_eq!(format, deserialized);
@@ -289,8 +293,14 @@ mod tests {
             (CompatibilityMode::Backward, r#""BACKWARD""#),
             (CompatibilityMode::Forward, r#""FORWARD""#),
             (CompatibilityMode::Full, r#""FULL""#),
-            (CompatibilityMode::BackwardTransitive, r#""BACKWARD_TRANSITIVE""#),
-            (CompatibilityMode::ForwardTransitive, r#""FORWARD_TRANSITIVE""#),
+            (
+                CompatibilityMode::BackwardTransitive,
+                r#""BACKWARD_TRANSITIVE""#,
+            ),
+            (
+                CompatibilityMode::ForwardTransitive,
+                r#""FORWARD_TRANSITIVE""#,
+            ),
             (CompatibilityMode::FullTransitive, r#""FULL_TRANSITIVE""#),
             (CompatibilityMode::None, r#""NONE""#),
         ];
@@ -306,8 +316,14 @@ mod tests {
             (r#""BACKWARD""#, CompatibilityMode::Backward),
             (r#""FORWARD""#, CompatibilityMode::Forward),
             (r#""FULL""#, CompatibilityMode::Full),
-            (r#""BACKWARD_TRANSITIVE""#, CompatibilityMode::BackwardTransitive),
-            (r#""FORWARD_TRANSITIVE""#, CompatibilityMode::ForwardTransitive),
+            (
+                r#""BACKWARD_TRANSITIVE""#,
+                CompatibilityMode::BackwardTransitive,
+            ),
+            (
+                r#""FORWARD_TRANSITIVE""#,
+                CompatibilityMode::ForwardTransitive,
+            ),
             (r#""FULL_TRANSITIVE""#, CompatibilityMode::FullTransitive),
             (r#""NONE""#, CompatibilityMode::None),
         ];
@@ -383,7 +399,10 @@ mod tests {
             ruleset: None,
         };
         let json = serde_json::to_string(&meta).unwrap();
-        assert!(!json.contains("ruleset"), "ruleset=None should be omitted from serialization");
+        assert!(
+            !json.contains("ruleset"),
+            "ruleset=None should be omitted from serialization"
+        );
     }
 
     #[test]
@@ -425,13 +444,11 @@ mod tests {
             version: 5,
             schema_type: SchemaFormat::Avro,
             schema: r#"{"type":"record","name":"User","fields":[]}"#.to_string(),
-            references: vec![
-                SchemaReference {
-                    name: "Address".to_string(),
-                    subject: "address-value".to_string(),
-                    version: 1,
-                },
-            ],
+            references: vec![SchemaReference {
+                name: "Address".to_string(),
+                subject: "address-value".to_string(),
+                version: 1,
+            }],
             metadata: SchemaMetadata {
                 properties: {
                     let mut m = HashMap::new();
@@ -531,7 +548,10 @@ mod tests {
             metadata: None,
         };
         let json = serde_json::to_string(&request).unwrap();
-        assert!(!json.contains("schemaType"), "None schema_type should be omitted");
+        assert!(
+            !json.contains("schemaType"),
+            "None schema_type should be omitted"
+        );
     }
 
     // ========================================================================

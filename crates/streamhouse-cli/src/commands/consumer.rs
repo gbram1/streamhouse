@@ -327,13 +327,14 @@ pub async fn handle_consumer_command(command: ConsumerCommands, api_url: &str) -
             let timestamp_ms = chrono::DateTime::parse_from_rfc3339(&timestamp)
                 .or_else(|_| {
                     // Try parsing as naive datetime
-                    chrono::NaiveDateTime::parse_from_str(&timestamp, "%Y-%m-%dT%H:%M:%S")
-                        .map(|dt| {
+                    chrono::NaiveDateTime::parse_from_str(&timestamp, "%Y-%m-%dT%H:%M:%S").map(
+                        |dt| {
                             dt.and_local_timezone(chrono::Utc)
                                 .single()
                                 .unwrap()
                                 .fixed_offset()
-                        })
+                        },
+                    )
                 })
                 .context("Invalid timestamp format. Use ISO 8601 (e.g., 2026-01-15T10:00:00Z)")?
                 .timestamp_millis();

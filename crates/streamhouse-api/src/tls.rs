@@ -102,7 +102,9 @@ impl TlsConfig {
             // mTLS mode: require client certificates
             let client_verifier = WebPkiClientVerifier::builder(Arc::new(client_ca.clone()))
                 .build()
-                .map_err(|e| TlsError::ConfigBuild(format!("Failed to build client verifier: {}", e)))?;
+                .map_err(|e| {
+                    TlsError::ConfigBuild(format!("Failed to build client verifier: {}", e))
+                })?;
 
             builder
                 .with_client_cert_verifier(client_verifier)
@@ -211,7 +213,11 @@ pub async fn serve_with_tls(
         "TLS"
     };
 
-    tracing::info!("🔒 REST API server listening on {} ({} enabled)", addr, mode);
+    tracing::info!(
+        "🔒 REST API server listening on {} ({} enabled)",
+        addr,
+        mode
+    );
     tracing::info!("   Swagger UI: https://localhost:{}/swagger-ui", port);
     tracing::info!("   Health: https://localhost:{}/health", port);
 
@@ -254,10 +260,17 @@ pub async fn serve_with_tls_and_shutdown(
         "TLS"
     };
 
-    tracing::info!("🔒 REST API server listening on {} ({} enabled)", addr, mode);
+    tracing::info!(
+        "🔒 REST API server listening on {} ({} enabled)",
+        addr,
+        mode
+    );
     tracing::info!("   Swagger UI: https://localhost:{}/swagger-ui", port);
     tracing::info!("   Health: https://localhost:{}/health", port);
-    tracing::info!("   Graceful shutdown timeout: {:?}", shutdown_config.timeout);
+    tracing::info!(
+        "   Graceful shutdown timeout: {:?}",
+        shutdown_config.timeout
+    );
 
     // Create handle for graceful shutdown
     let handle = Handle::new();
@@ -313,7 +326,11 @@ where
         "TLS"
     };
 
-    tracing::info!("🔒 REST API server listening on {} ({} enabled)", addr, mode);
+    tracing::info!(
+        "🔒 REST API server listening on {} ({} enabled)",
+        addr,
+        mode
+    );
     tracing::info!("   Swagger UI: https://localhost:{}/swagger-ui", port);
     tracing::info!("   Health: https://localhost:{}/health", port);
 

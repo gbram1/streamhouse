@@ -45,12 +45,12 @@
 //! | Requests/sec          | 1,000   | 10,000   | Custom     |
 //! | Consumer groups       | 50      | 500      | Unlimited  |
 
-use crate::{MetadataStore, OrganizationPlan, OrganizationQuota, OrganizationStatus, Result};
 use crate::tenant::TenantContext;
+use crate::{MetadataStore, OrganizationPlan, OrganizationQuota, OrganizationStatus, Result};
+use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::sync::RwLock;
-use std::collections::HashMap;
 
 /// Result of a quota check.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -388,7 +388,10 @@ impl<S: MetadataStore> QuotaEnforcer<S> {
         }
 
         // Get current storage usage from metadata
-        let usage = self.store.get_organization_usage(&ctx.organization.id).await?;
+        let usage = self
+            .store
+            .get_organization_usage(&ctx.organization.id)
+            .await?;
         let storage_bytes = usage
             .iter()
             .find(|u| u.metric == "storage_bytes")
@@ -440,7 +443,10 @@ impl<S: MetadataStore> QuotaEnforcer<S> {
     /// Get quota summary for an organization.
     pub async fn get_quota_summary(&self, ctx: &TenantContext) -> Result<QuotaSummary> {
         let topics = self.store.list_topics().await?;
-        let usage = self.store.get_organization_usage(&ctx.organization.id).await?;
+        let usage = self
+            .store
+            .get_organization_usage(&ctx.organization.id)
+            .await?;
 
         let storage_bytes = usage
             .iter()

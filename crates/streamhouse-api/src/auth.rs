@@ -54,12 +54,10 @@ impl RequiredPermission {
     pub fn is_satisfied_by(&self, permissions: &[String]) -> bool {
         match self {
             RequiredPermission::None => true,
-            RequiredPermission::Read => {
-                permissions.iter().any(|p| p == "read" || p == "write" || p == "admin")
-            }
-            RequiredPermission::Write => {
-                permissions.iter().any(|p| p == "write" || p == "admin")
-            }
+            RequiredPermission::Read => permissions
+                .iter()
+                .any(|p| p == "read" || p == "write" || p == "admin"),
+            RequiredPermission::Write => permissions.iter().any(|p| p == "write" || p == "admin"),
             RequiredPermission::Admin => permissions.iter().any(|p| p == "admin"),
         }
     }
@@ -96,7 +94,9 @@ impl AuthenticatedKey {
 
     /// Check if this key has a specific permission
     pub fn has_permission(&self, permission: &str) -> bool {
-        self.permissions.iter().any(|p| p == permission || p == "admin")
+        self.permissions
+            .iter()
+            .any(|p| p == permission || p == "admin")
     }
 }
 
@@ -408,10 +408,7 @@ impl IntoResponse for AuthError {
                 StatusCode::UNAUTHORIZED,
                 "Missing API key. Provide 'Authorization: Bearer sk_live_...' header",
             ),
-            AuthError::InvalidApiKey => (
-                StatusCode::UNAUTHORIZED,
-                "Invalid or expired API key",
-            ),
+            AuthError::InvalidApiKey => (StatusCode::UNAUTHORIZED, "Invalid or expired API key"),
             AuthError::InsufficientPermissions => (
                 StatusCode::FORBIDDEN,
                 "Insufficient permissions for this operation",
