@@ -9,8 +9,8 @@ use streamhouse_storage::PartitionReader;
 
 use crate::codec::{
     encode_compact_nullable_bytes, encode_compact_string, encode_empty_tagged_fields,
-    encode_nullable_bytes, encode_string, encode_unsigned_varint, parse_array,
-    parse_compact_array, parse_compact_string, parse_string, RequestHeader, skip_tagged_fields,
+    encode_nullable_bytes, encode_string, encode_unsigned_varint, parse_array, parse_compact_array,
+    parse_compact_string, parse_string, skip_tagged_fields, RequestHeader,
 };
 use crate::error::{ErrorCode, KafkaResult};
 use crate::server::KafkaServerState;
@@ -391,14 +391,19 @@ async fn read_records(
     }
 
     // Build Kafka RecordBatch from the records
-    let base_offset = read_result.records.first().map(|r| r.offset).unwrap_or(offset);
+    let base_offset = read_result
+        .records
+        .first()
+        .map(|r| r.offset)
+        .unwrap_or(offset);
     let base_timestamp = read_result
         .records
         .first()
         .map(|r| r.timestamp as i64)
         .unwrap_or_else(|| chrono::Utc::now().timestamp_millis());
 
-    let record_batch = build_record_batch_from_records(base_offset, base_timestamp, &read_result.records)?;
+    let record_batch =
+        build_record_batch_from_records(base_offset, base_timestamp, &read_result.records)?;
 
     Ok(record_batch)
 }

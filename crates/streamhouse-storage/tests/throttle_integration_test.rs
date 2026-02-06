@@ -53,8 +53,8 @@ async fn test_rate_limiting_rejects_excess_requests() {
     // Use very low rate so tokens don't refill during test
     let throttle_config = ThrottleConfig {
         put_rate: BucketConfig {
-            rate: 1.0,  // 1 per second (slow refill)
-            burst: 3,   // Only 3 in burst
+            rate: 1.0, // 1 per second (slow refill)
+            burst: 3,  // Only 3 in burst
             min_rate: 1.0,
             max_rate: 100.0,
         },
@@ -142,7 +142,10 @@ async fn test_rate_limiting_rejects_excess_requests() {
 
     // Verify rate limiting kicked in (at least 3 should succeed from burst)
     assert!(success_count >= 3, "Should allow burst of at least 3");
-    assert!(rate_limited_count >= 1, "Should rate limit at least 1 request");
+    assert!(
+        rate_limited_count >= 1,
+        "Should rate limit at least 1 request"
+    );
     println!("✓ Rate limiting verified!");
 }
 

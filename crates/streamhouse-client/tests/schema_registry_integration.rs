@@ -41,9 +41,8 @@ async fn test_end_to_end_schema_flow() {
         .expect("Failed to create topic");
 
     // Configure object store (using in-memory for test)
-    let object_store: Arc<dyn object_store::ObjectStore> = Arc::new(
-        object_store::memory::InMemory::new(),
-    );
+    let object_store: Arc<dyn object_store::ObjectStore> =
+        Arc::new(object_store::memory::InMemory::new());
 
     // Schema registry URL (assumes server running with schema registry on port 8080)
     let schema_registry_url = "http://localhost:8080/schemas";
@@ -95,8 +94,7 @@ async fn test_end_to_end_schema_flow() {
 
     // === CONSUMER: Poll and resolve schema ===
     let cache = Arc::new(
-        SegmentCache::new("/tmp/test-cache", 100 * 1024 * 1024)
-            .expect("Failed to create cache"),
+        SegmentCache::new("/tmp/test-cache", 100 * 1024 * 1024).expect("Failed to create cache"),
     );
 
     let mut consumer = Consumer::builder()
@@ -166,7 +164,8 @@ async fn test_schema_caching() {
         .expect("Failed to create topic");
 
     let schema_registry_url = "http://localhost:8080/schemas";
-    let avro_schema = r#"{"type": "record", "name": "Test", "fields": [{"name": "id", "type": "int"}]}"#;
+    let avro_schema =
+        r#"{"type": "record", "name": "Test", "fields": [{"name": "id", "type": "int"}]}"#;
 
     let producer = Producer::builder()
         .metadata_store(Arc::clone(&metadata_store))
@@ -211,7 +210,10 @@ async fn test_schema_caching() {
     // Second send should be much faster (no HTTP request)
     // Note: This might not always be true due to batching, but generally
     // the cache should make subsequent sends faster
-    println!("Speedup: {:.2}x", first_duration.as_millis() as f64 / second_duration.as_millis() as f64);
+    println!(
+        "Speedup: {:.2}x",
+        first_duration.as_millis() as f64 / second_duration.as_millis() as f64
+    );
 }
 
 /// Test that incompatible schemas are rejected
@@ -294,10 +296,7 @@ async fn test_compatibility_checking() {
         .await;
 
     // Should fail due to compatibility check
-    assert!(
-        result.is_err(),
-        "Incompatible schema should be rejected"
-    );
+    assert!(result.is_err(), "Incompatible schema should be rejected");
     println!("Incompatible schema rejected as expected: {:?}", result);
 
     // Try compatible schema (v2 - adds optional field)
@@ -323,9 +322,6 @@ async fn test_compatibility_checking() {
         .await;
 
     // Should succeed
-    assert!(
-        result.is_ok(),
-        "Compatible schema should be accepted"
-    );
+    assert!(result.is_ok(), "Compatible schema should be accepted");
     println!("Compatible schema accepted");
 }

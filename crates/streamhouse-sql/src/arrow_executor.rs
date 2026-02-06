@@ -149,56 +149,40 @@ impl ArrowExecutor {
         // Add aggregation columns
         for (i, agg) in query.aggregations.iter().enumerate() {
             let (name, data_type) = match agg {
-                WindowAggregation::Count { alias } => {
-                    (
-                        alias.clone().unwrap_or_else(|| format!("count_{}", i)),
-                        "bigint",
-                    )
-                }
-                WindowAggregation::CountDistinct { alias, .. } => {
-                    (
-                        alias
-                            .clone()
-                            .unwrap_or_else(|| format!("count_distinct_{}", i)),
-                        "bigint",
-                    )
-                }
-                WindowAggregation::Sum { alias, .. } => {
-                    (
-                        alias.clone().unwrap_or_else(|| format!("sum_{}", i)),
-                        "double",
-                    )
-                }
-                WindowAggregation::Avg { alias, .. } => {
-                    (
-                        alias.clone().unwrap_or_else(|| format!("avg_{}", i)),
-                        "double",
-                    )
-                }
-                WindowAggregation::Min { alias, .. } => {
-                    (
-                        alias.clone().unwrap_or_else(|| format!("min_{}", i)),
-                        "double",
-                    )
-                }
-                WindowAggregation::Max { alias, .. } => {
-                    (
-                        alias.clone().unwrap_or_else(|| format!("max_{}", i)),
-                        "double",
-                    )
-                }
-                WindowAggregation::First { alias, .. } => {
-                    (
-                        alias.clone().unwrap_or_else(|| format!("first_{}", i)),
-                        "string",
-                    )
-                }
-                WindowAggregation::Last { alias, .. } => {
-                    (
-                        alias.clone().unwrap_or_else(|| format!("last_{}", i)),
-                        "string",
-                    )
-                }
+                WindowAggregation::Count { alias } => (
+                    alias.clone().unwrap_or_else(|| format!("count_{}", i)),
+                    "bigint",
+                ),
+                WindowAggregation::CountDistinct { alias, .. } => (
+                    alias
+                        .clone()
+                        .unwrap_or_else(|| format!("count_distinct_{}", i)),
+                    "bigint",
+                ),
+                WindowAggregation::Sum { alias, .. } => (
+                    alias.clone().unwrap_or_else(|| format!("sum_{}", i)),
+                    "double",
+                ),
+                WindowAggregation::Avg { alias, .. } => (
+                    alias.clone().unwrap_or_else(|| format!("avg_{}", i)),
+                    "double",
+                ),
+                WindowAggregation::Min { alias, .. } => (
+                    alias.clone().unwrap_or_else(|| format!("min_{}", i)),
+                    "double",
+                ),
+                WindowAggregation::Max { alias, .. } => (
+                    alias.clone().unwrap_or_else(|| format!("max_{}", i)),
+                    "double",
+                ),
+                WindowAggregation::First { alias, .. } => (
+                    alias.clone().unwrap_or_else(|| format!("first_{}", i)),
+                    "string",
+                ),
+                WindowAggregation::Last { alias, .. } => (
+                    alias.clone().unwrap_or_else(|| format!("last_{}", i)),
+                    "string",
+                ),
             };
             columns.push(ColumnInfo {
                 name,
@@ -352,7 +336,11 @@ impl ArrowExecutor {
                 return Err(SqlError::Timeout(timeout_ms));
             }
 
-            let partition = match self.metadata.get_partition(topic_name, partition_id).await? {
+            let partition = match self
+                .metadata
+                .get_partition(topic_name, partition_id)
+                .await?
+            {
                 Some(p) => p,
                 None => continue,
             };
@@ -408,10 +396,7 @@ impl ArrowExecutor {
                     .map_err(|e| SqlError::StorageError(e.to_string()))?;
 
                 // Cache the segment (ignore errors)
-                let _ = self
-                    .segment_cache
-                    .put(&segment.s3_key, bytes.clone())
-                    .await;
+                let _ = self.segment_cache.put(&segment.s3_key, bytes.clone()).await;
                 bytes
             }
         };
@@ -426,7 +411,10 @@ impl ArrowExecutor {
             }
 
             if let Ok(record) = serde_json::from_str::<serde_json::Value>(line) {
-                let timestamp = record.get("timestamp").and_then(|v| v.as_i64()).unwrap_or(0);
+                let timestamp = record
+                    .get("timestamp")
+                    .and_then(|v| v.as_i64())
+                    .unwrap_or(0);
 
                 // Apply timestamp filter early
                 if let Some(ts) = ts_start {
@@ -878,7 +866,13 @@ mod tests {
             extract_json_value(&json, "name"),
             serde_json::Value::String("test".to_string())
         );
-        assert_eq!(extract_json_value(&json, "nested.value"), serde_json::json!(42));
-        assert_eq!(extract_json_value(&json, "missing"), serde_json::Value::Null);
+        assert_eq!(
+            extract_json_value(&json, "nested.value"),
+            serde_json::json!(42)
+        );
+        assert_eq!(
+            extract_json_value(&json, "missing"),
+            serde_json::Value::Null
+        );
     }
 }

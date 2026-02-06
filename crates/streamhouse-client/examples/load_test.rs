@@ -65,7 +65,10 @@ async fn main() -> anyhow::Result<()> {
     println!("║  Schemas: 2 per topic (v1 + v2)                            ║");
     println!("║  Messages: 10,000 per topic/version                        ║");
     println!("║  Total: 60,000 messages                                    ║");
-    println!("║  Concurrency: {} parallel requests                          ║", CONCURRENCY);
+    println!(
+        "║  Concurrency: {} parallel requests                          ║",
+        CONCURRENCY
+    );
     println!("╚════════════════════════════════════════════════════════════╝");
     println!();
 
@@ -118,7 +121,10 @@ async fn main() -> anyhow::Result<()> {
     println!();
 
     // Step 4: Send messages
-    println!("Step 4: Sending 60,000 messages with {} parallel workers...", CONCURRENCY);
+    println!(
+        "Step 4: Sending 60,000 messages with {} parallel workers...",
+        CONCURRENCY
+    );
     println!();
 
     let start = Instant::now();
@@ -129,11 +135,19 @@ async fn main() -> anyhow::Result<()> {
             std::io::Write::flush(&mut std::io::stdout())?;
 
             let topic_start = Instant::now();
-            send_messages_parallel(&client, topic, version, MESSAGES_PER_TOPIC_VERSION, stats.clone()).await;
+            send_messages_parallel(
+                &client,
+                topic,
+                version,
+                MESSAGES_PER_TOPIC_VERSION,
+                stats.clone(),
+            )
+            .await;
             let topic_duration = topic_start.elapsed();
 
             let rate = MESSAGES_PER_TOPIC_VERSION as f64 / topic_duration.as_secs_f64();
-            println!(" {} msgs in {:.2}s ({:.0} msg/s)",
+            println!(
+                " {} msgs in {:.2}s ({:.0} msg/s)",
                 MESSAGES_PER_TOPIC_VERSION,
                 topic_duration.as_secs_f64(),
                 rate
@@ -151,11 +165,26 @@ async fn main() -> anyhow::Result<()> {
     println!("╔════════════════════════════════════════════════════════════╗");
     println!("║                    Load Test Complete                      ║");
     println!("╠════════════════════════════════════════════════════════════╣");
-    println!("║  Total messages:  {:>10}                               ║", total_messages);
-    println!("║  Total batches:   {:>10}                               ║", total_batches);
-    println!("║  Errors:          {:>10}                               ║", errors);
-    println!("║  Duration:        {:>10.2}s                              ║", duration.as_secs_f64());
-    println!("║  Throughput:      {:>10.0} msg/s                         ║", rate);
+    println!(
+        "║  Total messages:  {:>10}                               ║",
+        total_messages
+    );
+    println!(
+        "║  Total batches:   {:>10}                               ║",
+        total_batches
+    );
+    println!(
+        "║  Errors:          {:>10}                               ║",
+        errors
+    );
+    println!(
+        "║  Duration:        {:>10.2}s                              ║",
+        duration.as_secs_f64()
+    );
+    println!(
+        "║  Throughput:      {:>10.0} msg/s                         ║",
+        rate
+    );
     println!("╚════════════════════════════════════════════════════════════╝");
     println!();
     println!("Check results:");
@@ -226,7 +255,9 @@ async fn send_messages_parallel(
 
                 match result {
                     Ok(response) if response.status().is_success() => {
-                        stats.messages_sent.fetch_add(batch_size as u64, Ordering::Relaxed);
+                        stats
+                            .messages_sent
+                            .fetch_add(batch_size as u64, Ordering::Relaxed);
                         stats.batches_sent.fetch_add(1, Ordering::Relaxed);
 
                         // Progress indicator
@@ -252,7 +283,12 @@ async fn send_messages_parallel(
         .await;
 }
 
-fn generate_batch(topic: &str, version: &str, start_idx: usize, end_idx: usize) -> BatchProduceRequest {
+fn generate_batch(
+    topic: &str,
+    version: &str,
+    start_idx: usize,
+    end_idx: usize,
+) -> BatchProduceRequest {
     let ts = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap()

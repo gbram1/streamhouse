@@ -617,8 +617,11 @@ mod tests {
 
     #[test]
     fn test_batch_record_new_preserves_fields() {
-        let record =
-            BatchRecord::new(Some(Bytes::from("my_key")), Bytes::from("my_value"), 9999999);
+        let record = BatchRecord::new(
+            Some(Bytes::from("my_key")),
+            Bytes::from("my_value"),
+            9999999,
+        );
         assert_eq!(record.key.as_deref(), Some(b"my_key".as_ref()));
         assert_eq!(&record.value[..], b"my_value");
         assert_eq!(record.timestamp, 9999999);
@@ -840,7 +843,10 @@ mod tests {
 
         buffer.append(BatchRecord::new(None, Bytes::from("second"), 1));
         assert_eq!(buffer.len(), 1);
-        assert_eq!(buffer.size_bytes(), BatchRecord::new(None, Bytes::from("second"), 1).size_bytes());
+        assert_eq!(
+            buffer.size_bytes(),
+            BatchRecord::new(None, Bytes::from("second"), 1).size_bytes()
+        );
 
         let records = buffer.drain();
         assert_eq!(records.len(), 1);
@@ -873,7 +879,11 @@ mod tests {
         let mut buffer = BatchBuffer::new(100, 1024 * 1024, Duration::from_secs(60));
 
         for i in 0u64..50 {
-            buffer.append(BatchRecord::new(None, Bytes::from(format!("record_{}", i)), i));
+            buffer.append(BatchRecord::new(
+                None,
+                Bytes::from(format!("record_{}", i)),
+                i,
+            ));
         }
 
         let records = buffer.drain();
@@ -891,9 +901,17 @@ mod tests {
     fn test_batch_buffer_drain_preserves_keys() {
         let mut buffer = BatchBuffer::new(100, 1024 * 1024, Duration::from_secs(60));
 
-        buffer.append(BatchRecord::new(Some(Bytes::from("key_a")), Bytes::from("val_a"), 0));
+        buffer.append(BatchRecord::new(
+            Some(Bytes::from("key_a")),
+            Bytes::from("val_a"),
+            0,
+        ));
         buffer.append(BatchRecord::new(None, Bytes::from("val_b"), 1));
-        buffer.append(BatchRecord::new(Some(Bytes::from("key_c")), Bytes::from("val_c"), 2));
+        buffer.append(BatchRecord::new(
+            Some(Bytes::from("key_c")),
+            Bytes::from("val_c"),
+            2,
+        ));
 
         let records = buffer.drain();
         assert_eq!(records[0].key.as_deref(), Some(b"key_a".as_ref()));

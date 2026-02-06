@@ -114,12 +114,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     info!("✓ Segment cache initialized ({})", cache_dir);
 
     // Create Prometheus client for real metrics (optional)
-    let prometheus_client = std::env::var("PROMETHEUS_URL")
-        .ok()
-        .map(|url| {
-            info!("📊 Prometheus metrics enabled: {}", url);
-            Arc::new(streamhouse_api::PrometheusClient::new(&url))
-        });
+    let prometheus_client = std::env::var("PROMETHEUS_URL").ok().map(|url| {
+        info!("📊 Prometheus metrics enabled: {}", url);
+        Arc::new(streamhouse_api::PrometheusClient::new(&url))
+    });
 
     // Create app state
     // Auth is disabled by default in development; enable with STREAMHOUSE_AUTH_ENABLED=true

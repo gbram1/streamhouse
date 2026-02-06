@@ -98,7 +98,11 @@ async fn test_wal_recovery_offset_continuity() {
     }
 
     // Metadata still shows HW=0 (nothing flushed to S3)
-    let partition = metadata.get_partition("test-topic", 0).await.unwrap().unwrap();
+    let partition = metadata
+        .get_partition("test-topic", 0)
+        .await
+        .unwrap()
+        .unwrap();
     assert_eq!(partition.high_watermark, 0, "Nothing was flushed to S3");
 
     // Restart: WAL recovery should replay 50 records into the segment buffer
@@ -118,7 +122,10 @@ async fn test_wal_recovery_offset_continuity() {
             .append(None, Bytes::from("post-recovery"), now_ms() as u64)
             .await
             .unwrap();
-        assert_eq!(offset, 50, "WAL recovery restored 50 records, next offset is 50");
+        assert_eq!(
+            offset, 50,
+            "WAL recovery restored 50 records, next offset is 50"
+        );
     }
 }
 
@@ -190,10 +197,7 @@ async fn test_crash_recovery_no_data_loss() {
     }
 
     // Step 3: Verify segment in metadata has 101 records (100 recovered + 1 new)
-    let segments = metadata
-        .get_segments(topic, partition_id)
-        .await
-        .unwrap();
+    let segments = metadata.get_segments(topic, partition_id).await.unwrap();
     assert_eq!(segments.len(), 1, "Should have 1 segment after flush");
     assert_eq!(
         segments[0].record_count, 101,
@@ -201,8 +205,15 @@ async fn test_crash_recovery_no_data_loss() {
     );
 
     // Verify high watermark in metadata
-    let partition = metadata.get_partition(topic, partition_id).await.unwrap().unwrap();
-    assert_eq!(partition.high_watermark, 101, "High watermark should be 101");
+    let partition = metadata
+        .get_partition(topic, partition_id)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        partition.high_watermark, 101,
+        "High watermark should be 101"
+    );
 }
 
 #[tokio::test]
@@ -240,8 +251,15 @@ async fn test_wal_truncated_after_flush() {
     writer.flush_durable().await.unwrap();
 
     // Verify metadata shows 50 records
-    let partition = metadata.get_partition("test-topic", 0).await.unwrap().unwrap();
-    assert_eq!(partition.high_watermark, 50, "Should have 50 records after flush");
+    let partition = metadata
+        .get_partition("test-topic", 0)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        partition.high_watermark, 50,
+        "Should have 50 records after flush"
+    );
 
     // Drop writer and restart
     drop(writer);
@@ -258,13 +276,23 @@ async fn test_wal_truncated_after_flush() {
     .unwrap();
 
     // Write one more - if WAL was properly truncated, next offset should be 50
-    let offset = writer_after_flush.append(None, Bytes::from("after-restart"), now_ms() as u64).await.unwrap();
-    assert_eq!(offset, 50, "WAL was truncated, offset continues from metadata");
+    let offset = writer_after_flush
+        .append(None, Bytes::from("after-restart"), now_ms() as u64)
+        .await
+        .unwrap();
+    assert_eq!(
+        offset, 50,
+        "WAL was truncated, offset continues from metadata"
+    );
 
     writer_after_flush.flush_durable().await.unwrap();
 
     // Verify final state
-    let partition = metadata.get_partition("test-topic", 0).await.unwrap().unwrap();
+    let partition = metadata
+        .get_partition("test-topic", 0)
+        .await
+        .unwrap()
+        .unwrap();
     assert_eq!(partition.high_watermark, 51, "Should have 51 records total");
 }
 
@@ -291,7 +319,11 @@ async fn test_multiple_crash_recovery_cycles() {
 
         for i in 0..20 {
             writer
-                .append(Some(Bytes::from(format!("key-{}", i))), Bytes::from("value"), now_ms() as u64)
+                .append(
+                    Some(Bytes::from(format!("key-{}", i))),
+                    Bytes::from("value"),
+                    now_ms() as u64,
+                )
                 .await
                 .unwrap();
         }
@@ -311,16 +343,30 @@ async fn test_multiple_crash_recovery_cycles() {
         .unwrap();
 
         // Write one more and flush_durable to persist (20 recovered + 1 new = 21)
-        writer.append(None, Bytes::from("test"), now_ms() as u64).await.unwrap();
+        writer
+            .append(None, Bytes::from("test"), now_ms() as u64)
+            .await
+            .unwrap();
         writer.flush_durable().await.unwrap();
 
-        let partition = metadata.get_partition("test-topic", 0).await.unwrap().unwrap();
-        assert_eq!(partition.high_watermark, 21, "Should have 20 recovered + 1 new");
+        let partition = metadata
+            .get_partition("test-topic", 0)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            partition.high_watermark, 21,
+            "Should have 20 recovered + 1 new"
+        );
 
         // Write 30 more records (offsets 21-50)
         for i in 0..30 {
             writer
-                .append(Some(Bytes::from(format!("key-{}", 20 + i))), Bytes::from("value"), now_ms() as u64)
+                .append(
+                    Some(Bytes::from(format!("key-{}", 20 + i))),
+                    Bytes::from("value"),
+                    now_ms() as u64,
+                )
                 .await
                 .unwrap();
         }
@@ -342,16 +388,30 @@ async fn test_multiple_crash_recovery_cycles() {
         // Flush to persist all recovered records
         writer.flush_durable().await.unwrap();
 
-        let partition = metadata.get_partition("test-topic", 0).await.unwrap().unwrap();
+        let partition = metadata
+            .get_partition("test-topic", 0)
+            .await
+            .unwrap()
+            .unwrap();
         // 21 from cycle 2 flush + 30 recovered from WAL = 51
-        assert_eq!(partition.high_watermark, 51, "Should have all 51 records (20+1+30)");
+        assert_eq!(
+            partition.high_watermark, 51,
+            "Should have all 51 records (20+1+30)"
+        );
     }
 
     // Verify final state: 2 segments from 2 flush_durable calls
     let segments = metadata.get_segments("test-topic", 0).await.unwrap();
-    assert_eq!(segments.len(), 2, "Two segments: one from cycle 2, one from cycle 3");
+    assert_eq!(
+        segments.len(),
+        2,
+        "Two segments: one from cycle 2, one from cycle 3"
+    );
     let total_records: u32 = segments.iter().map(|s| s.record_count).sum();
-    assert_eq!(total_records, 51, "Total: 20 recovered + 1 new + 30 recovered = 51");
+    assert_eq!(
+        total_records, 51,
+        "Total: 20 recovered + 1 new + 30 recovered = 51"
+    );
 }
 
 #[tokio::test]
@@ -428,12 +488,23 @@ async fn test_concurrent_partition_wals() {
         .unwrap();
 
         // Write one more and flush_durable to persist
-        let offset = writer.append(None, Bytes::from("test"), now_ms() as u64).await.unwrap();
-        assert_eq!(offset, 10, "Partition {} recovered 10 records", partition_id);
+        let offset = writer
+            .append(None, Bytes::from("test"), now_ms() as u64)
+            .await
+            .unwrap();
+        assert_eq!(
+            offset, 10,
+            "Partition {} recovered 10 records",
+            partition_id
+        );
 
         writer.flush_durable().await.unwrap();
 
-        let partition = metadata.get_partition("test-topic", partition_id).await.unwrap().unwrap();
+        let partition = metadata
+            .get_partition("test-topic", partition_id)
+            .await
+            .unwrap()
+            .unwrap();
         assert_eq!(
             partition.high_watermark, 11,
             "Partition {} should have 10 recovered + 1 new",
@@ -476,7 +547,11 @@ async fn test_wal_disabled_mode() {
     // Write records
     for i in 0..50 {
         writer
-            .append(Some(Bytes::from(format!("key-{}", i))), Bytes::from("value"), now_ms() as u64)
+            .append(
+                Some(Bytes::from(format!("key-{}", i))),
+                Bytes::from("value"),
+                now_ms() as u64,
+            )
             .await
             .unwrap();
     }
@@ -496,7 +571,11 @@ async fn test_wal_disabled_mode() {
     .unwrap();
 
     // Offset should be 0 (no recovery without WAL)
-    let partition = metadata.get_partition("test-topic", 0).await.unwrap().unwrap();
+    let partition = metadata
+        .get_partition("test-topic", 0)
+        .await
+        .unwrap()
+        .unwrap();
     assert_eq!(
         partition.high_watermark, 0,
         "Without WAL, unflushed data is lost"

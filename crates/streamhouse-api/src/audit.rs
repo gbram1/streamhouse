@@ -38,11 +38,7 @@
 //! - `AUDIT_LOG_LEVEL`: Log level for audit events (default: info)
 //! - `AUDIT_LOG_INCLUDE_BODY`: Include request body in logs (default: false, security risk)
 
-use axum::{
-    extract::Request,
-    http::Method,
-    response::Response,
-};
+use axum::{extract::Request, http::Method, response::Response};
 use futures::future::BoxFuture;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
@@ -119,7 +115,9 @@ fn derive_operation(method: &Method, path: &str) -> String {
         (&Method::POST, ["api", "v1", "topics"]) => "create_topic".to_string(),
         (&Method::GET, ["api", "v1", "topics", _name]) => "get_topic".to_string(),
         (&Method::DELETE, ["api", "v1", "topics", _name]) => "delete_topic".to_string(),
-        (&Method::GET, ["api", "v1", "topics", _name, "partitions"]) => "list_partitions".to_string(),
+        (&Method::GET, ["api", "v1", "topics", _name, "partitions"]) => {
+            "list_partitions".to_string()
+        }
         (&Method::GET, ["api", "v1", "topics", _name, "messages"]) => "get_messages".to_string(),
 
         // Produce/Consume
@@ -130,10 +128,16 @@ fn derive_operation(method: &Method, path: &str) -> String {
         // Consumer Groups
         (&Method::GET, ["api", "v1", "consumer-groups"]) => "list_consumer_groups".to_string(),
         (&Method::GET, ["api", "v1", "consumer-groups", _id]) => "get_consumer_group".to_string(),
-        (&Method::DELETE, ["api", "v1", "consumer-groups", _id]) => "delete_consumer_group".to_string(),
+        (&Method::DELETE, ["api", "v1", "consumer-groups", _id]) => {
+            "delete_consumer_group".to_string()
+        }
         (&Method::POST, ["api", "v1", "consumer-groups", "commit"]) => "commit_offset".to_string(),
-        (&Method::POST, ["api", "v1", "consumer-groups", _id, "reset"]) => "reset_offsets".to_string(),
-        (&Method::POST, ["api", "v1", "consumer-groups", _id, "seek"]) => "seek_to_timestamp".to_string(),
+        (&Method::POST, ["api", "v1", "consumer-groups", _id, "reset"]) => {
+            "reset_offsets".to_string()
+        }
+        (&Method::POST, ["api", "v1", "consumer-groups", _id, "seek"]) => {
+            "seek_to_timestamp".to_string()
+        }
 
         // Organizations
         (&Method::GET, ["api", "v1", "organizations"]) => "list_organizations".to_string(),
@@ -143,8 +147,12 @@ fn derive_operation(method: &Method, path: &str) -> String {
         (&Method::DELETE, ["api", "v1", "organizations", _id]) => "delete_organization".to_string(),
 
         // API Keys
-        (&Method::GET, ["api", "v1", "organizations", _org, "api-keys"]) => "list_api_keys".to_string(),
-        (&Method::POST, ["api", "v1", "organizations", _org, "api-keys"]) => "create_api_key".to_string(),
+        (&Method::GET, ["api", "v1", "organizations", _org, "api-keys"]) => {
+            "list_api_keys".to_string()
+        }
+        (&Method::POST, ["api", "v1", "organizations", _org, "api-keys"]) => {
+            "create_api_key".to_string()
+        }
         (&Method::GET, ["api", "v1", "api-keys", _id]) => "get_api_key".to_string(),
         (&Method::DELETE, ["api", "v1", "api-keys", _id]) => "revoke_api_key".to_string(),
 
@@ -163,7 +171,11 @@ fn derive_operation(method: &Method, path: &str) -> String {
         (&Method::GET, ["ready"]) => "readiness_check".to_string(),
 
         // Default
-        _ => format!("{}_{}", method.as_str().to_lowercase(), path_parts.join("_")),
+        _ => format!(
+            "{}_{}",
+            method.as_str().to_lowercase(),
+            path_parts.join("_")
+        ),
     }
 }
 
@@ -323,7 +335,11 @@ where
                     client_ip,
                     user_agent,
                     success,
-                    error: if success { None } else { Some(format!("HTTP {}", status_code)) },
+                    error: if success {
+                        None
+                    } else {
+                        Some(format!("HTTP {}", status_code))
+                    },
                     timestamp,
                 };
 
@@ -406,13 +422,31 @@ mod tests {
 
     #[test]
     fn test_derive_operation() {
-        assert_eq!(derive_operation(&Method::GET, "/api/v1/topics"), "list_topics");
-        assert_eq!(derive_operation(&Method::POST, "/api/v1/topics"), "create_topic");
-        assert_eq!(derive_operation(&Method::GET, "/api/v1/topics/my-topic"), "get_topic");
-        assert_eq!(derive_operation(&Method::DELETE, "/api/v1/topics/my-topic"), "delete_topic");
-        assert_eq!(derive_operation(&Method::POST, "/api/v1/produce"), "produce");
+        assert_eq!(
+            derive_operation(&Method::GET, "/api/v1/topics"),
+            "list_topics"
+        );
+        assert_eq!(
+            derive_operation(&Method::POST, "/api/v1/topics"),
+            "create_topic"
+        );
+        assert_eq!(
+            derive_operation(&Method::GET, "/api/v1/topics/my-topic"),
+            "get_topic"
+        );
+        assert_eq!(
+            derive_operation(&Method::DELETE, "/api/v1/topics/my-topic"),
+            "delete_topic"
+        );
+        assert_eq!(
+            derive_operation(&Method::POST, "/api/v1/produce"),
+            "produce"
+        );
         assert_eq!(derive_operation(&Method::GET, "/api/v1/consume"), "consume");
-        assert_eq!(derive_operation(&Method::POST, "/api/v1/sql"), "execute_sql");
+        assert_eq!(
+            derive_operation(&Method::POST, "/api/v1/sql"),
+            "execute_sql"
+        );
         assert_eq!(derive_operation(&Method::GET, "/health"), "health_check");
     }
 
@@ -434,6 +468,9 @@ mod tests {
     #[test]
     fn test_audit_event_type_as_str() {
         assert_eq!(AuditEventType::TopicCreated.as_str(), "TOPIC_CREATED");
-        assert_eq!(AuditEventType::AuthenticationFailed.as_str(), "AUTHENTICATION_FAILED");
+        assert_eq!(
+            AuditEventType::AuthenticationFailed.as_str(),
+            "AUTHENTICATION_FAILED"
+        );
     }
 }

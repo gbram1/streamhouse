@@ -97,7 +97,10 @@ impl CleanupPolicy {
 
     /// Check if compaction is enabled
     pub fn is_compacted(&self) -> bool {
-        matches!(self, CleanupPolicy::Compact | CleanupPolicy::CompactAndDelete)
+        matches!(
+            self,
+            CleanupPolicy::Compact | CleanupPolicy::CompactAndDelete
+        )
     }
 }
 
@@ -2182,7 +2185,10 @@ mod tests {
 
     #[test]
     fn test_leader_change_reason_display_lease_expired() {
-        assert_eq!(LeaderChangeReason::LeaseExpired.to_string(), "lease_expired");
+        assert_eq!(
+            LeaderChangeReason::LeaseExpired.to_string(),
+            "lease_expired"
+        );
     }
 
     #[test]
@@ -2481,10 +2487,7 @@ mod tests {
             serde_json::to_string(&AckMode::Durable).unwrap(),
             "\"durable\""
         );
-        assert_eq!(
-            serde_json::to_string(&AckMode::None).unwrap(),
-            "\"none\""
-        );
+        assert_eq!(serde_json::to_string(&AckMode::None).unwrap(), "\"none\"");
     }
 
     #[test]
@@ -2571,8 +2574,14 @@ mod tests {
 
     #[test]
     fn test_isolation_level_equality() {
-        assert_eq!(IsolationLevel::ReadUncommitted, IsolationLevel::ReadUncommitted);
-        assert_ne!(IsolationLevel::ReadUncommitted, IsolationLevel::ReadCommitted);
+        assert_eq!(
+            IsolationLevel::ReadUncommitted,
+            IsolationLevel::ReadUncommitted
+        );
+        assert_ne!(
+            IsolationLevel::ReadUncommitted,
+            IsolationLevel::ReadCommitted
+        );
     }
 
     // ========================================================================
@@ -2866,16 +2875,12 @@ mod tests {
 
     #[test]
     fn test_materialized_view_refresh_mode_serde_periodic() {
-        let mode = MaterializedViewRefreshMode::Periodic {
-            interval_ms: 60000,
-        };
+        let mode = MaterializedViewRefreshMode::Periodic { interval_ms: 60000 };
         let json = serde_json::to_string(&mode).unwrap();
         let parsed: MaterializedViewRefreshMode = serde_json::from_str(&json).unwrap();
         assert_eq!(
             parsed,
-            MaterializedViewRefreshMode::Periodic {
-                interval_ms: 60000
-            }
+            MaterializedViewRefreshMode::Periodic { interval_ms: 60000 }
         );
     }
 
@@ -3113,9 +3118,7 @@ mod tests {
             state: ProducerState::Active,
             created_at: 1700000000000,
             last_heartbeat: 1700000010000,
-            metadata: Some(HashMap::from([
-                ("client".to_string(), "rust".to_string()),
-            ])),
+            metadata: Some(HashMap::from([("client".to_string(), "rust".to_string())])),
         };
 
         let json = serde_json::to_string(&producer).unwrap();
@@ -3446,9 +3449,10 @@ mod tests {
             transactional_id: Some("tx-writer-1".to_string()),
             organization_id: Some("org-1".to_string()),
             timeout_ms: 60000,
-            metadata: Some(HashMap::from([
-                ("client".to_string(), "rust-client".to_string()),
-            ])),
+            metadata: Some(HashMap::from([(
+                "client".to_string(),
+                "rust-client".to_string(),
+            )])),
         };
 
         let json = serde_json::to_string(&config).unwrap();

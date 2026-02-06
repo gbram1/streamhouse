@@ -155,7 +155,8 @@ impl SegmentBloomFilter {
         let num_bits = self.bloom.number_of_bits();
         let num_hashes = self.bloom.number_of_hash_functions();
 
-        let mut result = Vec::with_capacity(1 + 4 + config_json.len() + 8 + 8 + 4 + 32 + bloom_bytes.len());
+        let mut result =
+            Vec::with_capacity(1 + 4 + config_json.len() + 8 + 8 + 4 + 32 + bloom_bytes.len());
 
         // Version byte (v2 with SIP keys)
         result.push(2);
@@ -208,9 +209,12 @@ impl SegmentBloomFilter {
                 "Invalid bloom filter: truncated config length".to_string(),
             ));
         }
-        let config_len =
-            u32::from_le_bytes([data[cursor], data[cursor + 1], data[cursor + 2], data[cursor + 3]])
-                as usize;
+        let config_len = u32::from_le_bytes([
+            data[cursor],
+            data[cursor + 1],
+            data[cursor + 2],
+            data[cursor + 3],
+        ]) as usize;
         cursor += 4;
 
         // Config data
@@ -219,10 +223,8 @@ impl SegmentBloomFilter {
                 "Invalid bloom filter: truncated config data".to_string(),
             ));
         }
-        let config: BloomFilterConfig =
-            serde_json::from_slice(&data[cursor..cursor + config_len]).map_err(|e| {
-                Error::SegmentError(format!("Invalid bloom filter config: {}", e))
-            })?;
+        let config: BloomFilterConfig = serde_json::from_slice(&data[cursor..cursor + config_len])
+            .map_err(|e| Error::SegmentError(format!("Invalid bloom filter config: {}", e)))?;
         cursor += config_len;
 
         // Item count
@@ -267,8 +269,12 @@ impl SegmentBloomFilter {
                 "Invalid bloom filter: truncated num_hashes".to_string(),
             ));
         }
-        let num_hashes =
-            u32::from_le_bytes([data[cursor], data[cursor + 1], data[cursor + 2], data[cursor + 3]]);
+        let num_hashes = u32::from_le_bytes([
+            data[cursor],
+            data[cursor + 1],
+            data[cursor + 2],
+            data[cursor + 3],
+        ]);
         cursor += 4;
 
         // SIP keys (32 bytes = 4 x u64)
@@ -278,23 +284,47 @@ impl SegmentBloomFilter {
             ));
         }
         let sip_key_0_0 = u64::from_le_bytes([
-            data[cursor], data[cursor + 1], data[cursor + 2], data[cursor + 3],
-            data[cursor + 4], data[cursor + 5], data[cursor + 6], data[cursor + 7],
+            data[cursor],
+            data[cursor + 1],
+            data[cursor + 2],
+            data[cursor + 3],
+            data[cursor + 4],
+            data[cursor + 5],
+            data[cursor + 6],
+            data[cursor + 7],
         ]);
         cursor += 8;
         let sip_key_0_1 = u64::from_le_bytes([
-            data[cursor], data[cursor + 1], data[cursor + 2], data[cursor + 3],
-            data[cursor + 4], data[cursor + 5], data[cursor + 6], data[cursor + 7],
+            data[cursor],
+            data[cursor + 1],
+            data[cursor + 2],
+            data[cursor + 3],
+            data[cursor + 4],
+            data[cursor + 5],
+            data[cursor + 6],
+            data[cursor + 7],
         ]);
         cursor += 8;
         let sip_key_1_0 = u64::from_le_bytes([
-            data[cursor], data[cursor + 1], data[cursor + 2], data[cursor + 3],
-            data[cursor + 4], data[cursor + 5], data[cursor + 6], data[cursor + 7],
+            data[cursor],
+            data[cursor + 1],
+            data[cursor + 2],
+            data[cursor + 3],
+            data[cursor + 4],
+            data[cursor + 5],
+            data[cursor + 6],
+            data[cursor + 7],
         ]);
         cursor += 8;
         let sip_key_1_1 = u64::from_le_bytes([
-            data[cursor], data[cursor + 1], data[cursor + 2], data[cursor + 3],
-            data[cursor + 4], data[cursor + 5], data[cursor + 6], data[cursor + 7],
+            data[cursor],
+            data[cursor + 1],
+            data[cursor + 2],
+            data[cursor + 3],
+            data[cursor + 4],
+            data[cursor + 5],
+            data[cursor + 6],
+            data[cursor + 7],
         ]);
         cursor += 8;
 

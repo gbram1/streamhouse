@@ -484,12 +484,7 @@ mod tests {
 
     #[test]
     fn test_retry_policy_new_custom() {
-        let policy = RetryPolicy::new(
-            10,
-            Duration::from_millis(50),
-            Duration::from_secs(60),
-            3.0,
-        );
+        let policy = RetryPolicy::new(10, Duration::from_millis(50), Duration::from_secs(60), 3.0);
         assert_eq!(policy.max_retries, 10);
         assert_eq!(policy.initial_backoff, Duration::from_millis(50));
         assert_eq!(policy.max_backoff, Duration::from_secs(60));
@@ -498,12 +493,7 @@ mod tests {
 
     #[test]
     fn test_retry_policy_clone() {
-        let policy = RetryPolicy::new(
-            7,
-            Duration::from_millis(200),
-            Duration::from_secs(45),
-            2.5,
-        );
+        let policy = RetryPolicy::new(7, Duration::from_millis(200), Duration::from_secs(45), 2.5);
         let cloned = policy.clone();
         assert_eq!(cloned.max_retries, 7);
         assert_eq!(cloned.initial_backoff, Duration::from_millis(200));
@@ -513,12 +503,7 @@ mod tests {
 
     #[test]
     fn test_retry_policy_zero_retries() {
-        let policy = RetryPolicy::new(
-            0,
-            Duration::from_millis(100),
-            Duration::from_secs(30),
-            2.0,
-        );
+        let policy = RetryPolicy::new(0, Duration::from_millis(100), Duration::from_secs(30), 2.0);
         assert_eq!(policy.max_retries, 0);
     }
 
@@ -557,27 +542,17 @@ mod tests {
 
     #[test]
     fn test_backoff_with_multiplier_3() {
-        let policy = RetryPolicy::new(
-            10,
-            Duration::from_millis(100),
-            Duration::from_secs(60),
-            3.0,
-        );
+        let policy = RetryPolicy::new(10, Duration::from_millis(100), Duration::from_secs(60), 3.0);
 
-        assert_eq!(policy.backoff(0), Duration::from_millis(100));   // 100 * 3^0
-        assert_eq!(policy.backoff(1), Duration::from_millis(300));   // 100 * 3^1
-        assert_eq!(policy.backoff(2), Duration::from_millis(900));   // 100 * 3^2
-        assert_eq!(policy.backoff(3), Duration::from_millis(2700));  // 100 * 3^3
+        assert_eq!(policy.backoff(0), Duration::from_millis(100)); // 100 * 3^0
+        assert_eq!(policy.backoff(1), Duration::from_millis(300)); // 100 * 3^1
+        assert_eq!(policy.backoff(2), Duration::from_millis(900)); // 100 * 3^2
+        assert_eq!(policy.backoff(3), Duration::from_millis(2700)); // 100 * 3^3
     }
 
     #[test]
     fn test_backoff_with_multiplier_1_no_growth() {
-        let policy = RetryPolicy::new(
-            5,
-            Duration::from_millis(500),
-            Duration::from_secs(60),
-            1.0,
-        );
+        let policy = RetryPolicy::new(5, Duration::from_millis(500), Duration::from_secs(60), 1.0);
 
         // Multiplier of 1.0 means constant backoff
         assert_eq!(policy.backoff(0), Duration::from_millis(500));
@@ -588,16 +563,11 @@ mod tests {
 
     #[test]
     fn test_backoff_with_fractional_multiplier() {
-        let policy = RetryPolicy::new(
-            5,
-            Duration::from_millis(100),
-            Duration::from_secs(60),
-            1.5,
-        );
+        let policy = RetryPolicy::new(5, Duration::from_millis(100), Duration::from_secs(60), 1.5);
 
-        assert_eq!(policy.backoff(0), Duration::from_millis(100));  // 100 * 1.5^0 = 100
-        assert_eq!(policy.backoff(1), Duration::from_millis(150));  // 100 * 1.5^1 = 150
-        assert_eq!(policy.backoff(2), Duration::from_millis(225));  // 100 * 1.5^2 = 225
+        assert_eq!(policy.backoff(0), Duration::from_millis(100)); // 100 * 1.5^0 = 100
+        assert_eq!(policy.backoff(1), Duration::from_millis(150)); // 100 * 1.5^1 = 150
+        assert_eq!(policy.backoff(2), Duration::from_millis(225)); // 100 * 1.5^2 = 225
     }
 
     #[test]
@@ -631,12 +601,7 @@ mod tests {
 
     #[test]
     fn test_backoff_small_initial_and_max() {
-        let policy = RetryPolicy::new(
-            5,
-            Duration::from_millis(1),
-            Duration::from_millis(5),
-            2.0,
-        );
+        let policy = RetryPolicy::new(5, Duration::from_millis(1), Duration::from_millis(5), 2.0);
 
         assert_eq!(policy.backoff(0), Duration::from_millis(1));
         assert_eq!(policy.backoff(1), Duration::from_millis(2));
@@ -761,8 +726,10 @@ mod tests {
     #[test]
     fn test_is_retryable_independent_of_policy_config() {
         // is_retryable should not depend on retry count or backoff settings
-        let aggressive = RetryPolicy::new(100, Duration::from_nanos(1), Duration::from_nanos(1), 1.0);
-        let conservative = RetryPolicy::new(0, Duration::from_secs(60), Duration::from_secs(3600), 10.0);
+        let aggressive =
+            RetryPolicy::new(100, Duration::from_nanos(1), Duration::from_nanos(1), 1.0);
+        let conservative =
+            RetryPolicy::new(0, Duration::from_secs(60), Duration::from_secs(3600), 10.0);
 
         let unavailable = Status::unavailable("down");
         let not_found = Status::not_found("missing");
@@ -798,12 +765,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_retry_with_backoff_eventual_success() {
-        let policy = RetryPolicy::new(
-            5,
-            Duration::from_millis(1),
-            Duration::from_millis(10),
-            2.0,
-        );
+        let policy = RetryPolicy::new(5, Duration::from_millis(1), Duration::from_millis(10), 2.0);
         let attempts = Arc::new(AtomicUsize::new(0));
         let attempts_clone = attempts.clone();
 
@@ -871,12 +833,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_retry_with_backoff_zero_retries() {
-        let policy = RetryPolicy::new(
-            0,
-            Duration::from_millis(1),
-            Duration::from_millis(10),
-            2.0,
-        );
+        let policy = RetryPolicy::new(0, Duration::from_millis(1), Duration::from_millis(10), 2.0);
         let attempts = Arc::new(AtomicUsize::new(0));
         let attempts_clone = attempts.clone();
 
@@ -896,12 +853,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_retry_with_backoff_preserves_error_code() {
-        let policy = RetryPolicy::new(
-            1,
-            Duration::from_millis(1),
-            Duration::from_millis(10),
-            2.0,
-        );
+        let policy = RetryPolicy::new(1, Duration::from_millis(1), Duration::from_millis(10), 2.0);
 
         let result = retry_with_backoff(&policy, || async {
             Err::<i32, Status>(Status::unavailable("still down"))
@@ -929,12 +881,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_retry_with_backoff_success_on_last_attempt() {
-        let policy = RetryPolicy::new(
-            3,
-            Duration::from_millis(1),
-            Duration::from_millis(10),
-            2.0,
-        );
+        let policy = RetryPolicy::new(3, Duration::from_millis(1), Duration::from_millis(10), 2.0);
         let attempts = Arc::new(AtomicUsize::new(0));
         let attempts_clone = attempts.clone();
 
@@ -957,12 +904,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_retry_with_backoff_different_retryable_errors() {
-        let policy = RetryPolicy::new(
-            4,
-            Duration::from_millis(1),
-            Duration::from_millis(10),
-            2.0,
-        );
+        let policy = RetryPolicy::new(4, Duration::from_millis(1), Duration::from_millis(10), 2.0);
         let attempts = Arc::new(AtomicUsize::new(0));
         let attempts_clone = attempts.clone();
 
@@ -987,12 +929,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_retry_with_backoff_non_retryable_after_retries() {
-        let policy = RetryPolicy::new(
-            5,
-            Duration::from_millis(1),
-            Duration::from_millis(10),
-            2.0,
-        );
+        let policy = RetryPolicy::new(5, Duration::from_millis(1), Duration::from_millis(10), 2.0);
         let attempts = Arc::new(AtomicUsize::new(0));
         let attempts_clone = attempts.clone();
 
@@ -1018,18 +955,11 @@ mod tests {
 
     #[tokio::test]
     async fn test_retry_with_backoff_returns_different_types() {
-        let policy = RetryPolicy::new(
-            1,
-            Duration::from_millis(1),
-            Duration::from_millis(10),
-            2.0,
-        );
+        let policy = RetryPolicy::new(1, Duration::from_millis(1), Duration::from_millis(10), 2.0);
 
         // Test with Vec
-        let result = retry_with_backoff(&policy, || async {
-            Ok::<Vec<u8>, Status>(vec![1, 2, 3])
-        })
-        .await;
+        let result =
+            retry_with_backoff(&policy, || async { Ok::<Vec<u8>, Status>(vec![1, 2, 3]) }).await;
         assert_eq!(result.unwrap(), vec![1, 2, 3]);
 
         // Test with String
@@ -1040,10 +970,7 @@ mod tests {
         assert_eq!(result.unwrap(), "hello");
 
         // Test with unit
-        let result = retry_with_backoff(&policy, || async {
-            Ok::<(), Status>(())
-        })
-        .await;
+        let result = retry_with_backoff(&policy, || async { Ok::<(), Status>(()) }).await;
         assert!(result.is_ok());
     }
 
@@ -1072,12 +999,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_retry_with_jitter_eventual_success() {
-        let policy = RetryPolicy::new(
-            5,
-            Duration::from_millis(1),
-            Duration::from_millis(10),
-            2.0,
-        );
+        let policy = RetryPolicy::new(5, Duration::from_millis(1), Duration::from_millis(10), 2.0);
         let attempts = Arc::new(AtomicUsize::new(0));
         let attempts_clone = attempts.clone();
 
@@ -1119,12 +1041,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_retry_with_jitter_exhausted() {
-        let policy = RetryPolicy::new(
-            2,
-            Duration::from_millis(1),
-            Duration::from_millis(10),
-            2.0,
-        );
+        let policy = RetryPolicy::new(2, Duration::from_millis(1), Duration::from_millis(10), 2.0);
         let attempts = Arc::new(AtomicUsize::new(0));
         let attempts_clone = attempts.clone();
 
@@ -1143,12 +1060,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_retry_with_jitter_zero_retries() {
-        let policy = RetryPolicy::new(
-            0,
-            Duration::from_millis(1),
-            Duration::from_millis(10),
-            2.0,
-        );
+        let policy = RetryPolicy::new(0, Duration::from_millis(1), Duration::from_millis(10), 2.0);
         let attempts = Arc::new(AtomicUsize::new(0));
         let attempts_clone = attempts.clone();
 
@@ -1167,12 +1079,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_retry_with_jitter_preserves_last_error() {
-        let policy = RetryPolicy::new(
-            2,
-            Duration::from_millis(1),
-            Duration::from_millis(10),
-            2.0,
-        );
+        let policy = RetryPolicy::new(2, Duration::from_millis(1), Duration::from_millis(10), 2.0);
         let attempts = Arc::new(AtomicUsize::new(0));
         let attempts_clone = attempts.clone();
 
@@ -1192,12 +1099,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_retry_with_jitter_switches_to_non_retryable_stops() {
-        let policy = RetryPolicy::new(
-            10,
-            Duration::from_millis(1),
-            Duration::from_millis(10),
-            2.0,
-        );
+        let policy = RetryPolicy::new(10, Duration::from_millis(1), Duration::from_millis(10), 2.0);
         let attempts = Arc::new(AtomicUsize::new(0));
         let attempts_clone = attempts.clone();
 

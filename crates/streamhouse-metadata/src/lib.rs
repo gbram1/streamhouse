@@ -1038,11 +1038,7 @@ pub trait MetadataStore: Send + Sync {
     /// # Errors
     ///
     /// - `NotFoundError`: Organization not found
-    async fn update_organization_status(
-        &self,
-        id: &str,
-        status: OrganizationStatus,
-    ) -> Result<()>;
+    async fn update_organization_status(&self, id: &str, status: OrganizationStatus) -> Result<()>;
 
     /// Update an organization's plan.
     ///
@@ -1171,7 +1167,8 @@ pub trait MetadataStore: Send + Sync {
     /// # Returns
     ///
     /// Vector of usage metrics.
-    async fn get_organization_usage(&self, organization_id: &str) -> Result<Vec<OrganizationUsage>>;
+    async fn get_organization_usage(&self, organization_id: &str)
+        -> Result<Vec<OrganizationUsage>>;
 
     /// Update a usage metric for an organization.
     ///
@@ -1629,7 +1626,10 @@ pub trait MetadataStore: Send + Sync {
     /// # Returns
     ///
     /// The created materialized view.
-    async fn create_materialized_view(&self, config: CreateMaterializedView) -> Result<MaterializedView>;
+    async fn create_materialized_view(
+        &self,
+        config: CreateMaterializedView,
+    ) -> Result<MaterializedView>;
 
     /// Get a materialized view by name.
     ///
@@ -1668,7 +1668,10 @@ pub trait MetadataStore: Send + Sync {
     async fn delete_materialized_view(&self, name: &str) -> Result<()>;
 
     /// Get view offsets for all partitions.
-    async fn get_materialized_view_offsets(&self, view_id: &str) -> Result<Vec<MaterializedViewOffset>>;
+    async fn get_materialized_view_offsets(
+        &self,
+        view_id: &str,
+    ) -> Result<Vec<MaterializedViewOffset>>;
 
     /// Update view offset for a partition.
     async fn update_materialized_view_offset(
@@ -1686,8 +1689,5 @@ pub trait MetadataStore: Send + Sync {
     ) -> Result<Vec<MaterializedViewData>>;
 
     /// Upsert aggregated data for a materialized view.
-    async fn upsert_materialized_view_data(
-        &self,
-        data: MaterializedViewData,
-    ) -> Result<()>;
+    async fn upsert_materialized_view_data(&self, data: MaterializedViewData) -> Result<()>;
 }

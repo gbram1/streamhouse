@@ -201,10 +201,9 @@ impl Repl {
         }
 
         let topic = args[0].to_string();
-        let partition = Self::parse_flag_u32(args, "--partition")
-            .context("Missing --partition flag")?;
-        let value = Self::parse_flag_string(args, "--value")
-            .context("Missing --value flag")?;
+        let partition =
+            Self::parse_flag_u32(args, "--partition").context("Missing --partition flag")?;
+        let value = Self::parse_flag_string(args, "--value").context("Missing --value flag")?;
         let key = Self::parse_flag_string(args, "--key");
 
         handle_produce(&mut self.client, topic, partition, key, value).await
@@ -218,8 +217,8 @@ impl Repl {
         }
 
         let topic = args[0].to_string();
-        let partition = Self::parse_flag_u32(args, "--partition")
-            .context("Missing --partition flag")?;
+        let partition =
+            Self::parse_flag_u32(args, "--partition").context("Missing --partition flag")?;
         let offset = Self::parse_flag_u64(args, "--offset").unwrap_or(0);
         let limit = Self::parse_flag_u32(args, "--limit");
 
@@ -235,14 +234,14 @@ impl Repl {
 
         let command = match args[0] {
             "commit" => {
-                let group = Self::parse_flag_string(args, "--group")
-                    .context("Missing --group flag")?;
-                let topic = Self::parse_flag_string(args, "--topic")
-                    .context("Missing --topic flag")?;
+                let group =
+                    Self::parse_flag_string(args, "--group").context("Missing --group flag")?;
+                let topic =
+                    Self::parse_flag_string(args, "--topic").context("Missing --topic flag")?;
                 let partition = Self::parse_flag_u32(args, "--partition")
                     .context("Missing --partition flag")?;
-                let offset = Self::parse_flag_u64(args, "--offset")
-                    .context("Missing --offset flag")?;
+                let offset =
+                    Self::parse_flag_u64(args, "--offset").context("Missing --offset flag")?;
 
                 OffsetCommands::Commit {
                     group,
@@ -252,10 +251,10 @@ impl Repl {
                 }
             }
             "get" => {
-                let group = Self::parse_flag_string(args, "--group")
-                    .context("Missing --group flag")?;
-                let topic = Self::parse_flag_string(args, "--topic")
-                    .context("Missing --topic flag")?;
+                let group =
+                    Self::parse_flag_string(args, "--group").context("Missing --group flag")?;
+                let topic =
+                    Self::parse_flag_string(args, "--topic").context("Missing --topic flag")?;
                 let partition = Self::parse_flag_u32(args, "--partition")
                     .context("Missing --partition flag")?;
 
@@ -284,22 +283,18 @@ impl Repl {
 
     /// Parse a flag value as u32
     fn parse_flag_u32(args: &[&str], flag: &str) -> Option<u32> {
-        Self::parse_flag_string(args, flag)
-            .and_then(|s| s.parse().ok())
+        Self::parse_flag_string(args, flag).and_then(|s| s.parse().ok())
     }
 
     /// Parse a flag value as u64
     fn parse_flag_u64(args: &[&str], flag: &str) -> Option<u64> {
-        Self::parse_flag_string(args, flag)
-            .and_then(|s| s.parse().ok())
+        Self::parse_flag_string(args, flag).and_then(|s| s.parse().ok())
     }
 
     /// Get history file path
     fn history_path() -> Result<PathBuf> {
         let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
-        Ok(PathBuf::from(home)
-            .join(".streamhouse")
-            .join("history"))
+        Ok(PathBuf::from(home).join(".streamhouse").join("history"))
     }
 
     /// Handle schema commands
@@ -431,7 +426,9 @@ impl Repl {
         let command = match args[0] {
             "query" => {
                 if args.len() < 2 {
-                    println!("Usage: sql query \"<SQL query>\" [--timeout MS] [--format table|json|csv]");
+                    println!(
+                        "Usage: sql query \"<SQL query>\" [--timeout MS] [--format table|json|csv]"
+                    );
                     return Ok(());
                 }
                 // Join remaining args as the query (handles quoted strings)
@@ -517,8 +514,8 @@ impl Repl {
                     println!("Usage: consumer seek <group_id> --topic <topic> --timestamp <ISO8601> [--partition P]");
                     return Ok(());
                 }
-                let topic = Self::parse_flag_string(args, "--topic")
-                    .context("Missing --topic flag")?;
+                let topic =
+                    Self::parse_flag_string(args, "--topic").context("Missing --topic flag")?;
                 let timestamp = Self::parse_flag_string(args, "--timestamp")
                     .context("Missing --timestamp flag")?;
                 let partition = Self::parse_flag_u32(args, "--partition");
@@ -582,7 +579,9 @@ impl Repl {
         println!("    consumer get <group_id>");
         println!("    consumer lag <group_id>");
         println!("    consumer reset <group_id> [--strategy earliest|latest|specific] [--topic T] [--partition P] [--offset O]");
-        println!("    consumer seek <group_id> --topic <topic> --timestamp <ISO8601> [--partition P]");
+        println!(
+            "    consumer seek <group_id> --topic <topic> --timestamp <ISO8601> [--partition P]"
+        );
         println!("    consumer delete <group_id> [--force]");
         println!();
         println!("  Produce/Consume:");

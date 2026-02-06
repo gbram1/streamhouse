@@ -69,7 +69,6 @@ impl Record {
     }
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;

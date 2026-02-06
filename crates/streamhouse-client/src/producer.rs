@@ -767,7 +767,6 @@ pub struct Producer {
     // ============================================================
     // Idempotent Producer Fields (Phase 16)
     // ============================================================
-
     /// Producer ID assigned by InitProducer (None if idempotent mode disabled).
     ///
     /// When set, all produce requests include this ID for deduplication.
@@ -1493,12 +1492,12 @@ impl Producer {
             .clone();
         drop(agents_map);
 
-        let address = if agent.address.starts_with("http://") || agent.address.starts_with("https://")
-        {
-            agent.address.clone()
-        } else {
-            format!("http://{}", agent.address)
-        };
+        let address =
+            if agent.address.starts_with("http://") || agent.address.starts_with("https://") {
+                agent.address.clone()
+            } else {
+                format!("http://{}", agent.address)
+            };
 
         let client = self
             .connection_pool
@@ -1518,12 +1517,16 @@ impl Producer {
             timeout_ms: 30000,
         };
 
-        let response = client.clone().begin_transaction(request).await.map_err(|e| {
-            ClientError::AgentError(
-                agent.agent_id.clone(),
-                format!("BeginTransaction failed: {}", e),
-            )
-        })?;
+        let response = client
+            .clone()
+            .begin_transaction(request)
+            .await
+            .map_err(|e| {
+                ClientError::AgentError(
+                    agent.agent_id.clone(),
+                    format!("BeginTransaction failed: {}", e),
+                )
+            })?;
 
         let txn_id = response.into_inner().transaction_id;
 
@@ -1569,9 +1572,12 @@ impl Producer {
     /// ```
     #[instrument(skip(self))]
     pub async fn commit_transaction(&self, transaction_id: &str) -> Result<u64> {
-        let producer_id = self.producer_id.read().await.clone().ok_or_else(|| {
-            ClientError::ConfigError("Producer not initialized".to_string())
-        })?;
+        let producer_id = self
+            .producer_id
+            .read()
+            .await
+            .clone()
+            .ok_or_else(|| ClientError::ConfigError("Producer not initialized".to_string()))?;
 
         let epoch = *self.producer_epoch.read().await;
 
@@ -1584,12 +1590,12 @@ impl Producer {
             .clone();
         drop(agents_map);
 
-        let address = if agent.address.starts_with("http://") || agent.address.starts_with("https://")
-        {
-            agent.address.clone()
-        } else {
-            format!("http://{}", agent.address)
-        };
+        let address =
+            if agent.address.starts_with("http://") || agent.address.starts_with("https://") {
+                agent.address.clone()
+            } else {
+                format!("http://{}", agent.address)
+            };
 
         let client = self
             .connection_pool
@@ -1612,12 +1618,16 @@ impl Producer {
             transaction_id: transaction_id.to_string(),
         };
 
-        let response = client.clone().commit_transaction(request).await.map_err(|e| {
-            ClientError::AgentError(
-                agent.agent_id.clone(),
-                format!("CommitTransaction failed: {}", e),
-            )
-        })?;
+        let response = client
+            .clone()
+            .commit_transaction(request)
+            .await
+            .map_err(|e| {
+                ClientError::AgentError(
+                    agent.agent_id.clone(),
+                    format!("CommitTransaction failed: {}", e),
+                )
+            })?;
 
         // Clear current transaction
         *self.current_transaction_id.write().await = None;
@@ -1660,9 +1670,12 @@ impl Producer {
     /// ```
     #[instrument(skip(self))]
     pub async fn abort_transaction(&self, transaction_id: &str) -> Result<()> {
-        let producer_id = self.producer_id.read().await.clone().ok_or_else(|| {
-            ClientError::ConfigError("Producer not initialized".to_string())
-        })?;
+        let producer_id = self
+            .producer_id
+            .read()
+            .await
+            .clone()
+            .ok_or_else(|| ClientError::ConfigError("Producer not initialized".to_string()))?;
 
         let epoch = *self.producer_epoch.read().await;
 
@@ -1675,12 +1688,12 @@ impl Producer {
             .clone();
         drop(agents_map);
 
-        let address = if agent.address.starts_with("http://") || agent.address.starts_with("https://")
-        {
-            agent.address.clone()
-        } else {
-            format!("http://{}", agent.address)
-        };
+        let address =
+            if agent.address.starts_with("http://") || agent.address.starts_with("https://") {
+                agent.address.clone()
+            } else {
+                format!("http://{}", agent.address)
+            };
 
         let client = self
             .connection_pool
@@ -1700,12 +1713,16 @@ impl Producer {
             transaction_id: transaction_id.to_string(),
         };
 
-        client.clone().abort_transaction(request).await.map_err(|e| {
-            ClientError::AgentError(
-                agent.agent_id.clone(),
-                format!("AbortTransaction failed: {}", e),
-            )
-        })?;
+        client
+            .clone()
+            .abort_transaction(request)
+            .await
+            .map_err(|e| {
+                ClientError::AgentError(
+                    agent.agent_id.clone(),
+                    format!("AbortTransaction failed: {}", e),
+                )
+            })?;
 
         // Clear current transaction
         *self.current_transaction_id.write().await = None;
@@ -2988,13 +3005,16 @@ impl ProducerBuilder {
                     format!("http://{}", agent.address)
                 };
 
-                let client = connection_pool.get_producer_client(&address).await.map_err(|e| {
-                    ClientError::AgentConnectionFailed(
-                        agent.agent_id.clone(),
-                        agent.address.clone(),
-                        e.to_string(),
-                    )
-                })?;
+                let client = connection_pool
+                    .get_producer_client(&address)
+                    .await
+                    .map_err(|e| {
+                        ClientError::AgentConnectionFailed(
+                            agent.agent_id.clone(),
+                            agent.address.clone(),
+                            e.to_string(),
+                        )
+                    })?;
 
                 let init_request = streamhouse_proto::producer::InitProducerRequest {
                     transactional_id: self.transactional_id.clone(),

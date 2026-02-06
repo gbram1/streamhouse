@@ -237,7 +237,11 @@ impl WalEntry {
         let mut hasher = Sha256::new();
         hasher.update(self.lsn.to_le_bytes());
         hasher.update(self.timestamp.to_rfc3339().as_bytes());
-        hasher.update(serde_json::to_string(&self.operation).unwrap_or_default().as_bytes());
+        hasher.update(
+            serde_json::to_string(&self.operation)
+                .unwrap_or_default()
+                .as_bytes(),
+        );
         hasher.update(self.prev_hash.as_bytes());
         hex::encode(hasher.finalize())
     }
@@ -261,7 +265,10 @@ pub enum WalOperation {
         config: serde_json::Value,
     },
     /// Topic deleted
-    TopicDeleted { topic_id: String, topic_name: String },
+    TopicDeleted {
+        topic_id: String,
+        topic_name: String,
+    },
     /// Topic configuration updated
     TopicConfigUpdated {
         topic_id: String,
@@ -511,7 +518,9 @@ impl PitrManager {
         segment.end_lsn = current_lsn;
 
         // Check if we need to rotate the segment
-        let segment_size: usize = segment.entries.iter()
+        let segment_size: usize = segment
+            .entries
+            .iter()
             .map(|e| serde_json::to_string(e).map(|s| s.len()).unwrap_or(0))
             .sum();
 
@@ -836,7 +845,10 @@ impl PitrManager {
                     }
                 }
             }
-            WalOperation::ConsumerGroupCreated { group_id, group_name } => {
+            WalOperation::ConsumerGroupCreated {
+                group_id,
+                group_name,
+            } => {
                 state.consumer_groups.insert(
                     group_id.clone(),
                     serde_json::json!({
@@ -918,7 +930,10 @@ impl PitrManager {
                     }),
                 );
             }
-            WalOperation::Custom { operation_type, data } => {
+            WalOperation::Custom {
+                operation_type,
+                data,
+            } => {
                 debug!(operation_type, "Applying custom WAL operation");
                 // Custom operations are stored for audit but don't modify state
                 let _ = data;
@@ -972,14 +987,22 @@ impl PitrManager {
 
     /// Cleanup expired WAL segments
     pub async fn cleanup_expired_wal(&self) -> Result<usize> {
-        let cutoff = Utc::now() - chrono::Duration::from_std(self.config.wal_retention)
-            .map_err(|e| PitrError::Config(format!("Invalid retention duration: {}", e)))?;
+        let cutoff = Utc::now()
+            - chrono::Duration::from_std(self.config.wal_retention)
+                .map_err(|e| PitrError::Config(format!("Invalid retention duration: {}", e)))?;
 
         let mut archived = self.archived_segments.write().await;
         let initial_count = archived.len();
 
         // Find oldest backup LSN - we can't delete WAL needed for recovery
-        let oldest_backup_lsn = self.backups.read().await.keys().next().copied().unwrap_or(0);
+        let oldest_backup_lsn = self
+            .backups
+            .read()
+            .await
+            .keys()
+            .next()
+            .copied()
+            .unwrap_or(0);
 
         // Remove segments older than retention and not needed for backups
         archived.retain(|_, segment| {
@@ -1076,10 +1099,7 @@ pub struct VerificationResult {
 // We need the hex crate for encoding - let's inline it
 mod hex {
     pub fn encode(data: impl AsRef<[u8]>) -> String {
-        data.as_ref()
-            .iter()
-            .map(|b| format!("{:02x}", b))
-            .collect()
+        data.as_ref().iter().map(|b| format!("{:02x}", b)).collect()
     }
 }
 
@@ -1240,7 +1260,9 @@ mod tests {
         // Create multiple backups
         for i in 0..3 {
             let mut snapshot = SystemSnapshot::default();
-            snapshot.topics.insert(format!("topic-{}", i), serde_json::json!({}));
+            snapshot
+                .topics
+                .insert(format!("topic-{}", i), serde_json::json!({}));
             manager.create_base_backup(snapshot).await.unwrap();
         }
 
@@ -1273,7 +1295,10 @@ mod tests {
         let manager = create_test_manager().await;
 
         // Create initial backup
-        manager.create_base_backup(SystemSnapshot::default()).await.unwrap();
+        manager
+            .create_base_backup(SystemSnapshot::default())
+            .await
+            .unwrap();
 
         // Log consumer group operations
         manager
@@ -1304,7 +1329,10 @@ mod tests {
         let manager = create_test_manager().await;
 
         // Create initial backup
-        manager.create_base_backup(SystemSnapshot::default()).await.unwrap();
+        manager
+            .create_base_backup(SystemSnapshot::default())
+            .await
+            .unwrap();
 
         // Add ACL
         manager
@@ -1356,7 +1384,9 @@ mod tests {
         // Create more backups than retention allows
         for i in 0..5 {
             let mut snapshot = SystemSnapshot::default();
-            snapshot.topics.insert(format!("topic-{}", i), serde_json::json!({}));
+            snapshot
+                .topics
+                .insert(format!("topic-{}", i), serde_json::json!({}));
             manager.create_base_backup(snapshot).await.unwrap();
         }
 
@@ -1369,7 +1399,10 @@ mod tests {
     async fn test_user_operations() {
         let manager = create_test_manager().await;
 
-        manager.create_base_backup(SystemSnapshot::default()).await.unwrap();
+        manager
+            .create_base_backup(SystemSnapshot::default())
+            .await
+            .unwrap();
 
         manager
             .log_change(WalOperation::UserCreated {
@@ -1387,7 +1420,10 @@ mod tests {
     async fn test_schema_registration() {
         let manager = create_test_manager().await;
 
-        manager.create_base_backup(SystemSnapshot::default()).await.unwrap();
+        manager
+            .create_base_backup(SystemSnapshot::default())
+            .await
+            .unwrap();
 
         manager
             .log_change(WalOperation::SchemaRegistered {

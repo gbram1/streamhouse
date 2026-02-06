@@ -440,9 +440,7 @@ impl LeaseManager {
     /// Get pending transfers where this agent is the target.
     ///
     /// Used to check for incoming transfer requests.
-    pub async fn get_incoming_transfers(
-        &self,
-    ) -> Result<Vec<streamhouse_metadata::LeaseTransfer>> {
+    pub async fn get_incoming_transfers(&self) -> Result<Vec<streamhouse_metadata::LeaseTransfer>> {
         let transfers = self
             .metadata_store
             .get_pending_transfers_for_agent(&self.agent_id)

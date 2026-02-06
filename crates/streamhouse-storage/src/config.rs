@@ -77,7 +77,6 @@ pub struct WriteConfig {
     pub throttle_config: Option<ThrottleConfig>,
 
     // === Phase 8.4 Performance Optimizations ===
-
     /// Minimum size for multipart upload (default: 8MB)
     /// Files smaller than this use simple PUT
     #[serde(default = "default_multipart_threshold")]
@@ -103,7 +102,7 @@ impl Default for WriteConfig {
             s3_endpoint: None,
             block_size_target: default_block_size(),
             s3_upload_retries: default_retries(),
-            wal_config: None, // WAL disabled by default
+            wal_config: None,      // WAL disabled by default
             throttle_config: None, // Throttling disabled by default
             multipart_threshold: default_multipart_threshold(),
             multipart_part_size: default_multipart_part_size(),

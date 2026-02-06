@@ -266,7 +266,10 @@ impl MetadataStore for PostgresMetadataStore {
 
         // Include cleanup_policy in the config map for storage
         let mut config_map = config.config.clone();
-        config_map.insert("cleanup.policy".to_string(), config.cleanup_policy.as_str().to_string());
+        config_map.insert(
+            "cleanup.policy".to_string(),
+            config.cleanup_policy.as_str().to_string(),
+        );
         let config_json = serde_json::to_value(&config_map)?;
         let mut tx = self.pool.begin().await?;
 
@@ -337,7 +340,8 @@ impl MetadataStore for PostgresMetadataStore {
         Ok(row.map(|r| {
             let config: std::collections::HashMap<String, String> =
                 serde_json::from_value(r.get("config")).unwrap_or_default();
-            let cleanup_policy = config.get("cleanup.policy")
+            let cleanup_policy = config
+                .get("cleanup.policy")
                 .map(|s| CleanupPolicy::from_str(s))
                 .unwrap_or_default();
 
@@ -365,7 +369,8 @@ impl MetadataStore for PostgresMetadataStore {
             .map(|r| {
                 let config: std::collections::HashMap<String, String> =
                     serde_json::from_value(r.get("config")).unwrap_or_default();
-                let cleanup_policy = config.get("cleanup.policy")
+                let cleanup_policy = config
+                    .get("cleanup.policy")
                     .map(|s| CleanupPolicy::from_str(s))
                     .unwrap_or_default();
 
@@ -1041,7 +1046,7 @@ impl MetadataStore for PostgresMetadataStore {
     async fn get_organization(&self, id: &str) -> Result<Option<Organization>> {
         let row = sqlx::query(
             "SELECT id, name, slug, plan, status, created_at, settings
-             FROM organizations WHERE id = $1"
+             FROM organizations WHERE id = $1",
         )
         .bind(id)
         .fetch_optional(&self.pool)
@@ -1067,7 +1072,7 @@ impl MetadataStore for PostgresMetadataStore {
     async fn get_organization_by_slug(&self, slug: &str) -> Result<Option<Organization>> {
         let row = sqlx::query(
             "SELECT id, name, slug, plan, status, created_at, settings
-             FROM organizations WHERE slug = $1"
+             FROM organizations WHERE slug = $1",
         )
         .bind(slug)
         .fetch_optional(&self.pool)
@@ -1093,26 +1098,29 @@ impl MetadataStore for PostgresMetadataStore {
     async fn list_organizations(&self) -> Result<Vec<Organization>> {
         let rows = sqlx::query(
             "SELECT id, name, slug, plan, status, created_at, settings
-             FROM organizations ORDER BY name"
+             FROM organizations ORDER BY name",
         )
         .fetch_all(&self.pool)
         .await?;
 
-        Ok(rows.into_iter().map(|r| {
-            let settings: std::collections::HashMap<String, String> =
-                serde_json::from_value(r.get("settings")).unwrap_or_default();
-            let plan: String = r.get("plan");
-            let status: String = r.get("status");
-            Organization {
-                id: r.get("id"),
-                name: r.get("name"),
-                slug: r.get("slug"),
-                plan: plan.parse().unwrap_or_default(),
-                status: status.parse().unwrap_or_default(),
-                created_at: r.get("created_at"),
-                settings,
-            }
-        }).collect())
+        Ok(rows
+            .into_iter()
+            .map(|r| {
+                let settings: std::collections::HashMap<String, String> =
+                    serde_json::from_value(r.get("settings")).unwrap_or_default();
+                let plan: String = r.get("plan");
+                let status: String = r.get("status");
+                Organization {
+                    id: r.get("id"),
+                    name: r.get("name"),
+                    slug: r.get("slug"),
+                    plan: plan.parse().unwrap_or_default(),
+                    status: status.parse().unwrap_or_default(),
+                    created_at: r.get("created_at"),
+                    settings,
+                }
+            })
+            .collect())
     }
 
     async fn update_organization_status(&self, id: &str, status: OrganizationStatus) -> Result<()> {
@@ -1122,17 +1130,19 @@ impl MetadataStore for PostgresMetadataStore {
             .as_millis() as i64;
         let status_str = status.to_string();
 
-        let result = sqlx::query(
-            "UPDATE organizations SET status = $1, updated_at = $2 WHERE id = $3"
-        )
-        .bind(&status_str)
-        .bind(now_ms)
-        .bind(id)
-        .execute(&self.pool)
-        .await?;
+        let result =
+            sqlx::query("UPDATE organizations SET status = $1, updated_at = $2 WHERE id = $3")
+                .bind(&status_str)
+                .bind(now_ms)
+                .bind(id)
+                .execute(&self.pool)
+                .await?;
 
         if result.rows_affected() == 0 {
-            return Err(MetadataError::NotFoundError(format!("Organization {} not found", id)));
+            return Err(MetadataError::NotFoundError(format!(
+                "Organization {} not found",
+                id
+            )));
         }
         Ok(())
     }
@@ -1144,23 +1154,26 @@ impl MetadataStore for PostgresMetadataStore {
             .as_millis() as i64;
         let plan_str = plan.to_string();
 
-        let result = sqlx::query(
-            "UPDATE organizations SET plan = $1, updated_at = $2 WHERE id = $3"
-        )
-        .bind(&plan_str)
-        .bind(now_ms)
-        .bind(id)
-        .execute(&self.pool)
-        .await?;
+        let result =
+            sqlx::query("UPDATE organizations SET plan = $1, updated_at = $2 WHERE id = $3")
+                .bind(&plan_str)
+                .bind(now_ms)
+                .bind(id)
+                .execute(&self.pool)
+                .await?;
 
         if result.rows_affected() == 0 {
-            return Err(MetadataError::NotFoundError(format!("Organization {} not found", id)));
+            return Err(MetadataError::NotFoundError(format!(
+                "Organization {} not found",
+                id
+            )));
         }
         Ok(())
     }
 
     async fn delete_organization(&self, id: &str) -> Result<()> {
-        self.update_organization_status(id, OrganizationStatus::Deleted).await
+        self.update_organization_status(id, OrganizationStatus::Deleted)
+            .await
     }
 
     // ============================================================
@@ -1223,7 +1236,8 @@ impl MetadataStore for PostgresMetadataStore {
         .await?;
 
         Ok(row.map(|r| {
-            let permissions: Vec<String> = serde_json::from_value(r.get("permissions")).unwrap_or_default();
+            let permissions: Vec<String> =
+                serde_json::from_value(r.get("permissions")).unwrap_or_default();
             let scopes: Vec<String> = serde_json::from_value(r.get("scopes")).unwrap_or_default();
             ApiKey {
                 id: r.get("id"),
@@ -1256,7 +1270,8 @@ impl MetadataStore for PostgresMetadataStore {
         .await?;
 
         Ok(row.map(|r| {
-            let permissions: Vec<String> = serde_json::from_value(r.get("permissions")).unwrap_or_default();
+            let permissions: Vec<String> =
+                serde_json::from_value(r.get("permissions")).unwrap_or_default();
             let scopes: Vec<String> = serde_json::from_value(r.get("scopes")).unwrap_or_default();
             ApiKey {
                 id: r.get("id"),
@@ -1282,22 +1297,27 @@ impl MetadataStore for PostgresMetadataStore {
         .fetch_all(&self.pool)
         .await?;
 
-        Ok(rows.into_iter().map(|r| {
-            let permissions: Vec<String> = serde_json::from_value(r.get("permissions")).unwrap_or_default();
-            let scopes: Vec<String> = serde_json::from_value(r.get("scopes")).unwrap_or_default();
-            ApiKey {
-                id: r.get("id"),
-                organization_id: r.get("organization_id"),
-                name: r.get("name"),
-                key_prefix: r.get("key_prefix"),
-                permissions,
-                scopes,
-                expires_at: r.get("expires_at"),
-                last_used_at: r.get("last_used_at"),
-                created_at: r.get("created_at"),
-                created_by: r.get("created_by"),
-            }
-        }).collect())
+        Ok(rows
+            .into_iter()
+            .map(|r| {
+                let permissions: Vec<String> =
+                    serde_json::from_value(r.get("permissions")).unwrap_or_default();
+                let scopes: Vec<String> =
+                    serde_json::from_value(r.get("scopes")).unwrap_or_default();
+                ApiKey {
+                    id: r.get("id"),
+                    organization_id: r.get("organization_id"),
+                    name: r.get("name"),
+                    key_prefix: r.get("key_prefix"),
+                    permissions,
+                    scopes,
+                    expires_at: r.get("expires_at"),
+                    last_used_at: r.get("last_used_at"),
+                    created_at: r.get("created_at"),
+                    created_by: r.get("created_by"),
+                }
+            })
+            .collect())
     }
 
     async fn touch_api_key(&self, id: &str) -> Result<()> {
@@ -1337,25 +1357,27 @@ impl MetadataStore for PostgresMetadataStore {
         .fetch_optional(&self.pool)
         .await?;
 
-        Ok(row.map(|r| OrganizationQuota {
-            organization_id: r.get("organization_id"),
-            max_topics: r.get("max_topics"),
-            max_partitions_per_topic: r.get("max_partitions_per_topic"),
-            max_total_partitions: r.get("max_total_partitions"),
-            max_storage_bytes: r.get("max_storage_bytes"),
-            max_retention_days: r.get("max_retention_days"),
-            max_produce_bytes_per_sec: r.get("max_produce_bytes_per_sec"),
-            max_consume_bytes_per_sec: r.get("max_consume_bytes_per_sec"),
-            max_requests_per_sec: r.get("max_requests_per_sec"),
-            max_consumer_groups: r.get("max_consumer_groups"),
-            max_schemas: r.get("max_schemas"),
-            max_schema_versions_per_subject: r.get("max_schema_versions_per_subject"),
-            max_connections: r.get("max_connections"),
-        }).unwrap_or_else(|| {
-            let mut quota = OrganizationQuota::default();
-            quota.organization_id = organization_id.to_string();
-            quota
-        }))
+        Ok(row
+            .map(|r| OrganizationQuota {
+                organization_id: r.get("organization_id"),
+                max_topics: r.get("max_topics"),
+                max_partitions_per_topic: r.get("max_partitions_per_topic"),
+                max_total_partitions: r.get("max_total_partitions"),
+                max_storage_bytes: r.get("max_storage_bytes"),
+                max_retention_days: r.get("max_retention_days"),
+                max_produce_bytes_per_sec: r.get("max_produce_bytes_per_sec"),
+                max_consume_bytes_per_sec: r.get("max_consume_bytes_per_sec"),
+                max_requests_per_sec: r.get("max_requests_per_sec"),
+                max_consumer_groups: r.get("max_consumer_groups"),
+                max_schemas: r.get("max_schemas"),
+                max_schema_versions_per_subject: r.get("max_schema_versions_per_subject"),
+                max_connections: r.get("max_connections"),
+            })
+            .unwrap_or_else(|| {
+                let mut quota = OrganizationQuota::default();
+                quota.organization_id = organization_id.to_string();
+                quota
+            }))
     }
 
     async fn set_organization_quota(&self, quota: OrganizationQuota) -> Result<()> {
@@ -1397,24 +1419,35 @@ impl MetadataStore for PostgresMetadataStore {
         Ok(())
     }
 
-    async fn get_organization_usage(&self, organization_id: &str) -> Result<Vec<OrganizationUsage>> {
+    async fn get_organization_usage(
+        &self,
+        organization_id: &str,
+    ) -> Result<Vec<OrganizationUsage>> {
         let rows = sqlx::query(
             "SELECT organization_id, metric, value, period_start
-             FROM organization_usage WHERE organization_id = $1 ORDER BY metric"
+             FROM organization_usage WHERE organization_id = $1 ORDER BY metric",
         )
         .bind(organization_id)
         .fetch_all(&self.pool)
         .await?;
 
-        Ok(rows.into_iter().map(|r| OrganizationUsage {
-            organization_id: r.get("organization_id"),
-            metric: r.get("metric"),
-            value: r.get("value"),
-            period_start: r.get("period_start"),
-        }).collect())
+        Ok(rows
+            .into_iter()
+            .map(|r| OrganizationUsage {
+                organization_id: r.get("organization_id"),
+                metric: r.get("metric"),
+                value: r.get("value"),
+                period_start: r.get("period_start"),
+            })
+            .collect())
     }
 
-    async fn update_organization_usage(&self, organization_id: &str, metric: &str, value: i64) -> Result<()> {
+    async fn update_organization_usage(
+        &self,
+        organization_id: &str,
+        metric: &str,
+        value: i64,
+    ) -> Result<()> {
         let now_ms = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap()
@@ -1437,7 +1470,12 @@ impl MetadataStore for PostgresMetadataStore {
         Ok(())
     }
 
-    async fn increment_organization_usage(&self, organization_id: &str, metric: &str, delta: i64) -> Result<()> {
+    async fn increment_organization_usage(
+        &self,
+        organization_id: &str,
+        metric: &str,
+        delta: i64,
+    ) -> Result<()> {
         let now_ms = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap()
@@ -1481,14 +1519,17 @@ impl MetadataStore for PostgresMetadataStore {
         let timeout_at = now_ms + timeout_ms as i64;
 
         // Get current lease epoch
-        let lease = self.get_partition_lease(topic, partition_id).await?
-            .ok_or_else(|| MetadataError::NotFoundError(format!(
-                "No lease for {}/{}", topic, partition_id
-            )))?;
+        let lease = self
+            .get_partition_lease(topic, partition_id)
+            .await?
+            .ok_or_else(|| {
+                MetadataError::NotFoundError(format!("No lease for {}/{}", topic, partition_id))
+            })?;
 
         if lease.leader_agent_id != from_agent_id {
             return Err(MetadataError::ConflictError(format!(
-                "Agent {} is not the current leader", from_agent_id
+                "Agent {} is not the current leader",
+                from_agent_id
             )));
         }
 
@@ -1534,7 +1575,7 @@ impl MetadataStore for PostgresMetadataStore {
     ) -> Result<LeaseTransfer> {
         let result = sqlx::query(
             "UPDATE lease_transfers SET state = 'accepted'
-             WHERE transfer_id = $1 AND to_agent_id = $2 AND state = 'pending'"
+             WHERE transfer_id = $1 AND to_agent_id = $2 AND state = 'pending'",
         )
         .bind(transfer_id)
         .bind(agent_id)
@@ -1543,12 +1584,14 @@ impl MetadataStore for PostgresMetadataStore {
 
         if result.rows_affected() == 0 {
             return Err(MetadataError::NotFoundError(format!(
-                "Transfer {} not found or not pending for agent {}", transfer_id, agent_id
+                "Transfer {} not found or not pending for agent {}",
+                transfer_id, agent_id
             )));
         }
 
-        self.get_lease_transfer(transfer_id).await?
-            .ok_or_else(|| MetadataError::NotFoundError(format!("Transfer {} not found", transfer_id)))
+        self.get_lease_transfer(transfer_id).await?.ok_or_else(|| {
+            MetadataError::NotFoundError(format!("Transfer {} not found", transfer_id))
+        })
     }
 
     async fn complete_lease_transfer(
@@ -1562,12 +1605,14 @@ impl MetadataStore for PostgresMetadataStore {
             .unwrap()
             .as_millis() as i64;
 
-        let transfer = self.get_lease_transfer(transfer_id).await?
-            .ok_or_else(|| MetadataError::NotFoundError(format!("Transfer {} not found", transfer_id)))?;
+        let transfer = self.get_lease_transfer(transfer_id).await?.ok_or_else(|| {
+            MetadataError::NotFoundError(format!("Transfer {} not found", transfer_id))
+        })?;
 
         if transfer.state != LeaseTransferState::Accepted {
             return Err(MetadataError::ConflictError(format!(
-                "Transfer {} is not in accepted state", transfer_id
+                "Transfer {} is not in accepted state",
+                transfer_id
             )));
         }
 
@@ -1584,12 +1629,14 @@ impl MetadataStore for PostgresMetadataStore {
         .await?;
 
         // Transfer the lease to the new agent
-        let new_lease = self.acquire_partition_lease(
-            &transfer.topic,
-            transfer.partition_id,
-            &transfer.to_agent_id,
-            30000,  // Default lease duration
-        ).await?;
+        let new_lease = self
+            .acquire_partition_lease(
+                &transfer.topic,
+                transfer.partition_id,
+                &transfer.to_agent_id,
+                30000, // Default lease duration
+            )
+            .await?;
 
         Ok(new_lease)
     }
@@ -1612,7 +1659,8 @@ impl MetadataStore for PostgresMetadataStore {
 
         if result.rows_affected() == 0 {
             return Err(MetadataError::NotFoundError(format!(
-                "Transfer {} not found or not in rejectable state", transfer_id
+                "Transfer {} not found or not in rejectable state",
+                transfer_id
             )));
         }
         Ok(())
@@ -1638,11 +1686,15 @@ impl MetadataStore for PostgresMetadataStore {
                 to_agent_id: r.get("to_agent_id"),
                 from_epoch: r.get::<i64, _>("from_epoch") as u64,
                 state: state_str.parse().unwrap_or(LeaseTransferState::Pending),
-                reason: reason_str.parse().unwrap_or(LeaderChangeReason::GracefulHandoff),
+                reason: reason_str
+                    .parse()
+                    .unwrap_or(LeaderChangeReason::GracefulHandoff),
                 initiated_at: r.get("initiated_at"),
                 completed_at: r.get("completed_at"),
                 timeout_at: r.get("timeout_at"),
-                last_flushed_offset: r.get::<Option<i64>, _>("last_flushed_offset").map(|v| v as u64),
+                last_flushed_offset: r
+                    .get::<Option<i64>, _>("last_flushed_offset")
+                    .map(|v| v as u64),
                 high_watermark: r.get::<Option<i64>, _>("high_watermark").map(|v| v as u64),
                 error: r.get("error"),
             }
@@ -1660,26 +1712,33 @@ impl MetadataStore for PostgresMetadataStore {
         .fetch_all(&self.pool)
         .await?;
 
-        Ok(rows.into_iter().map(|r| {
-            let state_str: String = r.get("state");
-            let reason_str: String = r.get("reason");
-            LeaseTransfer {
-                transfer_id: r.get("transfer_id"),
-                topic: r.get("topic"),
-                partition_id: r.get::<i32, _>("partition_id") as u32,
-                from_agent_id: r.get("from_agent_id"),
-                to_agent_id: r.get("to_agent_id"),
-                from_epoch: r.get::<i64, _>("from_epoch") as u64,
-                state: state_str.parse().unwrap_or(LeaseTransferState::Pending),
-                reason: reason_str.parse().unwrap_or(LeaderChangeReason::GracefulHandoff),
-                initiated_at: r.get("initiated_at"),
-                completed_at: r.get("completed_at"),
-                timeout_at: r.get("timeout_at"),
-                last_flushed_offset: r.get::<Option<i64>, _>("last_flushed_offset").map(|v| v as u64),
-                high_watermark: r.get::<Option<i64>, _>("high_watermark").map(|v| v as u64),
-                error: r.get("error"),
-            }
-        }).collect())
+        Ok(rows
+            .into_iter()
+            .map(|r| {
+                let state_str: String = r.get("state");
+                let reason_str: String = r.get("reason");
+                LeaseTransfer {
+                    transfer_id: r.get("transfer_id"),
+                    topic: r.get("topic"),
+                    partition_id: r.get::<i32, _>("partition_id") as u32,
+                    from_agent_id: r.get("from_agent_id"),
+                    to_agent_id: r.get("to_agent_id"),
+                    from_epoch: r.get::<i64, _>("from_epoch") as u64,
+                    state: state_str.parse().unwrap_or(LeaseTransferState::Pending),
+                    reason: reason_str
+                        .parse()
+                        .unwrap_or(LeaderChangeReason::GracefulHandoff),
+                    initiated_at: r.get("initiated_at"),
+                    completed_at: r.get("completed_at"),
+                    timeout_at: r.get("timeout_at"),
+                    last_flushed_offset: r
+                        .get::<Option<i64>, _>("last_flushed_offset")
+                        .map(|v| v as u64),
+                    high_watermark: r.get::<Option<i64>, _>("high_watermark").map(|v| v as u64),
+                    error: r.get("error"),
+                }
+            })
+            .collect())
     }
 
     async fn cleanup_timed_out_transfers(&self) -> Result<u64> {
@@ -1690,7 +1749,7 @@ impl MetadataStore for PostgresMetadataStore {
 
         let result = sqlx::query(
             "UPDATE lease_transfers SET state = 'timed_out', error = 'Transfer timed out'
-             WHERE state IN ('pending', 'accepted') AND timeout_at < $1"
+             WHERE state IN ('pending', 'accepted') AND timeout_at < $1",
         )
         .bind(now_ms)
         .execute(&self.pool)
@@ -1745,7 +1804,10 @@ impl MetadataStore for PostgresMetadataStore {
         // Check if transactional producer already exists
         if let Some(ref transactional_id) = config.transactional_id {
             let existing = self
-                .get_producer_by_transactional_id(transactional_id, config.organization_id.as_deref())
+                .get_producer_by_transactional_id(
+                    transactional_id,
+                    config.organization_id.as_deref(),
+                )
                 .await?;
 
             if let Some(mut producer) = existing {
@@ -1888,12 +1950,11 @@ impl MetadataStore for PostgresMetadataStore {
 
     async fn cleanup_expired_producers(&self, timeout_ms: i64) -> Result<u64> {
         let cutoff = Self::now_ms() - timeout_ms;
-        let result = sqlx::query(
-            "DELETE FROM producers WHERE last_heartbeat < $1 AND state != 'active'"
-        )
-        .bind(cutoff)
-        .execute(&self.pool)
-        .await?;
+        let result =
+            sqlx::query("DELETE FROM producers WHERE last_heartbeat < $1 AND state != 'active'")
+                .bind(cutoff)
+                .execute(&self.pool)
+                .await?;
         Ok(result.rows_affected())
     }
 
@@ -1907,7 +1968,7 @@ impl MetadataStore for PostgresMetadataStore {
     ) -> Result<Option<i64>> {
         let row = sqlx::query(
             "SELECT last_sequence FROM producer_sequences \
-             WHERE producer_id = $1 AND topic = $2 AND partition_id = $3"
+             WHERE producer_id = $1 AND topic = $2 AND partition_id = $3",
         )
         .bind(producer_id)
         .bind(topic)
@@ -1957,7 +2018,7 @@ impl MetadataStore for PostgresMetadataStore {
         // Get current sequence
         let row = sqlx::query(
             "SELECT last_sequence FROM producer_sequences \
-             WHERE producer_id = $1 AND topic = $2 AND partition_id = $3"
+             WHERE producer_id = $1 AND topic = $2 AND partition_id = $3",
         )
         .bind(producer_id)
         .bind(topic)
@@ -2086,7 +2147,7 @@ impl MetadataStore for PostgresMetadataStore {
     ) -> Result<()> {
         sqlx::query(
             "UPDATE transaction_partitions SET last_offset = $1 \
-             WHERE transaction_id = $2 AND topic = $3 AND partition_id = $4"
+             WHERE transaction_id = $2 AND topic = $3 AND partition_id = $4",
         )
         .bind(last_offset as i64)
         .bind(transaction_id)
@@ -2103,7 +2164,7 @@ impl MetadataStore for PostgresMetadataStore {
     ) -> Result<Vec<TransactionPartition>> {
         let rows = sqlx::query(
             "SELECT transaction_id, topic, partition_id, first_offset, last_offset \
-             FROM transaction_partitions WHERE transaction_id = $1 ORDER BY topic, partition_id"
+             FROM transaction_partitions WHERE transaction_id = $1 ORDER BY topic, partition_id",
         )
         .bind(transaction_id)
         .fetch_all(&self.pool)
@@ -2152,7 +2213,7 @@ impl MetadataStore for PostgresMetadataStore {
         // Update transaction state
         let result = sqlx::query(
             "UPDATE transactions SET state = 'committed', updated_at = $1, completed_at = $2 \
-             WHERE transaction_id = $3 AND (state = 'ongoing' OR state = 'preparing')"
+             WHERE transaction_id = $3 AND (state = 'ongoing' OR state = 'preparing')",
         )
         .bind(now)
         .bind(now)
@@ -2214,7 +2275,7 @@ impl MetadataStore for PostgresMetadataStore {
         // Update transaction state
         let result = sqlx::query(
             "UPDATE transactions SET state = 'aborted', updated_at = $1, completed_at = $2 \
-             WHERE transaction_id = $3 AND (state = 'ongoing' OR state = 'preparing')"
+             WHERE transaction_id = $3 AND (state = 'ongoing' OR state = 'preparing')",
         )
         .bind(now)
         .bind(now)
@@ -2268,7 +2329,7 @@ impl MetadataStore for PostgresMetadataStore {
     async fn cleanup_completed_transactions(&self, max_age_ms: i64) -> Result<u64> {
         let cutoff = Self::now_ms() - max_age_ms;
         let result = sqlx::query(
-            "DELETE FROM transactions WHERE completed_at IS NOT NULL AND completed_at < $1"
+            "DELETE FROM transactions WHERE completed_at IS NOT NULL AND completed_at < $1",
         )
         .bind(cutoff)
         .execute(&self.pool)
@@ -2310,7 +2371,7 @@ impl MetadataStore for PostgresMetadataStore {
             "SELECT transaction_id, topic, partition_id, \"offset\", marker_type, created_at \
              FROM transaction_markers \
              WHERE topic = $1 AND partition_id = $2 AND \"offset\" >= $3 \
-             ORDER BY \"offset\""
+             ORDER BY \"offset\"",
         )
         .bind(topic)
         .bind(partition_id as i32)
@@ -2341,14 +2402,16 @@ impl MetadataStore for PostgresMetadataStore {
 
     async fn get_last_stable_offset(&self, topic: &str, partition_id: u32) -> Result<u64> {
         let row = sqlx::query(
-            "SELECT last_stable_offset FROM partition_lso WHERE topic = $1 AND partition_id = $2"
+            "SELECT last_stable_offset FROM partition_lso WHERE topic = $1 AND partition_id = $2",
         )
         .bind(topic)
         .bind(partition_id as i32)
         .fetch_optional(&self.pool)
         .await?;
 
-        Ok(row.map(|r| r.get::<i64, _>("last_stable_offset") as u64).unwrap_or(0))
+        Ok(row
+            .map(|r| r.get::<i64, _>("last_stable_offset") as u64)
+            .unwrap_or(0))
     }
 
     async fn update_last_stable_offset(
@@ -2363,7 +2426,7 @@ impl MetadataStore for PostgresMetadataStore {
              VALUES ($1, $2, $3, $4) \
              ON CONFLICT(topic, partition_id) DO UPDATE SET \
                 last_stable_offset = EXCLUDED.last_stable_offset, \
-                updated_at = EXCLUDED.updated_at"
+                updated_at = EXCLUDED.updated_at",
         )
         .bind(topic)
         .bind(partition_id as i32)
@@ -2378,15 +2441,23 @@ impl MetadataStore for PostgresMetadataStore {
     // MATERIALIZED VIEW OPERATIONS
     // ============================================================
 
-    async fn create_materialized_view(&self, config: CreateMaterializedView) -> Result<MaterializedView> {
+    async fn create_materialized_view(
+        &self,
+        config: CreateMaterializedView,
+    ) -> Result<MaterializedView> {
         let now = chrono::Utc::now();
         let id = format!("mv-{}-{}", &config.name, uuid::Uuid::new_v4());
-        let org_id = config.organization_id.clone().unwrap_or_else(|| "00000000-0000-0000-0000-000000000000".to_string());
+        let org_id = config
+            .organization_id
+            .clone()
+            .unwrap_or_else(|| "00000000-0000-0000-0000-000000000000".to_string());
 
         // Convert refresh mode to storage format
         let (refresh_mode_str, interval_ms) = match &config.refresh_mode {
             MaterializedViewRefreshMode::Continuous => ("continuous", None),
-            MaterializedViewRefreshMode::Periodic { interval_ms } => ("periodic", Some(*interval_ms)),
+            MaterializedViewRefreshMode::Periodic { interval_ms } => {
+                ("periodic", Some(*interval_ms))
+            }
             MaterializedViewRefreshMode::Manual => ("manual", None),
         };
 
@@ -2428,7 +2499,7 @@ impl MetadataStore for PostgresMetadataStore {
             "SELECT id, organization_id, name, source_topic, query_sql, \
                     refresh_mode, refresh_interval_ms, status, error_message, \
                     row_count, last_refresh_at, created_at, updated_at \
-             FROM materialized_views WHERE name = $1"
+             FROM materialized_views WHERE name = $1",
         )
         .bind(name)
         .fetch_optional(&self.pool)
@@ -2442,7 +2513,7 @@ impl MetadataStore for PostgresMetadataStore {
             "SELECT id, organization_id, name, source_topic, query_sql, \
                     refresh_mode, refresh_interval_ms, status, error_message, \
                     row_count, last_refresh_at, created_at, updated_at \
-             FROM materialized_views WHERE id = $1"
+             FROM materialized_views WHERE id = $1",
         )
         .bind(id)
         .fetch_optional(&self.pool)
@@ -2456,12 +2527,15 @@ impl MetadataStore for PostgresMetadataStore {
             "SELECT id, organization_id, name, source_topic, query_sql, \
                     refresh_mode, refresh_interval_ms, status, error_message, \
                     row_count, last_refresh_at, created_at, updated_at \
-             FROM materialized_views ORDER BY name"
+             FROM materialized_views ORDER BY name",
         )
         .fetch_all(&self.pool)
         .await?;
 
-        Ok(rows.into_iter().map(|r| Self::row_to_materialized_view(r)).collect())
+        Ok(rows
+            .into_iter()
+            .map(|r| Self::row_to_materialized_view(r))
+            .collect())
     }
 
     async fn update_materialized_view_status(
@@ -2498,8 +2572,7 @@ impl MetadataStore for PostgresMetadataStore {
         last_refresh_at: i64,
     ) -> Result<()> {
         let now = chrono::Utc::now();
-        let refresh_ts = chrono::DateTime::from_timestamp_millis(last_refresh_at)
-            .unwrap_or(now);
+        let refresh_ts = chrono::DateTime::from_timestamp_millis(last_refresh_at).unwrap_or(now);
 
         sqlx::query(
             "UPDATE materialized_views SET row_count = $1, last_refresh_at = $2, updated_at = $3 WHERE id = $4"
@@ -2522,24 +2595,30 @@ impl MetadataStore for PostgresMetadataStore {
         Ok(())
     }
 
-    async fn get_materialized_view_offsets(&self, view_id: &str) -> Result<Vec<MaterializedViewOffset>> {
+    async fn get_materialized_view_offsets(
+        &self,
+        view_id: &str,
+    ) -> Result<Vec<MaterializedViewOffset>> {
         let rows = sqlx::query(
             "SELECT view_id, partition_id, last_offset, last_processed_at \
-             FROM materialized_view_offsets WHERE view_id = $1 ORDER BY partition_id"
+             FROM materialized_view_offsets WHERE view_id = $1 ORDER BY partition_id",
         )
         .bind(view_id)
         .fetch_all(&self.pool)
         .await?;
 
-        Ok(rows.into_iter().map(|r| {
-            let last_processed: chrono::DateTime<chrono::Utc> = r.get("last_processed_at");
-            MaterializedViewOffset {
-                view_id: r.get("view_id"),
-                partition_id: r.get::<i32, _>("partition_id") as u32,
-                last_offset: r.get::<i64, _>("last_offset") as u64,
-                last_processed_at: last_processed.timestamp_millis(),
-            }
-        }).collect())
+        Ok(rows
+            .into_iter()
+            .map(|r| {
+                let last_processed: chrono::DateTime<chrono::Utc> = r.get("last_processed_at");
+                MaterializedViewOffset {
+                    view_id: r.get("view_id"),
+                    partition_id: r.get::<i32, _>("partition_id") as u32,
+                    last_offset: r.get::<i64, _>("last_offset") as u64,
+                    last_processed_at: last_processed.timestamp_millis(),
+                }
+            })
+            .collect())
     }
 
     async fn update_materialized_view_offset(
@@ -2576,30 +2655,30 @@ impl MetadataStore for PostgresMetadataStore {
 
         let rows = sqlx::query(
             "SELECT view_id, agg_key, agg_values, window_start, window_end, updated_at \
-             FROM materialized_view_data WHERE view_id = $1 ORDER BY agg_key LIMIT $2"
+             FROM materialized_view_data WHERE view_id = $1 ORDER BY agg_key LIMIT $2",
         )
         .bind(view_id)
         .bind(limit_val)
         .fetch_all(&self.pool)
         .await?;
 
-        Ok(rows.into_iter().map(|r| {
-            let updated_at: chrono::DateTime<chrono::Utc> = r.get("updated_at");
-            MaterializedViewData {
-                view_id: r.get("view_id"),
-                agg_key: r.get("agg_key"),
-                agg_values: r.get("agg_values"),
-                window_start: r.get::<Option<i64>, _>("window_start"),
-                window_end: r.get::<Option<i64>, _>("window_end"),
-                updated_at: updated_at.timestamp_millis(),
-            }
-        }).collect())
+        Ok(rows
+            .into_iter()
+            .map(|r| {
+                let updated_at: chrono::DateTime<chrono::Utc> = r.get("updated_at");
+                MaterializedViewData {
+                    view_id: r.get("view_id"),
+                    agg_key: r.get("agg_key"),
+                    agg_values: r.get("agg_values"),
+                    window_start: r.get::<Option<i64>, _>("window_start"),
+                    window_end: r.get::<Option<i64>, _>("window_end"),
+                    updated_at: updated_at.timestamp_millis(),
+                }
+            })
+            .collect())
     }
 
-    async fn upsert_materialized_view_data(
-        &self,
-        data: MaterializedViewData,
-    ) -> Result<()> {
+    async fn upsert_materialized_view_data(&self, data: MaterializedViewData) -> Result<()> {
         let now = chrono::Utc::now();
 
         sqlx::query(

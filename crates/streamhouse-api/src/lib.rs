@@ -31,23 +31,25 @@ pub mod shutdown;
 pub mod tls;
 
 pub use acl::{
-    AclAction, AclChecker, AclConfig, AclEntry, AclLayer, AclPermission, AclResource,
-    AclCheckResult,
+    AclAction, AclCheckResult, AclChecker, AclConfig, AclEntry, AclLayer, AclPermission,
+    AclResource,
 };
-pub use audit::{AuditConfig, AuditEntry, AuditEventType, AuditLayer, log_audit_event};
+pub use audit::{log_audit_event, AuditConfig, AuditEntry, AuditEventType, AuditLayer};
 pub use audit_store::{
     AuditBackend, AuditQuery, AuditStore, AuditStoreConfig, AuditStoreError, AuditStoreStats,
     StoredAuditEntry, StoredAuditRecord, VerificationResult,
 };
-pub use auth::{AuthConfig, AuthError, AuthLayer, AuthenticatedKey, RequiredPermission, SmartAuthLayer};
+pub use auth::{
+    AuthConfig, AuthError, AuthLayer, AuthenticatedKey, RequiredPermission, SmartAuthLayer,
+};
 pub use compliance::{
-    ComplianceError, ComplianceReport, ComplianceReporter, Finding, FindingSeverity,
-    Framework, ReportConfig, ReportFormat, ReportMetadata,
+    ComplianceError, ComplianceReport, ComplianceReporter, Finding, FindingSeverity, Framework,
+    ReportConfig, ReportFormat, ReportMetadata,
 };
 pub use failover::{
-    FailoverConfig, FailoverError, FailoverEvent, FailoverManager, FailoverPolicy,
-    FailoverStats, HealthChecker, HealthCheckResult, HealthStatus, HttpHealthChecker,
-    InMemoryHealthChecker, NodeInfo,
+    FailoverConfig, FailoverError, FailoverEvent, FailoverManager, FailoverPolicy, FailoverStats,
+    HealthCheckResult, HealthChecker, HealthStatus, HttpHealthChecker, InMemoryHealthChecker,
+    NodeInfo,
 };
 pub use jwt::{Claims, JwtConfig, JwtError, JwtLayer, JwtService, SmartJwtLayer};
 pub use leader::{
@@ -55,13 +57,13 @@ pub use leader::{
     LeaderState, LeadershipRecord, LostReason,
 };
 pub use oauth::{
-    IdTokenClaims, OAuthConfig, OAuthError, OAuthProvider, OAuthService, OAuthSession,
-    OAuthTokens, PkceChallenge, UserInfo, oauth_router,
+    oauth_router, IdTokenClaims, OAuthConfig, OAuthError, OAuthProvider, OAuthService,
+    OAuthSession, OAuthTokens, PkceChallenge, UserInfo,
 };
 pub use pitr::{
     BackupMetadata, BackupStatus, BaseBackup, PitrConfig, PitrConfigBuilder, PitrError,
-    PitrManager, RecoveryResult, RecoveryTarget, SystemSnapshot, VerificationResult as PitrVerificationResult,
-    WalEntry, WalOperation, WalSegment, WalStats,
+    PitrManager, RecoveryResult, RecoveryTarget, SystemSnapshot,
+    VerificationResult as PitrVerificationResult, WalEntry, WalOperation, WalSegment, WalStats,
 };
 pub use prometheus::PrometheusClient;
 pub use sasl::{
@@ -69,10 +71,13 @@ pub use sasl::{
     StoredCredentials,
 };
 pub use shutdown::{
-    GracefulShutdown, ShutdownBuilder, ShutdownHandle, ShutdownSignal,
-    serve_with_shutdown, serve_with_custom_shutdown, shutdown_signal,
+    serve_with_custom_shutdown, serve_with_shutdown, shutdown_signal, GracefulShutdown,
+    ShutdownBuilder, ShutdownHandle, ShutdownSignal,
 };
-pub use tls::{serve_with_tls, serve_with_tls_and_shutdown, serve_with_tls_custom_shutdown, TlsConfig, TlsError};
+pub use tls::{
+    serve_with_tls, serve_with_tls_and_shutdown, serve_with_tls_custom_shutdown, TlsConfig,
+    TlsError,
+};
 
 /// Application state shared across handlers
 #[derive(Clone)]
@@ -115,7 +120,10 @@ pub fn create_router(state: AppState) -> Router {
         // Agents
         .route("/agents", get(handlers::agents::list_agents))
         .route("/agents/:id", get(handlers::agents::get_agent))
-        .route("/agents/:id/metrics", get(handlers::metrics::get_agent_metrics))
+        .route(
+            "/agents/:id/metrics",
+            get(handlers::metrics::get_agent_metrics),
+        )
         // Produce
         .route("/produce", post(handlers::produce::produce))
         .route("/produce/batch", post(handlers::produce::produce_batch))
@@ -149,10 +157,19 @@ pub fn create_router(state: AppState) -> Router {
         )
         // Metrics
         .route("/metrics", get(handlers::metrics::get_metrics))
-        .route("/metrics/throughput", get(handlers::metrics::get_throughput_metrics))
-        .route("/metrics/latency", get(handlers::metrics::get_latency_metrics))
+        .route(
+            "/metrics/throughput",
+            get(handlers::metrics::get_throughput_metrics),
+        )
+        .route(
+            "/metrics/latency",
+            get(handlers::metrics::get_latency_metrics),
+        )
         .route("/metrics/errors", get(handlers::metrics::get_error_metrics))
-        .route("/metrics/storage", get(handlers::metrics::get_storage_metrics))
+        .route(
+            "/metrics/storage",
+            get(handlers::metrics::get_storage_metrics),
+        )
         // SQL
         .route("/sql", post(handlers::sql::execute_sql))
         // AI-powered queries
@@ -166,7 +183,10 @@ pub fn create_router(state: AppState) -> Router {
             "/query/history/:id",
             get(handlers::ai::get_query_by_id).delete(handlers::ai::delete_query),
         )
-        .route("/query/history/:id/refine", post(handlers::ai::refine_query))
+        .route(
+            "/query/history/:id/refine",
+            post(handlers::ai::refine_query),
+        )
         .route("/ai/health", get(handlers::ai::ai_health))
         // Schema inference
         .route("/schema/infer", post(handlers::ai::infer_schema))
@@ -197,14 +217,12 @@ pub fn create_router(state: AppState) -> Router {
         // API Keys (under organizations)
         .route(
             "/organizations/:org_id/api-keys",
-            get(handlers::api_keys::list_api_keys)
-                .post(handlers::api_keys::create_api_key),
+            get(handlers::api_keys::list_api_keys).post(handlers::api_keys::create_api_key),
         )
         // API Keys (by ID)
         .route(
             "/api-keys/:id",
-            get(handlers::api_keys::get_api_key)
-                .delete(handlers::api_keys::revoke_api_key),
+            get(handlers::api_keys::get_api_key).delete(handlers::api_keys::revoke_api_key),
         )
         .with_state(state.clone());
 
@@ -217,9 +235,7 @@ pub fn create_router(state: AppState) -> Router {
             .merge(admin_routes.layer(AuthLayer::admin(metadata.clone())))
     } else {
         tracing::warn!("⚠️  API authentication DISABLED - all endpoints are public");
-        Router::new()
-            .merge(api_routes)
-            .merge(admin_routes)
+        Router::new().merge(api_routes).merge(admin_routes)
     };
 
     // OpenAPI documentation
@@ -229,7 +245,10 @@ pub fn create_router(state: AppState) -> Router {
     let ws_routes = Router::new()
         .route("/metrics", get(handlers::websocket::metrics_websocket))
         .route("/topics/:name", get(handlers::websocket::topic_websocket))
-        .route("/consumers/:id", get(handlers::websocket::consumer_websocket))
+        .route(
+            "/consumers/:id",
+            get(handlers::websocket::consumer_websocket),
+        )
         .with_state(state.clone());
 
     // Main router with CORS
@@ -271,12 +290,8 @@ pub async fn serve(router: Router, port: u16) -> Result<(), Box<dyn std::error::
 /// - `TLS_CA_CERT_PATH`: Path to CA cert for mTLS (optional)
 pub async fn serve_auto_tls(router: Router, port: u16) -> Result<(), Box<dyn std::error::Error>> {
     match tls::TlsConfig::from_env()? {
-        Some(tls_config) => {
-            tls::serve_with_tls(router, port, tls_config).await
-        }
-        None => {
-            serve(router, port).await
-        }
+        Some(tls_config) => tls::serve_with_tls(router, port, tls_config).await,
+        None => serve(router, port).await,
     }
 }
 
@@ -299,16 +314,17 @@ pub async fn serve_auto_tls(router: Router, port: u16) -> Result<(), Box<dyn std
 /// let router = create_router(state);
 /// serve_auto_tls_with_shutdown(router, 8080).await?;
 /// ```
-pub async fn serve_auto_tls_with_shutdown(router: Router, port: u16) -> Result<(), Box<dyn std::error::Error>> {
+pub async fn serve_auto_tls_with_shutdown(
+    router: Router,
+    port: u16,
+) -> Result<(), Box<dyn std::error::Error>> {
     let shutdown_config = GracefulShutdown::default();
 
     match tls::TlsConfig::from_env()? {
         Some(tls_config) => {
             tls::serve_with_tls_and_shutdown(router, port, tls_config, shutdown_config).await
         }
-        None => {
-            shutdown::serve_with_shutdown(router, port, shutdown_config).await
-        }
+        None => shutdown::serve_with_shutdown(router, port, shutdown_config).await,
     }
 }
 

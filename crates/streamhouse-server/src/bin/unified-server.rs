@@ -56,10 +56,10 @@ use axum::Router;
 use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::Duration;
+use streamhouse_kafka::{GroupCoordinator, KafkaServer, KafkaServerConfig, KafkaServerState};
 #[cfg(feature = "postgres")]
 use streamhouse_metadata::PostgresMetadataStore;
 use streamhouse_metadata::{MetadataStore, SqliteMetadataStore};
-use streamhouse_kafka::{GroupCoordinator, KafkaServer, KafkaServerConfig, KafkaServerState};
 use streamhouse_schema_registry::{SchemaRegistry, SchemaRegistryApi};
 use streamhouse_server::{pb::stream_house_server::StreamHouseServer, StreamHouseService};
 use streamhouse_storage::{SegmentCache, WriteConfig, WriterPool};
@@ -314,8 +314,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         let metadata = metadata.clone();
         let agent_id = agent_id.clone();
         let address = format!("{}:{}", grpc_addr.ip(), grpc_addr.port());
-        let availability_zone = std::env::var("AVAILABILITY_ZONE")
-            .unwrap_or_else(|_| "default".to_string());
+        let availability_zone =
+            std::env::var("AVAILABILITY_ZONE").unwrap_or_else(|_| "default".to_string());
 
         tokio::spawn(async move {
             let mut interval = tokio::time::interval(std::time::Duration::from_secs(30));
@@ -425,9 +425,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
                         // If topic list changed, restart assigner with new topics
                         if current_topic_names != managed_topics {
-                            tracing::info!(
-                                "Topic list changed, restarting partition assigner"
-                            );
+                            tracing::info!("Topic list changed, restarting partition assigner");
                             let _ = assigner.stop().await;
                             break;
                         }
@@ -455,12 +453,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     tracing::info!("🔄 Materialized view maintenance task started");
 
     // Create Prometheus client for real metrics (optional)
-    let prometheus_client = std::env::var("PROMETHEUS_URL")
-        .ok()
-        .map(|url| {
-            tracing::info!("📊 Prometheus metrics enabled: {}", url);
-            std::sync::Arc::new(streamhouse_api::PrometheusClient::new(&url))
-        });
+    let prometheus_client = std::env::var("PROMETHEUS_URL").ok().map(|url| {
+        tracing::info!("📊 Prometheus metrics enabled: {}", url);
+        std::sync::Arc::new(streamhouse_api::PrometheusClient::new(&url))
+    });
 
     // Create REST API state (use WriterPool directly in unified server)
     // Auth is disabled by default in development; enable with --enable-auth flag

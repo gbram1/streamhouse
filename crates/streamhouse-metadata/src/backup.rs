@@ -3,8 +3,8 @@
 //! Provides functionality to export and import metadata for backup and disaster recovery.
 
 use crate::{
-    CreateOrganization, MetadataStore, Organization, OrganizationQuota,
-    Result, SegmentInfo, Topic, TopicConfig, MetadataError,
+    CreateOrganization, MetadataError, MetadataStore, Organization, OrganizationQuota, Result,
+    SegmentInfo, Topic, TopicConfig,
 };
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -256,7 +256,10 @@ mod tests {
 
         let result = MetadataBackup::from_json(json);
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("newer than supported"));
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("newer than supported"));
     }
 
     #[test]

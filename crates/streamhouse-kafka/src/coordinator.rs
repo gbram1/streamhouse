@@ -158,7 +158,10 @@ impl GroupCoordinator {
     }
 
     /// Get or create a consumer group
-    fn get_or_create_group(&self, group_id: &str) -> dashmap::mapref::one::RefMut<'_, String, RwLock<ConsumerGroup>> {
+    fn get_or_create_group(
+        &self,
+        group_id: &str,
+    ) -> dashmap::mapref::one::RefMut<'_, String, RwLock<ConsumerGroup>> {
         self.groups
             .entry(group_id.to_string())
             .or_insert_with(|| RwLock::new(ConsumerGroup::new(group_id.to_string())))
@@ -177,7 +180,8 @@ impl GroupCoordinator {
         protocols: Vec<MemberProtocol>,
     ) -> KafkaResult<JoinGroupResult> {
         // Validate session timeout
-        let session_timeout_ms = session_timeout_ms.clamp(MIN_SESSION_TIMEOUT_MS, MAX_SESSION_TIMEOUT_MS);
+        let session_timeout_ms =
+            session_timeout_ms.clamp(MIN_SESSION_TIMEOUT_MS, MAX_SESSION_TIMEOUT_MS);
 
         // Get or create group
         let group_entry = self.get_or_create_group(group_id);
@@ -275,7 +279,11 @@ impl GroupCoordinator {
             }
 
             // Select leader if needed
-            if group.leader_id.is_none() || !group.members.contains_key(group.leader_id.as_ref().unwrap()) {
+            if group.leader_id.is_none()
+                || !group
+                    .members
+                    .contains_key(group.leader_id.as_ref().unwrap())
+            {
                 group.leader_id = group.members.keys().next().cloned();
             }
 
@@ -288,10 +296,18 @@ impl GroupCoordinator {
         // Build response
         let is_leader = group.leader_id.as_ref() == Some(&member_id);
         let members = if is_leader {
-            group.members.values().map(|m| JoinGroupMember {
-                member_id: m.member_id.clone(),
-                metadata: m.protocols.first().map(|p| p.metadata.clone()).unwrap_or_default(),
-            }).collect()
+            group
+                .members
+                .values()
+                .map(|m| JoinGroupMember {
+                    member_id: m.member_id.clone(),
+                    metadata: m
+                        .protocols
+                        .first()
+                        .map(|p| p.metadata.clone())
+                        .unwrap_or_default(),
+                })
+                .collect()
         } else {
             vec![]
         };
@@ -422,11 +438,7 @@ impl GroupCoordinator {
     }
 
     /// Handle LeaveGroup request
-    pub async fn leave_group(
-        &self,
-        group_id: &str,
-        member_id: &str,
-    ) -> KafkaResult<ErrorCode> {
+    pub async fn leave_group(&self, group_id: &str, member_id: &str) -> KafkaResult<ErrorCode> {
         let Some(group_entry) = self.groups.get(group_id) else {
             return Ok(ErrorCode::GroupIdNotFound);
         };
@@ -466,13 +478,21 @@ impl GroupCoordinator {
         let group_entry = self.groups.get(group_id)?;
         let group = group_entry.read().await;
 
-        let members = group.members.values().map(|m| DescribeGroupMember {
-            member_id: m.member_id.clone(),
-            client_id: m.client_id.clone(),
-            client_host: m.client_host.clone(),
-            member_metadata: m.protocols.first().map(|p| p.metadata.clone()).unwrap_or_default(),
-            member_assignment: m.assignment.clone(),
-        }).collect();
+        let members = group
+            .members
+            .values()
+            .map(|m| DescribeGroupMember {
+                member_id: m.member_id.clone(),
+                client_id: m.client_id.clone(),
+                client_host: m.client_host.clone(),
+                member_metadata: m
+                    .protocols
+                    .first()
+                    .map(|p| p.metadata.clone())
+                    .unwrap_or_default(),
+                member_assignment: m.assignment.clone(),
+            })
+            .collect();
 
         Some(DescribeGroupResult {
             error_code: ErrorCode::None,

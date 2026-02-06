@@ -12,7 +12,9 @@ use std::sync::Arc;
 use std::time::Duration;
 use streamhouse_agent::grpc_service::ProducerServiceImpl;
 use streamhouse_client::Producer;
-use streamhouse_metadata::{AgentInfo, CleanupPolicy, MetadataStore, SqliteMetadataStore, TopicConfig};
+use streamhouse_metadata::{
+    AgentInfo, CleanupPolicy, MetadataStore, SqliteMetadataStore, TopicConfig,
+};
 use streamhouse_proto::producer::producer_service_server::ProducerServiceServer;
 use streamhouse_storage::writer_pool::WriterPool;
 use tempfile::TempDir;

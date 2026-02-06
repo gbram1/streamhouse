@@ -87,14 +87,10 @@ pub struct OrganizationUsageResponse {
 pub async fn list_organizations(
     State(state): State<AppState>,
 ) -> Result<Json<Vec<OrganizationResponse>>, StatusCode> {
-    let organizations = state
-        .metadata
-        .list_organizations()
-        .await
-        .map_err(|e| {
-            tracing::error!("Failed to list organizations: {}", e);
-            StatusCode::INTERNAL_SERVER_ERROR
-        })?;
+    let organizations = state.metadata.list_organizations().await.map_err(|e| {
+        tracing::error!("Failed to list organizations: {}", e);
+        StatusCode::INTERNAL_SERVER_ERROR
+    })?;
 
     let responses: Vec<OrganizationResponse> = organizations
         .into_iter()
@@ -165,7 +161,11 @@ pub async fn create_organization(
     Json(req): Json<CreateOrganizationRequest>,
 ) -> Result<(StatusCode, Json<OrganizationResponse>), StatusCode> {
     // Validate slug format
-    if !req.slug.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-') {
+    if !req
+        .slug
+        .chars()
+        .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-')
+    {
         return Err(StatusCode::BAD_REQUEST);
     }
 
@@ -309,14 +309,10 @@ pub async fn delete_organization(
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
         .ok_or(StatusCode::NOT_FOUND)?;
 
-    state
-        .metadata
-        .delete_organization(&id)
-        .await
-        .map_err(|e| {
-            tracing::error!("Failed to delete organization: {}", e);
-            StatusCode::INTERNAL_SERVER_ERROR
-        })?;
+    state.metadata.delete_organization(&id).await.map_err(|e| {
+        tracing::error!("Failed to delete organization: {}", e);
+        StatusCode::INTERNAL_SERVER_ERROR
+    })?;
 
     Ok(StatusCode::NO_CONTENT)
 }

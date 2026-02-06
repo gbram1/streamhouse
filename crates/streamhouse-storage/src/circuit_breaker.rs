@@ -78,8 +78,8 @@ pub struct CircuitBreakerConfig {
 impl Default for CircuitBreakerConfig {
     fn default() -> Self {
         Self {
-            failure_threshold: 5,      // Open after 5 failures
-            success_threshold: 2,      // Close after 2 successes in half-open
+            failure_threshold: 5,             // Open after 5 failures
+            success_threshold: 2,             // Close after 2 successes in half-open
             timeout: Duration::from_secs(30), // Wait 30s before testing
         }
     }
@@ -215,7 +215,8 @@ impl CircuitBreaker {
 
     /// Transition to Open state
     fn transition_to_open(&self) {
-        self.state.store(CircuitState::Open as u8, Ordering::Release);
+        self.state
+            .store(CircuitState::Open as u8, Ordering::Release);
         self.opened_at.store(Self::now_micros(), Ordering::Release);
         self.failure_count.store(0, Ordering::Release);
         self.success_count.store(0, Ordering::Release);

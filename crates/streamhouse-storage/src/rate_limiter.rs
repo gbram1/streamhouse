@@ -59,10 +59,10 @@ pub struct BucketConfig {
 impl Default for BucketConfig {
     fn default() -> Self {
         Self {
-            rate: 3000.0,        // 3K ops/sec default
-            burst: 5000,          // Allow 5K burst
-            min_rate: 100.0,      // Never go below 100/sec
-            max_rate: 10000.0,    // Never exceed 10K/sec
+            rate: 3000.0,      // 3K ops/sec default
+            burst: 5000,       // Allow 5K burst
+            min_rate: 100.0,   // Never go below 100/sec
+            max_rate: 10000.0, // Never exceed 10K/sec
         }
     }
 }
@@ -693,9 +693,9 @@ mod tests {
         limiter.report_throttled(S3Operation::Put).await;
 
         let (put, get, delete) = limiter.current_rates().await;
-        assert_eq!(put, 500.0);      // Halved
-        assert_eq!(get, 2000.0);     // Unchanged
-        assert_eq!(delete, 3000.0);  // Unchanged
+        assert_eq!(put, 500.0); // Halved
+        assert_eq!(get, 2000.0); // Unchanged
+        assert_eq!(delete, 3000.0); // Unchanged
     }
 
     // ---------------------------------------------------------------
@@ -729,9 +729,9 @@ mod tests {
         limiter.report_success(S3Operation::Get).await;
 
         let (put, get, delete) = limiter.current_rates().await;
-        assert_eq!(put, 1000.0);     // Unchanged
-        assert_eq!(get, 2100.0);     // 2000 * 1.05
-        assert_eq!(delete, 3000.0);  // Unchanged
+        assert_eq!(put, 1000.0); // Unchanged
+        assert_eq!(get, 2100.0); // 2000 * 1.05
+        assert_eq!(delete, 3000.0); // Unchanged
     }
 
     // ---------------------------------------------------------------

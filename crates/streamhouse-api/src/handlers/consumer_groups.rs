@@ -289,9 +289,7 @@ pub async fn reset_offsets(
                     .ok_or(StatusCode::NOT_FOUND)?;
                 partition.high_watermark
             }
-            ResetStrategy::Specific => {
-                req.offset.ok_or(StatusCode::BAD_REQUEST)?
-            }
+            ResetStrategy::Specific => req.offset.ok_or(StatusCode::BAD_REQUEST)?,
             ResetStrategy::Timestamp => {
                 // For timestamp, we need to find the offset at or after the timestamp
                 // This requires scanning segments - for now, use a simplified approach
@@ -305,7 +303,13 @@ pub async fn reset_offsets(
         // Commit the new offset
         state
             .metadata
-            .commit_offset(&group_id, &offset.topic, offset.partition_id, new_offset, None)
+            .commit_offset(
+                &group_id,
+                &offset.topic,
+                offset.partition_id,
+                new_offset,
+                None,
+            )
             .await
             .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
@@ -400,9 +404,7 @@ pub async fn seek_to_timestamp(
     // Filter to the specified topic and partition
     let offsets_to_update: Vec<_> = current_offsets
         .iter()
-        .filter(|o| {
-            o.topic == req.topic && req.partition.map_or(true, |p| o.partition_id == p)
-        })
+        .filter(|o| o.topic == req.topic && req.partition.map_or(true, |p| o.partition_id == p))
         .collect();
 
     // If no existing offsets for this topic, create them for all partitions

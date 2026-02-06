@@ -116,10 +116,7 @@ impl KafkaServer {
     }
 
     /// Run the server until the shutdown signal is received
-    pub async fn run_until(
-        self,
-        shutdown: tokio::sync::oneshot::Receiver<()>,
-    ) -> KafkaResult<()> {
+    pub async fn run_until(self, shutdown: tokio::sync::oneshot::Receiver<()>) -> KafkaResult<()> {
         let listener = TcpListener::bind(&self.state.config.bind_addr).await?;
         let local_addr = listener.local_addr()?;
         info!("Kafka server listening on {}", local_addr);
@@ -264,57 +261,32 @@ async fn handle_request(
     let api_key = ApiKey::from_i16(header.api_key);
 
     let response_body = match api_key {
-        Some(ApiKey::ApiVersions) => {
-            handlers::handle_api_versions(state, header, body).await?
-        }
-        Some(ApiKey::Metadata) => {
-            handlers::handle_metadata(state, header, body).await?
-        }
-        Some(ApiKey::Produce) => {
-            handlers::handle_produce(state, header, body).await?
-        }
-        Some(ApiKey::Fetch) => {
-            handlers::handle_fetch(state, header, body).await?
-        }
-        Some(ApiKey::ListOffsets) => {
-            handlers::handle_list_offsets(state, header, body).await?
-        }
+        Some(ApiKey::ApiVersions) => handlers::handle_api_versions(state, header, body).await?,
+        Some(ApiKey::Metadata) => handlers::handle_metadata(state, header, body).await?,
+        Some(ApiKey::Produce) => handlers::handle_produce(state, header, body).await?,
+        Some(ApiKey::Fetch) => handlers::handle_fetch(state, header, body).await?,
+        Some(ApiKey::ListOffsets) => handlers::handle_list_offsets(state, header, body).await?,
         Some(ApiKey::FindCoordinator) => {
             handlers::handle_find_coordinator(state, header, body).await?
         }
-        Some(ApiKey::JoinGroup) => {
-            handlers::handle_join_group(state, header, body).await?
-        }
-        Some(ApiKey::SyncGroup) => {
-            handlers::handle_sync_group(state, header, body).await?
-        }
-        Some(ApiKey::Heartbeat) => {
-            handlers::handle_heartbeat(state, header, body).await?
-        }
-        Some(ApiKey::LeaveGroup) => {
-            handlers::handle_leave_group(state, header, body).await?
-        }
-        Some(ApiKey::OffsetCommit) => {
-            handlers::handle_offset_commit(state, header, body).await?
-        }
-        Some(ApiKey::OffsetFetch) => {
-            handlers::handle_offset_fetch(state, header, body).await?
-        }
-        Some(ApiKey::CreateTopics) => {
-            handlers::handle_create_topics(state, header, body).await?
-        }
-        Some(ApiKey::DeleteTopics) => {
-            handlers::handle_delete_topics(state, header, body).await?
-        }
+        Some(ApiKey::JoinGroup) => handlers::handle_join_group(state, header, body).await?,
+        Some(ApiKey::SyncGroup) => handlers::handle_sync_group(state, header, body).await?,
+        Some(ApiKey::Heartbeat) => handlers::handle_heartbeat(state, header, body).await?,
+        Some(ApiKey::LeaveGroup) => handlers::handle_leave_group(state, header, body).await?,
+        Some(ApiKey::OffsetCommit) => handlers::handle_offset_commit(state, header, body).await?,
+        Some(ApiKey::OffsetFetch) => handlers::handle_offset_fetch(state, header, body).await?,
+        Some(ApiKey::CreateTopics) => handlers::handle_create_topics(state, header, body).await?,
+        Some(ApiKey::DeleteTopics) => handlers::handle_delete_topics(state, header, body).await?,
         Some(ApiKey::DescribeGroups) => {
             handlers::handle_describe_groups(state, header, body).await?
         }
-        Some(ApiKey::ListGroups) => {
-            handlers::handle_list_groups(state, header, body).await?
-        }
+        Some(ApiKey::ListGroups) => handlers::handle_list_groups(state, header, body).await?,
         None => {
             warn!("Unsupported API key: {}", header.api_key);
-            return Err(KafkaError::UnsupportedApi(header.api_key, header.api_version));
+            return Err(KafkaError::UnsupportedApi(
+                header.api_key,
+                header.api_version,
+            ));
         }
     };
 

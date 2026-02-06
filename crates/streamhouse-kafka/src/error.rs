@@ -233,7 +233,10 @@ mod tests {
     #[test]
     fn test_display_partition_not_found() {
         let err = KafkaError::PartitionNotFound("my-topic".to_string(), 5);
-        assert_eq!(format!("{}", err), "Partition not found: topic=my-topic, partition=5");
+        assert_eq!(
+            format!("{}", err),
+            "Partition not found: topic=my-topic, partition=5"
+        );
     }
 
     #[test]
@@ -263,7 +266,10 @@ mod tests {
     #[test]
     fn test_display_rebalance_in_progress() {
         let err = KafkaError::RebalanceInProgress("my-group".to_string());
-        assert_eq!(format!("{}", err), "Rebalance in progress for group: my-group");
+        assert_eq!(
+            format!("{}", err),
+            "Rebalance in progress for group: my-group"
+        );
     }
 
     #[test]
@@ -287,7 +293,10 @@ mod tests {
     #[test]
     fn test_display_metadata_store() {
         let err = KafkaError::MetadataStore("db connection failed".to_string());
-        assert_eq!(format!("{}", err), "Metadata store error: db connection failed");
+        assert_eq!(
+            format!("{}", err),
+            "Metadata store error: db connection failed"
+        );
     }
 
     #[test]
@@ -299,7 +308,10 @@ mod tests {
     #[test]
     fn test_display_compression() {
         let err = KafkaError::Compression("decompression failed".to_string());
-        assert_eq!(format!("{}", err), "Compression error: decompression failed");
+        assert_eq!(
+            format!("{}", err),
+            "Compression error: decompression failed"
+        );
     }
 
     #[test]
@@ -328,7 +340,10 @@ mod tests {
     fn test_error_code_from_topic_not_found() {
         let err = KafkaError::TopicNotFound("t".to_string());
         assert_eq!(ErrorCode::from(&err), ErrorCode::UnknownTopicOrPartition);
-        assert_eq!(ErrorCode::from(KafkaError::TopicNotFound("t".to_string())), ErrorCode::UnknownTopicOrPartition);
+        assert_eq!(
+            ErrorCode::from(KafkaError::TopicNotFound("t".to_string())),
+            ErrorCode::UnknownTopicOrPartition
+        );
     }
 
     #[test]
@@ -498,19 +513,19 @@ mod tests {
     fn test_error_codes_are_contiguous_where_expected() {
         // Error codes 1-13 should be contiguous
         let contiguous_codes = vec![
-            ErrorCode::OffsetOutOfRange,       // 1
-            ErrorCode::CorruptMessage,         // 2
-            ErrorCode::UnknownTopicOrPartition,// 3
-            ErrorCode::InvalidFetchSize,       // 4
-            ErrorCode::LeaderNotAvailable,     // 5
-            ErrorCode::NotLeaderOrFollower,    // 6
-            ErrorCode::RequestTimedOut,        // 7
-            ErrorCode::BrokerNotAvailable,     // 8
-            ErrorCode::ReplicaNotAvailable,    // 9
-            ErrorCode::MessageTooLarge,        // 10
-            ErrorCode::StaleControllerEpoch,   // 11
-            ErrorCode::OffsetMetadataTooLarge, // 12
-            ErrorCode::NetworkException,       // 13
+            ErrorCode::OffsetOutOfRange,        // 1
+            ErrorCode::CorruptMessage,          // 2
+            ErrorCode::UnknownTopicOrPartition, // 3
+            ErrorCode::InvalidFetchSize,        // 4
+            ErrorCode::LeaderNotAvailable,      // 5
+            ErrorCode::NotLeaderOrFollower,     // 6
+            ErrorCode::RequestTimedOut,         // 7
+            ErrorCode::BrokerNotAvailable,      // 8
+            ErrorCode::ReplicaNotAvailable,     // 9
+            ErrorCode::MessageTooLarge,         // 10
+            ErrorCode::StaleControllerEpoch,    // 11
+            ErrorCode::OffsetMetadataTooLarge,  // 12
+            ErrorCode::NetworkException,        // 13
         ];
 
         for (i, code) in contiguous_codes.iter().enumerate() {
@@ -643,8 +658,17 @@ mod tests {
 
     #[test]
     fn test_display_with_empty_messages() {
-        assert_eq!(format!("{}", KafkaError::Unknown("".to_string())), "Unknown error: ");
-        assert_eq!(format!("{}", KafkaError::Protocol("".to_string())), "Protocol error: ");
-        assert_eq!(format!("{}", KafkaError::TopicNotFound("".to_string())), "Topic not found: ");
+        assert_eq!(
+            format!("{}", KafkaError::Unknown("".to_string())),
+            "Unknown error: "
+        );
+        assert_eq!(
+            format!("{}", KafkaError::Protocol("".to_string())),
+            "Protocol error: "
+        );
+        assert_eq!(
+            format!("{}", KafkaError::TopicNotFound("".to_string())),
+            "Topic not found: "
+        );
     }
 }

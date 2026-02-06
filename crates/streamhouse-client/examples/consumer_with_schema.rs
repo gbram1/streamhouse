@@ -120,7 +120,8 @@
 //! existing producers and consumers.
 
 fn main() {
-    println!("
+    println!(
+        "
 🔍 Consumer with Schema Registry Example
 
 This file demonstrates how to consume messages with automatic schema
@@ -188,5 +189,6 @@ Error Handling:
 - If message is malformed, treated as unencoded (no schema)
 
 For complete working examples, see the integration tests.
-    ");
+    "
+    );
 }

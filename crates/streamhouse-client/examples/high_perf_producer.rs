@@ -107,7 +107,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Main benchmark
     println!("═══════════════════════════════════════════════════════════");
-    println!("Starting benchmark: {} messages in {} batches", TOTAL_MESSAGES, TOTAL_MESSAGES / BATCH_SIZE);
+    println!(
+        "Starting benchmark: {} messages in {} batches",
+        TOTAL_MESSAGES,
+        TOTAL_MESSAGES / BATCH_SIZE
+    );
     println!("═══════════════════════════════════════════════════════════");
     println!();
 
@@ -159,7 +163,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("  Total messages sent:  {}", total_sent);
     println!("  Total time:           {:.3}s", total_secs);
     println!("  Throughput:           {:.0} msg/s", throughput);
-    println!("  Avg latency/batch:    {:.2}ms", (total_secs * 1000.0) / num_batches as f64);
+    println!(
+        "  Avg latency/batch:    {:.2}ms",
+        (total_secs * 1000.0) / num_batches as f64
+    );
     println!();
 
     // Performance assessment

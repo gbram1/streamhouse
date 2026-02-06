@@ -100,7 +100,6 @@ impl TryFrom<u16> for Compression {
     }
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -635,16 +634,13 @@ mod tests {
 
     #[test]
     fn test_segment_info_serde_vec_roundtrip() {
-        let segments = vec![
-            sample_segment_info(),
-            {
-                let mut s = sample_segment_info();
-                s.id = "seg_002".to_string();
-                s.base_offset = 2000;
-                s.end_offset = 2999;
-                s
-            },
-        ];
+        let segments = vec![sample_segment_info(), {
+            let mut s = sample_segment_info();
+            s.id = "seg_002".to_string();
+            s.base_offset = 2000;
+            s.end_offset = 2999;
+            s
+        }];
         let json = serde_json::to_string(&segments).expect("serialize vec");
         let deserialized: Vec<SegmentInfo> = serde_json::from_str(&json).expect("deserialize vec");
         assert_eq!(segments, deserialized);

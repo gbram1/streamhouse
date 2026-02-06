@@ -402,7 +402,13 @@ pub async fn ask_query(
     let generation_result = generate_sql(&api_key, &req.question, &schema_context, None).await?;
 
     // Calculate cost estimate
-    let cost_estimate = estimate_query_cost(&state, &generation_result.sql, &generation_result.topics_used).await.ok();
+    let cost_estimate = estimate_query_cost(
+        &state,
+        &generation_result.sql,
+        &generation_result.topics_used,
+    )
+    .await
+    .ok();
 
     // Optionally execute the query
     let results = if req.execute {
@@ -491,7 +497,9 @@ async fn build_schema_context(
     context.push_str("- Offset ranges: offset >= 1000 AND offset < 2000\n");
     context.push_str("- Partition filtering: partition = 0\n");
     context.push_str("- Always include LIMIT clause (max 10000)\n");
-    context.push_str("- Supported: SELECT, WHERE, GROUP BY, ORDER BY, LIMIT, COUNT, SUM, AVG, MIN, MAX\n");
+    context.push_str(
+        "- Supported: SELECT, WHERE, GROUP BY, ORDER BY, LIMIT, COUNT, SUM, AVG, MIN, MAX\n",
+    );
     context.push_str("- SHOW TOPICS - lists all topics\n");
     context.push_str("- DESCRIBE topic_name - shows topic details\n");
 
@@ -623,12 +631,18 @@ Respond with a JSON object containing:
 
     let result: SqlGenerationResponse = serde_json::from_str(&json_text).map_err(|e| {
         // If JSON parsing fails, try to extract SQL directly
-        tracing::warn!("Failed to parse structured response, attempting fallback: {}", e);
+        tracing::warn!(
+            "Failed to parse structured response, attempting fallback: {}",
+            e
+        );
         (
             StatusCode::BAD_REQUEST,
             Json(AskQueryError {
                 error: "parse_error".to_string(),
-                message: format!("Failed to parse AI response as JSON: {}. Raw response: {}", e, text),
+                message: format!(
+                    "Failed to parse AI response as JSON: {}. Raw response: {}",
+                    e, text
+                ),
                 sql: extract_sql_fallback(&text),
                 suggestions: vec!["Try rephrasing your question".to_string()],
             }),
@@ -836,9 +850,7 @@ pub async fn refine_query(
                 error: "ai_not_configured".to_string(),
                 message: "ANTHROPIC_API_KEY environment variable not set".to_string(),
                 sql: None,
-                suggestions: vec![
-                    "Set ANTHROPIC_API_KEY environment variable".to_string(),
-                ],
+                suggestions: vec!["Set ANTHROPIC_API_KEY environment variable".to_string()],
             }),
         )
     })?;
@@ -847,16 +859,17 @@ pub async fn refine_query(
     let schema_context = build_schema_context(&state, &original.topics_used).await?;
 
     // Generate refined SQL
-    let generation_result = generate_sql(
-        &api_key,
-        &req.refinement,
-        &schema_context,
-        Some(&original),
-    )
-    .await?;
+    let generation_result =
+        generate_sql(&api_key, &req.refinement, &schema_context, Some(&original)).await?;
 
     // Calculate cost estimate
-    let cost_estimate = estimate_query_cost(&state, &generation_result.sql, &generation_result.topics_used).await.ok();
+    let cost_estimate = estimate_query_cost(
+        &state,
+        &generation_result.sql,
+        &generation_result.topics_used,
+    )
+    .await
+    .ok();
 
     // Optionally execute
     let results = if req.execute {
@@ -944,17 +957,19 @@ pub async fn estimate_cost(
         (result.sql, result.topics_used)
     };
 
-    let estimate = estimate_query_cost(&state, &sql, &topics).await.map_err(|e| {
-        (
-            StatusCode::BAD_REQUEST,
-            Json(AskQueryError {
-                error: "estimation_error".to_string(),
-                message: format!("Failed to estimate cost: {}", e),
-                sql: Some(sql.clone()),
-                suggestions: vec![],
-            }),
-        )
-    })?;
+    let estimate = estimate_query_cost(&state, &sql, &topics)
+        .await
+        .map_err(|e| {
+            (
+                StatusCode::BAD_REQUEST,
+                Json(AskQueryError {
+                    error: "estimation_error".to_string(),
+                    message: format!("Failed to estimate cost: {}", e),
+                    sql: Some(sql.clone()),
+                    suggestions: vec![],
+                }),
+            )
+        })?;
 
     Ok(Json(estimate))
 }
@@ -998,11 +1013,7 @@ async fn estimate_query_cost(
         if let Ok(Some(topic)) = state.metadata.get_topic(topic_name).await {
             // Get message count from all partitions
             for partition_id in 0..topic.partition_count {
-                if let Ok(segments) = state
-                    .metadata
-                    .get_segments(topic_name, partition_id)
-                    .await
-                {
+                if let Ok(segments) = state.metadata.get_segments(topic_name, partition_id).await {
                     let partition_rows: u64 = segments.iter().map(|s| s.record_count as u64).sum();
                     let partition_bytes: u64 = segments.iter().map(|s| s.size_bytes).sum();
 
@@ -1212,11 +1223,7 @@ pub async fn infer_schema(
                 } else {
                     None
                 },
-                sample_values: stats
-                    .unique_values
-                    .into_iter()
-                    .take(5)
-                    .collect(),
+                sample_values: stats.unique_values.into_iter().take(5).collect(),
                 description: None,
                 suggested_sql_type,
             }
@@ -1259,7 +1266,10 @@ pub async fn infer_schema(
 
     // Add AI suggestions
     for suggestion in ai_index_suggestions {
-        if !index_recommendations.iter().any(|r| r.field == suggestion.field) {
+        if !index_recommendations
+            .iter()
+            .any(|r| r.field == suggestion.field)
+        {
             index_recommendations.push(IndexRecommendation {
                 field: suggestion.field.clone(),
                 reason: suggestion.reason,
@@ -1438,7 +1448,9 @@ fn generate_index_recommendations(
         }
 
         // Status/type fields with low cardinality
-        if (field.path.contains("status") || field.path.contains("type") || field.path.contains("state"))
+        if (field.path.contains("status")
+            || field.path.contains("type")
+            || field.path.contains("state"))
             && field.unique_values.is_some()
             && field.unique_values.unwrap() < 20
         {
@@ -1454,7 +1466,8 @@ fn generate_index_recommendations(
         }
 
         // Timestamp fields
-        if field.path.contains("time") || field.path.contains("date") || field.path.contains("_at") {
+        if field.path.contains("time") || field.path.contains("date") || field.path.contains("_at")
+        {
             recommendations.push(IndexRecommendation {
                 field: field.path.clone(),
                 reason: "Timestamp field - useful for time-range queries".to_string(),
@@ -1521,7 +1534,9 @@ Respond with JSON:
         system: system_prompt,
         messages: vec![ClaudeMessage {
             role: "user".to_string(),
-            content: "Analyze this schema and provide descriptions, summary, and index recommendations.".to_string(),
+            content:
+                "Analyze this schema and provide descriptions, summary, and index recommendations."
+                    .to_string(),
         }],
     };
 
@@ -1551,8 +1566,7 @@ Respond with JSON:
         .unwrap_or_default();
 
     let json_text = extract_json(&text);
-    serde_json::from_str(&json_text)
-        .map_err(|e| format!("Failed to parse schema analysis: {}", e))
+    serde_json::from_str(&json_text).map_err(|e| format!("Failed to parse schema analysis: {}", e))
 }
 
 #[cfg(test)]

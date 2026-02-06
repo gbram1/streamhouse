@@ -253,7 +253,10 @@ pub enum WindowAggregation {
     /// COUNT(*)
     Count { alias: Option<String> },
     /// COUNT(DISTINCT column)
-    CountDistinct { column: String, alias: Option<String> },
+    CountDistinct {
+        column: String,
+        alias: Option<String>,
+    },
     /// SUM(column)
     Sum { path: String, alias: Option<String> },
     /// AVG(column)
@@ -314,10 +317,7 @@ pub enum SelectColumn {
     },
     /// Z-score calculation: zscore(json_extract(value, '$.path'))
     /// Calculates (value - mean) / stddev for anomaly detection
-    ZScore {
-        path: String,
-        alias: Option<String>,
-    },
+    ZScore { path: String, alias: Option<String> },
     /// Moving average: moving_avg(json_extract(value, '$.path'), window_size)
     MovingAvg {
         path: String,
@@ -325,15 +325,9 @@ pub enum SelectColumn {
         alias: Option<String>,
     },
     /// Standard deviation: stddev(json_extract(value, '$.path'))
-    Stddev {
-        path: String,
-        alias: Option<String>,
-    },
+    Stddev { path: String, alias: Option<String> },
     /// Mean/average: avg(json_extract(value, '$.path'))
-    Avg {
-        path: String,
-        alias: Option<String>,
-    },
+    Avg { path: String, alias: Option<String> },
     /// Anomaly indicator: anomaly(json_extract(value, '$.path'), threshold)
     /// Returns true if |zscore| > threshold
     Anomaly {
@@ -360,10 +354,7 @@ pub enum SelectColumn {
         alias: Option<String>,
     },
     /// Vector magnitude/norm: vector_norm(vector_path)
-    VectorNorm {
-        path: String,
-        alias: Option<String>,
-    },
+    VectorNorm { path: String, alias: Option<String> },
 }
 
 /// COUNT(*) query structure
@@ -409,21 +400,12 @@ pub enum Filter {
     },
     /// zscore(json_extract(value, '$.path')) > threshold
     /// Filters rows where z-score exceeds threshold (anomalies)
-    ZScoreGt {
-        path: String,
-        threshold: f64,
-    },
+    ZScoreGt { path: String, threshold: f64 },
     /// zscore(json_extract(value, '$.path')) < threshold
-    ZScoreLt {
-        path: String,
-        threshold: f64,
-    },
+    ZScoreLt { path: String, threshold: f64 },
     /// |zscore(json_extract(value, '$.path'))| > threshold
     /// Filters for statistical outliers (anomalies)
-    AnomalyThreshold {
-        path: String,
-        threshold: f64,
-    },
+    AnomalyThreshold { path: String, threshold: f64 },
     /// cosine_similarity(vector_path, query_vector) > threshold
     /// Filter for vector similarity search
     CosineSimilarityGt {
@@ -544,18 +526,21 @@ impl MessageRow {
                 }
                 SelectColumn::JsonExtract { path, .. } => {
                     // Try to parse value as JSON and extract path
-                    let extracted = if let Ok(json) = serde_json::from_str::<serde_json::Value>(&self.value) {
-                        extract_json_path(&json, path)
-                    } else {
-                        serde_json::Value::Null
-                    };
+                    let extracted =
+                        if let Ok(json) = serde_json::from_str::<serde_json::Value>(&self.value) {
+                            extract_json_path(&json, path)
+                        } else {
+                            serde_json::Value::Null
+                        };
                     vec![extracted]
                 }
                 SelectColumn::ZScore { path, .. } => {
                     let zscore = self.calculate_zscore(path, ctx);
                     vec![serde_json::json!(zscore)]
                 }
-                SelectColumn::MovingAvg { path, window_size, .. } => {
+                SelectColumn::MovingAvg {
+                    path, window_size, ..
+                } => {
                     let ma = self.calculate_moving_avg(path, *window_size, ctx);
                     vec![serde_json::json!(ma)]
                 }
@@ -573,19 +558,27 @@ impl MessageRow {
                         .unwrap_or(0.0);
                     vec![serde_json::json!(avg)]
                 }
-                SelectColumn::Anomaly { path, threshold, .. } => {
+                SelectColumn::Anomaly {
+                    path, threshold, ..
+                } => {
                     let is_anomaly = self.is_anomaly(path, *threshold, ctx);
                     vec![serde_json::Value::Bool(is_anomaly)]
                 }
-                SelectColumn::CosineSimilarity { path, query_vector, .. } => {
+                SelectColumn::CosineSimilarity {
+                    path, query_vector, ..
+                } => {
                     let similarity = self.compute_cosine_similarity(path, query_vector);
                     vec![serde_json::json!(similarity)]
                 }
-                SelectColumn::EuclideanDistance { path, query_vector, .. } => {
+                SelectColumn::EuclideanDistance {
+                    path, query_vector, ..
+                } => {
                     let distance = self.compute_euclidean_distance(path, query_vector);
                     vec![serde_json::json!(distance)]
                 }
-                SelectColumn::DotProduct { path, query_vector, .. } => {
+                SelectColumn::DotProduct {
+                    path, query_vector, ..
+                } => {
                     let dot = self.compute_dot_product(path, query_vector);
                     vec![serde_json::json!(dot)]
                 }
@@ -616,9 +609,16 @@ impl MessageRow {
     }
 
     /// Calculate moving average for a field
-    fn calculate_moving_avg(&self, path: &str, window_size: usize, ctx: Option<&RowContext>) -> f64 {
+    fn calculate_moving_avg(
+        &self,
+        path: &str,
+        window_size: usize,
+        ctx: Option<&RowContext>,
+    ) -> f64 {
         ctx.and_then(|c| {
-            c.stats.get(path).map(|s| s.moving_avg(window_size, c.row_index))
+            c.stats
+                .get(path)
+                .map(|s| s.moving_avg(window_size, c.row_index))
         })
         .unwrap_or(0.0)
     }
@@ -675,8 +675,14 @@ impl MessageRow {
     }
 
     /// Check if row matches all filters with optional statistics context
-    pub fn matches_filters_with_context(&self, filters: &[Filter], ctx: Option<&RowContext>) -> bool {
-        filters.iter().all(|filter| self.matches_filter_with_context(filter, ctx))
+    pub fn matches_filters_with_context(
+        &self,
+        filters: &[Filter],
+        ctx: Option<&RowContext>,
+    ) -> bool {
+        filters
+            .iter()
+            .all(|filter| self.matches_filter_with_context(filter, ctx))
     }
 
     fn matches_filter(&self, filter: &Filter) -> bool {
@@ -724,14 +730,20 @@ impl MessageRow {
                 let zscore = self.calculate_zscore(path, ctx);
                 zscore < *threshold
             }
-            Filter::AnomalyThreshold { path, threshold } => {
-                self.is_anomaly(path, *threshold, ctx)
-            }
-            Filter::CosineSimilarityGt { path, query_vector, threshold } => {
+            Filter::AnomalyThreshold { path, threshold } => self.is_anomaly(path, *threshold, ctx),
+            Filter::CosineSimilarityGt {
+                path,
+                query_vector,
+                threshold,
+            } => {
                 let similarity = self.compute_cosine_similarity(path, query_vector);
                 similarity > *threshold
             }
-            Filter::EuclideanDistanceLt { path, query_vector, threshold } => {
+            Filter::EuclideanDistanceLt {
+                path,
+                query_vector,
+                threshold,
+            } => {
                 let distance = self.compute_euclidean_distance(path, query_vector);
                 distance < *threshold
             }
@@ -750,7 +762,9 @@ fn extract_json_path(json: &serde_json::Value, path: &str) -> serde_json::Value 
             continue;
         }
         current = match current {
-            serde_json::Value::Object(map) => map.get(part).cloned().unwrap_or(serde_json::Value::Null),
+            serde_json::Value::Object(map) => {
+                map.get(part).cloned().unwrap_or(serde_json::Value::Null)
+            }
             serde_json::Value::Array(arr) => {
                 if let Ok(idx) = part.parse::<usize>() {
                     arr.get(idx).cloned().unwrap_or(serde_json::Value::Null)
@@ -786,7 +800,7 @@ pub struct FieldStatistics {
     pub count: usize,
     pub sum: f64,
     pub sum_squared: f64,
-    pub values: Vec<f64>,  // For moving average calculations
+    pub values: Vec<f64>, // For moving average calculations
 }
 
 impl FieldStatistics {
@@ -836,7 +850,11 @@ impl FieldStatistics {
     }
 
     pub fn moving_avg(&self, window: usize, index: usize) -> f64 {
-        let start = if index >= window { index - window + 1 } else { 0 };
+        let start = if index >= window {
+            index - window + 1
+        } else {
+            0
+        };
         let end = (index + 1).min(self.values.len());
         let slice = &self.values[start..end];
         if slice.is_empty() {
@@ -1488,7 +1506,9 @@ mod tests {
         let modes = vec![
             RefreshMode::Continuous,
             RefreshMode::Manual,
-            RefreshMode::Periodic { interval_ms: 300000 },
+            RefreshMode::Periodic {
+                interval_ms: 300000,
+            },
         ];
         for mode in modes {
             let json = serde_json::to_string(&mode).unwrap();
@@ -1509,9 +1529,18 @@ mod tests {
 
     #[test]
     fn test_materialized_view_status_eq() {
-        assert_eq!(MaterializedViewStatus::Running, MaterializedViewStatus::Running);
-        assert_eq!(MaterializedViewStatus::Paused, MaterializedViewStatus::Paused);
-        assert_eq!(MaterializedViewStatus::Initializing, MaterializedViewStatus::Initializing);
+        assert_eq!(
+            MaterializedViewStatus::Running,
+            MaterializedViewStatus::Running
+        );
+        assert_eq!(
+            MaterializedViewStatus::Paused,
+            MaterializedViewStatus::Paused
+        );
+        assert_eq!(
+            MaterializedViewStatus::Initializing,
+            MaterializedViewStatus::Initializing
+        );
         assert_eq!(
             MaterializedViewStatus::Error("test".to_string()),
             MaterializedViewStatus::Error("test".to_string())
@@ -1520,7 +1549,10 @@ mod tests {
 
     #[test]
     fn test_materialized_view_status_neq() {
-        assert_ne!(MaterializedViewStatus::Running, MaterializedViewStatus::Paused);
+        assert_ne!(
+            MaterializedViewStatus::Running,
+            MaterializedViewStatus::Paused
+        );
         assert_ne!(
             MaterializedViewStatus::Error("a".to_string()),
             MaterializedViewStatus::Error("b".to_string())
@@ -1870,7 +1902,12 @@ mod tests {
         for col_name in &cols {
             let row = msg.to_row(&[SelectColumn::Column(col_name.to_string())]);
             assert_eq!(row.len(), 1, "Column {} should produce 1 value", col_name);
-            assert_ne!(row[0], serde_json::Value::Null, "Column {} should not be null", col_name);
+            assert_ne!(
+                row[0],
+                serde_json::Value::Null,
+                "Column {} should not be null",
+                col_name
+            );
         }
     }
 
@@ -2091,8 +2128,8 @@ mod tests {
     fn test_matches_filter_multiple_one_fails() {
         let msg = make_test_row();
         let filters = vec![
-            Filter::PartitionEquals(2),   // matches
-            Filter::OffsetGte(50),        // matches
+            Filter::PartitionEquals(2),             // matches
+            Filter::OffsetGte(50),                  // matches
             Filter::KeyEquals("wrong".to_string()), // does NOT match
         ];
         assert!(!msg.matches_filters(&filters));
@@ -2121,7 +2158,10 @@ mod tests {
         // When vector field is missing, cosine_similarity returns 0.0
         assert_eq!(msg.compute_cosine_similarity("$.missing", &[1.0, 0.0]), 0.0);
         // euclidean_distance returns f64::MAX
-        assert_eq!(msg.compute_euclidean_distance("$.missing", &[1.0, 0.0]), f64::MAX);
+        assert_eq!(
+            msg.compute_euclidean_distance("$.missing", &[1.0, 0.0]),
+            f64::MAX
+        );
         // dot_product returns 0.0
         assert_eq!(msg.compute_dot_product("$.missing", &[1.0, 0.0]), 0.0);
         // vector_norm returns 0.0
@@ -2279,7 +2319,10 @@ mod tests {
     fn test_default_columns_names() {
         let cols = default_columns();
         let names: Vec<&str> = cols.iter().map(|c| c.name.as_str()).collect();
-        assert_eq!(names, vec!["topic", "partition", "offset", "key", "value", "timestamp"]);
+        assert_eq!(
+            names,
+            vec!["topic", "partition", "offset", "key", "value", "timestamp"]
+        );
     }
 
     #[test]
@@ -2371,8 +2414,14 @@ mod tests {
     fn test_query_result_roundtrip() {
         let result = QueryResult {
             columns: vec![
-                ColumnInfo { name: "key".to_string(), data_type: "string".to_string() },
-                ColumnInfo { name: "offset".to_string(), data_type: "bigint".to_string() },
+                ColumnInfo {
+                    name: "key".to_string(),
+                    data_type: "string".to_string(),
+                },
+                ColumnInfo {
+                    name: "offset".to_string(),
+                    data_type: "bigint".to_string(),
+                },
             ],
             rows: vec![
                 vec![serde_json::json!("k1"), serde_json::json!(100)],
@@ -2403,9 +2452,21 @@ mod tests {
             total_messages: 50000,
             schema_subject: Some("orders-value".to_string()),
             partitions: vec![
-                PartitionInfo { partition_id: 0, high_watermark: 20000, segment_count: 5 },
-                PartitionInfo { partition_id: 1, high_watermark: 15000, segment_count: 4 },
-                PartitionInfo { partition_id: 2, high_watermark: 15000, segment_count: 4 },
+                PartitionInfo {
+                    partition_id: 0,
+                    high_watermark: 20000,
+                    segment_count: 5,
+                },
+                PartitionInfo {
+                    partition_id: 1,
+                    high_watermark: 15000,
+                    segment_count: 4,
+                },
+                PartitionInfo {
+                    partition_id: 2,
+                    high_watermark: 15000,
+                    segment_count: 4,
+                },
             ],
         };
         let json = serde_json::to_value(&desc).unwrap();
@@ -2440,8 +2501,16 @@ mod tests {
             total_messages: 100,
             schema_subject: None,
             partitions: vec![
-                PartitionInfo { partition_id: 0, high_watermark: 50, segment_count: 1 },
-                PartitionInfo { partition_id: 1, high_watermark: 50, segment_count: 1 },
+                PartitionInfo {
+                    partition_id: 0,
+                    high_watermark: 50,
+                    segment_count: 1,
+                },
+                PartitionInfo {
+                    partition_id: 1,
+                    high_watermark: 50,
+                    segment_count: 1,
+                },
             ],
         };
         let json_str = serde_json::to_string(&desc).unwrap();
@@ -2507,7 +2576,8 @@ mod tests {
         let info = MaterializedViewInfo {
             name: "hourly_sales".to_string(),
             source_topic: "orders".to_string(),
-            query_sql: "SELECT COUNT(*) FROM orders GROUP BY TUMBLE(timestamp, '1 hour')".to_string(),
+            query_sql: "SELECT COUNT(*) FROM orders GROUP BY TUMBLE(timestamp, '1 hour')"
+                .to_string(),
             refresh_mode: RefreshMode::Continuous,
             status: MaterializedViewStatus::Running,
             last_refresh_at: Some(1700000000000),
@@ -2707,10 +2777,7 @@ mod tests {
     #[test]
     fn test_message_row_to_row_mixed_all_and_specific() {
         let msg = make_test_row();
-        let columns = vec![
-            SelectColumn::All,
-            SelectColumn::Column("key".to_string()),
-        ];
+        let columns = vec![SelectColumn::All, SelectColumn::Column("key".to_string())];
         let row = msg.to_row(&columns);
         assert_eq!(row.len(), 7); // 6 from All + 1 from Column
     }

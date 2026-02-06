@@ -165,7 +165,10 @@ impl SegmentWriter {
         }
 
         // If starting a new block (after flush), create index entry and reset delta state
-        if self.current_block.is_empty() && self.base_offset.is_some() && self.index.len() < self.blocks.len() + 1 {
+        if self.current_block.is_empty()
+            && self.base_offset.is_some()
+            && self.index.len() < self.blocks.len() + 1
+        {
             let file_position =
                 HEADER_SIZE as u64 + self.blocks.iter().map(|b| b.len() as u64).sum::<u64>();
             self.index.push(IndexEntry {
@@ -472,12 +475,7 @@ mod tests {
         use crate::segment::reader::SegmentReader;
 
         let mut writer = SegmentWriter::new(Compression::Lz4);
-        let record = Record::new(
-            0,
-            1_000_000,
-            Some(Bytes::from("k")),
-            Bytes::from("v"),
-        );
+        let record = Record::new(0, 1_000_000, Some(Bytes::from("k")), Bytes::from("v"));
         writer.append(&record).unwrap();
         let data = writer.finish().unwrap();
 
@@ -756,12 +754,7 @@ mod tests {
         for i in 0..20 {
             // Highly compressible: same byte repeated
             let value = vec![0xAB; 128 * 1024];
-            let record = Record::new(
-                i as u64,
-                2_000_000 + i as u64,
-                None,
-                Bytes::from(value),
-            );
+            let record = Record::new(i as u64, 2_000_000 + i as u64, None, Bytes::from(value));
             originals.push(record.clone());
             writer.append(&record).unwrap();
         }
@@ -810,18 +803,15 @@ mod tests {
         assert_eq!(compression, Compression::Lz4 as u16);
 
         // Check base offset (bytes 8..16, big-endian u64)
-        let base_offset =
-            u64::from_be_bytes(data[8..16].try_into().unwrap());
+        let base_offset = u64::from_be_bytes(data[8..16].try_into().unwrap());
         assert_eq!(base_offset, 10);
 
         // Check end offset (bytes 16..24, big-endian u64)
-        let end_offset =
-            u64::from_be_bytes(data[16..24].try_into().unwrap());
+        let end_offset = u64::from_be_bytes(data[16..24].try_into().unwrap());
         assert_eq!(end_offset, 14);
 
         // Check record count (bytes 24..28, big-endian u32)
-        let record_count =
-            u32::from_be_bytes(data[24..28].try_into().unwrap());
+        let record_count = u32::from_be_bytes(data[24..28].try_into().unwrap());
         assert_eq!(record_count, 5);
     }
 
@@ -834,10 +824,7 @@ mod tests {
 
         let footer_start = data.len() - FOOTER_SIZE;
         // Magic bytes in footer at offset +12..+16
-        assert_eq!(
-            &data[footer_start + 12..footer_start + 16],
-            &SEGMENT_MAGIC
-        );
+        assert_eq!(&data[footer_start + 12..footer_start + 16], &SEGMENT_MAGIC);
     }
 
     #[test]
@@ -852,8 +839,11 @@ mod tests {
 
         let footer_start = data.len() - FOOTER_SIZE;
         // CRC32 is at footer offset +8..+12
-        let stored_crc =
-            u32::from_be_bytes(data[footer_start + 8..footer_start + 12].try_into().unwrap());
+        let stored_crc = u32::from_be_bytes(
+            data[footer_start + 8..footer_start + 12]
+                .try_into()
+                .unwrap(),
+        );
         let calculated_crc = crc32fast::hash(&data[..footer_start]);
         assert_eq!(stored_crc, calculated_crc);
     }
@@ -867,12 +857,7 @@ mod tests {
         let mut writer = SegmentWriter::new(Compression::Zstd);
         // Write enough to trigger a block flush
         for i in 0..2000 {
-            let record = Record::new(
-                i,
-                1000 + i,
-                None,
-                Bytes::from(vec![0u8; 1024]),
-            );
+            let record = Record::new(i, 1000 + i, None, Bytes::from(vec![0u8; 1024]));
             // Append might succeed until flush is triggered
             let _ = writer.append(&record);
         }
@@ -1009,7 +994,11 @@ mod tests {
                 i,
                 1_000_000_000 + i * 1000,
                 Some(Bytes::from(format!("user-{}", i % 50))),
-                Bytes::from(format!("event-data-{}-{}", i, "x".repeat((i % 100) as usize))),
+                Bytes::from(format!(
+                    "event-data-{}-{}",
+                    i,
+                    "x".repeat((i % 100) as usize)
+                )),
             );
             originals.push(record.clone());
             writer.append(&record).unwrap();

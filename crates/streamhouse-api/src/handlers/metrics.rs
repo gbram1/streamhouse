@@ -216,8 +216,14 @@ async fn get_real_throughput_metrics(
     prometheus: &PrometheusClient,
     time_range: &str,
 ) -> Result<Vec<ThroughputMetric>, ()> {
-    let msgs_per_sec = prometheus.get_throughput(time_range).await.map_err(|_| ())?;
-    let bytes_per_sec = prometheus.get_bytes_throughput(time_range).await.map_err(|_| ())?;
+    let msgs_per_sec = prometheus
+        .get_throughput(time_range)
+        .await
+        .map_err(|_| ())?;
+    let bytes_per_sec = prometheus
+        .get_bytes_throughput(time_range)
+        .await
+        .map_err(|_| ())?;
 
     // Combine the two series
     let metrics: Vec<ThroughputMetric> = msgs_per_sec
@@ -259,15 +265,19 @@ async fn get_simulated_throughput_metrics(
 
     // Generate simulated time-series data based on time range
     let (points, interval_secs) = match time_range {
-        "5m" => (30, 10),      // 30 points, 10 seconds apart
-        "1h" => (60, 60),      // 60 points, 1 minute apart
-        "24h" => (96, 900),    // 96 points, 15 minutes apart
-        "7d" => (168, 3600),   // 168 points, 1 hour apart
+        "5m" => (30, 10),    // 30 points, 10 seconds apart
+        "1h" => (60, 60),    // 60 points, 1 minute apart
+        "24h" => (96, 900),  // 96 points, 15 minutes apart
+        "7d" => (168, 3600), // 168 points, 1 hour apart
         _ => (60, 60),
     };
 
     let now = chrono::Utc::now().timestamp();
-    let base_rate = if total_messages > 0 { (total_messages as f64 / 3600.0).max(10.0) } else { 50.0 };
+    let base_rate = if total_messages > 0 {
+        (total_messages as f64 / 3600.0).max(10.0)
+    } else {
+        50.0
+    };
 
     let metrics: Vec<ThroughputMetric> = (0..points)
         .map(|i| {
@@ -322,7 +332,10 @@ async fn get_real_latency_metrics(
     prometheus: &PrometheusClient,
     time_range: &str,
 ) -> Result<Vec<LatencyMetric>, ()> {
-    let percentiles = prometheus.get_latency_percentiles(time_range).await.map_err(|_| ())?;
+    let percentiles = prometheus
+        .get_latency_percentiles(time_range)
+        .await
+        .map_err(|_| ())?;
 
     // Combine percentiles into latency metrics
     // Convert from seconds to milliseconds for UI
@@ -331,8 +344,16 @@ async fn get_real_latency_metrics(
         .iter()
         .enumerate()
         .map(|(i, p50_point)| {
-            let p95 = percentiles.p95.get(i).map(|p| p.value * 1000.0).unwrap_or(p50_point.value * 2.5 * 1000.0);
-            let p99 = percentiles.p99.get(i).map(|p| p.value * 1000.0).unwrap_or(p50_point.value * 4.0 * 1000.0);
+            let p95 = percentiles
+                .p95
+                .get(i)
+                .map(|p| p.value * 1000.0)
+                .unwrap_or(p50_point.value * 2.5 * 1000.0);
+            let p99 = percentiles
+                .p99
+                .get(i)
+                .map(|p| p.value * 1000.0)
+                .unwrap_or(p50_point.value * 4.0 * 1000.0);
             let p50_ms = p50_point.value * 1000.0;
 
             LatencyMetric {
@@ -416,8 +437,14 @@ async fn get_real_error_metrics(
     prometheus: &PrometheusClient,
     time_range: &str,
 ) -> Result<Vec<ErrorMetric>, ()> {
-    let error_rates = prometheus.get_error_rate(time_range).await.map_err(|_| ())?;
-    let error_counts = prometheus.get_error_count(time_range).await.map_err(|_| ())?;
+    let error_rates = prometheus
+        .get_error_rate(time_range)
+        .await
+        .map_err(|_| ())?;
+    let error_counts = prometheus
+        .get_error_count(time_range)
+        .await
+        .map_err(|_| ())?;
 
     // Combine the two series
     let metrics: Vec<ErrorMetric> = error_rates

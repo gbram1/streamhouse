@@ -110,12 +110,8 @@ impl OAuthProvider {
     /// Get the authorization endpoint
     pub fn authorization_endpoint(&self) -> String {
         match self {
-            OAuthProvider::Google => {
-                "https://accounts.google.com/o/oauth2/v2/auth".to_string()
-            }
-            OAuthProvider::GitHub => {
-                "https://github.com/login/oauth/authorize".to_string()
-            }
+            OAuthProvider::Google => "https://accounts.google.com/o/oauth2/v2/auth".to_string(),
+            OAuthProvider::GitHub => "https://github.com/login/oauth/authorize".to_string(),
             OAuthProvider::Okta { domain } => {
                 format!("https://{}/oauth2/default/v1/authorize", domain)
             }
@@ -128,12 +124,8 @@ impl OAuthProvider {
     /// Get the token endpoint
     pub fn token_endpoint(&self) -> String {
         match self {
-            OAuthProvider::Google => {
-                "https://oauth2.googleapis.com/token".to_string()
-            }
-            OAuthProvider::GitHub => {
-                "https://github.com/login/oauth/access_token".to_string()
-            }
+            OAuthProvider::Google => "https://oauth2.googleapis.com/token".to_string(),
+            OAuthProvider::GitHub => "https://github.com/login/oauth/access_token".to_string(),
             OAuthProvider::Okta { domain } => {
                 format!("https://{}/oauth2/default/v1/token", domain)
             }
@@ -146,12 +138,8 @@ impl OAuthProvider {
     /// Get the userinfo endpoint
     pub fn userinfo_endpoint(&self) -> String {
         match self {
-            OAuthProvider::Google => {
-                "https://openidconnect.googleapis.com/v1/userinfo".to_string()
-            }
-            OAuthProvider::GitHub => {
-                "https://api.github.com/user".to_string()
-            }
+            OAuthProvider::Google => "https://openidconnect.googleapis.com/v1/userinfo".to_string(),
+            OAuthProvider::GitHub => "https://api.github.com/user".to_string(),
             OAuthProvider::Okta { domain } => {
                 format!("https://{}/oauth2/default/v1/userinfo", domain)
             }
@@ -164,16 +152,12 @@ impl OAuthProvider {
     /// Get the JWKS (JSON Web Key Set) endpoint
     pub fn jwks_endpoint(&self) -> Option<String> {
         match self {
-            OAuthProvider::Google => {
-                Some("https://www.googleapis.com/oauth2/v3/certs".to_string())
-            }
+            OAuthProvider::Google => Some("https://www.googleapis.com/oauth2/v3/certs".to_string()),
             OAuthProvider::GitHub => None, // GitHub doesn't support OIDC
             OAuthProvider::Okta { domain } => {
                 Some(format!("https://{}/oauth2/default/v1/keys", domain))
             }
-            OAuthProvider::Custom { issuer } => {
-                Some(format!("{}/.well-known/jwks.json", issuer))
-            }
+            OAuthProvider::Custom { issuer } => Some(format!("{}/.well-known/jwks.json", issuer)),
         }
     }
 
@@ -198,13 +182,21 @@ impl OAuthProvider {
     pub fn default_scopes(&self) -> Vec<String> {
         match self {
             OAuthProvider::Google => {
-                vec!["openid".to_string(), "email".to_string(), "profile".to_string()]
+                vec![
+                    "openid".to_string(),
+                    "email".to_string(),
+                    "profile".to_string(),
+                ]
             }
             OAuthProvider::GitHub => {
                 vec!["read:user".to_string(), "user:email".to_string()]
             }
             OAuthProvider::Okta { .. } | OAuthProvider::Custom { .. } => {
-                vec!["openid".to_string(), "email".to_string(), "profile".to_string()]
+                vec![
+                    "openid".to_string(),
+                    "email".to_string(),
+                    "profile".to_string(),
+                ]
             }
         }
     }
@@ -259,11 +251,16 @@ impl OAuthConfig {
     /// Create Okta OAuth config
     pub fn okta(domain: &str, client_id: &str, client_secret: &str, redirect_uri: &str) -> Self {
         Self {
-            provider: OAuthProvider::Okta { domain: domain.to_string() },
+            provider: OAuthProvider::Okta {
+                domain: domain.to_string(),
+            },
             client_id: client_id.to_string(),
             client_secret: client_secret.to_string(),
             redirect_uri: redirect_uri.to_string(),
-            scopes: OAuthProvider::Okta { domain: domain.to_string() }.default_scopes(),
+            scopes: OAuthProvider::Okta {
+                domain: domain.to_string(),
+            }
+            .default_scopes(),
             state_timeout: Duration::from_secs(600),
             token_lifetime: Duration::from_secs(3600),
         }
@@ -272,11 +269,17 @@ impl OAuthConfig {
     /// Create custom OIDC provider config
     pub fn custom(issuer: &str, client_id: &str, client_secret: &str, redirect_uri: &str) -> Self {
         Self {
-            provider: OAuthProvider::Custom { issuer: issuer.to_string() },
+            provider: OAuthProvider::Custom {
+                issuer: issuer.to_string(),
+            },
             client_id: client_id.to_string(),
             client_secret: client_secret.to_string(),
             redirect_uri: redirect_uri.to_string(),
-            scopes: vec!["openid".to_string(), "email".to_string(), "profile".to_string()],
+            scopes: vec![
+                "openid".to_string(),
+                "email".to_string(),
+                "profile".to_string(),
+            ],
             state_timeout: Duration::from_secs(600),
             token_lifetime: Duration::from_secs(3600),
         }
@@ -317,7 +320,12 @@ impl OAuthConfig {
                     .map_err(|_| OAuthError::Config("OAUTH_ISSUER not set".to_string()))?;
                 Self::custom(&issuer, &client_id, &client_secret, &redirect_uri)
             }
-            _ => return Err(OAuthError::Config(format!("Unknown provider: {}", provider))),
+            _ => {
+                return Err(OAuthError::Config(format!(
+                    "Unknown provider: {}",
+                    provider
+                )))
+            }
         };
 
         // Override scopes if specified
@@ -452,7 +460,10 @@ impl PkceChallenge {
         let hash = hasher.finalize();
         let challenge = URL_SAFE_NO_PAD.encode(hash);
 
-        Self { verifier, challenge }
+        Self {
+            verifier,
+            challenge,
+        }
     }
 }
 
@@ -654,9 +665,7 @@ impl OAuthService {
 
         // Validate audience
         if !claims.aud.contains(&self.config.client_id) {
-            return Err(OAuthError::TokenValidation(
-                "Invalid audience".to_string(),
-            ));
+            return Err(OAuthError::TokenValidation("Invalid audience".to_string()));
         }
 
         // Validate expiration
@@ -747,7 +756,10 @@ impl OAuthService {
             .unwrap()
             .as_secs();
 
-        let expires_at = now + tokens.expires_in.unwrap_or(self.config.token_lifetime.as_secs());
+        let expires_at = now
+            + tokens
+                .expires_in
+                .unwrap_or(self.config.token_lifetime.as_secs());
 
         let session = OAuthSession {
             session_id: session_id.clone(),
@@ -818,9 +830,7 @@ impl OAuthService {
         // Clean up expired states
         {
             let mut states = self.pending_states.write().await;
-            states.retain(|_, state| {
-                now - state.created_at < self.config.state_timeout.as_secs()
-            });
+            states.retain(|_, state| now - state.created_at < self.config.state_timeout.as_secs());
         }
 
         // Clean up expired sessions
@@ -952,7 +962,9 @@ pub async fn oauth_logout(
 fn extract_session_id(headers: &HeaderMap) -> Result<String> {
     // Try Authorization header first
     if let Some(auth) = headers.get(header::AUTHORIZATION) {
-        let auth_str = auth.to_str().map_err(|_| OAuthError::InvalidToken("Invalid header".to_string()))?;
+        let auth_str = auth
+            .to_str()
+            .map_err(|_| OAuthError::InvalidToken("Invalid header".to_string()))?;
         if let Some(token) = auth_str.strip_prefix("Bearer ") {
             return Ok(token.to_string());
         }
@@ -960,7 +972,9 @@ fn extract_session_id(headers: &HeaderMap) -> Result<String> {
 
     // Try X-Session-ID header
     if let Some(session) = headers.get("X-Session-ID") {
-        let session_str = session.to_str().map_err(|_| OAuthError::InvalidToken("Invalid header".to_string()))?;
+        let session_str = session
+            .to_str()
+            .map_err(|_| OAuthError::InvalidToken("Invalid header".to_string()))?;
         return Ok(session_str.to_string());
     }
 
@@ -1030,7 +1044,12 @@ mod tests {
 
     #[test]
     fn test_okta_config() {
-        let config = OAuthConfig::okta("myorg.okta.com", "client123", "secret456", "http://localhost/callback");
+        let config = OAuthConfig::okta(
+            "myorg.okta.com",
+            "client123",
+            "secret456",
+            "http://localhost/callback",
+        );
         assert!(matches!(config.provider, OAuthProvider::Okta { .. }));
         assert_eq!(
             config.provider.authorization_endpoint(),

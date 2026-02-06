@@ -137,7 +137,10 @@ impl MetadataStore for SqliteMetadataStore {
         let now = Self::now_ms();
         // Include cleanup_policy in the config map for storage
         let mut config_map = config.config.clone();
-        config_map.insert("cleanup.policy".to_string(), config.cleanup_policy.as_str().to_string());
+        config_map.insert(
+            "cleanup.policy".to_string(),
+            config.cleanup_policy.as_str().to_string(),
+        );
         let config_json = serde_json::to_string(&config_map)?;
 
         // Insert topic
@@ -209,8 +212,10 @@ impl MetadataStore for SqliteMetadataStore {
         .await?;
 
         Ok(row.map(|r| {
-            let config: HashMap<String, String> = serde_json::from_str(&r.config).unwrap_or_default();
-            let cleanup_policy = config.get("cleanup.policy")
+            let config: HashMap<String, String> =
+                serde_json::from_str(&r.config).unwrap_or_default();
+            let cleanup_policy = config
+                .get("cleanup.policy")
                 .map(|s| CleanupPolicy::from_str(s))
                 .unwrap_or_default();
             Topic {
@@ -238,8 +243,10 @@ impl MetadataStore for SqliteMetadataStore {
         Ok(rows
             .into_iter()
             .map(|r| {
-                let config: HashMap<String, String> = serde_json::from_str(&r.config).unwrap_or_default();
-                let cleanup_policy = config.get("cleanup.policy")
+                let config: HashMap<String, String> =
+                    serde_json::from_str(&r.config).unwrap_or_default();
+                let cleanup_policy = config
+                    .get("cleanup.policy")
                     .map(|s| CleanupPolicy::from_str(s))
                     .unwrap_or_default();
                 Topic {
@@ -1006,8 +1013,8 @@ impl MetadataStore for SqliteMetadataStore {
         let row: Option<(String, String, String, String, String, i64, String)> =
             sqlx::query_as(&query).fetch_optional(&self.pool).await?;
 
-        Ok(row.map(|(id, name, slug, plan, status, created_at, settings_json)| {
-            Organization {
+        Ok(row.map(
+            |(id, name, slug, plan, status, created_at, settings_json)| Organization {
                 id,
                 name,
                 slug,
@@ -1015,8 +1022,8 @@ impl MetadataStore for SqliteMetadataStore {
                 status: status.parse().unwrap_or_default(),
                 created_at,
                 settings: serde_json::from_str(&settings_json).unwrap_or_default(),
-            }
-        }))
+            },
+        ))
     }
 
     async fn get_organization_by_slug(&self, slug: &str) -> Result<Option<Organization>> {
@@ -1029,8 +1036,8 @@ impl MetadataStore for SqliteMetadataStore {
         let row: Option<(String, String, String, String, String, i64, String)> =
             sqlx::query_as(&query).fetch_optional(&self.pool).await?;
 
-        Ok(row.map(|(id, name, slug, plan, status, created_at, settings_json)| {
-            Organization {
+        Ok(row.map(
+            |(id, name, slug, plan, status, created_at, settings_json)| Organization {
                 id,
                 name,
                 slug,
@@ -1038,8 +1045,8 @@ impl MetadataStore for SqliteMetadataStore {
                 status: status.parse().unwrap_or_default(),
                 created_at,
                 settings: serde_json::from_str(&settings_json).unwrap_or_default(),
-            }
-        }))
+            },
+        ))
     }
 
     async fn list_organizations(&self) -> Result<Vec<Organization>> {
@@ -1052,23 +1059,21 @@ impl MetadataStore for SqliteMetadataStore {
 
         Ok(rows
             .into_iter()
-            .map(|(id, name, slug, plan, status, created_at, settings_json)| Organization {
-                id,
-                name,
-                slug,
-                plan: plan.parse().unwrap_or_default(),
-                status: status.parse().unwrap_or_default(),
-                created_at,
-                settings: serde_json::from_str(&settings_json).unwrap_or_default(),
-            })
+            .map(
+                |(id, name, slug, plan, status, created_at, settings_json)| Organization {
+                    id,
+                    name,
+                    slug,
+                    plan: plan.parse().unwrap_or_default(),
+                    status: status.parse().unwrap_or_default(),
+                    created_at,
+                    settings: serde_json::from_str(&settings_json).unwrap_or_default(),
+                },
+            )
             .collect())
     }
 
-    async fn update_organization_status(
-        &self,
-        id: &str,
-        status: OrganizationStatus,
-    ) -> Result<()> {
+    async fn update_organization_status(&self, id: &str, status: OrganizationStatus) -> Result<()> {
         let status_str = status.to_string();
         let now = Self::now_ms();
 
@@ -1316,7 +1321,10 @@ impl MetadataStore for SqliteMetadataStore {
     async fn touch_api_key(&self, id: &str) -> Result<()> {
         let now = Self::now_ms();
 
-        let query = format!("UPDATE api_keys SET last_used_at = {} WHERE id = '{}'", now, id);
+        let query = format!(
+            "UPDATE api_keys SET last_used_at = {} WHERE id = '{}'",
+            now, id
+        );
         sqlx::query(&query).execute(&self.pool).await?;
 
         Ok(())
@@ -1436,7 +1444,10 @@ impl MetadataStore for SqliteMetadataStore {
         Ok(())
     }
 
-    async fn get_organization_usage(&self, organization_id: &str) -> Result<Vec<OrganizationUsage>> {
+    async fn get_organization_usage(
+        &self,
+        organization_id: &str,
+    ) -> Result<Vec<OrganizationUsage>> {
         let query = format!(
             "SELECT organization_id, metric, value, period_start \
              FROM organization_usage WHERE organization_id = '{}' ORDER BY metric",
@@ -1448,12 +1459,14 @@ impl MetadataStore for SqliteMetadataStore {
 
         Ok(rows
             .into_iter()
-            .map(|(organization_id, metric, value, period_start)| OrganizationUsage {
-                organization_id,
-                metric,
-                value,
-                period_start,
-            })
+            .map(
+                |(organization_id, metric, value, period_start)| OrganizationUsage {
+                    organization_id,
+                    metric,
+                    value,
+                    period_start,
+                },
+            )
             .collect())
     }
 
@@ -1509,7 +1522,10 @@ impl MetadataStore for SqliteMetadataStore {
         // Check if transactional producer already exists
         if let Some(ref transactional_id) = config.transactional_id {
             let existing = self
-                .get_producer_by_transactional_id(transactional_id, config.organization_id.as_deref())
+                .get_producer_by_transactional_id(
+                    transactional_id,
+                    config.organization_id.as_deref(),
+                )
                 .await?;
 
             if let Some(mut producer) = existing {
@@ -1565,11 +1581,28 @@ impl MetadataStore for SqliteMetadataStore {
             producer_id
         );
 
-        let row: Option<(String, Option<String>, Option<String>, i64, i64, i64, String, String)> =
-            sqlx::query_as(&query).fetch_optional(&self.pool).await?;
+        let row: Option<(
+            String,
+            Option<String>,
+            Option<String>,
+            i64,
+            i64,
+            i64,
+            String,
+            String,
+        )> = sqlx::query_as(&query).fetch_optional(&self.pool).await?;
 
         Ok(row.map(
-            |(id, organization_id, transactional_id, epoch, created_at, last_heartbeat, state, metadata_json)| {
+            |(
+                id,
+                organization_id,
+                transactional_id,
+                epoch,
+                created_at,
+                last_heartbeat,
+                state,
+                metadata_json,
+            )| {
                 Producer {
                     id,
                     organization_id,
@@ -1602,11 +1635,28 @@ impl MetadataStore for SqliteMetadataStore {
             ),
         };
 
-        let row: Option<(String, Option<String>, Option<String>, i64, i64, i64, String, String)> =
-            sqlx::query_as(&query).fetch_optional(&self.pool).await?;
+        let row: Option<(
+            String,
+            Option<String>,
+            Option<String>,
+            i64,
+            i64,
+            i64,
+            String,
+            String,
+        )> = sqlx::query_as(&query).fetch_optional(&self.pool).await?;
 
         Ok(row.map(
-            |(id, organization_id, transactional_id, epoch, created_at, last_heartbeat, state, metadata_json)| {
+            |(
+                id,
+                organization_id,
+                transactional_id,
+                epoch,
+                created_at,
+                last_heartbeat,
+                state,
+                metadata_json,
+            )| {
                 Producer {
                     id,
                     organization_id,
@@ -1782,7 +1832,15 @@ impl MetadataStore for SqliteMetadataStore {
             sqlx::query_as(&query).fetch_optional(&self.pool).await?;
 
         Ok(row.map(
-            |(transaction_id, producer_id, state, timeout_ms, started_at, updated_at, completed_at)| Transaction {
+            |(
+                transaction_id,
+                producer_id,
+                state,
+                timeout_ms,
+                started_at,
+                updated_at,
+                completed_at,
+            )| Transaction {
                 transaction_id,
                 producer_id,
                 state: state.parse().unwrap_or(TransactionState::Ongoing),
@@ -1842,15 +1900,17 @@ impl MetadataStore for SqliteMetadataStore {
 
         Ok(rows
             .into_iter()
-            .map(|(transaction_id, topic, partition_id, first_offset, last_offset)| {
-                TransactionPartition {
-                    transaction_id,
-                    topic,
-                    partition_id: partition_id as u32,
-                    first_offset: first_offset as u64,
-                    last_offset: last_offset as u64,
-                }
-            })
+            .map(
+                |(transaction_id, topic, partition_id, first_offset, last_offset)| {
+                    TransactionPartition {
+                        transaction_id,
+                        topic,
+                        partition_id: partition_id as u32,
+                        first_offset: first_offset as u64,
+                        last_offset: last_offset as u64,
+                    }
+                },
+            )
             .collect())
     }
 
@@ -2016,19 +2076,21 @@ impl MetadataStore for SqliteMetadataStore {
 
         Ok(rows
             .into_iter()
-            .map(|(transaction_id, topic, partition_id, offset, marker_type, created_at)| {
-                TransactionMarker {
-                    transaction_id,
-                    topic,
-                    partition_id: partition_id as u32,
-                    offset: offset as u64,
-                    marker_type: match marker_type.as_str() {
-                        "commit" => TransactionMarkerType::Commit,
-                        _ => TransactionMarkerType::Abort,
-                    },
-                    timestamp: created_at,
-                }
-            })
+            .map(
+                |(transaction_id, topic, partition_id, offset, marker_type, created_at)| {
+                    TransactionMarker {
+                        transaction_id,
+                        topic,
+                        partition_id: partition_id as u32,
+                        offset: offset as u64,
+                        marker_type: match marker_type.as_str() {
+                            "commit" => TransactionMarkerType::Commit,
+                            _ => TransactionMarkerType::Abort,
+                        },
+                        timestamp: created_at,
+                    }
+                },
+            )
             .collect())
     }
 
@@ -2246,8 +2308,12 @@ impl MetadataStore for SqliteMetadataStore {
             "UPDATE partition_leases SET \
              leader_agent_id = '{}', epoch = {}, lease_expires_at = {}, acquired_at = {} \
              WHERE topic = '{}' AND partition_id = {}",
-            transfer.to_agent_id, new_epoch, lease_expires_at, now,
-            transfer.topic, transfer.partition_id
+            transfer.to_agent_id,
+            new_epoch,
+            lease_expires_at,
+            now,
+            transfer.topic,
+            transfer.partition_id
         );
         sqlx::query(&lease_query).execute(&mut *tx).await?;
 
@@ -2290,7 +2356,9 @@ impl MetadataStore for SqliteMetadataStore {
         let query = format!(
             "UPDATE lease_transfers SET state = 'rejected', completed_at = {}, error = '{}' \
              WHERE transfer_id = '{}' AND state IN ('pending', 'accepted')",
-            now, reason.replace('\'', "''"), transfer_id
+            now,
+            reason.replace('\'', "''"),
+            transfer_id
         );
         let result = sqlx::query(&query).execute(&self.pool).await?;
 
@@ -2314,33 +2382,59 @@ impl MetadataStore for SqliteMetadataStore {
         );
 
         let row: Option<(
-            String, String, i64, String, String, i64,
-            String, String, i64, Option<i64>, i64, Option<i64>,
-            Option<i64>, Option<String>
+            String,
+            String,
+            i64,
+            String,
+            String,
+            i64,
+            String,
+            String,
+            i64,
+            Option<i64>,
+            i64,
+            Option<i64>,
+            Option<i64>,
+            Option<String>,
         )> = sqlx::query_as(&query).fetch_optional(&self.pool).await?;
 
-        Ok(row.map(|(
-            transfer_id, topic, partition_id, from_agent_id, to_agent_id, from_epoch,
-            state, reason, initiated_at, completed_at, timeout_at, last_flushed_offset,
-            high_watermark, error
-        )| {
-            LeaseTransfer {
+        Ok(row.map(
+            |(
                 transfer_id,
                 topic,
-                partition_id: partition_id as u32,
+                partition_id,
                 from_agent_id,
                 to_agent_id,
-                from_epoch: from_epoch as u64,
-                state: state.parse().unwrap_or(LeaseTransferState::Pending),
-                reason: reason.parse().unwrap_or(LeaderChangeReason::GracefulHandoff),
+                from_epoch,
+                state,
+                reason,
                 initiated_at,
                 completed_at,
                 timeout_at,
-                last_flushed_offset: last_flushed_offset.map(|o| o as u64),
-                high_watermark: high_watermark.map(|o| o as u64),
+                last_flushed_offset,
+                high_watermark,
                 error,
-            }
-        }))
+            )| {
+                LeaseTransfer {
+                    transfer_id,
+                    topic,
+                    partition_id: partition_id as u32,
+                    from_agent_id,
+                    to_agent_id,
+                    from_epoch: from_epoch as u64,
+                    state: state.parse().unwrap_or(LeaseTransferState::Pending),
+                    reason: reason
+                        .parse()
+                        .unwrap_or(LeaderChangeReason::GracefulHandoff),
+                    initiated_at,
+                    completed_at,
+                    timeout_at,
+                    last_flushed_offset: last_flushed_offset.map(|o| o as u64),
+                    high_watermark: high_watermark.map(|o| o as u64),
+                    error,
+                }
+            },
+        ))
     }
 
     async fn get_pending_transfers_for_agent(&self, agent_id: &str) -> Result<Vec<LeaseTransfer>> {
@@ -2356,33 +2450,62 @@ impl MetadataStore for SqliteMetadataStore {
         );
 
         let rows: Vec<(
-            String, String, i64, String, String, i64,
-            String, String, i64, Option<i64>, i64, Option<i64>,
-            Option<i64>, Option<String>
+            String,
+            String,
+            i64,
+            String,
+            String,
+            i64,
+            String,
+            String,
+            i64,
+            Option<i64>,
+            i64,
+            Option<i64>,
+            Option<i64>,
+            Option<String>,
         )> = sqlx::query_as(&query).fetch_all(&self.pool).await?;
 
-        Ok(rows.into_iter().map(|(
-            transfer_id, topic, partition_id, from_agent_id, to_agent_id, from_epoch,
-            state, reason, initiated_at, completed_at, timeout_at, last_flushed_offset,
-            high_watermark, error
-        )| {
-            LeaseTransfer {
-                transfer_id,
-                topic,
-                partition_id: partition_id as u32,
-                from_agent_id,
-                to_agent_id,
-                from_epoch: from_epoch as u64,
-                state: state.parse().unwrap_or(LeaseTransferState::Pending),
-                reason: reason.parse().unwrap_or(LeaderChangeReason::GracefulHandoff),
-                initiated_at,
-                completed_at,
-                timeout_at,
-                last_flushed_offset: last_flushed_offset.map(|o| o as u64),
-                high_watermark: high_watermark.map(|o| o as u64),
-                error,
-            }
-        }).collect())
+        Ok(rows
+            .into_iter()
+            .map(
+                |(
+                    transfer_id,
+                    topic,
+                    partition_id,
+                    from_agent_id,
+                    to_agent_id,
+                    from_epoch,
+                    state,
+                    reason,
+                    initiated_at,
+                    completed_at,
+                    timeout_at,
+                    last_flushed_offset,
+                    high_watermark,
+                    error,
+                )| {
+                    LeaseTransfer {
+                        transfer_id,
+                        topic,
+                        partition_id: partition_id as u32,
+                        from_agent_id,
+                        to_agent_id,
+                        from_epoch: from_epoch as u64,
+                        state: state.parse().unwrap_or(LeaseTransferState::Pending),
+                        reason: reason
+                            .parse()
+                            .unwrap_or(LeaderChangeReason::GracefulHandoff),
+                        initiated_at,
+                        completed_at,
+                        timeout_at,
+                        last_flushed_offset: last_flushed_offset.map(|o| o as u64),
+                        high_watermark: high_watermark.map(|o| o as u64),
+                        error,
+                    }
+                },
+            )
+            .collect())
     }
 
     async fn cleanup_timed_out_transfers(&self) -> Result<u64> {
@@ -2427,8 +2550,13 @@ impl MetadataStore for SqliteMetadataStore {
     // Note: Full implementation is in PostgreSQL backend
     // ============================================================
 
-    async fn create_materialized_view(&self, _config: CreateMaterializedView) -> Result<MaterializedView> {
-        Err(MetadataError::NotImplemented("Materialized views not supported in SQLite backend".to_string()))
+    async fn create_materialized_view(
+        &self,
+        _config: CreateMaterializedView,
+    ) -> Result<MaterializedView> {
+        Err(MetadataError::NotImplemented(
+            "Materialized views not supported in SQLite backend".to_string(),
+        ))
     }
 
     async fn get_materialized_view(&self, _name: &str) -> Result<Option<MaterializedView>> {
@@ -2449,7 +2577,9 @@ impl MetadataStore for SqliteMetadataStore {
         _status: MaterializedViewStatus,
         _error_message: Option<&str>,
     ) -> Result<()> {
-        Err(MetadataError::NotImplemented("Materialized views not supported in SQLite backend".to_string()))
+        Err(MetadataError::NotImplemented(
+            "Materialized views not supported in SQLite backend".to_string(),
+        ))
     }
 
     async fn update_materialized_view_stats(
@@ -2458,14 +2588,19 @@ impl MetadataStore for SqliteMetadataStore {
         _row_count: u64,
         _last_refresh_at: i64,
     ) -> Result<()> {
-        Err(MetadataError::NotImplemented("Materialized views not supported in SQLite backend".to_string()))
+        Err(MetadataError::NotImplemented(
+            "Materialized views not supported in SQLite backend".to_string(),
+        ))
     }
 
     async fn delete_materialized_view(&self, _name: &str) -> Result<()> {
         Ok(()) // No-op for SQLite
     }
 
-    async fn get_materialized_view_offsets(&self, _view_id: &str) -> Result<Vec<MaterializedViewOffset>> {
+    async fn get_materialized_view_offsets(
+        &self,
+        _view_id: &str,
+    ) -> Result<Vec<MaterializedViewOffset>> {
         Ok(vec![]) // No views in SQLite
     }
 
@@ -2475,7 +2610,9 @@ impl MetadataStore for SqliteMetadataStore {
         _partition_id: u32,
         _last_offset: u64,
     ) -> Result<()> {
-        Err(MetadataError::NotImplemented("Materialized views not supported in SQLite backend".to_string()))
+        Err(MetadataError::NotImplemented(
+            "Materialized views not supported in SQLite backend".to_string(),
+        ))
     }
 
     async fn get_materialized_view_data(
@@ -2486,11 +2623,10 @@ impl MetadataStore for SqliteMetadataStore {
         Ok(vec![]) // No views in SQLite
     }
 
-    async fn upsert_materialized_view_data(
-        &self,
-        _data: MaterializedViewData,
-    ) -> Result<()> {
-        Err(MetadataError::NotImplemented("Materialized views not supported in SQLite backend".to_string()))
+    async fn upsert_materialized_view_data(&self, _data: MaterializedViewData) -> Result<()> {
+        Err(MetadataError::NotImplemented(
+            "Materialized views not supported in SQLite backend".to_string(),
+        ))
     }
 }
 

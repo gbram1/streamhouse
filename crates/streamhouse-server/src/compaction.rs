@@ -165,7 +165,10 @@ impl CompactionTask {
         topic: &str,
         partition_count: u32,
     ) -> Result<(), CompactionError> {
-        debug!("Compacting topic {} ({} partitions)", topic, partition_count);
+        debug!(
+            "Compacting topic {} ({} partitions)",
+            topic, partition_count
+        );
 
         for partition_id in 0..partition_count {
             if let Err(e) = self.compact_partition(topic, partition_id).await {

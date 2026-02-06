@@ -88,7 +88,9 @@ pub async fn execute_sql(
         })),
         Err(e) => {
             let (status, error_type) = match &e {
-                streamhouse_sql::SqlError::ParseError(_) => (StatusCode::BAD_REQUEST, "parse_error"),
+                streamhouse_sql::SqlError::ParseError(_) => {
+                    (StatusCode::BAD_REQUEST, "parse_error")
+                }
                 streamhouse_sql::SqlError::InvalidQuery(_) => {
                     (StatusCode::BAD_REQUEST, "invalid_query")
                 }
@@ -98,9 +100,7 @@ pub async fn execute_sql(
                 streamhouse_sql::SqlError::TopicNotFound(_) => {
                     (StatusCode::NOT_FOUND, "topic_not_found")
                 }
-                streamhouse_sql::SqlError::Timeout(_) => {
-                    (StatusCode::REQUEST_TIMEOUT, "timeout")
-                }
+                streamhouse_sql::SqlError::Timeout(_) => (StatusCode::REQUEST_TIMEOUT, "timeout"),
                 _ => (StatusCode::INTERNAL_SERVER_ERROR, "execution_error"),
             };
 

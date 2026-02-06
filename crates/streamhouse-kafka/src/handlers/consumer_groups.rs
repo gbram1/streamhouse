@@ -16,7 +16,7 @@ use crate::codec::{
     encode_empty_tagged_fields, encode_nullable_bytes, encode_nullable_string, encode_string,
     encode_unsigned_varint, parse_array, parse_compact_array, parse_compact_nullable_bytes,
     parse_compact_nullable_string, parse_compact_string, parse_nullable_bytes,
-    parse_nullable_string, parse_string, RequestHeader, skip_tagged_fields,
+    parse_nullable_string, parse_string, skip_tagged_fields, RequestHeader,
 };
 use crate::coordinator::{MemberProtocol, SyncGroupAssignment};
 use crate::error::{ErrorCode, KafkaResult};
@@ -569,10 +569,7 @@ pub async fn handle_describe_groups(
                         encode_compact_nullable_string(&mut response, None); // group_instance_id
                         encode_compact_string(&mut response, &member.client_id);
                         encode_compact_string(&mut response, &member.client_host);
-                        encode_compact_nullable_bytes(
-                            &mut response,
-                            Some(&member.member_metadata),
-                        );
+                        encode_compact_nullable_bytes(&mut response, Some(&member.member_metadata));
                         encode_compact_nullable_bytes(
                             &mut response,
                             Some(&member.member_assignment),

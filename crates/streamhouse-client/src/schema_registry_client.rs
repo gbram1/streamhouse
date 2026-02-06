@@ -94,10 +94,7 @@ impl SchemaRegistryClient {
         schema: &str,
         format: SchemaFormat,
     ) -> Result<i32> {
-        let url = format!(
-            "{}/schemas/subjects/{}/versions",
-            self.base_url, subject
-        );
+        let url = format!("{}/schemas/subjects/{}/versions", self.base_url, subject);
 
         let request = RegisterSchemaRequest {
             schema: schema.to_string(),
@@ -111,10 +108,7 @@ impl SchemaRegistryClient {
             .send()
             .await
             .map_err(|e| {
-                ClientError::SchemaRegistryError(format!(
-                    "Failed to register schema: {}",
-                    e
-                ))
+                ClientError::SchemaRegistryError(format!("Failed to register schema: {}", e))
             })?;
 
         if !response.status().is_success() {
@@ -153,14 +147,9 @@ impl SchemaRegistryClient {
     pub async fn get_schema_by_id(&self, id: i32) -> Result<Schema> {
         let url = format!("{}/schemas/schemas/{}", self.base_url, id);
 
-        let response = self
-            .http_client
-            .get(&url)
-            .send()
-            .await
-            .map_err(|e| {
-                ClientError::SchemaRegistryError(format!("Failed to fetch schema: {}", e))
-            })?;
+        let response = self.http_client.get(&url).send().await.map_err(|e| {
+            ClientError::SchemaRegistryError(format!("Failed to fetch schema: {}", e))
+        })?;
 
         if !response.status().is_success() {
             let status = response.status();
@@ -216,10 +205,7 @@ impl SchemaRegistryClient {
             .send()
             .await
             .map_err(|e| {
-                ClientError::SchemaRegistryError(format!(
-                    "Failed to test compatibility: {}",
-                    e
-                ))
+                ClientError::SchemaRegistryError(format!("Failed to test compatibility: {}", e))
             })?;
 
         if !response.status().is_success() {

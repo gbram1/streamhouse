@@ -11,7 +11,7 @@ use crate::codec::{
     encode_compact_nullable_string, encode_compact_string, encode_empty_tagged_fields,
     encode_nullable_string, encode_string, encode_unsigned_varint, parse_array,
     parse_compact_array, parse_compact_nullable_string, parse_compact_string,
-    parse_nullable_string, parse_string, RequestHeader, skip_tagged_fields,
+    parse_nullable_string, parse_string, skip_tagged_fields, RequestHeader,
 };
 use crate::error::{ErrorCode, KafkaResult};
 use crate::server::KafkaServerState;
@@ -75,13 +75,8 @@ pub async fn handle_list_offsets(
         let mut partition_responses = Vec::new();
 
         for (partition_index, timestamp) in partitions {
-            let response = get_partition_offset(
-                state,
-                &topic_name,
-                partition_index as u32,
-                timestamp,
-            )
-            .await;
+            let response =
+                get_partition_offset(state, &topic_name, partition_index as u32, timestamp).await;
             partition_responses.push(response);
         }
 
@@ -479,13 +474,8 @@ pub async fn handle_offset_fetch(
         let mut partition_responses = Vec::new();
 
         for partition_index in partitions {
-            let (offset, metadata, error) = fetch_offset(
-                state,
-                &group_id,
-                &topic_name,
-                partition_index as u32,
-            )
-            .await;
+            let (offset, metadata, error) =
+                fetch_offset(state, &group_id, &topic_name, partition_index as u32).await;
 
             partition_responses.push((partition_index, offset, metadata, error));
         }
@@ -592,7 +582,11 @@ async fn fetch_offset(
     topic: &str,
     partition: u32,
 ) -> (i64, Option<String>, ErrorCode) {
-    match state.metadata.get_committed_offset(group_id, topic, partition).await {
+    match state
+        .metadata
+        .get_committed_offset(group_id, topic, partition)
+        .await
+    {
         Ok(Some(offset)) => (offset as i64, None, ErrorCode::None),
         Ok(None) => (-1, None, ErrorCode::None), // No committed offset
         Err(_) => (-1, None, ErrorCode::UnknownServerError),
