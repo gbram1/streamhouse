@@ -821,27 +821,31 @@ impl MetadataStore for PostgresMetadataStore {
             .as_millis() as i64;
         let expires_at = now_ms + lease_duration_ms;
 
+        // Use default organization for backwards compatibility
+        let default_org_id = uuid::Uuid::parse_str("00000000-0000-0000-0000-000000000000").unwrap();
+
         sqlx::query(
-            "INSERT INTO partition_leases (topic, partition_id, leader_agent_id, lease_expires_at, acquired_at, epoch)
-             VALUES ($1, $2, $3, $4, $5, 1)
+            "INSERT INTO partition_leases (organization_id, topic, partition_id, leader_agent_id, lease_expires_at, acquired_at, epoch)
+             VALUES ($1, $2, $3, $4, $5, $6, 1)
              ON CONFLICT (topic, partition_id) DO UPDATE SET
                  leader_agent_id = CASE
-                     WHEN partition_leases.leader_agent_id = $3 OR partition_leases.lease_expires_at < $6
-                     THEN $3 ELSE partition_leases.leader_agent_id
+                     WHEN partition_leases.leader_agent_id = $4 OR partition_leases.lease_expires_at < $7
+                     THEN $4 ELSE partition_leases.leader_agent_id
                  END,
                  lease_expires_at = CASE
-                     WHEN partition_leases.leader_agent_id = $3 OR partition_leases.lease_expires_at < $6
-                     THEN $4 ELSE partition_leases.lease_expires_at
+                     WHEN partition_leases.leader_agent_id = $4 OR partition_leases.lease_expires_at < $7
+                     THEN $5 ELSE partition_leases.lease_expires_at
                  END,
                  acquired_at = CASE
-                     WHEN partition_leases.leader_agent_id = $3 OR partition_leases.lease_expires_at < $6
-                     THEN $5 ELSE partition_leases.acquired_at
+                     WHEN partition_leases.leader_agent_id = $4 OR partition_leases.lease_expires_at < $7
+                     THEN $6 ELSE partition_leases.acquired_at
                  END,
                  epoch = CASE
-                     WHEN partition_leases.leader_agent_id = $3 OR partition_leases.lease_expires_at < $6
+                     WHEN partition_leases.leader_agent_id = $4 OR partition_leases.lease_expires_at < $7
                      THEN partition_leases.epoch + 1 ELSE partition_leases.epoch
                  END"
         )
+        .bind(default_org_id)
         .bind(topic)
         .bind(partition_id as i32)
         .bind(agent_id)

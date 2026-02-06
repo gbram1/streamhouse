@@ -52,8 +52,8 @@ RUN useradd -m -u 1000 streamhouse
 # Copy binary from builder
 COPY --from=builder /app/target/release/unified-server /app/unified-server
 
-# Create directories for WAL
-RUN mkdir -p /data/wal && chown -R streamhouse:streamhouse /data
+# Create directories for WAL and cache
+RUN mkdir -p /data/wal /data/cache && chown -R streamhouse:streamhouse /data
 
 # Switch to non-root user
 USER streamhouse
@@ -63,6 +63,7 @@ ENV RUST_LOG=info
 ENV HTTP_PORT=8080
 ENV GRPC_PORT=9090
 ENV WAL_DIR=/data/wal
+ENV STREAMHOUSE_CACHE=/data/cache
 
 # Expose ports
 EXPOSE 8080 9090
