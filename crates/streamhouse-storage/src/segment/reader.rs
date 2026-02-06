@@ -541,4 +541,265 @@ mod tests {
         let result = SegmentReader::new(Bytes::from(bad_data));
         assert!(result.is_err());
     }
+
+    // ---------------------------------------------------------------
+    // Reader error cases
+    // ---------------------------------------------------------------
+
+    #[test]
+    fn test_reader_segment_too_small() {
+        // Segment smaller than HEADER_SIZE + FOOTER_SIZE should fail
+        let tiny = vec![0u8; 10];
+        let result = SegmentReader::new(Bytes::from(tiny));
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_reader_exactly_min_size_invalid() {
+        // Exactly HEADER_SIZE + FOOTER_SIZE but invalid content
+        let data = vec![0u8; HEADER_SIZE + FOOTER_SIZE];
+        let result = SegmentReader::new(Bytes::from(data));
+        assert!(result.is_err()); // Invalid magic
+    }
+
+    #[test]
+    fn test_reader_corrupted_crc() {
+        let mut writer = SegmentWriter::new(Compression::None);
+        for i in 0..5 {
+            writer
+                .append(&Record::new(i, 1000 + i, None, Bytes::from("test")))
+                .unwrap();
+        }
+        let mut data = writer.finish().unwrap();
+
+        // Corrupt a byte in the middle of the data (not header, not footer)
+        let mid = data.len() / 2;
+        data[mid] ^= 0xFF;
+
+        let result = SegmentReader::new(Bytes::from(data));
+        assert!(result.is_err()); // CRC mismatch
+    }
+
+    #[test]
+    fn test_reader_corrupted_footer_magic() {
+        let mut writer = SegmentWriter::new(Compression::None);
+        writer
+            .append(&Record::new(0, 0, None, Bytes::from("x")))
+            .unwrap();
+        let mut data = writer.finish().unwrap();
+
+        // Corrupt footer magic bytes (at footer_start + 12..16)
+        // But CRC is computed over everything before footer, so we'd get CRC
+        // mismatch first. Let's corrupt just the footer CRC byte to match
+        // then corrupt magic.
+        let footer_start = data.len() - FOOTER_SIZE;
+        // Corrupt footer magic (bytes 12..16 within footer)
+        data[footer_start + 12] = 0x00;
+
+        // This will fail because CRC covers everything before footer,
+        // and we changed the footer area which is after the CRC check boundary.
+        // Actually footer magic is checked AFTER CRC, and CRC only covers data
+        // before the footer. So let's set up a valid CRC but bad footer magic.
+        // The CRC in the footer covers data[..footer_start].
+        // We corrupt footer magic but not the data, so CRC should pass but magic fails.
+        let mut data2 = writer_and_finish_helper(5);
+        let footer_start2 = data2.len() - FOOTER_SIZE;
+        // Overwrite just the footer magic with wrong bytes
+        data2[footer_start2 + 12] = b'B';
+        data2[footer_start2 + 13] = b'A';
+        data2[footer_start2 + 14] = b'D';
+        data2[footer_start2 + 15] = b'!';
+
+        let result = SegmentReader::new(Bytes::from(data2));
+        assert!(result.is_err());
+    }
+
+    /// Helper: write N records with Compression::None and return segment bytes
+    fn writer_and_finish_helper(n: u64) -> Vec<u8> {
+        let mut writer = SegmentWriter::new(Compression::None);
+        for i in 0..n {
+            writer
+                .append(&Record::new(i, 1000 + i, None, Bytes::from("data")))
+                .unwrap();
+        }
+        writer.finish().unwrap()
+    }
+
+    // ---------------------------------------------------------------
+    // Reader accessor methods
+    // ---------------------------------------------------------------
+
+    #[test]
+    fn test_reader_accessors() {
+        let mut writer = SegmentWriter::new(Compression::None);
+        for i in 50..60 {
+            writer
+                .append(&Record::new(i, 9000 + i, None, Bytes::from("val")))
+                .unwrap();
+        }
+        let data = writer.finish().unwrap();
+        let reader = SegmentReader::new(Bytes::from(data)).unwrap();
+
+        assert_eq!(reader.base_offset(), 50);
+        assert_eq!(reader.end_offset(), 59);
+        assert_eq!(reader.record_count(), 10);
+    }
+
+    // ---------------------------------------------------------------
+    // read_from_offset edge cases
+    // ---------------------------------------------------------------
+
+    #[test]
+    fn test_read_from_offset_before_base() {
+        let mut writer = SegmentWriter::new(Compression::None);
+        for i in 100..110 {
+            writer
+                .append(&Record::new(i, 5000 + i, None, Bytes::from("v")))
+                .unwrap();
+        }
+        let data = writer.finish().unwrap();
+        let reader = SegmentReader::new(Bytes::from(data)).unwrap();
+
+        // Reading from an offset before the base should still return all records
+        let records = reader.read_from_offset(0).unwrap();
+        assert_eq!(records.len(), 10);
+        assert_eq!(records[0].offset, 100);
+    }
+
+    #[test]
+    fn test_read_from_offset_exact_end() {
+        let mut writer = SegmentWriter::new(Compression::None);
+        for i in 0..10 {
+            writer
+                .append(&Record::new(i, 1000 + i, None, Bytes::from("v")))
+                .unwrap();
+        }
+        let data = writer.finish().unwrap();
+        let reader = SegmentReader::new(Bytes::from(data)).unwrap();
+
+        // Read from last offset
+        let records = reader.read_from_offset(9).unwrap();
+        assert_eq!(records.len(), 1);
+        assert_eq!(records[0].offset, 9);
+    }
+
+    #[test]
+    fn test_read_from_offset_past_end() {
+        let mut writer = SegmentWriter::new(Compression::None);
+        for i in 0..10 {
+            writer
+                .append(&Record::new(i, 1000 + i, None, Bytes::from("v")))
+                .unwrap();
+        }
+        let data = writer.finish().unwrap();
+        let reader = SegmentReader::new(Bytes::from(data)).unwrap();
+
+        let records = reader.read_from_offset(10).unwrap();
+        assert_eq!(records.len(), 0);
+    }
+
+    #[test]
+    fn test_read_from_offset_midpoint_lz4() {
+        let mut writer = SegmentWriter::new(Compression::Lz4);
+        let mut originals = Vec::new();
+        for i in 0..50 {
+            let record = Record::new(
+                i,
+                2_000_000 + i * 100,
+                Some(Bytes::from(format!("k{}", i))),
+                Bytes::from(format!("v{}", i)),
+            );
+            originals.push(record.clone());
+            writer.append(&record).unwrap();
+        }
+        let data = writer.finish().unwrap();
+        let reader = SegmentReader::new(Bytes::from(data)).unwrap();
+
+        let records = reader.read_from_offset(25).unwrap();
+        assert_eq!(records.len(), 25);
+        for (i, rec) in records.iter().enumerate() {
+            assert_eq!(rec, &originals[25 + i]);
+        }
+    }
+
+    // ---------------------------------------------------------------
+    // Roundtrip with large number of records (stress)
+    // ---------------------------------------------------------------
+
+    #[test]
+    fn test_roundtrip_1000_records_none() {
+        let mut writer = SegmentWriter::new(Compression::None);
+        let mut originals = Vec::new();
+        for i in 0..1000u64 {
+            let record = Record::new(
+                i,
+                1_000_000_000 + i,
+                Some(Bytes::from(format!("key-{:04}", i))),
+                Bytes::from(format!("value-{}", i)),
+            );
+            originals.push(record.clone());
+            writer.append(&record).unwrap();
+        }
+        let data = writer.finish().unwrap();
+        let reader = SegmentReader::new(Bytes::from(data)).unwrap();
+        assert_eq!(reader.record_count(), 1000);
+        let records = reader.read_all().unwrap();
+        assert_eq!(records.len(), 1000);
+        // Spot-check first, last, and middle
+        assert_eq!(records[0], originals[0]);
+        assert_eq!(records[500], originals[500]);
+        assert_eq!(records[999], originals[999]);
+    }
+
+    // ---------------------------------------------------------------
+    // Read all then read_from_offset consistency
+    // ---------------------------------------------------------------
+
+    #[test]
+    fn test_read_all_consistent_with_read_from_offset() {
+        let mut writer = SegmentWriter::new(Compression::Lz4);
+        for i in 0..100 {
+            writer
+                .append(&Record::new(
+                    i,
+                    5000 + i,
+                    None,
+                    Bytes::from(format!("data-{}", i)),
+                ))
+                .unwrap();
+        }
+        let data = writer.finish().unwrap();
+        let reader = SegmentReader::new(Bytes::from(data)).unwrap();
+
+        let all = reader.read_all().unwrap();
+        let from_start = reader.read_from_offset(0).unwrap();
+        assert_eq!(all.len(), from_start.len());
+        for (a, b) in all.iter().zip(from_start.iter()) {
+            assert_eq!(a, b);
+        }
+    }
+
+    // ---------------------------------------------------------------
+    // Binary data as values
+    // ---------------------------------------------------------------
+
+    #[test]
+    fn test_roundtrip_binary_data() {
+        let mut writer = SegmentWriter::new(Compression::None);
+        let mut originals = Vec::new();
+        for i in 0..20 {
+            let binary_val: Vec<u8> = (0..256).map(|b| ((b + i) % 256) as u8).collect();
+            let record = Record::new(i as u64, 9000 + i as u64, None, Bytes::from(binary_val));
+            originals.push(record.clone());
+            writer.append(&record).unwrap();
+        }
+
+        let data = writer.finish().unwrap();
+        let reader = SegmentReader::new(Bytes::from(data)).unwrap();
+        let records = reader.read_all().unwrap();
+        assert_eq!(records.len(), 20);
+        for (i, rec) in records.iter().enumerate() {
+            assert_eq!(rec, &originals[i]);
+        }
+    }
 }

@@ -679,4 +679,1063 @@ mod tests {
         // Adding optional field is both backward and forward compatible
         assert!(result.unwrap(), "Adding optional field should be fully compatible");
     }
+
+    // ========================================================================
+    // Format mismatch tests
+    // ========================================================================
+
+    #[test]
+    fn test_format_mismatch_avro_vs_json() {
+        let schema_str =
+            r#"{"type": "record", "name": "User", "fields": [{"name": "name", "type": "string"}]}"#;
+
+        let existing = Schema {
+            id: 1,
+            subject: "test".to_string(),
+            version: 1,
+            schema_type: SchemaFormat::Avro,
+            schema: schema_str.to_string(),
+            references: vec![],
+            metadata: Default::default(),
+        };
+
+        let result = check_compatibility(
+            &existing,
+            schema_str,
+            SchemaFormat::Json,
+            CompatibilityMode::Backward,
+        );
+
+        assert!(result.is_err());
+        let err_msg = format!("{}", result.unwrap_err());
+        assert!(
+            err_msg.contains("format mismatch") || err_msg.contains("Format mismatch"),
+            "Error should mention format mismatch: {}",
+            err_msg
+        );
+    }
+
+    #[test]
+    fn test_format_mismatch_protobuf_vs_avro() {
+        let existing = Schema {
+            id: 1,
+            subject: "test".to_string(),
+            version: 1,
+            schema_type: SchemaFormat::Protobuf,
+            schema: "some bytes".to_string(),
+            references: vec![],
+            metadata: Default::default(),
+        };
+
+        let result = check_compatibility(
+            &existing,
+            "some other bytes",
+            SchemaFormat::Avro,
+            CompatibilityMode::Forward,
+        );
+
+        assert!(result.is_err());
+    }
+
+    // ========================================================================
+    // CompatibilityMode::None tests
+    // ========================================================================
+
+    #[test]
+    fn test_avro_none_mode_always_compatible() {
+        let old_schema =
+            r#"{"type": "record", "name": "User", "fields": [{"name": "name", "type": "string"}]}"#;
+        let new_schema =
+            r#"{"type": "record", "name": "Completely", "fields": [{"name": "different", "type": "int"}]}"#;
+
+        let existing = Schema {
+            id: 1,
+            subject: "test".to_string(),
+            version: 1,
+            schema_type: SchemaFormat::Avro,
+            schema: old_schema.to_string(),
+            references: vec![],
+            metadata: Default::default(),
+        };
+
+        let result = check_compatibility(
+            &existing,
+            new_schema,
+            SchemaFormat::Avro,
+            CompatibilityMode::None,
+        );
+
+        assert!(result.is_ok());
+        assert!(result.unwrap(), "None mode should always return true");
+    }
+
+    #[test]
+    fn test_json_none_mode_always_compatible() {
+        let old_schema = r#"{"type": "object", "properties": {"name": {"type": "string"}}, "required": ["name"]}"#;
+        let new_schema = r#"{"type": "integer"}"#;
+
+        let existing = Schema {
+            id: 1,
+            subject: "test".to_string(),
+            version: 1,
+            schema_type: SchemaFormat::Json,
+            schema: old_schema.to_string(),
+            references: vec![],
+            metadata: Default::default(),
+        };
+
+        let result = check_compatibility(
+            &existing,
+            new_schema,
+            SchemaFormat::Json,
+            CompatibilityMode::None,
+        );
+
+        assert!(result.is_ok());
+        assert!(result.unwrap(), "None mode should always return true");
+    }
+
+    // ========================================================================
+    // Avro backward compatibility - additional tests
+    // ========================================================================
+
+    #[test]
+    fn test_avro_backward_incompatible_new_required_field() {
+        let old_schema =
+            r#"{"type": "record", "name": "User", "fields": [{"name": "name", "type": "string"}]}"#;
+        let new_schema =
+            r#"{"type": "record", "name": "User", "fields": [{"name": "name", "type": "string"}, {"name": "age", "type": "int"}]}"#;
+
+        let existing = Schema {
+            id: 1,
+            subject: "test".to_string(),
+            version: 1,
+            schema_type: SchemaFormat::Avro,
+            schema: old_schema.to_string(),
+            references: vec![],
+            metadata: Default::default(),
+        };
+
+        let result = check_compatibility(
+            &existing,
+            new_schema,
+            SchemaFormat::Avro,
+            CompatibilityMode::Backward,
+        );
+
+        assert!(result.is_ok());
+        assert!(
+            !result.unwrap(),
+            "Adding a required field (no default) should NOT be backward compatible"
+        );
+    }
+
+    #[test]
+    fn test_avro_backward_compatible_remove_field() {
+        let old_schema = r#"{"type": "record", "name": "User", "fields": [{"name": "name", "type": "string"}, {"name": "age", "type": "int", "default": 0}]}"#;
+        let new_schema =
+            r#"{"type": "record", "name": "User", "fields": [{"name": "name", "type": "string"}]}"#;
+
+        let existing = Schema {
+            id: 1,
+            subject: "test".to_string(),
+            version: 1,
+            schema_type: SchemaFormat::Avro,
+            schema: old_schema.to_string(),
+            references: vec![],
+            metadata: Default::default(),
+        };
+
+        let result = check_compatibility(
+            &existing,
+            new_schema,
+            SchemaFormat::Avro,
+            CompatibilityMode::Backward,
+        );
+
+        assert!(result.is_ok());
+        assert!(result.unwrap(), "Removing a field should be backward compatible");
+    }
+
+    #[test]
+    fn test_avro_backward_incompatible_name_change() {
+        let old_schema =
+            r#"{"type": "record", "name": "User", "fields": [{"name": "name", "type": "string"}]}"#;
+        let new_schema =
+            r#"{"type": "record", "name": "Person", "fields": [{"name": "name", "type": "string"}]}"#;
+
+        let existing = Schema {
+            id: 1,
+            subject: "test".to_string(),
+            version: 1,
+            schema_type: SchemaFormat::Avro,
+            schema: old_schema.to_string(),
+            references: vec![],
+            metadata: Default::default(),
+        };
+
+        let result = check_compatibility(
+            &existing,
+            new_schema,
+            SchemaFormat::Avro,
+            CompatibilityMode::Backward,
+        );
+
+        assert!(result.is_ok());
+        assert!(!result.unwrap(), "Changing record name should be incompatible");
+    }
+
+    #[test]
+    fn test_avro_backward_incompatible_type_change() {
+        let old_schema =
+            r#"{"type": "record", "name": "User", "fields": [{"name": "name", "type": "string"}]}"#;
+        let new_schema =
+            r#"{"type": "record", "name": "User", "fields": [{"name": "name", "type": "int"}]}"#;
+
+        let existing = Schema {
+            id: 1,
+            subject: "test".to_string(),
+            version: 1,
+            schema_type: SchemaFormat::Avro,
+            schema: old_schema.to_string(),
+            references: vec![],
+            metadata: Default::default(),
+        };
+
+        let result = check_compatibility(
+            &existing,
+            new_schema,
+            SchemaFormat::Avro,
+            CompatibilityMode::Backward,
+        );
+
+        assert!(result.is_ok());
+        assert!(!result.unwrap(), "Changing field type from string to int should be incompatible");
+    }
+
+    #[test]
+    fn test_avro_backward_compatible_int_to_long_promotion() {
+        let old_schema =
+            r#"{"type": "record", "name": "Event", "fields": [{"name": "count", "type": "int"}]}"#;
+        let new_schema =
+            r#"{"type": "record", "name": "Event", "fields": [{"name": "count", "type": "long"}]}"#;
+
+        let existing = Schema {
+            id: 1,
+            subject: "test".to_string(),
+            version: 1,
+            schema_type: SchemaFormat::Avro,
+            schema: old_schema.to_string(),
+            references: vec![],
+            metadata: Default::default(),
+        };
+
+        let result = check_compatibility(
+            &existing,
+            new_schema,
+            SchemaFormat::Avro,
+            CompatibilityMode::Backward,
+        );
+
+        assert!(result.is_ok());
+        assert!(result.unwrap(), "Promoting int to long should be backward compatible");
+    }
+
+    #[test]
+    fn test_avro_backward_compatible_float_to_double_promotion() {
+        let old_schema =
+            r#"{"type": "record", "name": "Event", "fields": [{"name": "value", "type": "float"}]}"#;
+        let new_schema =
+            r#"{"type": "record", "name": "Event", "fields": [{"name": "value", "type": "double"}]}"#;
+
+        let existing = Schema {
+            id: 1,
+            subject: "test".to_string(),
+            version: 1,
+            schema_type: SchemaFormat::Avro,
+            schema: old_schema.to_string(),
+            references: vec![],
+            metadata: Default::default(),
+        };
+
+        let result = check_compatibility(
+            &existing,
+            new_schema,
+            SchemaFormat::Avro,
+            CompatibilityMode::Backward,
+        );
+
+        assert!(result.is_ok());
+        assert!(result.unwrap(), "Promoting float to double should be backward compatible");
+    }
+
+    // ========================================================================
+    // Avro forward compatibility tests
+    // ========================================================================
+
+    #[test]
+    fn test_avro_forward_compatible_remove_optional_field() {
+        let old_schema = r#"{"type": "record", "name": "User", "fields": [{"name": "name", "type": "string"}, {"name": "age", "type": "int", "default": 0}]}"#;
+        let new_schema =
+            r#"{"type": "record", "name": "User", "fields": [{"name": "name", "type": "string"}]}"#;
+
+        let existing = Schema {
+            id: 1,
+            subject: "test".to_string(),
+            version: 1,
+            schema_type: SchemaFormat::Avro,
+            schema: old_schema.to_string(),
+            references: vec![],
+            metadata: Default::default(),
+        };
+
+        let result = check_compatibility(
+            &existing,
+            new_schema,
+            SchemaFormat::Avro,
+            CompatibilityMode::Forward,
+        );
+
+        assert!(result.is_ok());
+        assert!(result.unwrap(), "Removing optional field should be forward compatible");
+    }
+
+    #[test]
+    fn test_avro_forward_compatible_add_field_with_default() {
+        let old_schema =
+            r#"{"type": "record", "name": "User", "fields": [{"name": "name", "type": "string"}]}"#;
+        let new_schema = r#"{"type": "record", "name": "User", "fields": [{"name": "name", "type": "string"}, {"name": "age", "type": "int", "default": 0}]}"#;
+
+        let existing = Schema {
+            id: 1,
+            subject: "test".to_string(),
+            version: 1,
+            schema_type: SchemaFormat::Avro,
+            schema: old_schema.to_string(),
+            references: vec![],
+            metadata: Default::default(),
+        };
+
+        let result = check_compatibility(
+            &existing,
+            new_schema,
+            SchemaFormat::Avro,
+            CompatibilityMode::Forward,
+        );
+
+        assert!(result.is_ok());
+        assert!(result.unwrap(), "Adding field with default should be forward compatible");
+    }
+
+    // ========================================================================
+    // Avro full compatibility tests
+    // ========================================================================
+
+    #[test]
+    fn test_avro_full_compatible_add_optional_field() {
+        let old_schema =
+            r#"{"type": "record", "name": "User", "fields": [{"name": "name", "type": "string"}]}"#;
+        let new_schema = r#"{"type": "record", "name": "User", "fields": [{"name": "name", "type": "string"}, {"name": "age", "type": "int", "default": 0}]}"#;
+
+        let existing = Schema {
+            id: 1,
+            subject: "test".to_string(),
+            version: 1,
+            schema_type: SchemaFormat::Avro,
+            schema: old_schema.to_string(),
+            references: vec![],
+            metadata: Default::default(),
+        };
+
+        let result = check_compatibility(
+            &existing,
+            new_schema,
+            SchemaFormat::Avro,
+            CompatibilityMode::Full,
+        );
+
+        assert!(result.is_ok());
+        assert!(result.unwrap(), "Adding optional field should be fully compatible");
+    }
+
+    #[test]
+    fn test_avro_full_incompatible_required_field() {
+        let old_schema =
+            r#"{"type": "record", "name": "User", "fields": [{"name": "name", "type": "string"}]}"#;
+        let new_schema =
+            r#"{"type": "record", "name": "User", "fields": [{"name": "name", "type": "string"}, {"name": "age", "type": "int"}]}"#;
+
+        let existing = Schema {
+            id: 1,
+            subject: "test".to_string(),
+            version: 1,
+            schema_type: SchemaFormat::Avro,
+            schema: old_schema.to_string(),
+            references: vec![],
+            metadata: Default::default(),
+        };
+
+        let result = check_compatibility(
+            &existing,
+            new_schema,
+            SchemaFormat::Avro,
+            CompatibilityMode::Full,
+        );
+
+        assert!(result.is_ok());
+        assert!(
+            !result.unwrap(),
+            "Adding required field should NOT be fully compatible"
+        );
+    }
+
+    // ========================================================================
+    // Avro transitive mode tests
+    // ========================================================================
+
+    #[test]
+    fn test_avro_backward_transitive_same_as_backward() {
+        let schema_str =
+            r#"{"type": "record", "name": "User", "fields": [{"name": "name", "type": "string"}]}"#;
+
+        let existing = Schema {
+            id: 1,
+            subject: "test".to_string(),
+            version: 1,
+            schema_type: SchemaFormat::Avro,
+            schema: schema_str.to_string(),
+            references: vec![],
+            metadata: Default::default(),
+        };
+
+        let result = check_compatibility(
+            &existing,
+            schema_str,
+            SchemaFormat::Avro,
+            CompatibilityMode::BackwardTransitive,
+        );
+
+        assert!(result.is_ok());
+        assert!(result.unwrap());
+    }
+
+    #[test]
+    fn test_avro_forward_transitive_same_as_forward() {
+        let schema_str =
+            r#"{"type": "record", "name": "User", "fields": [{"name": "name", "type": "string"}]}"#;
+
+        let existing = Schema {
+            id: 1,
+            subject: "test".to_string(),
+            version: 1,
+            schema_type: SchemaFormat::Avro,
+            schema: schema_str.to_string(),
+            references: vec![],
+            metadata: Default::default(),
+        };
+
+        let result = check_compatibility(
+            &existing,
+            schema_str,
+            SchemaFormat::Avro,
+            CompatibilityMode::ForwardTransitive,
+        );
+
+        assert!(result.is_ok());
+        assert!(result.unwrap());
+    }
+
+    #[test]
+    fn test_avro_full_transitive_same_as_full() {
+        let schema_str =
+            r#"{"type": "record", "name": "User", "fields": [{"name": "name", "type": "string"}]}"#;
+
+        let existing = Schema {
+            id: 1,
+            subject: "test".to_string(),
+            version: 1,
+            schema_type: SchemaFormat::Avro,
+            schema: schema_str.to_string(),
+            references: vec![],
+            metadata: Default::default(),
+        };
+
+        let result = check_compatibility(
+            &existing,
+            schema_str,
+            SchemaFormat::Avro,
+            CompatibilityMode::FullTransitive,
+        );
+
+        assert!(result.is_ok());
+        assert!(result.unwrap());
+    }
+
+    // ========================================================================
+    // Avro invalid schema tests
+    // ========================================================================
+
+    #[test]
+    fn test_avro_invalid_existing_schema() {
+        let existing = Schema {
+            id: 1,
+            subject: "test".to_string(),
+            version: 1,
+            schema_type: SchemaFormat::Avro,
+            schema: "not valid avro json".to_string(),
+            references: vec![],
+            metadata: Default::default(),
+        };
+
+        let result = check_compatibility(
+            &existing,
+            r#"{"type": "string"}"#,
+            SchemaFormat::Avro,
+            CompatibilityMode::Backward,
+        );
+
+        assert!(result.is_err());
+        let err_msg = format!("{}", result.unwrap_err());
+        assert!(err_msg.contains("Invalid existing Avro schema"), "Error: {}", err_msg);
+    }
+
+    #[test]
+    fn test_avro_invalid_new_schema() {
+        let valid_schema =
+            r#"{"type": "record", "name": "User", "fields": [{"name": "name", "type": "string"}]}"#;
+
+        let existing = Schema {
+            id: 1,
+            subject: "test".to_string(),
+            version: 1,
+            schema_type: SchemaFormat::Avro,
+            schema: valid_schema.to_string(),
+            references: vec![],
+            metadata: Default::default(),
+        };
+
+        let result = check_compatibility(
+            &existing,
+            "broken json {{{",
+            SchemaFormat::Avro,
+            CompatibilityMode::Backward,
+        );
+
+        assert!(result.is_err());
+        let err_msg = format!("{}", result.unwrap_err());
+        assert!(err_msg.contains("Invalid new Avro schema"), "Error: {}", err_msg);
+    }
+
+    // ========================================================================
+    // Avro primitive type compatibility
+    // ========================================================================
+
+    #[test]
+    fn test_avro_primitive_same_types_compatible() {
+        for schema_str in &[
+            r#""string""#,
+            r#""int""#,
+            r#""long""#,
+            r#""float""#,
+            r#""double""#,
+            r#""boolean""#,
+            r#""bytes""#,
+        ] {
+            let existing = Schema {
+                id: 1,
+                subject: "test".to_string(),
+                version: 1,
+                schema_type: SchemaFormat::Avro,
+                schema: schema_str.to_string(),
+                references: vec![],
+                metadata: Default::default(),
+            };
+
+            let result = check_compatibility(
+                &existing,
+                schema_str,
+                SchemaFormat::Avro,
+                CompatibilityMode::Backward,
+            );
+
+            assert!(result.is_ok(), "Schema {} should parse", schema_str);
+            assert!(result.unwrap(), "Same primitive type {} should be compatible", schema_str);
+        }
+    }
+
+    #[test]
+    fn test_avro_primitive_incompatible_types() {
+        let existing = Schema {
+            id: 1,
+            subject: "test".to_string(),
+            version: 1,
+            schema_type: SchemaFormat::Avro,
+            schema: r#""string""#.to_string(),
+            references: vec![],
+            metadata: Default::default(),
+        };
+
+        let result = check_compatibility(
+            &existing,
+            r#""int""#,
+            SchemaFormat::Avro,
+            CompatibilityMode::Backward,
+        );
+
+        assert!(result.is_ok());
+        assert!(!result.unwrap(), "string and int should not be compatible");
+    }
+
+    // ========================================================================
+    // JSON Schema compatibility - additional tests
+    // ========================================================================
+
+    #[test]
+    fn test_json_schema_same_schema_compatible() {
+        let schema_str = r#"{
+            "type": "object",
+            "properties": {
+                "name": {"type": "string"},
+                "age": {"type": "integer"}
+            },
+            "required": ["name"]
+        }"#;
+
+        let existing = Schema {
+            id: 1,
+            subject: "test".to_string(),
+            version: 1,
+            schema_type: SchemaFormat::Json,
+            schema: schema_str.to_string(),
+            references: vec![],
+            metadata: Default::default(),
+        };
+
+        let result = check_compatibility(
+            &existing,
+            schema_str,
+            SchemaFormat::Json,
+            CompatibilityMode::Backward,
+        );
+
+        assert!(result.is_ok());
+        assert!(result.unwrap(), "Identical JSON schemas should be compatible");
+    }
+
+    #[test]
+    fn test_json_schema_forward_add_required_field() {
+        let old_schema = r#"{
+            "type": "object",
+            "properties": {
+                "name": {"type": "string"}
+            },
+            "required": ["name"]
+        }"#;
+        let new_schema = r#"{
+            "type": "object",
+            "properties": {
+                "name": {"type": "string"},
+                "age": {"type": "integer"}
+            },
+            "required": ["name", "age"]
+        }"#;
+
+        let existing = Schema {
+            id: 1,
+            subject: "test".to_string(),
+            version: 1,
+            schema_type: SchemaFormat::Json,
+            schema: old_schema.to_string(),
+            references: vec![],
+            metadata: Default::default(),
+        };
+
+        let result = check_compatibility(
+            &existing,
+            new_schema,
+            SchemaFormat::Json,
+            CompatibilityMode::Forward,
+        );
+
+        assert!(result.is_ok());
+        assert!(result.unwrap(), "Adding required field should be forward compatible");
+    }
+
+    #[test]
+    fn test_json_schema_forward_remove_required_field() {
+        let old_schema = r#"{
+            "type": "object",
+            "properties": {
+                "name": {"type": "string"},
+                "age": {"type": "integer"}
+            },
+            "required": ["name", "age"]
+        }"#;
+        let new_schema = r#"{
+            "type": "object",
+            "properties": {
+                "name": {"type": "string"}
+            },
+            "required": ["name"]
+        }"#;
+
+        let existing = Schema {
+            id: 1,
+            subject: "test".to_string(),
+            version: 1,
+            schema_type: SchemaFormat::Json,
+            schema: old_schema.to_string(),
+            references: vec![],
+            metadata: Default::default(),
+        };
+
+        let result = check_compatibility(
+            &existing,
+            new_schema,
+            SchemaFormat::Json,
+            CompatibilityMode::Forward,
+        );
+
+        assert!(result.is_ok());
+        assert!(!result.unwrap(), "Removing required field should NOT be forward compatible");
+    }
+
+    #[test]
+    fn test_json_schema_type_narrowing_not_backward_compatible() {
+        let old_schema = r#"{
+            "type": "object",
+            "properties": {
+                "value": {"type": "number"}
+            }
+        }"#;
+        let new_schema = r#"{
+            "type": "object",
+            "properties": {
+                "value": {"type": "integer"}
+            }
+        }"#;
+
+        let existing = Schema {
+            id: 1,
+            subject: "test".to_string(),
+            version: 1,
+            schema_type: SchemaFormat::Json,
+            schema: old_schema.to_string(),
+            references: vec![],
+            metadata: Default::default(),
+        };
+
+        let result = check_compatibility(
+            &existing,
+            new_schema,
+            SchemaFormat::Json,
+            CompatibilityMode::Backward,
+        );
+
+        assert!(result.is_ok());
+        assert!(
+            !result.unwrap(),
+            "Narrowing number to integer should NOT be backward compatible"
+        );
+    }
+
+    #[test]
+    fn test_json_schema_type_change_incompatible() {
+        let old_schema = r#"{"type": "object", "properties": {"name": {"type": "string"}}}"#;
+        let new_schema = r#"{"type": "array"}"#;
+
+        let existing = Schema {
+            id: 1,
+            subject: "test".to_string(),
+            version: 1,
+            schema_type: SchemaFormat::Json,
+            schema: old_schema.to_string(),
+            references: vec![],
+            metadata: Default::default(),
+        };
+
+        let result = check_compatibility(
+            &existing,
+            new_schema,
+            SchemaFormat::Json,
+            CompatibilityMode::Backward,
+        );
+
+        assert!(result.is_ok());
+        assert!(!result.unwrap(), "Changing root type from object to array should be incompatible");
+    }
+
+    #[test]
+    fn test_json_schema_invalid_existing_schema() {
+        let existing = Schema {
+            id: 1,
+            subject: "test".to_string(),
+            version: 1,
+            schema_type: SchemaFormat::Json,
+            schema: "not json at all".to_string(),
+            references: vec![],
+            metadata: Default::default(),
+        };
+
+        let result = check_compatibility(
+            &existing,
+            r#"{"type": "string"}"#,
+            SchemaFormat::Json,
+            CompatibilityMode::Backward,
+        );
+
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_json_schema_invalid_new_schema() {
+        let existing = Schema {
+            id: 1,
+            subject: "test".to_string(),
+            version: 1,
+            schema_type: SchemaFormat::Json,
+            schema: r#"{"type": "object"}"#.to_string(),
+            references: vec![],
+            metadata: Default::default(),
+        };
+
+        let result = check_compatibility(
+            &existing,
+            "{{broken",
+            SchemaFormat::Json,
+            CompatibilityMode::Backward,
+        );
+
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_json_schema_full_with_new_required_incompatible() {
+        let old_schema = r#"{
+            "type": "object",
+            "properties": {"name": {"type": "string"}},
+            "required": ["name"]
+        }"#;
+        let new_schema = r#"{
+            "type": "object",
+            "properties": {"name": {"type": "string"}, "age": {"type": "integer"}},
+            "required": ["name", "age"]
+        }"#;
+
+        let existing = Schema {
+            id: 1,
+            subject: "test".to_string(),
+            version: 1,
+            schema_type: SchemaFormat::Json,
+            schema: old_schema.to_string(),
+            references: vec![],
+            metadata: Default::default(),
+        };
+
+        let result = check_compatibility(
+            &existing,
+            new_schema,
+            SchemaFormat::Json,
+            CompatibilityMode::Full,
+        );
+
+        assert!(result.is_ok());
+        assert!(
+            !result.unwrap(),
+            "Adding required field should NOT be fully compatible (fails backward)"
+        );
+    }
+
+    #[test]
+    fn test_json_schema_no_required_fields_compatible() {
+        let old_schema = r#"{
+            "type": "object",
+            "properties": {"name": {"type": "string"}}
+        }"#;
+        let new_schema = r#"{
+            "type": "object",
+            "properties": {"name": {"type": "string"}, "email": {"type": "string"}}
+        }"#;
+
+        let existing = Schema {
+            id: 1,
+            subject: "test".to_string(),
+            version: 1,
+            schema_type: SchemaFormat::Json,
+            schema: old_schema.to_string(),
+            references: vec![],
+            metadata: Default::default(),
+        };
+
+        let result = check_compatibility(
+            &existing,
+            new_schema,
+            SchemaFormat::Json,
+            CompatibilityMode::Backward,
+        );
+
+        assert!(result.is_ok());
+        assert!(result.unwrap(), "Adding optional property with no required constraint is backward compatible");
+    }
+
+    // ========================================================================
+    // JSON type array compatibility tests
+    // ========================================================================
+
+    #[test]
+    fn test_json_types_compatible_array_superset() {
+        let old_schema = r#"{"type": ["string", "integer"]}"#;
+        let new_schema = r#"{"type": ["string", "integer", "number"]}"#;
+
+        let existing = Schema {
+            id: 1,
+            subject: "test".to_string(),
+            version: 1,
+            schema_type: SchemaFormat::Json,
+            schema: old_schema.to_string(),
+            references: vec![],
+            metadata: Default::default(),
+        };
+
+        let result = check_compatibility(
+            &existing,
+            new_schema,
+            SchemaFormat::Json,
+            CompatibilityMode::Backward,
+        );
+
+        assert!(result.is_ok());
+        assert!(result.unwrap(), "New type array superset of old should be backward compatible");
+    }
+
+    #[test]
+    fn test_json_types_compatible_single_in_old_array() {
+        let old_schema = r#"{"type": ["string", "integer"]}"#;
+        let new_schema = r#"{"type": "string"}"#;
+
+        let existing = Schema {
+            id: 1,
+            subject: "test".to_string(),
+            version: 1,
+            schema_type: SchemaFormat::Json,
+            schema: old_schema.to_string(),
+            references: vec![],
+            metadata: Default::default(),
+        };
+
+        let result = check_compatibility(
+            &existing,
+            new_schema,
+            SchemaFormat::Json,
+            CompatibilityMode::Backward,
+        );
+
+        assert!(result.is_ok());
+        assert!(result.unwrap(), "Single type that is in old array should be compatible");
+    }
+
+    #[test]
+    fn test_json_types_compatible_single_to_array() {
+        let old_schema = r#"{"type": "string"}"#;
+        let new_schema = r#"{"type": ["string", "integer"]}"#;
+
+        let existing = Schema {
+            id: 1,
+            subject: "test".to_string(),
+            version: 1,
+            schema_type: SchemaFormat::Json,
+            schema: old_schema.to_string(),
+            references: vec![],
+            metadata: Default::default(),
+        };
+
+        let result = check_compatibility(
+            &existing,
+            new_schema,
+            SchemaFormat::Json,
+            CompatibilityMode::Backward,
+        );
+
+        assert!(result.is_ok());
+        assert!(result.unwrap(), "Old single type contained in new array should be compatible");
+    }
+
+    // ========================================================================
+    // JSON Schema transitive modes
+    // ========================================================================
+
+    #[test]
+    fn test_json_backward_transitive() {
+        let schema_str = r#"{"type": "object", "properties": {"name": {"type": "string"}}, "required": ["name"]}"#;
+
+        let existing = Schema {
+            id: 1,
+            subject: "test".to_string(),
+            version: 1,
+            schema_type: SchemaFormat::Json,
+            schema: schema_str.to_string(),
+            references: vec![],
+            metadata: Default::default(),
+        };
+
+        let result = check_compatibility(
+            &existing,
+            schema_str,
+            SchemaFormat::Json,
+            CompatibilityMode::BackwardTransitive,
+        );
+
+        assert!(result.is_ok());
+        assert!(result.unwrap());
+    }
+
+    #[test]
+    fn test_json_forward_transitive() {
+        let schema_str = r#"{"type": "object", "properties": {"name": {"type": "string"}}}"#;
+
+        let existing = Schema {
+            id: 1,
+            subject: "test".to_string(),
+            version: 1,
+            schema_type: SchemaFormat::Json,
+            schema: schema_str.to_string(),
+            references: vec![],
+            metadata: Default::default(),
+        };
+
+        let result = check_compatibility(
+            &existing,
+            schema_str,
+            SchemaFormat::Json,
+            CompatibilityMode::ForwardTransitive,
+        );
+
+        assert!(result.is_ok());
+        assert!(result.unwrap());
+    }
+
+    #[test]
+    fn test_json_full_transitive() {
+        let schema_str = r#"{"type": "object", "properties": {"name": {"type": "string"}}}"#;
+
+        let existing = Schema {
+            id: 1,
+            subject: "test".to_string(),
+            version: 1,
+            schema_type: SchemaFormat::Json,
+            schema: schema_str.to_string(),
+            references: vec![],
+            metadata: Default::default(),
+        };
+
+        let result = check_compatibility(
+            &existing,
+            schema_str,
+            SchemaFormat::Json,
+            CompatibilityMode::FullTransitive,
+        );
+
+        assert!(result.is_ok());
+        assert!(result.unwrap());
+    }
 }
