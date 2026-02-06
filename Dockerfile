@@ -21,7 +21,17 @@ COPY .sqlx ./.sqlx
 # Enable SQLx offline mode (uses cached query metadata)
 ENV SQLX_OFFLINE=true
 
+# Use sparse protocol for faster crate downloads
+ENV CARGO_REGISTRIES_CRATES_IO_PROTOCOL=sparse
+
+# Increase network timeouts for slow connections
+ENV CARGO_NET_GIT_FETCH_WITH_CLI=true
+ENV CARGO_HTTP_TIMEOUT=120
+
 # Build release binary with postgres feature
+# Disable LTO and use more codegen units to reduce memory usage in Docker
+ENV CARGO_PROFILE_RELEASE_LTO=false
+ENV CARGO_PROFILE_RELEASE_CODEGEN_UNITS=8
 RUN cargo build --release --bin unified-server --features postgres
 
 # Runtime stage

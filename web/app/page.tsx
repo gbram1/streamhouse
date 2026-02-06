@@ -94,7 +94,6 @@ export default function Home() {
 
             <nav className="hidden items-center gap-8 lg:flex">
               {[
-                { name: "Product", href: "/product" },
                 { name: "How it Works", href: "/how-it-works" },
                 { name: "Docs", href: "/docs" },
                 { name: "Use Cases", href: "/use-cases" },

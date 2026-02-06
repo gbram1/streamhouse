@@ -270,10 +270,14 @@ impl MetadataStore for PostgresMetadataStore {
         let config_json = serde_json::to_value(&config_map)?;
         let mut tx = self.pool.begin().await?;
 
+        // Use default organization for backwards compatibility
+        let default_org_id = uuid::Uuid::parse_str("00000000-0000-0000-0000-000000000000").unwrap();
+
         sqlx::query(
-            "INSERT INTO topics (name, partition_count, retention_ms, created_at, updated_at, config)
-             VALUES ($1, $2, $3, $4, $5, $6)"
+            "INSERT INTO topics (organization_id, name, partition_count, retention_ms, created_at, updated_at, config)
+             VALUES ($1, $2, $3, $4, $5, $6, $7)"
         )
+        .bind(default_org_id)
         .bind(&config.name)
         .bind(config.partition_count as i32)
         .bind(config.retention_ms)
@@ -292,9 +296,10 @@ impl MetadataStore for PostgresMetadataStore {
 
         for partition_id in 0..config.partition_count {
             sqlx::query(
-                "INSERT INTO partitions (topic, partition_id, high_watermark, created_at, updated_at)
-                 VALUES ($1, $2, $3, $4, $5)"
+                "INSERT INTO partitions (organization_id, topic, partition_id, high_watermark, created_at, updated_at)
+                 VALUES ($1, $2, $3, $4, $5, $6)"
             )
+            .bind(default_org_id)
             .bind(&config.name)
             .bind(partition_id as i32)
             .bind(0i64)
@@ -438,12 +443,16 @@ impl MetadataStore for PostgresMetadataStore {
     }
 
     async fn add_segment(&self, segment: SegmentInfo) -> Result<()> {
+        // Use default organization for backwards compatibility
+        let default_org_id = uuid::Uuid::parse_str("00000000-0000-0000-0000-000000000000").unwrap();
+
         sqlx::query(
-            "INSERT INTO segments (id, topic, partition_id, base_offset, end_offset,
+            "INSERT INTO segments (id, organization_id, topic, partition_id, base_offset, end_offset,
                                    record_count, size_bytes, s3_bucket, s3_key, created_at)
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)",
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)",
         )
         .bind(&segment.id)
+        .bind(default_org_id)
         .bind(&segment.topic)
         .bind(segment.partition_id as i32)
         .bind(segment.base_offset as i64)
@@ -546,10 +555,14 @@ impl MetadataStore for PostgresMetadataStore {
             .unwrap()
             .as_millis() as i64;
 
+        // Use default organization for backwards compatibility
+        let default_org_id = uuid::Uuid::parse_str("00000000-0000-0000-0000-000000000000").unwrap();
+
         sqlx::query(
-            "INSERT INTO consumer_groups (group_id, created_at, updated_at)
-             VALUES ($1, $2, $3) ON CONFLICT (group_id) DO NOTHING",
+            "INSERT INTO consumer_groups (organization_id, group_id, created_at, updated_at)
+             VALUES ($1, $2, $3, $4) ON CONFLICT (organization_id, group_id) DO NOTHING",
         )
+        .bind(default_org_id)
         .bind(group_id)
         .bind(now_ms)
         .bind(now_ms)
@@ -574,12 +587,16 @@ impl MetadataStore for PostgresMetadataStore {
             .unwrap()
             .as_millis() as i64;
 
+        // Use default organization for backwards compatibility
+        let default_org_id = uuid::Uuid::parse_str("00000000-0000-0000-0000-000000000000").unwrap();
+
         sqlx::query(
-            "INSERT INTO consumer_offsets (group_id, topic, partition_id, committed_offset, metadata, committed_at)
-             VALUES ($1, $2, $3, $4, $5, $6)
-             ON CONFLICT (group_id, topic, partition_id)
-             DO UPDATE SET committed_offset = $4, metadata = $5, committed_at = $6"
+            "INSERT INTO consumer_offsets (organization_id, group_id, topic, partition_id, committed_offset, metadata, committed_at)
+             VALUES ($1, $2, $3, $4, $5, $6, $7)
+             ON CONFLICT (organization_id, group_id, topic, partition_id)
+             DO UPDATE SET committed_offset = $5, metadata = $6, committed_at = $7"
         )
+        .bind(default_org_id)
         .bind(group_id)
         .bind(topic)
         .bind(partition_id as i32)
