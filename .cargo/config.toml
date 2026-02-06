@@ -1,18 +1,15 @@
-[build]
-# Use sccache to cache compilation artifacts across builds
-# Install: brew install sccache
-rustc-wrapper = "sccache"
-
 [target.aarch64-apple-darwin]
-# Use Apple's lld for faster linking on macOS
 rustflags = ["-C", "link-arg=-fuse-ld=/usr/bin/ld", "-C", "split-debuginfo=unpacked"]
 
+[target.x86_64-unknown-linux-gnu]
+# mold linker — dramatically faster linking on Linux CI
+# Install: apt-get install mold, or brew install mold
+rustflags = ["-C", "link-arg=-fuse-ld=mold"]
+
 [profile.dev]
-# Split debug info reduces target directory bloat significantly
 split-debuginfo = "unpacked"
-# Opt level 0 for fastest compile (already the default, but explicit)
 opt-level = 0
 
 [profile.dev.package."*"]
-# Optimize dependencies even in dev — they rarely change and run faster
+# Optimize deps even in dev — they rarely change and run faster
 opt-level = 1
