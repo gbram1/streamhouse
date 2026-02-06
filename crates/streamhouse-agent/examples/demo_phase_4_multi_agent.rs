@@ -13,7 +13,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 use streamhouse_agent::Agent;
-use streamhouse_metadata::{MetadataStore, SqliteMetadataStore, TopicConfig};
+use streamhouse_metadata::{CleanupPolicy, MetadataStore, SqliteMetadataStore, TopicConfig};
 use tracing::Level;
 use tracing_subscriber::FmtSubscriber;
 
@@ -43,6 +43,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             name: "orders".to_string(),
             partition_count: 6,
             retention_ms: Some(86400000), // 1 day
+            cleanup_policy: CleanupPolicy::default(),
             config: HashMap::new(),
         })
         .await?;
@@ -52,6 +53,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             name: "users".to_string(),
             partition_count: 3,
             retention_ms: Some(86400000),
+            cleanup_policy: CleanupPolicy::default(),
             config: HashMap::new(),
         })
         .await?;

@@ -164,6 +164,20 @@ impl SegmentWriter {
             self.flush_block()?;
         }
 
+        // If starting a new block (after flush), create index entry and reset delta state
+        if self.current_block.is_empty() && self.base_offset.is_some() && self.index.len() < self.blocks.len() + 1 {
+            let file_position =
+                HEADER_SIZE as u64 + self.blocks.iter().map(|b| b.len() as u64).sum::<u64>();
+            self.index.push(IndexEntry {
+                offset: record.offset,
+                file_position,
+                timestamp: record.timestamp,
+            });
+            // Reset delta encoding state so first record in new block has delta 0
+            self.last_offset = None;
+            self.last_timestamp = record.timestamp;
+        }
+
         // Encode record with delta compression
         self.encode_record(record)?;
 
@@ -221,22 +235,9 @@ impl SegmentWriter {
             }
         };
 
-        // Calculate file position for next block's index entry
-        let current_position =
-            HEADER_SIZE as u64 + self.blocks.iter().map(|b| b.len() as u64).sum::<u64>();
-
         self.blocks.push(compressed);
 
-        // Create index entry for next block if we have a last offset
-        if let Some(offset) = self.last_offset {
-            self.index.push(IndexEntry {
-                offset: offset + 1, // Next block starts at next offset
-                file_position: current_position + self.blocks.last().unwrap().len() as u64,
-                timestamp: self.last_timestamp,
-            });
-        }
-
-        // Reset current block
+        // Reset current block - index entry for next block created in append()
         self.current_block.clear();
 
         Ok(())
@@ -246,11 +247,6 @@ impl SegmentWriter {
     pub fn finish(mut self) -> Result<Vec<u8>> {
         // Flush any remaining data in current block
         self.flush_block()?;
-
-        // Remove the extra index entry we created for "next block"
-        if !self.index.is_empty() {
-            self.index.pop();
-        }
 
         let base_offset = self
             .base_offset

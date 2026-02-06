@@ -1002,9 +1002,9 @@ mod tests {
             async move {
                 let count = attempts.fetch_add(1, Ordering::SeqCst);
                 if count < 2 {
-                    Err(Status::unavailable("down"))
+                    Err::<i32, Status>(Status::unavailable("down"))
                 } else {
-                    Err(Status::permission_denied("no access"))
+                    Err::<i32, Status>(Status::permission_denied("no access"))
                 }
             }
         })
@@ -1206,9 +1206,9 @@ mod tests {
             async move {
                 let count = attempts.fetch_add(1, Ordering::SeqCst);
                 if count == 0 {
-                    Err(Status::unavailable("transient"))
+                    Err::<i32, Status>(Status::unavailable("transient"))
                 } else {
-                    Err(Status::not_found("permanent"))
+                    Err::<i32, Status>(Status::not_found("permanent"))
                 }
             }
         })

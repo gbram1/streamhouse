@@ -30,6 +30,10 @@ bloomfilter = "1.0"
 criterion = { workspace = true }
 tempfile = { workspace = true }
 
+[[example]]
+name = "test_100_messages"
+required-features = ["postgres"]
+
 [[bench]]
 name = "segment_bench"
 harness = false

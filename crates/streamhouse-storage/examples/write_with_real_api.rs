@@ -10,10 +10,10 @@ use std::sync::Arc;
 use streamhouse_storage::{PartitionReader, PartitionWriter, SegmentCache, WriteConfig};
 
 #[cfg(feature = "postgres")]
-use streamhouse_metadata::{MetadataStore, PostgresMetadataStore, TopicConfig};
+use streamhouse_metadata::{CleanupPolicy, MetadataStore, PostgresMetadataStore, TopicConfig};
 
 #[cfg(not(feature = "postgres"))]
-use streamhouse_metadata::{MetadataStore, SqliteMetadataStore, TopicConfig};
+use streamhouse_metadata::{CleanupPolicy, MetadataStore, SqliteMetadataStore, TopicConfig};
 
 fn current_timestamp() -> u64 {
     std::time::SystemTime::now()
@@ -77,6 +77,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 name: name.to_string(),
                 partition_count: *partitions,
                 retention_ms: Some(*retention),
+                cleanup_policy: CleanupPolicy::default(),
                 config: HashMap::new(),
             })
             .await?;
@@ -94,6 +95,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         s3_upload_retries: 3,
         wal_config: None,
         throttle_config: None,
+        multipart_threshold: 8 * 1024 * 1024,
+        multipart_part_size: 8 * 1024 * 1024,
+        parallel_upload_parts: 4,
     };
 
     // Write to orders topic

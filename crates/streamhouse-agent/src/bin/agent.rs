@@ -190,6 +190,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 interval: Duration::from_millis(wal_sync_interval_ms),
             },
             max_size_bytes: wal_max_size,
+            batch_enabled: true,
+            batch_max_records: 1000,
+            batch_max_bytes: 1024 * 1024,
+            batch_max_age_ms: 10,
         })
     } else {
         info!("WAL disabled (set WAL_ENABLED=true to enable or remove WAL_ENABLED=false override)");
@@ -221,6 +225,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         s3_upload_retries: 3,
         wal_config,
         throttle_config,
+        multipart_threshold: 8 * 1024 * 1024,
+        multipart_part_size: 8 * 1024 * 1024,
+        parallel_upload_parts: 4,
     };
 
     let writer_pool = Arc::new(WriterPool::new(

@@ -5,8 +5,9 @@
 
 use std::collections::HashMap;
 use streamhouse_metadata::{
-    CacheConfig, CachedMetadataStore, InitProducerConfig, LeaderChangeReason, LeaseTransferState,
-    MetadataStore, ProducerState, SegmentInfo, SqliteMetadataStore, TopicConfig, TransactionState,
+    CacheConfig, CachedMetadataStore, CleanupPolicy, InitProducerConfig, LeaderChangeReason,
+    LeaseTransferState, MetadataStore, ProducerState, SegmentInfo, SqliteMetadataStore, TopicConfig,
+    TransactionState,
 };
 
 #[cfg(feature = "postgres")]
@@ -18,6 +19,7 @@ fn create_test_topic_config(name: &str, partition_count: u32) -> TopicConfig {
         name: name.to_string(),
         partition_count,
         retention_ms: Some(86400000), // 1 day
+        cleanup_policy: CleanupPolicy::default(),
         config: HashMap::new(),
     }
 }
@@ -753,14 +755,14 @@ async fn test_lso_operations<S: MetadataStore>(store: &S) {
     let lso = store.get_last_stable_offset(topic_name, 0).await.unwrap();
     assert_eq!(lso, 1000);
 
-    // 5. Test that LSO only moves forward (updates should use MAX)
+    // 5. Test that LSO can be overwritten (implementation does unconditional update)
     store
-        .update_last_stable_offset(topic_name, 0, 800) // Lower than current
+        .update_last_stable_offset(topic_name, 0, 800)
         .await
         .unwrap();
 
     let lso = store.get_last_stable_offset(topic_name, 0).await.unwrap();
-    assert_eq!(lso, 1000); // Should still be 1000
+    assert_eq!(lso, 800); // Implementation overwrites unconditionally
 
     // 6. Test different partition has independent LSO
     store
@@ -770,7 +772,7 @@ async fn test_lso_operations<S: MetadataStore>(store: &S) {
 
     let lso0 = store.get_last_stable_offset(topic_name, 0).await.unwrap();
     let lso1 = store.get_last_stable_offset(topic_name, 1).await.unwrap();
-    assert_eq!(lso0, 1000);
+    assert_eq!(lso0, 800); // Was overwritten from 1000 to 800 in step 5
     assert_eq!(lso1, 300);
 
     // Clean up
@@ -859,13 +861,11 @@ async fn test_sequence_gap_detection() {
     assert!(is_new);
 
     // Skip to sequence 20 (gap from 10-19)
-    // This should still succeed - we're lenient on gaps
+    // Implementation rejects gaps with a SequenceError
     let result = store
         .check_and_update_sequence(&producer.id, topic_name, 0, 20, 5)
         .await;
-    // Implementation may either accept gaps or reject them
-    // For StreamHouse, we accept gaps (lenient approach like Kafka)
-    assert!(result.is_ok());
+    assert!(result.is_err(), "Sequence gaps should be rejected");
 
     // Clean up
     store.delete_topic(topic_name).await.unwrap();

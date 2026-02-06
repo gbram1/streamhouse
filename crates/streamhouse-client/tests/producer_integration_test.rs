@@ -6,7 +6,7 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 use streamhouse_client::Producer;
-use streamhouse_metadata::{MetadataStore, SqliteMetadataStore, TopicConfig};
+use streamhouse_metadata::{CleanupPolicy, MetadataStore, SqliteMetadataStore, TopicConfig};
 
 #[tokio::test]
 async fn test_producer_send_basic() {
@@ -26,6 +26,7 @@ async fn test_producer_send_basic() {
             name: "test-topic".to_string(),
             partition_count: 3,
             retention_ms: Some(86400000),
+            cleanup_policy: CleanupPolicy::default(),
             config: HashMap::new(),
         })
         .await
@@ -81,6 +82,7 @@ async fn test_producer_explicit_partition() {
             name: "test-topic".to_string(),
             partition_count: 5,
             retention_ms: Some(86400000),
+            cleanup_policy: CleanupPolicy::default(),
             config: HashMap::new(),
         })
         .await
@@ -120,6 +122,7 @@ async fn test_producer_invalid_partition() {
             name: "test-topic".to_string(),
             partition_count: 3,
             retention_ms: Some(86400000),
+            cleanup_policy: CleanupPolicy::default(),
             config: HashMap::new(),
         })
         .await
