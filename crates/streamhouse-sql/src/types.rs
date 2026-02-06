@@ -131,7 +131,6 @@ pub enum RefreshMode {
     Manual,
 }
 
-
 /// CREATE MATERIALIZED VIEW query structure
 #[derive(Debug, Clone)]
 pub struct CreateMaterializedViewQuery {

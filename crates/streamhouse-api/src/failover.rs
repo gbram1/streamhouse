@@ -591,8 +591,7 @@ impl FailoverManager {
                 node.failed_checks += 1;
 
                 // Check if threshold exceeded
-                if node.failed_checks >= self.config.unhealthy_threshold
-                    && old_status.is_healthy()
+                if node.failed_checks >= self.config.unhealthy_threshold && old_status.is_healthy()
                 {
                     node.health = HealthStatus::Unhealthy;
 

@@ -343,7 +343,9 @@ async fn fetch_partition(
     let high_watermark = partition_info.high_watermark as i64;
 
     // Read records from storage
-    let records = read_records(state, topic_name, partition_id, offset, max_bytes).await.ok();
+    let records = read_records(state, topic_name, partition_id, offset, max_bytes)
+        .await
+        .ok();
 
     FetchPartitionResponse {
         partition_index: partition_id as i32,

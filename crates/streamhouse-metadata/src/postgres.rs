@@ -1373,8 +1373,9 @@ impl MetadataStore for PostgresMetadataStore {
                 max_schema_versions_per_subject: r.get("max_schema_versions_per_subject"),
                 max_connections: r.get("max_connections"),
             })
-            .unwrap_or_else(|| {
-                OrganizationQuota { organization_id: organization_id.to_string(), ..Default::default() }
+            .unwrap_or_else(|| OrganizationQuota {
+                organization_id: organization_id.to_string(),
+                ..Default::default()
             }))
     }
 
