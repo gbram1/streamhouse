@@ -2605,4 +2605,1271 @@ mod tests {
             _ => panic!("Expected CreateMaterializedView"),
         }
     }
+
+    // ========================================================================
+    // SELECT query parsing - comprehensive coverage
+    // ========================================================================
+
+    #[test]
+    fn test_parse_select_star_no_limit() {
+        let query = parse_query("SELECT * FROM events").unwrap();
+        match query {
+            SqlQuery::Select(q) => {
+                assert_eq!(q.topic, "events");
+                assert_eq!(q.columns.len(), 1);
+                assert!(matches!(q.columns[0], SelectColumn::All));
+                assert!(q.limit.is_none());
+                assert!(q.offset.is_none());
+                assert!(q.order_by.is_none());
+                assert!(q.filters.is_empty());
+            }
+            _ => panic!("Expected Select query"),
+        }
+    }
+
+    #[test]
+    fn test_parse_select_specific_columns() {
+        let query = parse_query("SELECT key, value, offset FROM orders").unwrap();
+        match query {
+            SqlQuery::Select(q) => {
+                assert_eq!(q.columns.len(), 3);
+                match &q.columns[0] {
+                    SelectColumn::Column(name) => assert_eq!(name, "key"),
+                    _ => panic!("Expected Column"),
+                }
+                match &q.columns[1] {
+                    SelectColumn::Column(name) => assert_eq!(name, "value"),
+                    _ => panic!("Expected Column"),
+                }
+                match &q.columns[2] {
+                    SelectColumn::Column(name) => assert_eq!(name, "offset"),
+                    _ => panic!("Expected Column"),
+                }
+            }
+            _ => panic!("Expected Select query"),
+        }
+    }
+
+    #[test]
+    fn test_parse_select_single_column() {
+        let query = parse_query("SELECT key FROM mytopic").unwrap();
+        match query {
+            SqlQuery::Select(q) => {
+                assert_eq!(q.topic, "mytopic");
+                assert_eq!(q.columns.len(), 1);
+                assert!(matches!(&q.columns[0], SelectColumn::Column(name) if name == "key"));
+            }
+            _ => panic!("Expected Select query"),
+        }
+    }
+
+    #[test]
+    fn test_parse_select_with_semicolon() {
+        let query = parse_query("SELECT * FROM orders LIMIT 5;").unwrap();
+        match query {
+            SqlQuery::Select(q) => {
+                assert_eq!(q.topic, "orders");
+                assert_eq!(q.limit, Some(5));
+            }
+            _ => panic!("Expected Select query"),
+        }
+    }
+
+    #[test]
+    fn test_parse_select_with_offset() {
+        let query = parse_query("SELECT * FROM events LIMIT 10 OFFSET 20").unwrap();
+        match query {
+            SqlQuery::Select(q) => {
+                assert_eq!(q.limit, Some(10));
+                assert_eq!(q.offset, Some(20));
+            }
+            _ => panic!("Expected Select query"),
+        }
+    }
+
+    #[test]
+    fn test_parse_select_offset_without_limit() {
+        // SQL standard allows OFFSET without LIMIT in some dialects
+        let query = parse_query("SELECT * FROM events OFFSET 5").unwrap();
+        match query {
+            SqlQuery::Select(q) => {
+                assert!(q.limit.is_none());
+                assert_eq!(q.offset, Some(5));
+            }
+            _ => panic!("Expected Select query"),
+        }
+    }
+
+    // ========================================================================
+    // ORDER BY parsing
+    // ========================================================================
+
+    #[test]
+    fn test_parse_order_by_asc() {
+        let query = parse_query("SELECT * FROM orders ORDER BY offset ASC").unwrap();
+        match query {
+            SqlQuery::Select(q) => {
+                let ob = q.order_by.unwrap();
+                assert_eq!(ob.column, "offset");
+                assert!(!ob.descending);
+            }
+            _ => panic!("Expected Select query"),
+        }
+    }
+
+    #[test]
+    fn test_parse_order_by_desc() {
+        let query = parse_query("SELECT * FROM orders ORDER BY timestamp DESC").unwrap();
+        match query {
+            SqlQuery::Select(q) => {
+                let ob = q.order_by.unwrap();
+                assert_eq!(ob.column, "timestamp");
+                assert!(ob.descending);
+            }
+            _ => panic!("Expected Select query"),
+        }
+    }
+
+    #[test]
+    fn test_parse_order_by_default_direction() {
+        // Default direction in SQL is ASC
+        let query = parse_query("SELECT * FROM orders ORDER BY offset").unwrap();
+        match query {
+            SqlQuery::Select(q) => {
+                let ob = q.order_by.unwrap();
+                assert_eq!(ob.column, "offset");
+                assert!(!ob.descending);
+            }
+            _ => panic!("Expected Select query"),
+        }
+    }
+
+    #[test]
+    fn test_parse_order_by_with_limit() {
+        let query = parse_query("SELECT * FROM orders ORDER BY offset DESC LIMIT 50").unwrap();
+        match query {
+            SqlQuery::Select(q) => {
+                assert_eq!(q.limit, Some(50));
+                let ob = q.order_by.unwrap();
+                assert_eq!(ob.column, "offset");
+                assert!(ob.descending);
+            }
+            _ => panic!("Expected Select query"),
+        }
+    }
+
+    // ========================================================================
+    // WHERE clause - key equality
+    // ========================================================================
+
+    #[test]
+    fn test_parse_where_key_equals() {
+        let query = parse_query("SELECT * FROM orders WHERE key = 'customer-123'").unwrap();
+        match query {
+            SqlQuery::Select(q) => {
+                assert_eq!(q.filters.len(), 1);
+                match &q.filters[0] {
+                    Filter::KeyEquals(k) => assert_eq!(k, "customer-123"),
+                    _ => panic!("Expected KeyEquals filter, got {:?}", q.filters[0]),
+                }
+            }
+            _ => panic!("Expected Select query"),
+        }
+    }
+
+    #[test]
+    fn test_parse_where_key_equals_empty_string() {
+        let query = parse_query("SELECT * FROM orders WHERE key = ''").unwrap();
+        match query {
+            SqlQuery::Select(q) => {
+                assert_eq!(q.filters.len(), 1);
+                match &q.filters[0] {
+                    Filter::KeyEquals(k) => assert_eq!(k, ""),
+                    _ => panic!("Expected KeyEquals filter"),
+                }
+            }
+            _ => panic!("Expected Select query"),
+        }
+    }
+
+    // ========================================================================
+    // WHERE clause - partition filter
+    // ========================================================================
+
+    #[test]
+    fn test_parse_where_partition_equals() {
+        let query = parse_query("SELECT * FROM orders WHERE partition = 3").unwrap();
+        match query {
+            SqlQuery::Select(q) => {
+                assert_eq!(q.filters.len(), 1);
+                match &q.filters[0] {
+                    Filter::PartitionEquals(p) => assert_eq!(*p, 3),
+                    _ => panic!("Expected PartitionEquals filter"),
+                }
+            }
+            _ => panic!("Expected Select query"),
+        }
+    }
+
+    #[test]
+    fn test_parse_where_partition_zero() {
+        let query = parse_query("SELECT * FROM events WHERE partition = 0").unwrap();
+        match query {
+            SqlQuery::Select(q) => {
+                assert_eq!(q.filters.len(), 1);
+                assert!(matches!(&q.filters[0], Filter::PartitionEquals(0)));
+            }
+            _ => panic!("Expected Select query"),
+        }
+    }
+
+    // ========================================================================
+    // WHERE clause - offset filters
+    // ========================================================================
+
+    #[test]
+    fn test_parse_where_offset_gte() {
+        let query = parse_query("SELECT * FROM orders WHERE offset >= 1000").unwrap();
+        match query {
+            SqlQuery::Select(q) => {
+                assert_eq!(q.filters.len(), 1);
+                match &q.filters[0] {
+                    Filter::OffsetGte(o) => assert_eq!(*o, 1000),
+                    _ => panic!("Expected OffsetGte filter, got {:?}", q.filters[0]),
+                }
+            }
+            _ => panic!("Expected Select query"),
+        }
+    }
+
+    #[test]
+    fn test_parse_where_offset_lt() {
+        let query = parse_query("SELECT * FROM orders WHERE offset < 2000").unwrap();
+        match query {
+            SqlQuery::Select(q) => {
+                assert_eq!(q.filters.len(), 1);
+                match &q.filters[0] {
+                    Filter::OffsetLt(o) => assert_eq!(*o, 2000),
+                    _ => panic!("Expected OffsetLt filter, got {:?}", q.filters[0]),
+                }
+            }
+            _ => panic!("Expected Select query"),
+        }
+    }
+
+    #[test]
+    fn test_parse_where_offset_equals() {
+        let query = parse_query("SELECT * FROM orders WHERE offset = 42").unwrap();
+        match query {
+            SqlQuery::Select(q) => {
+                assert_eq!(q.filters.len(), 1);
+                match &q.filters[0] {
+                    Filter::OffsetEquals(o) => assert_eq!(*o, 42),
+                    _ => panic!("Expected OffsetEquals filter, got {:?}", q.filters[0]),
+                }
+            }
+            _ => panic!("Expected Select query"),
+        }
+    }
+
+    #[test]
+    fn test_parse_where_offset_range() {
+        let query = parse_query(
+            "SELECT * FROM orders WHERE offset >= 100 AND offset < 200"
+        ).unwrap();
+        match query {
+            SqlQuery::Select(q) => {
+                assert_eq!(q.filters.len(), 2);
+                let has_gte = q.filters.iter().any(|f| matches!(f, Filter::OffsetGte(100)));
+                let has_lt = q.filters.iter().any(|f| matches!(f, Filter::OffsetLt(200)));
+                assert!(has_gte, "Expected OffsetGte(100)");
+                assert!(has_lt, "Expected OffsetLt(200)");
+            }
+            _ => panic!("Expected Select query"),
+        }
+    }
+
+    #[test]
+    fn test_parse_where_offset_gt_converts_to_gte() {
+        // offset > 5 should become OffsetGte(6) internally
+        let query = parse_query("SELECT * FROM orders WHERE offset > 5").unwrap();
+        match query {
+            SqlQuery::Select(q) => {
+                assert_eq!(q.filters.len(), 1);
+                match &q.filters[0] {
+                    Filter::OffsetGte(o) => assert_eq!(*o, 6),
+                    _ => panic!("Expected OffsetGte filter, got {:?}", q.filters[0]),
+                }
+            }
+            _ => panic!("Expected Select query"),
+        }
+    }
+
+    #[test]
+    fn test_parse_where_offset_lte_converts_to_lt() {
+        // offset <= 10 should become OffsetLt(11) internally
+        let query = parse_query("SELECT * FROM orders WHERE offset <= 10").unwrap();
+        match query {
+            SqlQuery::Select(q) => {
+                assert_eq!(q.filters.len(), 1);
+                match &q.filters[0] {
+                    Filter::OffsetLt(o) => assert_eq!(*o, 11),
+                    _ => panic!("Expected OffsetLt filter, got {:?}", q.filters[0]),
+                }
+            }
+            _ => panic!("Expected Select query"),
+        }
+    }
+
+    // ========================================================================
+    // WHERE clause - timestamp filters
+    // ========================================================================
+
+    #[test]
+    fn test_parse_where_timestamp_gte() {
+        let query = parse_query(
+            "SELECT * FROM orders WHERE timestamp >= '2026-01-15T00:00:00Z'"
+        ).unwrap();
+        match query {
+            SqlQuery::Select(q) => {
+                assert_eq!(q.filters.len(), 1);
+                match &q.filters[0] {
+                    Filter::TimestampGte(ts) => {
+                        // 2026-01-15T00:00:00Z in milliseconds
+                        let expected = chrono::DateTime::parse_from_rfc3339("2026-01-15T00:00:00Z")
+                            .unwrap()
+                            .timestamp_millis();
+                        assert_eq!(*ts, expected);
+                    }
+                    _ => panic!("Expected TimestampGte filter, got {:?}", q.filters[0]),
+                }
+            }
+            _ => panic!("Expected Select query"),
+        }
+    }
+
+    #[test]
+    fn test_parse_where_timestamp_lt() {
+        let query = parse_query(
+            "SELECT * FROM orders WHERE timestamp < '2026-02-01T12:00:00Z'"
+        ).unwrap();
+        match query {
+            SqlQuery::Select(q) => {
+                assert_eq!(q.filters.len(), 1);
+                match &q.filters[0] {
+                    Filter::TimestampLt(ts) => {
+                        let expected = chrono::DateTime::parse_from_rfc3339("2026-02-01T12:00:00Z")
+                            .unwrap()
+                            .timestamp_millis();
+                        assert_eq!(*ts, expected);
+                    }
+                    _ => panic!("Expected TimestampLt filter"),
+                }
+            }
+            _ => panic!("Expected Select query"),
+        }
+    }
+
+    #[test]
+    fn test_parse_where_timestamp_range() {
+        let query = parse_query(
+            "SELECT * FROM orders \
+             WHERE timestamp >= '2026-01-01T00:00:00Z' AND timestamp < '2026-02-01T00:00:00Z'"
+        ).unwrap();
+        match query {
+            SqlQuery::Select(q) => {
+                assert_eq!(q.filters.len(), 2);
+                let has_gte = q.filters.iter().any(|f| matches!(f, Filter::TimestampGte(_)));
+                let has_lt = q.filters.iter().any(|f| matches!(f, Filter::TimestampLt(_)));
+                assert!(has_gte, "Expected TimestampGte");
+                assert!(has_lt, "Expected TimestampLt");
+            }
+            _ => panic!("Expected Select query"),
+        }
+    }
+
+    // ========================================================================
+    // WHERE clause - JSON filters
+    // ========================================================================
+
+    #[test]
+    fn test_parse_where_json_equals_string() {
+        let query = parse_query(
+            "SELECT * FROM orders WHERE json_extract(value, '$.status') = 'shipped'"
+        ).unwrap();
+        match query {
+            SqlQuery::Select(q) => {
+                assert_eq!(q.filters.len(), 1);
+                match &q.filters[0] {
+                    Filter::JsonEquals { path, value } => {
+                        assert_eq!(path, "$.status");
+                        assert_eq!(value, &serde_json::Value::String("shipped".to_string()));
+                    }
+                    _ => panic!("Expected JsonEquals filter, got {:?}", q.filters[0]),
+                }
+            }
+            _ => panic!("Expected Select query"),
+        }
+    }
+
+    #[test]
+    fn test_parse_where_json_equals_number() {
+        let query = parse_query(
+            "SELECT * FROM orders WHERE json_extract(value, '$.quantity') = 5"
+        ).unwrap();
+        match query {
+            SqlQuery::Select(q) => {
+                assert_eq!(q.filters.len(), 1);
+                match &q.filters[0] {
+                    Filter::JsonEquals { path, value } => {
+                        assert_eq!(path, "$.quantity");
+                        assert_eq!(value, &serde_json::json!(5));
+                    }
+                    _ => panic!("Expected JsonEquals filter"),
+                }
+            }
+            _ => panic!("Expected Select query"),
+        }
+    }
+
+    #[test]
+    fn test_parse_where_json_gt() {
+        let query = parse_query(
+            "SELECT * FROM orders WHERE json_extract(value, '$.amount') > 100"
+        ).unwrap();
+        match query {
+            SqlQuery::Select(q) => {
+                assert_eq!(q.filters.len(), 1);
+                match &q.filters[0] {
+                    Filter::JsonGt { path, value } => {
+                        assert_eq!(path, "$.amount");
+                        assert_eq!(value, &serde_json::json!(100));
+                    }
+                    _ => panic!("Expected JsonGt filter, got {:?}", q.filters[0]),
+                }
+            }
+            _ => panic!("Expected Select query"),
+        }
+    }
+
+    #[test]
+    fn test_parse_where_json_lt() {
+        let query = parse_query(
+            "SELECT * FROM orders WHERE json_extract(value, '$.price') < 50"
+        ).unwrap();
+        match query {
+            SqlQuery::Select(q) => {
+                assert_eq!(q.filters.len(), 1);
+                match &q.filters[0] {
+                    Filter::JsonLt { path, value } => {
+                        assert_eq!(path, "$.price");
+                        assert_eq!(value, &serde_json::json!(50));
+                    }
+                    _ => panic!("Expected JsonLt filter"),
+                }
+            }
+            _ => panic!("Expected Select query"),
+        }
+    }
+
+    // ========================================================================
+    // WHERE clause - combined filters
+    // ========================================================================
+
+    #[test]
+    fn test_parse_where_multiple_and_conditions() {
+        let query = parse_query(
+            "SELECT * FROM orders \
+             WHERE partition = 0 \
+             AND offset >= 1000 \
+             AND offset < 2000 \
+             AND key = 'user-42'"
+        ).unwrap();
+        match query {
+            SqlQuery::Select(q) => {
+                assert_eq!(q.filters.len(), 4);
+                let has_partition = q.filters.iter().any(|f| matches!(f, Filter::PartitionEquals(0)));
+                let has_offset_gte = q.filters.iter().any(|f| matches!(f, Filter::OffsetGte(1000)));
+                let has_offset_lt = q.filters.iter().any(|f| matches!(f, Filter::OffsetLt(2000)));
+                let has_key = q.filters.iter().any(|f| matches!(f, Filter::KeyEquals(k) if k == "user-42"));
+                assert!(has_partition);
+                assert!(has_offset_gte);
+                assert!(has_offset_lt);
+                assert!(has_key);
+            }
+            _ => panic!("Expected Select query"),
+        }
+    }
+
+    #[test]
+    fn test_parse_where_parenthesized_conditions() {
+        let query = parse_query(
+            "SELECT * FROM orders WHERE (partition = 0) AND (offset >= 100)"
+        ).unwrap();
+        match query {
+            SqlQuery::Select(q) => {
+                assert_eq!(q.filters.len(), 2);
+            }
+            _ => panic!("Expected Select query"),
+        }
+    }
+
+    // ========================================================================
+    // SELECT json_extract
+    // ========================================================================
+
+    #[test]
+    fn test_parse_select_json_extract_with_alias() {
+        let query = parse_query(
+            "SELECT json_extract(value, '$.customer_id') as cid FROM orders"
+        ).unwrap();
+        match query {
+            SqlQuery::Select(q) => {
+                assert_eq!(q.columns.len(), 1);
+                match &q.columns[0] {
+                    SelectColumn::JsonExtract { column, path, alias } => {
+                        assert_eq!(column, "value");
+                        assert_eq!(path, "$.customer_id");
+                        assert_eq!(alias.as_deref(), Some("cid"));
+                    }
+                    _ => panic!("Expected JsonExtract column"),
+                }
+            }
+            _ => panic!("Expected Select query"),
+        }
+    }
+
+    #[test]
+    fn test_parse_select_json_extract_without_alias() {
+        let query = parse_query(
+            "SELECT json_extract(value, '$.name') FROM users"
+        ).unwrap();
+        match query {
+            SqlQuery::Select(q) => {
+                assert_eq!(q.columns.len(), 1);
+                match &q.columns[0] {
+                    SelectColumn::JsonExtract { column, path, alias } => {
+                        assert_eq!(column, "value");
+                        assert_eq!(path, "$.name");
+                        assert!(alias.is_none());
+                    }
+                    _ => panic!("Expected JsonExtract column"),
+                }
+            }
+            _ => panic!("Expected Select query"),
+        }
+    }
+
+    #[test]
+    fn test_parse_select_mixed_columns_and_json_extract() {
+        let query = parse_query(
+            "SELECT key, offset, json_extract(value, '$.amount') as amount FROM orders LIMIT 50"
+        ).unwrap();
+        match query {
+            SqlQuery::Select(q) => {
+                assert_eq!(q.columns.len(), 3);
+                assert!(matches!(&q.columns[0], SelectColumn::Column(name) if name == "key"));
+                assert!(matches!(&q.columns[1], SelectColumn::Column(name) if name == "offset"));
+                assert!(matches!(&q.columns[2], SelectColumn::JsonExtract { .. }));
+                assert_eq!(q.limit, Some(50));
+            }
+            _ => panic!("Expected Select query"),
+        }
+    }
+
+    #[test]
+    fn test_parse_select_nested_json_path() {
+        let query = parse_query(
+            "SELECT json_extract(value, '$.order.items.0.price') as first_price FROM orders"
+        ).unwrap();
+        match query {
+            SqlQuery::Select(q) => {
+                match &q.columns[0] {
+                    SelectColumn::JsonExtract { path, .. } => {
+                        assert_eq!(path, "$.order.items.0.price");
+                    }
+                    _ => panic!("Expected JsonExtract"),
+                }
+            }
+            _ => panic!("Expected Select query"),
+        }
+    }
+
+    // ========================================================================
+    // SHOW / DESCRIBE commands
+    // ========================================================================
+
+    #[test]
+    fn test_parse_show_topics_case_insensitive() {
+        assert!(matches!(parse_query("SHOW TOPICS").unwrap(), SqlQuery::ShowTopics));
+        assert!(matches!(parse_query("show topics").unwrap(), SqlQuery::ShowTopics));
+        assert!(matches!(parse_query("Show Topics").unwrap(), SqlQuery::ShowTopics));
+    }
+
+    #[test]
+    fn test_parse_show_topics_with_semicolon() {
+        assert!(matches!(parse_query("SHOW TOPICS;").unwrap(), SqlQuery::ShowTopics));
+    }
+
+    #[test]
+    fn test_parse_describe_with_semicolon() {
+        let query = parse_query("DESCRIBE orders;").unwrap();
+        match query {
+            SqlQuery::DescribeTopic(name) => assert_eq!(name, "orders"),
+            _ => panic!("Expected DescribeTopic"),
+        }
+    }
+
+    #[test]
+    fn test_parse_desc_shorthand() {
+        let query = parse_query("DESC orders").unwrap();
+        match query {
+            SqlQuery::DescribeTopic(name) => assert_eq!(name, "orders"),
+            _ => panic!("Expected DescribeTopic"),
+        }
+    }
+
+    #[test]
+    fn test_parse_describe_case_insensitive() {
+        let query = parse_query("describe events").unwrap();
+        match query {
+            SqlQuery::DescribeTopic(name) => assert_eq!(name, "events"),
+            _ => panic!("Expected DescribeTopic"),
+        }
+    }
+
+    #[test]
+    fn test_parse_show_materialized_views_case_insensitive() {
+        assert!(matches!(
+            parse_query("SHOW MATERIALIZED VIEWS").unwrap(),
+            SqlQuery::ShowMaterializedViews
+        ));
+        assert!(matches!(
+            parse_query("show materialized views").unwrap(),
+            SqlQuery::ShowMaterializedViews
+        ));
+    }
+
+    // ========================================================================
+    // COUNT(*) queries
+    // ========================================================================
+
+    #[test]
+    fn test_parse_count_no_filter() {
+        let query = parse_query("SELECT COUNT(*) FROM events").unwrap();
+        match query {
+            SqlQuery::Count(q) => {
+                assert_eq!(q.topic, "events");
+                assert!(q.filters.is_empty());
+            }
+            _ => panic!("Expected Count query"),
+        }
+    }
+
+    #[test]
+    fn test_parse_count_with_multiple_filters() {
+        let query = parse_query(
+            "SELECT COUNT(*) FROM orders WHERE partition = 0 AND key = 'test'"
+        ).unwrap();
+        match query {
+            SqlQuery::Count(q) => {
+                assert_eq!(q.topic, "orders");
+                assert_eq!(q.filters.len(), 2);
+            }
+            _ => panic!("Expected Count query"),
+        }
+    }
+
+    // ========================================================================
+    // Error cases
+    // ========================================================================
+
+    #[test]
+    fn test_parse_empty_query() {
+        let result = parse_query("");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_parse_whitespace_only() {
+        let result = parse_query("   ");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_parse_invalid_sql() {
+        let result = parse_query("NOT A VALID SQL QUERY");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_parse_insert_rejected() {
+        let result = parse_query("INSERT INTO orders VALUES ('key', 'value')");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_parse_update_rejected() {
+        let result = parse_query("UPDATE orders SET value = 'new' WHERE key = 'k'");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_parse_delete_rejected() {
+        let result = parse_query("DELETE FROM orders WHERE key = 'k'");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_parse_create_table_rejected() {
+        let result = parse_query("CREATE TABLE orders (id INT)");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_parse_drop_table_rejected() {
+        let result = parse_query("DROP TABLE orders");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_parse_select_without_from() {
+        let result = parse_query("SELECT 1");
+        // This may either error or produce an unexpected result depending on sqlparser
+        // The important thing is it does not panic
+        let _ = result;
+    }
+
+    #[test]
+    fn test_parse_unsupported_operator_in_where() {
+        let result = parse_query("SELECT * FROM orders WHERE key LIKE '%test%'");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_parse_unsupported_function() {
+        let result = parse_query("SELECT UNKNOWN_FUNC(value) FROM orders");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_parse_json_extract_wrong_arg_count() {
+        let result = parse_query("SELECT json_extract(value) FROM orders");
+        assert!(result.is_err());
+    }
+
+    // ========================================================================
+    // Interval parsing
+    // ========================================================================
+
+    #[test]
+    fn test_parse_interval_string_seconds() {
+        assert_eq!(parse_interval_string("1 second").unwrap(), 1000);
+        assert_eq!(parse_interval_string("30 seconds").unwrap(), 30_000);
+        assert_eq!(parse_interval_string("1 sec").unwrap(), 1000);
+        assert_eq!(parse_interval_string("5 s").unwrap(), 5000);
+    }
+
+    #[test]
+    fn test_parse_interval_string_minutes() {
+        assert_eq!(parse_interval_string("1 minute").unwrap(), 60_000);
+        assert_eq!(parse_interval_string("5 minutes").unwrap(), 300_000);
+        assert_eq!(parse_interval_string("10 min").unwrap(), 600_000);
+        assert_eq!(parse_interval_string("1 m").unwrap(), 60_000);
+    }
+
+    #[test]
+    fn test_parse_interval_string_hours() {
+        assert_eq!(parse_interval_string("1 hour").unwrap(), 3_600_000);
+        assert_eq!(parse_interval_string("2 hours").unwrap(), 7_200_000);
+        assert_eq!(parse_interval_string("1 h").unwrap(), 3_600_000);
+    }
+
+    #[test]
+    fn test_parse_interval_string_days() {
+        assert_eq!(parse_interval_string("1 day").unwrap(), 86_400_000);
+        assert_eq!(parse_interval_string("7 days").unwrap(), 604_800_000);
+        assert_eq!(parse_interval_string("1 d").unwrap(), 86_400_000);
+    }
+
+    #[test]
+    fn test_parse_interval_string_milliseconds() {
+        assert_eq!(parse_interval_string("100 ms").unwrap(), 100);
+        assert_eq!(parse_interval_string("500 milliseconds").unwrap(), 500);
+        assert_eq!(parse_interval_string("1 millisecond").unwrap(), 1);
+    }
+
+    #[test]
+    fn test_parse_interval_string_number_only() {
+        // When no unit is given, treated as milliseconds
+        assert_eq!(parse_interval_string("1000").unwrap(), 1000);
+    }
+
+    #[test]
+    fn test_parse_interval_string_unknown_unit() {
+        assert!(parse_interval_string("5 weeks").is_err());
+        assert!(parse_interval_string("1 year").is_err());
+    }
+
+    #[test]
+    fn test_parse_interval_string_empty() {
+        assert!(parse_interval_string("").is_err());
+    }
+
+    #[test]
+    fn test_parse_interval_string_invalid_number() {
+        assert!(parse_interval_string("abc minutes").is_err());
+    }
+
+    // ========================================================================
+    // Vector string parsing
+    // ========================================================================
+
+    #[test]
+    fn test_parse_vector_string_basic() {
+        let v = parse_vector_string("[1.0, 2.0, 3.0]").unwrap();
+        assert_eq!(v, vec![1.0, 2.0, 3.0]);
+    }
+
+    #[test]
+    fn test_parse_vector_string_no_brackets() {
+        let v = parse_vector_string("1.5, 2.5, 3.5").unwrap();
+        assert_eq!(v, vec![1.5, 2.5, 3.5]);
+    }
+
+    #[test]
+    fn test_parse_vector_string_single_element() {
+        let v = parse_vector_string("[0.5]").unwrap();
+        assert_eq!(v, vec![0.5]);
+    }
+
+    #[test]
+    fn test_parse_vector_string_integers() {
+        let v = parse_vector_string("[1, 2, 3]").unwrap();
+        assert_eq!(v, vec![1.0, 2.0, 3.0]);
+    }
+
+    #[test]
+    fn test_parse_vector_string_empty_fails() {
+        assert!(parse_vector_string("[]").is_err());
+        assert!(parse_vector_string("").is_err());
+    }
+
+    #[test]
+    fn test_parse_vector_string_invalid_element() {
+        assert!(parse_vector_string("[1.0, abc, 3.0]").is_err());
+    }
+
+    #[test]
+    fn test_parse_vector_string_whitespace_handling() {
+        let v = parse_vector_string("  [  1.0 ,  2.0 ,  3.0  ]  ").unwrap();
+        assert_eq!(v, vec![1.0, 2.0, 3.0]);
+    }
+
+    // ========================================================================
+    // Window aggregate queries - additional tests
+    // ========================================================================
+
+    #[test]
+    fn test_parse_window_count_distinct() {
+        let query = parse_query(
+            "SELECT COUNT(DISTINCT key) as unique_keys \
+             FROM orders \
+             GROUP BY TUMBLE(timestamp, '1 hour')"
+        ).unwrap();
+        match query {
+            SqlQuery::WindowAggregate(q) => {
+                assert_eq!(q.aggregations.len(), 1);
+                match &q.aggregations[0] {
+                    WindowAggregation::CountDistinct { column, alias } => {
+                        assert_eq!(column, "key");
+                        assert_eq!(alias.as_deref(), Some("unique_keys"));
+                    }
+                    _ => panic!("Expected CountDistinct"),
+                }
+            }
+            _ => panic!("Expected WindowAggregate query"),
+        }
+    }
+
+    #[test]
+    fn test_parse_window_min_max() {
+        let query = parse_query(
+            "SELECT MIN(json_extract(value, '$.price')) as low, \
+                    MAX(json_extract(value, '$.price')) as high \
+             FROM orders \
+             GROUP BY TUMBLE(timestamp, '5 minutes')"
+        ).unwrap();
+        match query {
+            SqlQuery::WindowAggregate(q) => {
+                assert_eq!(q.aggregations.len(), 2);
+                assert!(matches!(&q.aggregations[0], WindowAggregation::Min { .. }));
+                assert!(matches!(&q.aggregations[1], WindowAggregation::Max { .. }));
+            }
+            _ => panic!("Expected WindowAggregate query"),
+        }
+    }
+
+    #[test]
+    fn test_parse_window_with_group_by_column() {
+        let query = parse_query(
+            "SELECT COUNT(*) as cnt \
+             FROM orders \
+             GROUP BY TUMBLE(timestamp, '1 hour'), key"
+        ).unwrap();
+        match query {
+            SqlQuery::WindowAggregate(q) => {
+                assert!(matches!(&q.window, WindowType::Tumble { .. }));
+                assert_eq!(q.group_by, vec!["key"]);
+            }
+            _ => panic!("Expected WindowAggregate query"),
+        }
+    }
+
+    #[test]
+    fn test_parse_window_with_limit() {
+        let query = parse_query(
+            "SELECT COUNT(*) FROM orders \
+             GROUP BY TUMBLE(timestamp, '1 hour') \
+             LIMIT 24"
+        ).unwrap();
+        match query {
+            SqlQuery::WindowAggregate(q) => {
+                assert_eq!(q.limit, Some(24));
+            }
+            _ => panic!("Expected WindowAggregate query"),
+        }
+    }
+
+    #[test]
+    fn test_parse_tumble_window_missing_args() {
+        // TUMBLE with insufficient arguments should error
+        let result = parse_query(
+            "SELECT COUNT(*) FROM orders GROUP BY TUMBLE(timestamp)"
+        );
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_parse_hop_window_missing_args() {
+        // HOP needs 3 args
+        let result = parse_query(
+            "SELECT COUNT(*) FROM orders GROUP BY HOP(timestamp, '5 minutes')"
+        );
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_parse_session_window_missing_args() {
+        let result = parse_query(
+            "SELECT COUNT(*) FROM orders GROUP BY SESSION(timestamp)"
+        );
+        assert!(result.is_err());
+    }
+
+    // ========================================================================
+    // Materialized view commands - additional tests
+    // ========================================================================
+
+    #[test]
+    fn test_parse_describe_materialized_view_with_semicolon() {
+        let query = parse_query("DESCRIBE MATERIALIZED VIEW my_view;").unwrap();
+        match query {
+            SqlQuery::DescribeMaterializedView(name) => assert_eq!(name, "my_view"),
+            _ => panic!("Expected DescribeMaterializedView"),
+        }
+    }
+
+    #[test]
+    fn test_parse_drop_materialized_view_with_semicolon() {
+        let query = parse_query("DROP MATERIALIZED VIEW old_view;").unwrap();
+        match query {
+            SqlQuery::DropMaterializedView(name) => assert_eq!(name, "old_view"),
+            _ => panic!("Expected DropMaterializedView"),
+        }
+    }
+
+    #[test]
+    fn test_parse_refresh_materialized_view_with_semicolon() {
+        let query = parse_query("REFRESH MATERIALIZED VIEW stale_view;").unwrap();
+        match query {
+            SqlQuery::RefreshMaterializedView(name) => assert_eq!(name, "stale_view"),
+            _ => panic!("Expected RefreshMaterializedView"),
+        }
+    }
+
+    #[test]
+    fn test_parse_create_materialized_view_session_window() {
+        let query = parse_query(
+            "CREATE MATERIALIZED VIEW user_sessions AS \
+             SELECT COUNT(*) as events \
+             FROM user_actions \
+             GROUP BY SESSION(timestamp, '30 minutes'), key"
+        ).unwrap();
+        match query {
+            SqlQuery::CreateMaterializedView(q) => {
+                assert_eq!(q.name, "user_sessions");
+                assert_eq!(q.source_topic, "user_actions");
+                match &q.window {
+                    Some(WindowType::Session { gap_ms }) => {
+                        assert_eq!(*gap_ms, 30 * 60 * 1000);
+                    }
+                    _ => panic!("Expected Session window"),
+                }
+                assert_eq!(q.group_by, vec!["key"]);
+            }
+            _ => panic!("Expected CreateMaterializedView"),
+        }
+    }
+
+    // ========================================================================
+    // JOIN queries - additional edge cases
+    // ========================================================================
+
+    #[test]
+    fn test_parse_join_with_order_by() {
+        let query = parse_query(
+            "SELECT o.key, u.key \
+             FROM orders o \
+             JOIN users u ON o.user_id = u.id \
+             ORDER BY o.key DESC \
+             LIMIT 50"
+        ).unwrap();
+        match query {
+            SqlQuery::Join(q) => {
+                let ob = q.order_by.unwrap();
+                assert_eq!(ob.column, "o.key");
+                assert!(ob.descending);
+                assert_eq!(q.limit, Some(50));
+            }
+            _ => panic!("Expected Join query"),
+        }
+    }
+
+    #[test]
+    fn test_parse_join_default_window() {
+        let query = parse_query(
+            "SELECT o.key FROM orders o JOIN users u ON o.key = u.key"
+        ).unwrap();
+        match query {
+            SqlQuery::Join(q) => {
+                // Default window should be 1 hour (3600000 ms)
+                assert_eq!(q.window_ms, Some(3600000));
+            }
+            _ => panic!("Expected Join query"),
+        }
+    }
+
+    // ========================================================================
+    // Anomaly detection / statistics functions - additional tests
+    // ========================================================================
+
+    #[test]
+    fn test_parse_moving_avg_default_window() {
+        let query = parse_query(
+            "SELECT moving_avg(json_extract(value, '$.temp')) FROM sensors"
+        ).unwrap();
+        match query {
+            SqlQuery::Select(q) => {
+                match &q.columns[0] {
+                    SelectColumn::MovingAvg { window_size, .. } => {
+                        assert_eq!(*window_size, 10); // Default is 10
+                    }
+                    _ => panic!("Expected MovingAvg"),
+                }
+            }
+            _ => panic!("Expected Select query"),
+        }
+    }
+
+    #[test]
+    fn test_parse_moving_avg_custom_window() {
+        let query = parse_query(
+            "SELECT moving_avg(json_extract(value, '$.temp'), 50) as ma50 FROM sensors"
+        ).unwrap();
+        match query {
+            SqlQuery::Select(q) => {
+                match &q.columns[0] {
+                    SelectColumn::MovingAvg { window_size, alias, .. } => {
+                        assert_eq!(*window_size, 50);
+                        assert_eq!(alias.as_deref(), Some("ma50"));
+                    }
+                    _ => panic!("Expected MovingAvg"),
+                }
+            }
+            _ => panic!("Expected Select query"),
+        }
+    }
+
+    #[test]
+    fn test_parse_zscore_filter_combined_with_select() {
+        let query = parse_query(
+            "SELECT key, json_extract(value, '$.price') as price, \
+                    zscore(json_extract(value, '$.price')) as z \
+             FROM orders \
+             WHERE zscore(json_extract(value, '$.price')) > 3.0 \
+             LIMIT 100"
+        ).unwrap();
+        match query {
+            SqlQuery::Select(q) => {
+                assert_eq!(q.columns.len(), 3);
+                assert_eq!(q.filters.len(), 1);
+                assert!(matches!(&q.filters[0], Filter::ZScoreGt { threshold, .. } if (*threshold - 3.0).abs() < 0.001));
+                assert_eq!(q.limit, Some(100));
+            }
+            _ => panic!("Expected Select query"),
+        }
+    }
+
+    // ========================================================================
+    // Vector functions - additional tests
+    // ========================================================================
+
+    #[test]
+    fn test_parse_l2_norm_alias() {
+        let query = parse_query(
+            "SELECT l2_norm(json_extract(value, '$.vec')) as norm FROM items"
+        ).unwrap();
+        match query {
+            SqlQuery::Select(q) => {
+                match &q.columns[0] {
+                    SelectColumn::VectorNorm { path, alias } => {
+                        assert_eq!(path, "$.vec");
+                        assert_eq!(alias.as_deref(), Some("norm"));
+                    }
+                    _ => panic!("Expected VectorNorm"),
+                }
+            }
+            _ => panic!("Expected Select query"),
+        }
+    }
+
+    #[test]
+    fn test_parse_cosine_similarity_direct_path() {
+        let query = parse_query(
+            "SELECT cosine_similarity('$.embedding', '[0.5, 0.5]') as sim FROM docs"
+        ).unwrap();
+        match query {
+            SqlQuery::Select(q) => {
+                match &q.columns[0] {
+                    SelectColumn::CosineSimilarity { path, query_vector, .. } => {
+                        assert_eq!(path, "$.embedding");
+                        assert_eq!(query_vector.len(), 2);
+                    }
+                    _ => panic!("Expected CosineSimilarity"),
+                }
+            }
+            _ => panic!("Expected Select query"),
+        }
+    }
+
+    #[test]
+    fn test_parse_euclidean_distance_direct_path() {
+        let query = parse_query(
+            "SELECT euclidean_distance('$.coords', '[0.0, 0.0]') as dist FROM points"
+        ).unwrap();
+        match query {
+            SqlQuery::Select(q) => {
+                match &q.columns[0] {
+                    SelectColumn::EuclideanDistance { path, query_vector, .. } => {
+                        assert_eq!(path, "$.coords");
+                        assert_eq!(query_vector, &vec![0.0, 0.0]);
+                    }
+                    _ => panic!("Expected EuclideanDistance"),
+                }
+            }
+            _ => panic!("Expected Select query"),
+        }
+    }
+
+    // ========================================================================
+    // Comprehensive query parsing: full realistic queries
+    // ========================================================================
+
+    #[test]
+    fn test_parse_full_select_query() {
+        let query = parse_query(
+            "SELECT key, offset, json_extract(value, '$.amount') as amount \
+             FROM orders \
+             WHERE partition = 0 AND offset >= 500 AND key = 'customer-1' \
+             ORDER BY offset DESC \
+             LIMIT 25"
+        ).unwrap();
+        match query {
+            SqlQuery::Select(q) => {
+                assert_eq!(q.topic, "orders");
+                assert_eq!(q.columns.len(), 3);
+                assert_eq!(q.filters.len(), 3);
+                assert_eq!(q.limit, Some(25));
+                let ob = q.order_by.unwrap();
+                assert_eq!(ob.column, "offset");
+                assert!(ob.descending);
+            }
+            _ => panic!("Expected Select query"),
+        }
+    }
+
+    #[test]
+    fn test_parse_window_aggregate_full_query() {
+        let query = parse_query(
+            "SELECT COUNT(*) as cnt, \
+                    SUM(json_extract(value, '$.amount')) as total, \
+                    AVG(json_extract(value, '$.amount')) as avg_amount, \
+                    MIN(json_extract(value, '$.amount')) as min_amt, \
+                    MAX(json_extract(value, '$.amount')) as max_amt \
+             FROM orders \
+             WHERE partition = 0 \
+             GROUP BY TUMBLE(timestamp, '1 hour') \
+             LIMIT 48"
+        ).unwrap();
+        match query {
+            SqlQuery::WindowAggregate(q) => {
+                assert_eq!(q.topic, "orders");
+                assert_eq!(q.aggregations.len(), 5);
+                assert_eq!(q.filters.len(), 1);
+                assert_eq!(q.limit, Some(48));
+                assert!(matches!(&q.window, WindowType::Tumble { size_ms } if *size_ms == 3_600_000));
+            }
+            _ => panic!("Expected WindowAggregate query"),
+        }
+    }
+
+    // ========================================================================
+    // Whitespace and formatting resilience
+    // ========================================================================
+
+    #[test]
+    fn test_parse_leading_trailing_whitespace() {
+        let query = parse_query("   SELECT * FROM orders LIMIT 10   ").unwrap();
+        assert!(matches!(query, SqlQuery::Select(_)));
+    }
+
+    #[test]
+    fn test_parse_multiline_query() {
+        let query = parse_query(
+            "SELECT *\nFROM orders\nWHERE partition = 0\nLIMIT 10"
+        ).unwrap();
+        match query {
+            SqlQuery::Select(q) => {
+                assert_eq!(q.topic, "orders");
+                assert_eq!(q.filters.len(), 1);
+                assert_eq!(q.limit, Some(10));
+            }
+            _ => panic!("Expected Select query"),
+        }
+    }
+
+    #[test]
+    fn test_parse_tab_separated_query() {
+        let query = parse_query(
+            "SELECT\t*\tFROM\torders\tLIMIT\t5"
+        ).unwrap();
+        match query {
+            SqlQuery::Select(q) => {
+                assert_eq!(q.topic, "orders");
+                assert_eq!(q.limit, Some(5));
+            }
+            _ => panic!("Expected Select query"),
+        }
+    }
 }

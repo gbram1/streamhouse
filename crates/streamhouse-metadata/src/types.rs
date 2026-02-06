@@ -1515,3 +1515,2023 @@ pub struct MaterializedViewData {
     /// Last updated timestamp
     pub updated_at: i64,
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::collections::HashMap;
+
+    // ========================================================================
+    // CleanupPolicy Tests
+    // ========================================================================
+
+    #[test]
+    fn test_cleanup_policy_from_str_compact() {
+        assert_eq!(CleanupPolicy::from_str("compact"), CleanupPolicy::Compact);
+    }
+
+    #[test]
+    fn test_cleanup_policy_from_str_compact_uppercase() {
+        assert_eq!(CleanupPolicy::from_str("COMPACT"), CleanupPolicy::Compact);
+    }
+
+    #[test]
+    fn test_cleanup_policy_from_str_compact_mixed_case() {
+        assert_eq!(CleanupPolicy::from_str("Compact"), CleanupPolicy::Compact);
+    }
+
+    #[test]
+    fn test_cleanup_policy_from_str_delete() {
+        assert_eq!(CleanupPolicy::from_str("delete"), CleanupPolicy::Delete);
+    }
+
+    #[test]
+    fn test_cleanup_policy_from_str_delete_uppercase() {
+        assert_eq!(CleanupPolicy::from_str("DELETE"), CleanupPolicy::Delete);
+    }
+
+    #[test]
+    fn test_cleanup_policy_from_str_compact_delete() {
+        assert_eq!(
+            CleanupPolicy::from_str("compact,delete"),
+            CleanupPolicy::CompactAndDelete
+        );
+    }
+
+    #[test]
+    fn test_cleanup_policy_from_str_delete_compact() {
+        assert_eq!(
+            CleanupPolicy::from_str("delete,compact"),
+            CleanupPolicy::CompactAndDelete
+        );
+    }
+
+    #[test]
+    fn test_cleanup_policy_from_str_unknown_defaults_to_delete() {
+        assert_eq!(CleanupPolicy::from_str("unknown"), CleanupPolicy::Delete);
+    }
+
+    #[test]
+    fn test_cleanup_policy_from_str_empty_defaults_to_delete() {
+        assert_eq!(CleanupPolicy::from_str(""), CleanupPolicy::Delete);
+    }
+
+    #[test]
+    fn test_cleanup_policy_from_str_garbage_defaults_to_delete() {
+        assert_eq!(
+            CleanupPolicy::from_str("not-a-policy"),
+            CleanupPolicy::Delete
+        );
+    }
+
+    #[test]
+    fn test_cleanup_policy_as_str_delete() {
+        assert_eq!(CleanupPolicy::Delete.as_str(), "delete");
+    }
+
+    #[test]
+    fn test_cleanup_policy_as_str_compact() {
+        assert_eq!(CleanupPolicy::Compact.as_str(), "compact");
+    }
+
+    #[test]
+    fn test_cleanup_policy_as_str_compact_and_delete() {
+        assert_eq!(CleanupPolicy::CompactAndDelete.as_str(), "compact,delete");
+    }
+
+    #[test]
+    fn test_cleanup_policy_is_compacted_delete() {
+        assert!(!CleanupPolicy::Delete.is_compacted());
+    }
+
+    #[test]
+    fn test_cleanup_policy_is_compacted_compact() {
+        assert!(CleanupPolicy::Compact.is_compacted());
+    }
+
+    #[test]
+    fn test_cleanup_policy_is_compacted_compact_and_delete() {
+        assert!(CleanupPolicy::CompactAndDelete.is_compacted());
+    }
+
+    #[test]
+    fn test_cleanup_policy_default() {
+        assert_eq!(CleanupPolicy::default(), CleanupPolicy::Delete);
+    }
+
+    #[test]
+    fn test_cleanup_policy_roundtrip_from_str_as_str() {
+        for policy in [
+            CleanupPolicy::Delete,
+            CleanupPolicy::Compact,
+            CleanupPolicy::CompactAndDelete,
+        ] {
+            let s = policy.as_str();
+            let parsed = CleanupPolicy::from_str(s);
+            assert_eq!(parsed, policy, "Roundtrip failed for {:?}", policy);
+        }
+    }
+
+    #[test]
+    fn test_cleanup_policy_serde_roundtrip() {
+        for policy in [
+            CleanupPolicy::Delete,
+            CleanupPolicy::Compact,
+            CleanupPolicy::CompactAndDelete,
+        ] {
+            let json = serde_json::to_string(&policy).unwrap();
+            let parsed: CleanupPolicy = serde_json::from_str(&json).unwrap();
+            assert_eq!(parsed, policy, "Serde roundtrip failed for {:?}", policy);
+        }
+    }
+
+    #[test]
+    fn test_cleanup_policy_serde_json_values() {
+        assert_eq!(
+            serde_json::to_string(&CleanupPolicy::Delete).unwrap(),
+            "\"delete\""
+        );
+        assert_eq!(
+            serde_json::to_string(&CleanupPolicy::Compact).unwrap(),
+            "\"compact\""
+        );
+        assert_eq!(
+            serde_json::to_string(&CleanupPolicy::CompactAndDelete).unwrap(),
+            "\"compact,delete\""
+        );
+    }
+
+    #[test]
+    fn test_cleanup_policy_clone_and_copy() {
+        let policy = CleanupPolicy::Compact;
+        let cloned = policy.clone();
+        let copied = policy;
+        assert_eq!(policy, cloned);
+        assert_eq!(policy, copied);
+    }
+
+    #[test]
+    fn test_cleanup_policy_debug() {
+        let debug_str = format!("{:?}", CleanupPolicy::Delete);
+        assert_eq!(debug_str, "Delete");
+    }
+
+    // ========================================================================
+    // OrganizationPlan Tests
+    // ========================================================================
+
+    #[test]
+    fn test_organization_plan_display_free() {
+        assert_eq!(OrganizationPlan::Free.to_string(), "free");
+    }
+
+    #[test]
+    fn test_organization_plan_display_pro() {
+        assert_eq!(OrganizationPlan::Pro.to_string(), "pro");
+    }
+
+    #[test]
+    fn test_organization_plan_display_enterprise() {
+        assert_eq!(OrganizationPlan::Enterprise.to_string(), "enterprise");
+    }
+
+    #[test]
+    fn test_organization_plan_from_str_free() {
+        assert_eq!(
+            "free".parse::<OrganizationPlan>().unwrap(),
+            OrganizationPlan::Free
+        );
+    }
+
+    #[test]
+    fn test_organization_plan_from_str_pro() {
+        assert_eq!(
+            "pro".parse::<OrganizationPlan>().unwrap(),
+            OrganizationPlan::Pro
+        );
+    }
+
+    #[test]
+    fn test_organization_plan_from_str_enterprise() {
+        assert_eq!(
+            "enterprise".parse::<OrganizationPlan>().unwrap(),
+            OrganizationPlan::Enterprise
+        );
+    }
+
+    #[test]
+    fn test_organization_plan_from_str_case_insensitive() {
+        assert_eq!(
+            "FREE".parse::<OrganizationPlan>().unwrap(),
+            OrganizationPlan::Free
+        );
+        assert_eq!(
+            "Pro".parse::<OrganizationPlan>().unwrap(),
+            OrganizationPlan::Pro
+        );
+        assert_eq!(
+            "ENTERPRISE".parse::<OrganizationPlan>().unwrap(),
+            OrganizationPlan::Enterprise
+        );
+    }
+
+    #[test]
+    fn test_organization_plan_from_str_invalid() {
+        let result = "invalid".parse::<OrganizationPlan>();
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(err.contains("Unknown plan"));
+        assert!(err.contains("invalid"));
+    }
+
+    #[test]
+    fn test_organization_plan_from_str_empty() {
+        let result = "".parse::<OrganizationPlan>();
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_organization_plan_default() {
+        assert_eq!(OrganizationPlan::default(), OrganizationPlan::Free);
+    }
+
+    #[test]
+    fn test_organization_plan_display_from_str_roundtrip() {
+        for plan in [
+            OrganizationPlan::Free,
+            OrganizationPlan::Pro,
+            OrganizationPlan::Enterprise,
+        ] {
+            let s = plan.to_string();
+            let parsed: OrganizationPlan = s.parse().unwrap();
+            assert_eq!(parsed, plan, "Roundtrip failed for {:?}", plan);
+        }
+    }
+
+    #[test]
+    fn test_organization_plan_serde_roundtrip() {
+        for plan in [
+            OrganizationPlan::Free,
+            OrganizationPlan::Pro,
+            OrganizationPlan::Enterprise,
+        ] {
+            let json = serde_json::to_string(&plan).unwrap();
+            let parsed: OrganizationPlan = serde_json::from_str(&json).unwrap();
+            assert_eq!(parsed, plan, "Serde roundtrip failed for {:?}", plan);
+        }
+    }
+
+    #[test]
+    fn test_organization_plan_serde_json_values() {
+        assert_eq!(
+            serde_json::to_string(&OrganizationPlan::Free).unwrap(),
+            "\"free\""
+        );
+        assert_eq!(
+            serde_json::to_string(&OrganizationPlan::Pro).unwrap(),
+            "\"pro\""
+        );
+        assert_eq!(
+            serde_json::to_string(&OrganizationPlan::Enterprise).unwrap(),
+            "\"enterprise\""
+        );
+    }
+
+    #[test]
+    fn test_organization_plan_equality() {
+        assert_eq!(OrganizationPlan::Free, OrganizationPlan::Free);
+        assert_ne!(OrganizationPlan::Free, OrganizationPlan::Pro);
+        assert_ne!(OrganizationPlan::Pro, OrganizationPlan::Enterprise);
+    }
+
+    // ========================================================================
+    // OrganizationStatus Tests
+    // ========================================================================
+
+    #[test]
+    fn test_organization_status_display_active() {
+        assert_eq!(OrganizationStatus::Active.to_string(), "active");
+    }
+
+    #[test]
+    fn test_organization_status_display_suspended() {
+        assert_eq!(OrganizationStatus::Suspended.to_string(), "suspended");
+    }
+
+    #[test]
+    fn test_organization_status_display_deleted() {
+        assert_eq!(OrganizationStatus::Deleted.to_string(), "deleted");
+    }
+
+    #[test]
+    fn test_organization_status_from_str_active() {
+        assert_eq!(
+            "active".parse::<OrganizationStatus>().unwrap(),
+            OrganizationStatus::Active
+        );
+    }
+
+    #[test]
+    fn test_organization_status_from_str_suspended() {
+        assert_eq!(
+            "suspended".parse::<OrganizationStatus>().unwrap(),
+            OrganizationStatus::Suspended
+        );
+    }
+
+    #[test]
+    fn test_organization_status_from_str_deleted() {
+        assert_eq!(
+            "deleted".parse::<OrganizationStatus>().unwrap(),
+            OrganizationStatus::Deleted
+        );
+    }
+
+    #[test]
+    fn test_organization_status_from_str_case_insensitive() {
+        assert_eq!(
+            "ACTIVE".parse::<OrganizationStatus>().unwrap(),
+            OrganizationStatus::Active
+        );
+        assert_eq!(
+            "Suspended".parse::<OrganizationStatus>().unwrap(),
+            OrganizationStatus::Suspended
+        );
+        assert_eq!(
+            "DELETED".parse::<OrganizationStatus>().unwrap(),
+            OrganizationStatus::Deleted
+        );
+    }
+
+    #[test]
+    fn test_organization_status_from_str_invalid() {
+        let result = "invalid".parse::<OrganizationStatus>();
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(err.contains("Unknown status"));
+        assert!(err.contains("invalid"));
+    }
+
+    #[test]
+    fn test_organization_status_from_str_empty() {
+        let result = "".parse::<OrganizationStatus>();
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_organization_status_default() {
+        assert_eq!(OrganizationStatus::default(), OrganizationStatus::Active);
+    }
+
+    #[test]
+    fn test_organization_status_display_from_str_roundtrip() {
+        for status in [
+            OrganizationStatus::Active,
+            OrganizationStatus::Suspended,
+            OrganizationStatus::Deleted,
+        ] {
+            let s = status.to_string();
+            let parsed: OrganizationStatus = s.parse().unwrap();
+            assert_eq!(parsed, status, "Roundtrip failed for {:?}", status);
+        }
+    }
+
+    #[test]
+    fn test_organization_status_serde_roundtrip() {
+        for status in [
+            OrganizationStatus::Active,
+            OrganizationStatus::Suspended,
+            OrganizationStatus::Deleted,
+        ] {
+            let json = serde_json::to_string(&status).unwrap();
+            let parsed: OrganizationStatus = serde_json::from_str(&json).unwrap();
+            assert_eq!(parsed, status, "Serde roundtrip failed for {:?}", status);
+        }
+    }
+
+    #[test]
+    fn test_organization_status_serde_json_values() {
+        assert_eq!(
+            serde_json::to_string(&OrganizationStatus::Active).unwrap(),
+            "\"active\""
+        );
+        assert_eq!(
+            serde_json::to_string(&OrganizationStatus::Suspended).unwrap(),
+            "\"suspended\""
+        );
+        assert_eq!(
+            serde_json::to_string(&OrganizationStatus::Deleted).unwrap(),
+            "\"deleted\""
+        );
+    }
+
+    // ========================================================================
+    // ProducerState Tests
+    // ========================================================================
+
+    #[test]
+    fn test_producer_state_display_active() {
+        assert_eq!(ProducerState::Active.to_string(), "active");
+    }
+
+    #[test]
+    fn test_producer_state_display_fenced() {
+        assert_eq!(ProducerState::Fenced.to_string(), "fenced");
+    }
+
+    #[test]
+    fn test_producer_state_display_expired() {
+        assert_eq!(ProducerState::Expired.to_string(), "expired");
+    }
+
+    #[test]
+    fn test_producer_state_from_str_active() {
+        assert_eq!(
+            "active".parse::<ProducerState>().unwrap(),
+            ProducerState::Active
+        );
+    }
+
+    #[test]
+    fn test_producer_state_from_str_fenced() {
+        assert_eq!(
+            "fenced".parse::<ProducerState>().unwrap(),
+            ProducerState::Fenced
+        );
+    }
+
+    #[test]
+    fn test_producer_state_from_str_expired() {
+        assert_eq!(
+            "expired".parse::<ProducerState>().unwrap(),
+            ProducerState::Expired
+        );
+    }
+
+    #[test]
+    fn test_producer_state_from_str_case_insensitive() {
+        assert_eq!(
+            "ACTIVE".parse::<ProducerState>().unwrap(),
+            ProducerState::Active
+        );
+        assert_eq!(
+            "Fenced".parse::<ProducerState>().unwrap(),
+            ProducerState::Fenced
+        );
+        assert_eq!(
+            "EXPIRED".parse::<ProducerState>().unwrap(),
+            ProducerState::Expired
+        );
+    }
+
+    #[test]
+    fn test_producer_state_from_str_invalid() {
+        let result = "invalid".parse::<ProducerState>();
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(err.contains("Unknown producer state"));
+    }
+
+    #[test]
+    fn test_producer_state_default() {
+        assert_eq!(ProducerState::default(), ProducerState::Active);
+    }
+
+    #[test]
+    fn test_producer_state_display_from_str_roundtrip() {
+        for state in [
+            ProducerState::Active,
+            ProducerState::Fenced,
+            ProducerState::Expired,
+        ] {
+            let s = state.to_string();
+            let parsed: ProducerState = s.parse().unwrap();
+            assert_eq!(parsed, state, "Roundtrip failed for {:?}", state);
+        }
+    }
+
+    #[test]
+    fn test_producer_state_serde_roundtrip() {
+        for state in [
+            ProducerState::Active,
+            ProducerState::Fenced,
+            ProducerState::Expired,
+        ] {
+            let json = serde_json::to_string(&state).unwrap();
+            let parsed: ProducerState = serde_json::from_str(&json).unwrap();
+            assert_eq!(parsed, state, "Serde roundtrip failed for {:?}", state);
+        }
+    }
+
+    #[test]
+    fn test_producer_state_serde_json_values() {
+        assert_eq!(
+            serde_json::to_string(&ProducerState::Active).unwrap(),
+            "\"active\""
+        );
+        assert_eq!(
+            serde_json::to_string(&ProducerState::Fenced).unwrap(),
+            "\"fenced\""
+        );
+        assert_eq!(
+            serde_json::to_string(&ProducerState::Expired).unwrap(),
+            "\"expired\""
+        );
+    }
+
+    // ========================================================================
+    // TransactionState Tests
+    // ========================================================================
+
+    #[test]
+    fn test_transaction_state_display_ongoing() {
+        assert_eq!(TransactionState::Ongoing.to_string(), "ongoing");
+    }
+
+    #[test]
+    fn test_transaction_state_display_preparing() {
+        assert_eq!(TransactionState::Preparing.to_string(), "preparing");
+    }
+
+    #[test]
+    fn test_transaction_state_display_committed() {
+        assert_eq!(TransactionState::Committed.to_string(), "committed");
+    }
+
+    #[test]
+    fn test_transaction_state_display_aborted() {
+        assert_eq!(TransactionState::Aborted.to_string(), "aborted");
+    }
+
+    #[test]
+    fn test_transaction_state_from_str_ongoing() {
+        assert_eq!(
+            "ongoing".parse::<TransactionState>().unwrap(),
+            TransactionState::Ongoing
+        );
+    }
+
+    #[test]
+    fn test_transaction_state_from_str_preparing() {
+        assert_eq!(
+            "preparing".parse::<TransactionState>().unwrap(),
+            TransactionState::Preparing
+        );
+    }
+
+    #[test]
+    fn test_transaction_state_from_str_committed() {
+        assert_eq!(
+            "committed".parse::<TransactionState>().unwrap(),
+            TransactionState::Committed
+        );
+    }
+
+    #[test]
+    fn test_transaction_state_from_str_aborted() {
+        assert_eq!(
+            "aborted".parse::<TransactionState>().unwrap(),
+            TransactionState::Aborted
+        );
+    }
+
+    #[test]
+    fn test_transaction_state_from_str_case_insensitive() {
+        assert_eq!(
+            "ONGOING".parse::<TransactionState>().unwrap(),
+            TransactionState::Ongoing
+        );
+        assert_eq!(
+            "Preparing".parse::<TransactionState>().unwrap(),
+            TransactionState::Preparing
+        );
+        assert_eq!(
+            "COMMITTED".parse::<TransactionState>().unwrap(),
+            TransactionState::Committed
+        );
+        assert_eq!(
+            "ABORTED".parse::<TransactionState>().unwrap(),
+            TransactionState::Aborted
+        );
+    }
+
+    #[test]
+    fn test_transaction_state_from_str_invalid() {
+        let result = "invalid".parse::<TransactionState>();
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(err.contains("Unknown transaction state"));
+    }
+
+    #[test]
+    fn test_transaction_state_default() {
+        assert_eq!(TransactionState::default(), TransactionState::Ongoing);
+    }
+
+    #[test]
+    fn test_transaction_state_display_from_str_roundtrip() {
+        for state in [
+            TransactionState::Ongoing,
+            TransactionState::Preparing,
+            TransactionState::Committed,
+            TransactionState::Aborted,
+        ] {
+            let s = state.to_string();
+            let parsed: TransactionState = s.parse().unwrap();
+            assert_eq!(parsed, state, "Roundtrip failed for {:?}", state);
+        }
+    }
+
+    #[test]
+    fn test_transaction_state_serde_roundtrip() {
+        for state in [
+            TransactionState::Ongoing,
+            TransactionState::Preparing,
+            TransactionState::Committed,
+            TransactionState::Aborted,
+        ] {
+            let json = serde_json::to_string(&state).unwrap();
+            let parsed: TransactionState = serde_json::from_str(&json).unwrap();
+            assert_eq!(parsed, state, "Serde roundtrip failed for {:?}", state);
+        }
+    }
+
+    #[test]
+    fn test_transaction_state_serde_json_values() {
+        assert_eq!(
+            serde_json::to_string(&TransactionState::Ongoing).unwrap(),
+            "\"ongoing\""
+        );
+        assert_eq!(
+            serde_json::to_string(&TransactionState::Preparing).unwrap(),
+            "\"preparing\""
+        );
+        assert_eq!(
+            serde_json::to_string(&TransactionState::Committed).unwrap(),
+            "\"committed\""
+        );
+        assert_eq!(
+            serde_json::to_string(&TransactionState::Aborted).unwrap(),
+            "\"aborted\""
+        );
+    }
+
+    // ========================================================================
+    // LeaderChangeReason Tests
+    // ========================================================================
+
+    #[test]
+    fn test_leader_change_reason_display_lease_expired() {
+        assert_eq!(LeaderChangeReason::LeaseExpired.to_string(), "lease_expired");
+    }
+
+    #[test]
+    fn test_leader_change_reason_display_graceful_handoff() {
+        assert_eq!(
+            LeaderChangeReason::GracefulHandoff.to_string(),
+            "graceful_handoff"
+        );
+    }
+
+    #[test]
+    fn test_leader_change_reason_display_agent_crash() {
+        assert_eq!(LeaderChangeReason::AgentCrash.to_string(), "agent_crash");
+    }
+
+    #[test]
+    fn test_leader_change_reason_display_rebalance() {
+        assert_eq!(LeaderChangeReason::Rebalance.to_string(), "rebalance");
+    }
+
+    #[test]
+    fn test_leader_change_reason_display_initial() {
+        assert_eq!(LeaderChangeReason::Initial.to_string(), "initial");
+    }
+
+    #[test]
+    fn test_leader_change_reason_from_str_all_variants() {
+        assert_eq!(
+            "lease_expired".parse::<LeaderChangeReason>().unwrap(),
+            LeaderChangeReason::LeaseExpired
+        );
+        assert_eq!(
+            "graceful_handoff".parse::<LeaderChangeReason>().unwrap(),
+            LeaderChangeReason::GracefulHandoff
+        );
+        assert_eq!(
+            "agent_crash".parse::<LeaderChangeReason>().unwrap(),
+            LeaderChangeReason::AgentCrash
+        );
+        assert_eq!(
+            "rebalance".parse::<LeaderChangeReason>().unwrap(),
+            LeaderChangeReason::Rebalance
+        );
+        assert_eq!(
+            "initial".parse::<LeaderChangeReason>().unwrap(),
+            LeaderChangeReason::Initial
+        );
+    }
+
+    #[test]
+    fn test_leader_change_reason_from_str_case_insensitive() {
+        assert_eq!(
+            "LEASE_EXPIRED".parse::<LeaderChangeReason>().unwrap(),
+            LeaderChangeReason::LeaseExpired
+        );
+        assert_eq!(
+            "Graceful_Handoff".parse::<LeaderChangeReason>().unwrap(),
+            LeaderChangeReason::GracefulHandoff
+        );
+    }
+
+    #[test]
+    fn test_leader_change_reason_from_str_invalid() {
+        let result = "invalid".parse::<LeaderChangeReason>();
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(err.contains("Unknown leader change reason"));
+    }
+
+    #[test]
+    fn test_leader_change_reason_default() {
+        assert_eq!(LeaderChangeReason::default(), LeaderChangeReason::Initial);
+    }
+
+    #[test]
+    fn test_leader_change_reason_display_from_str_roundtrip() {
+        for reason in [
+            LeaderChangeReason::LeaseExpired,
+            LeaderChangeReason::GracefulHandoff,
+            LeaderChangeReason::AgentCrash,
+            LeaderChangeReason::Rebalance,
+            LeaderChangeReason::Initial,
+        ] {
+            let s = reason.to_string();
+            let parsed: LeaderChangeReason = s.parse().unwrap();
+            assert_eq!(parsed, reason, "Roundtrip failed for {:?}", reason);
+        }
+    }
+
+    #[test]
+    fn test_leader_change_reason_serde_roundtrip() {
+        for reason in [
+            LeaderChangeReason::LeaseExpired,
+            LeaderChangeReason::GracefulHandoff,
+            LeaderChangeReason::AgentCrash,
+            LeaderChangeReason::Rebalance,
+            LeaderChangeReason::Initial,
+        ] {
+            let json = serde_json::to_string(&reason).unwrap();
+            let parsed: LeaderChangeReason = serde_json::from_str(&json).unwrap();
+            assert_eq!(parsed, reason, "Serde roundtrip failed for {:?}", reason);
+        }
+    }
+
+    #[test]
+    fn test_leader_change_reason_serde_json_values() {
+        assert_eq!(
+            serde_json::to_string(&LeaderChangeReason::LeaseExpired).unwrap(),
+            "\"lease_expired\""
+        );
+        assert_eq!(
+            serde_json::to_string(&LeaderChangeReason::GracefulHandoff).unwrap(),
+            "\"graceful_handoff\""
+        );
+        assert_eq!(
+            serde_json::to_string(&LeaderChangeReason::AgentCrash).unwrap(),
+            "\"agent_crash\""
+        );
+        assert_eq!(
+            serde_json::to_string(&LeaderChangeReason::Rebalance).unwrap(),
+            "\"rebalance\""
+        );
+        assert_eq!(
+            serde_json::to_string(&LeaderChangeReason::Initial).unwrap(),
+            "\"initial\""
+        );
+    }
+
+    // ========================================================================
+    // LeaseTransferState Tests
+    // ========================================================================
+
+    #[test]
+    fn test_lease_transfer_state_display_all_variants() {
+        assert_eq!(LeaseTransferState::Pending.to_string(), "pending");
+        assert_eq!(LeaseTransferState::Accepted.to_string(), "accepted");
+        assert_eq!(LeaseTransferState::Completing.to_string(), "completing");
+        assert_eq!(LeaseTransferState::Completed.to_string(), "completed");
+        assert_eq!(LeaseTransferState::Rejected.to_string(), "rejected");
+        assert_eq!(LeaseTransferState::TimedOut.to_string(), "timed_out");
+        assert_eq!(LeaseTransferState::Failed.to_string(), "failed");
+    }
+
+    #[test]
+    fn test_lease_transfer_state_from_str_all_variants() {
+        assert_eq!(
+            "pending".parse::<LeaseTransferState>().unwrap(),
+            LeaseTransferState::Pending
+        );
+        assert_eq!(
+            "accepted".parse::<LeaseTransferState>().unwrap(),
+            LeaseTransferState::Accepted
+        );
+        assert_eq!(
+            "completing".parse::<LeaseTransferState>().unwrap(),
+            LeaseTransferState::Completing
+        );
+        assert_eq!(
+            "completed".parse::<LeaseTransferState>().unwrap(),
+            LeaseTransferState::Completed
+        );
+        assert_eq!(
+            "rejected".parse::<LeaseTransferState>().unwrap(),
+            LeaseTransferState::Rejected
+        );
+        assert_eq!(
+            "timed_out".parse::<LeaseTransferState>().unwrap(),
+            LeaseTransferState::TimedOut
+        );
+        assert_eq!(
+            "failed".parse::<LeaseTransferState>().unwrap(),
+            LeaseTransferState::Failed
+        );
+    }
+
+    #[test]
+    fn test_lease_transfer_state_from_str_case_insensitive() {
+        assert_eq!(
+            "PENDING".parse::<LeaseTransferState>().unwrap(),
+            LeaseTransferState::Pending
+        );
+        assert_eq!(
+            "TIMED_OUT".parse::<LeaseTransferState>().unwrap(),
+            LeaseTransferState::TimedOut
+        );
+        assert_eq!(
+            "Completed".parse::<LeaseTransferState>().unwrap(),
+            LeaseTransferState::Completed
+        );
+    }
+
+    #[test]
+    fn test_lease_transfer_state_from_str_invalid() {
+        let result = "invalid".parse::<LeaseTransferState>();
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(err.contains("Unknown transfer state"));
+    }
+
+    #[test]
+    fn test_lease_transfer_state_default() {
+        assert_eq!(LeaseTransferState::default(), LeaseTransferState::Pending);
+    }
+
+    #[test]
+    fn test_lease_transfer_state_display_from_str_roundtrip() {
+        for state in [
+            LeaseTransferState::Pending,
+            LeaseTransferState::Accepted,
+            LeaseTransferState::Completing,
+            LeaseTransferState::Completed,
+            LeaseTransferState::Rejected,
+            LeaseTransferState::TimedOut,
+            LeaseTransferState::Failed,
+        ] {
+            let s = state.to_string();
+            let parsed: LeaseTransferState = s.parse().unwrap();
+            assert_eq!(parsed, state, "Roundtrip failed for {:?}", state);
+        }
+    }
+
+    #[test]
+    fn test_lease_transfer_state_serde_roundtrip() {
+        for state in [
+            LeaseTransferState::Pending,
+            LeaseTransferState::Accepted,
+            LeaseTransferState::Completing,
+            LeaseTransferState::Completed,
+            LeaseTransferState::Rejected,
+            LeaseTransferState::TimedOut,
+            LeaseTransferState::Failed,
+        ] {
+            let json = serde_json::to_string(&state).unwrap();
+            let parsed: LeaseTransferState = serde_json::from_str(&json).unwrap();
+            assert_eq!(parsed, state, "Serde roundtrip failed for {:?}", state);
+        }
+    }
+
+    #[test]
+    fn test_lease_transfer_state_serde_json_values() {
+        assert_eq!(
+            serde_json::to_string(&LeaseTransferState::Pending).unwrap(),
+            "\"pending\""
+        );
+        assert_eq!(
+            serde_json::to_string(&LeaseTransferState::Accepted).unwrap(),
+            "\"accepted\""
+        );
+        assert_eq!(
+            serde_json::to_string(&LeaseTransferState::Completing).unwrap(),
+            "\"completing\""
+        );
+        assert_eq!(
+            serde_json::to_string(&LeaseTransferState::Completed).unwrap(),
+            "\"completed\""
+        );
+        assert_eq!(
+            serde_json::to_string(&LeaseTransferState::Rejected).unwrap(),
+            "\"rejected\""
+        );
+        assert_eq!(
+            serde_json::to_string(&LeaseTransferState::TimedOut).unwrap(),
+            "\"timed_out\""
+        );
+        assert_eq!(
+            serde_json::to_string(&LeaseTransferState::Failed).unwrap(),
+            "\"failed\""
+        );
+    }
+
+    // ========================================================================
+    // AckMode Tests
+    // ========================================================================
+
+    #[test]
+    fn test_ack_mode_default() {
+        assert_eq!(AckMode::default(), AckMode::Buffered);
+    }
+
+    #[test]
+    fn test_ack_mode_serde_roundtrip() {
+        for mode in [AckMode::Buffered, AckMode::Durable, AckMode::None] {
+            let json = serde_json::to_string(&mode).unwrap();
+            let parsed: AckMode = serde_json::from_str(&json).unwrap();
+            assert_eq!(parsed, mode, "Serde roundtrip failed for {:?}", mode);
+        }
+    }
+
+    #[test]
+    fn test_ack_mode_serde_json_values() {
+        assert_eq!(
+            serde_json::to_string(&AckMode::Buffered).unwrap(),
+            "\"buffered\""
+        );
+        assert_eq!(
+            serde_json::to_string(&AckMode::Durable).unwrap(),
+            "\"durable\""
+        );
+        assert_eq!(
+            serde_json::to_string(&AckMode::None).unwrap(),
+            "\"none\""
+        );
+    }
+
+    #[test]
+    fn test_ack_mode_deserialize_from_json() {
+        let buffered: AckMode = serde_json::from_str("\"buffered\"").unwrap();
+        assert_eq!(buffered, AckMode::Buffered);
+
+        let durable: AckMode = serde_json::from_str("\"durable\"").unwrap();
+        assert_eq!(durable, AckMode::Durable);
+
+        let none: AckMode = serde_json::from_str("\"none\"").unwrap();
+        assert_eq!(none, AckMode::None);
+    }
+
+    #[test]
+    fn test_ack_mode_deserialize_invalid() {
+        let result: Result<AckMode, _> = serde_json::from_str("\"invalid\"");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_ack_mode_equality() {
+        assert_eq!(AckMode::Buffered, AckMode::Buffered);
+        assert_ne!(AckMode::Buffered, AckMode::Durable);
+        assert_ne!(AckMode::Durable, AckMode::None);
+    }
+
+    #[test]
+    fn test_ack_mode_clone_and_copy() {
+        let mode = AckMode::Durable;
+        let cloned = mode.clone();
+        let copied = mode;
+        assert_eq!(mode, cloned);
+        assert_eq!(mode, copied);
+    }
+
+    // ========================================================================
+    // IsolationLevel Tests
+    // ========================================================================
+
+    #[test]
+    fn test_isolation_level_default() {
+        assert_eq!(IsolationLevel::default(), IsolationLevel::ReadUncommitted);
+    }
+
+    #[test]
+    fn test_isolation_level_serde_roundtrip() {
+        for level in [
+            IsolationLevel::ReadUncommitted,
+            IsolationLevel::ReadCommitted,
+        ] {
+            let json = serde_json::to_string(&level).unwrap();
+            let parsed: IsolationLevel = serde_json::from_str(&json).unwrap();
+            assert_eq!(parsed, level, "Serde roundtrip failed for {:?}", level);
+        }
+    }
+
+    #[test]
+    fn test_isolation_level_serde_json_values() {
+        assert_eq!(
+            serde_json::to_string(&IsolationLevel::ReadUncommitted).unwrap(),
+            "\"read_uncommitted\""
+        );
+        assert_eq!(
+            serde_json::to_string(&IsolationLevel::ReadCommitted).unwrap(),
+            "\"read_committed\""
+        );
+    }
+
+    #[test]
+    fn test_isolation_level_deserialize_from_json() {
+        let uncommitted: IsolationLevel = serde_json::from_str("\"read_uncommitted\"").unwrap();
+        assert_eq!(uncommitted, IsolationLevel::ReadUncommitted);
+
+        let committed: IsolationLevel = serde_json::from_str("\"read_committed\"").unwrap();
+        assert_eq!(committed, IsolationLevel::ReadCommitted);
+    }
+
+    #[test]
+    fn test_isolation_level_deserialize_invalid() {
+        let result: Result<IsolationLevel, _> = serde_json::from_str("\"invalid\"");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_isolation_level_equality() {
+        assert_eq!(IsolationLevel::ReadUncommitted, IsolationLevel::ReadUncommitted);
+        assert_ne!(IsolationLevel::ReadUncommitted, IsolationLevel::ReadCommitted);
+    }
+
+    // ========================================================================
+    // TopicConfig Tests
+    // ========================================================================
+
+    #[test]
+    fn test_topic_config_default() {
+        let config = TopicConfig::default();
+        assert_eq!(config.name, "");
+        assert_eq!(config.partition_count, 0);
+        assert_eq!(config.retention_ms, None);
+        assert_eq!(config.cleanup_policy, CleanupPolicy::Delete);
+        assert!(config.config.is_empty());
+    }
+
+    #[test]
+    fn test_topic_config_serde_roundtrip() {
+        let config = TopicConfig {
+            name: "orders".to_string(),
+            partition_count: 3,
+            retention_ms: Some(86400000),
+            cleanup_policy: CleanupPolicy::Compact,
+            config: HashMap::from([
+                ("key1".to_string(), "value1".to_string()),
+                ("key2".to_string(), "value2".to_string()),
+            ]),
+        };
+
+        let json = serde_json::to_string(&config).unwrap();
+        let parsed: TopicConfig = serde_json::from_str(&json).unwrap();
+
+        assert_eq!(parsed.name, "orders");
+        assert_eq!(parsed.partition_count, 3);
+        assert_eq!(parsed.retention_ms, Some(86400000));
+        assert_eq!(parsed.cleanup_policy, CleanupPolicy::Compact);
+        assert_eq!(parsed.config.len(), 2);
+        assert_eq!(parsed.config.get("key1").unwrap(), "value1");
+    }
+
+    #[test]
+    fn test_topic_config_serde_with_no_retention() {
+        let config = TopicConfig {
+            name: "audit_log".to_string(),
+            partition_count: 1,
+            retention_ms: None,
+            cleanup_policy: CleanupPolicy::Delete,
+            config: HashMap::new(),
+        };
+
+        let json = serde_json::to_string(&config).unwrap();
+        let parsed: TopicConfig = serde_json::from_str(&json).unwrap();
+
+        assert_eq!(parsed.retention_ms, None);
+    }
+
+    #[test]
+    fn test_topic_config_serde_missing_optional_fields() {
+        // JSON with only required fields; cleanup_policy and config have serde(default)
+        let json = r#"{"name":"test","partition_count":1,"retention_ms":null}"#;
+        let parsed: TopicConfig = serde_json::from_str(json).unwrap();
+
+        assert_eq!(parsed.name, "test");
+        assert_eq!(parsed.partition_count, 1);
+        assert_eq!(parsed.retention_ms, None);
+        assert_eq!(parsed.cleanup_policy, CleanupPolicy::Delete);
+        assert!(parsed.config.is_empty());
+    }
+
+    #[test]
+    fn test_topic_config_serde_with_compact_and_delete() {
+        let config = TopicConfig {
+            name: "compacted_topic".to_string(),
+            partition_count: 5,
+            retention_ms: Some(3600000),
+            cleanup_policy: CleanupPolicy::CompactAndDelete,
+            config: HashMap::new(),
+        };
+
+        let json = serde_json::to_string(&config).unwrap();
+        assert!(json.contains("compact,delete"));
+
+        let parsed: TopicConfig = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed.cleanup_policy, CleanupPolicy::CompactAndDelete);
+    }
+
+    #[test]
+    fn test_topic_config_clone() {
+        let config = TopicConfig {
+            name: "orders".to_string(),
+            partition_count: 3,
+            retention_ms: Some(86400000),
+            cleanup_policy: CleanupPolicy::Compact,
+            config: HashMap::from([("key".to_string(), "val".to_string())]),
+        };
+
+        let cloned = config.clone();
+        assert_eq!(cloned.name, "orders");
+        assert_eq!(cloned.partition_count, 3);
+        assert_eq!(cloned.config.get("key").unwrap(), "val");
+    }
+
+    // ========================================================================
+    // ConsumerGroupConfig Tests
+    // ========================================================================
+
+    #[test]
+    fn test_consumer_group_config_default() {
+        let config = ConsumerGroupConfig::default();
+        assert_eq!(config.group_id, "");
+        assert_eq!(config.isolation_level, IsolationLevel::ReadUncommitted);
+        assert!(config.enable_auto_commit);
+        assert_eq!(config.auto_commit_interval_ms, 5000);
+        assert_eq!(config.session_timeout_ms, 30000);
+        assert_eq!(config.created_at, 0);
+        assert_eq!(config.updated_at, 0);
+    }
+
+    #[test]
+    fn test_consumer_group_config_default_auto_commit_enabled() {
+        let config = ConsumerGroupConfig::default();
+        assert!(config.enable_auto_commit);
+    }
+
+    #[test]
+    fn test_consumer_group_config_default_auto_commit_interval() {
+        let config = ConsumerGroupConfig::default();
+        assert_eq!(config.auto_commit_interval_ms, 5000);
+    }
+
+    #[test]
+    fn test_consumer_group_config_default_session_timeout() {
+        let config = ConsumerGroupConfig::default();
+        assert_eq!(config.session_timeout_ms, 30000);
+    }
+
+    #[test]
+    fn test_consumer_group_config_serde_roundtrip() {
+        let config = ConsumerGroupConfig {
+            group_id: "analytics".to_string(),
+            isolation_level: IsolationLevel::ReadCommitted,
+            enable_auto_commit: false,
+            auto_commit_interval_ms: 10000,
+            session_timeout_ms: 60000,
+            created_at: 1000,
+            updated_at: 2000,
+        };
+
+        let json = serde_json::to_string(&config).unwrap();
+        let parsed: ConsumerGroupConfig = serde_json::from_str(&json).unwrap();
+
+        assert_eq!(parsed.group_id, "analytics");
+        assert_eq!(parsed.isolation_level, IsolationLevel::ReadCommitted);
+        assert!(!parsed.enable_auto_commit);
+        assert_eq!(parsed.auto_commit_interval_ms, 10000);
+        assert_eq!(parsed.session_timeout_ms, 60000);
+        assert_eq!(parsed.created_at, 1000);
+        assert_eq!(parsed.updated_at, 2000);
+    }
+
+    // ========================================================================
+    // OrganizationQuota Tests
+    // ========================================================================
+
+    #[test]
+    fn test_organization_quota_default() {
+        let quota = OrganizationQuota::default();
+        assert_eq!(quota.organization_id, "");
+        assert_eq!(quota.max_topics, 10);
+        assert_eq!(quota.max_partitions_per_topic, 12);
+        assert_eq!(quota.max_total_partitions, 100);
+        assert_eq!(quota.max_storage_bytes, 10_737_418_240); // 10 GB
+        assert_eq!(quota.max_retention_days, 7);
+        assert_eq!(quota.max_produce_bytes_per_sec, 10_485_760); // 10 MB/s
+        assert_eq!(quota.max_consume_bytes_per_sec, 52_428_800); // 50 MB/s
+        assert_eq!(quota.max_requests_per_sec, 1000);
+        assert_eq!(quota.max_consumer_groups, 50);
+        assert_eq!(quota.max_schemas, 100);
+        assert_eq!(quota.max_schema_versions_per_subject, 100);
+        assert_eq!(quota.max_connections, 100);
+    }
+
+    #[test]
+    fn test_organization_quota_default_storage_is_10gb() {
+        let quota = OrganizationQuota::default();
+        assert_eq!(quota.max_storage_bytes, 10 * 1024 * 1024 * 1024); // 10 GB
+    }
+
+    #[test]
+    fn test_organization_quota_default_produce_rate_is_10mb() {
+        let quota = OrganizationQuota::default();
+        assert_eq!(quota.max_produce_bytes_per_sec, 10 * 1024 * 1024); // 10 MB/s
+    }
+
+    #[test]
+    fn test_organization_quota_default_consume_rate_is_50mb() {
+        let quota = OrganizationQuota::default();
+        assert_eq!(quota.max_consume_bytes_per_sec, 50 * 1024 * 1024); // 50 MB/s
+    }
+
+    #[test]
+    fn test_organization_quota_serde_roundtrip() {
+        let quota = OrganizationQuota {
+            organization_id: "test-org".to_string(),
+            max_topics: 50,
+            max_partitions_per_topic: 24,
+            max_total_partitions: 500,
+            max_storage_bytes: 5_000_000_000,
+            max_retention_days: 30,
+            max_produce_bytes_per_sec: 50_000_000,
+            max_consume_bytes_per_sec: 250_000_000,
+            max_requests_per_sec: 5000,
+            max_consumer_groups: 200,
+            max_schemas: 500,
+            max_schema_versions_per_subject: 200,
+            max_connections: 500,
+        };
+
+        let json = serde_json::to_string(&quota).unwrap();
+        let parsed: OrganizationQuota = serde_json::from_str(&json).unwrap();
+
+        assert_eq!(parsed.organization_id, "test-org");
+        assert_eq!(parsed.max_topics, 50);
+        assert_eq!(parsed.max_partitions_per_topic, 24);
+        assert_eq!(parsed.max_total_partitions, 500);
+        assert_eq!(parsed.max_storage_bytes, 5_000_000_000);
+        assert_eq!(parsed.max_retention_days, 30);
+        assert_eq!(parsed.max_produce_bytes_per_sec, 50_000_000);
+        assert_eq!(parsed.max_consume_bytes_per_sec, 250_000_000);
+        assert_eq!(parsed.max_requests_per_sec, 5000);
+        assert_eq!(parsed.max_consumer_groups, 200);
+        assert_eq!(parsed.max_schemas, 500);
+        assert_eq!(parsed.max_schema_versions_per_subject, 200);
+        assert_eq!(parsed.max_connections, 500);
+    }
+
+    // ========================================================================
+    // TransactionMarkerType Tests
+    // ========================================================================
+
+    #[test]
+    fn test_transaction_marker_type_serde_roundtrip() {
+        for marker_type in [TransactionMarkerType::Commit, TransactionMarkerType::Abort] {
+            let json = serde_json::to_string(&marker_type).unwrap();
+            let parsed: TransactionMarkerType = serde_json::from_str(&json).unwrap();
+            assert_eq!(
+                parsed, marker_type,
+                "Serde roundtrip failed for {:?}",
+                marker_type
+            );
+        }
+    }
+
+    #[test]
+    fn test_transaction_marker_type_serde_json_values() {
+        assert_eq!(
+            serde_json::to_string(&TransactionMarkerType::Commit).unwrap(),
+            "\"commit\""
+        );
+        assert_eq!(
+            serde_json::to_string(&TransactionMarkerType::Abort).unwrap(),
+            "\"abort\""
+        );
+    }
+
+    #[test]
+    fn test_transaction_marker_type_equality() {
+        assert_eq!(TransactionMarkerType::Commit, TransactionMarkerType::Commit);
+        assert_ne!(TransactionMarkerType::Commit, TransactionMarkerType::Abort);
+    }
+
+    // ========================================================================
+    // MaterializedViewRefreshMode Tests
+    // ========================================================================
+
+    #[test]
+    fn test_materialized_view_refresh_mode_default() {
+        assert_eq!(
+            MaterializedViewRefreshMode::default(),
+            MaterializedViewRefreshMode::Continuous
+        );
+    }
+
+    #[test]
+    fn test_materialized_view_refresh_mode_serde_continuous() {
+        let mode = MaterializedViewRefreshMode::Continuous;
+        let json = serde_json::to_string(&mode).unwrap();
+        let parsed: MaterializedViewRefreshMode = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed, MaterializedViewRefreshMode::Continuous);
+    }
+
+    #[test]
+    fn test_materialized_view_refresh_mode_serde_periodic() {
+        let mode = MaterializedViewRefreshMode::Periodic {
+            interval_ms: 60000,
+        };
+        let json = serde_json::to_string(&mode).unwrap();
+        let parsed: MaterializedViewRefreshMode = serde_json::from_str(&json).unwrap();
+        assert_eq!(
+            parsed,
+            MaterializedViewRefreshMode::Periodic {
+                interval_ms: 60000
+            }
+        );
+    }
+
+    #[test]
+    fn test_materialized_view_refresh_mode_serde_manual() {
+        let mode = MaterializedViewRefreshMode::Manual;
+        let json = serde_json::to_string(&mode).unwrap();
+        let parsed: MaterializedViewRefreshMode = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed, MaterializedViewRefreshMode::Manual);
+    }
+
+    // ========================================================================
+    // MaterializedViewStatus Tests
+    // ========================================================================
+
+    #[test]
+    fn test_materialized_view_status_default() {
+        assert_eq!(
+            MaterializedViewStatus::default(),
+            MaterializedViewStatus::Initializing
+        );
+    }
+
+    #[test]
+    fn test_materialized_view_status_serde_roundtrip() {
+        for status in [
+            MaterializedViewStatus::Initializing,
+            MaterializedViewStatus::Running,
+            MaterializedViewStatus::Paused,
+            MaterializedViewStatus::Error,
+        ] {
+            let json = serde_json::to_string(&status).unwrap();
+            let parsed: MaterializedViewStatus = serde_json::from_str(&json).unwrap();
+            assert_eq!(parsed, status, "Serde roundtrip failed for {:?}", status);
+        }
+    }
+
+    // ========================================================================
+    // DEFAULT_ORGANIZATION_ID Constant Test
+    // ========================================================================
+
+    #[test]
+    fn test_default_organization_id() {
+        assert_eq!(
+            DEFAULT_ORGANIZATION_ID,
+            "00000000-0000-0000-0000-000000000000"
+        );
+        // Should look like a nil UUID
+        assert_eq!(DEFAULT_ORGANIZATION_ID.len(), 36);
+    }
+
+    // ========================================================================
+    // Struct Serialization Tests (complex types)
+    // ========================================================================
+
+    #[test]
+    fn test_topic_serde_roundtrip() {
+        let topic = Topic {
+            name: "orders".to_string(),
+            partition_count: 3,
+            retention_ms: Some(86400000),
+            cleanup_policy: CleanupPolicy::Compact,
+            created_at: 1700000000000,
+            config: HashMap::from([("key".to_string(), "value".to_string())]),
+        };
+
+        let json = serde_json::to_string(&topic).unwrap();
+        let parsed: Topic = serde_json::from_str(&json).unwrap();
+
+        assert_eq!(parsed.name, "orders");
+        assert_eq!(parsed.partition_count, 3);
+        assert_eq!(parsed.retention_ms, Some(86400000));
+        assert_eq!(parsed.cleanup_policy, CleanupPolicy::Compact);
+        assert_eq!(parsed.created_at, 1700000000000);
+        assert_eq!(parsed.config.get("key").unwrap(), "value");
+    }
+
+    #[test]
+    fn test_partition_serde_roundtrip() {
+        let partition = Partition {
+            topic: "orders".to_string(),
+            partition_id: 0,
+            high_watermark: 12345,
+        };
+
+        let json = serde_json::to_string(&partition).unwrap();
+        let parsed: Partition = serde_json::from_str(&json).unwrap();
+
+        assert_eq!(parsed.topic, "orders");
+        assert_eq!(parsed.partition_id, 0);
+        assert_eq!(parsed.high_watermark, 12345);
+    }
+
+    #[test]
+    fn test_segment_info_serde_roundtrip() {
+        let segment = SegmentInfo {
+            id: "orders-0-1000".to_string(),
+            topic: "orders".to_string(),
+            partition_id: 0,
+            base_offset: 1000,
+            end_offset: 1999,
+            record_count: 1000,
+            size_bytes: 67_108_864,
+            s3_bucket: "streamhouse".to_string(),
+            s3_key: "orders/0/seg_1000.bin".to_string(),
+            created_at: 1700000000000,
+        };
+
+        let json = serde_json::to_string(&segment).unwrap();
+        let parsed: SegmentInfo = serde_json::from_str(&json).unwrap();
+
+        assert_eq!(parsed.id, "orders-0-1000");
+        assert_eq!(parsed.topic, "orders");
+        assert_eq!(parsed.partition_id, 0);
+        assert_eq!(parsed.base_offset, 1000);
+        assert_eq!(parsed.end_offset, 1999);
+        assert_eq!(parsed.record_count, 1000);
+        assert_eq!(parsed.size_bytes, 67_108_864);
+        assert_eq!(parsed.s3_bucket, "streamhouse");
+        assert_eq!(parsed.s3_key, "orders/0/seg_1000.bin");
+    }
+
+    #[test]
+    fn test_consumer_offset_serde_roundtrip() {
+        let offset = ConsumerOffset {
+            group_id: "analytics".to_string(),
+            topic: "orders".to_string(),
+            partition_id: 0,
+            committed_offset: 5000,
+            metadata: Some("checkpoint-abc".to_string()),
+        };
+
+        let json = serde_json::to_string(&offset).unwrap();
+        let parsed: ConsumerOffset = serde_json::from_str(&json).unwrap();
+
+        assert_eq!(parsed.group_id, "analytics");
+        assert_eq!(parsed.topic, "orders");
+        assert_eq!(parsed.partition_id, 0);
+        assert_eq!(parsed.committed_offset, 5000);
+        assert_eq!(parsed.metadata, Some("checkpoint-abc".to_string()));
+    }
+
+    #[test]
+    fn test_consumer_offset_serde_no_metadata() {
+        let offset = ConsumerOffset {
+            group_id: "analytics".to_string(),
+            topic: "orders".to_string(),
+            partition_id: 0,
+            committed_offset: 5000,
+            metadata: None,
+        };
+
+        let json = serde_json::to_string(&offset).unwrap();
+        let parsed: ConsumerOffset = serde_json::from_str(&json).unwrap();
+
+        assert_eq!(parsed.metadata, None);
+    }
+
+    #[test]
+    fn test_agent_info_serde_roundtrip() {
+        let agent = AgentInfo {
+            agent_id: "agent-us-east-1a-001".to_string(),
+            address: "10.0.1.5:9090".to_string(),
+            availability_zone: "us-east-1a".to_string(),
+            agent_group: "prod".to_string(),
+            last_heartbeat: 1700000000000,
+            started_at: 1699999999000,
+            metadata: HashMap::from([("version".to_string(), "1.0.0".to_string())]),
+        };
+
+        let json = serde_json::to_string(&agent).unwrap();
+        let parsed: AgentInfo = serde_json::from_str(&json).unwrap();
+
+        assert_eq!(parsed.agent_id, "agent-us-east-1a-001");
+        assert_eq!(parsed.address, "10.0.1.5:9090");
+        assert_eq!(parsed.availability_zone, "us-east-1a");
+        assert_eq!(parsed.agent_group, "prod");
+        assert_eq!(parsed.last_heartbeat, 1700000000000);
+        assert_eq!(parsed.started_at, 1699999999000);
+        assert_eq!(parsed.metadata.get("version").unwrap(), "1.0.0");
+    }
+
+    #[test]
+    fn test_partition_lease_serde_roundtrip() {
+        let lease = PartitionLease {
+            topic: "orders".to_string(),
+            partition_id: 0,
+            leader_agent_id: "agent-001".to_string(),
+            lease_expires_at: 1700000030000,
+            acquired_at: 1700000000000,
+            epoch: 5,
+        };
+
+        let json = serde_json::to_string(&lease).unwrap();
+        let parsed: PartitionLease = serde_json::from_str(&json).unwrap();
+
+        assert_eq!(parsed.topic, "orders");
+        assert_eq!(parsed.partition_id, 0);
+        assert_eq!(parsed.leader_agent_id, "agent-001");
+        assert_eq!(parsed.lease_expires_at, 1700000030000);
+        assert_eq!(parsed.acquired_at, 1700000000000);
+        assert_eq!(parsed.epoch, 5);
+    }
+
+    #[test]
+    fn test_organization_serde_roundtrip() {
+        let org = Organization {
+            id: "550e8400-e29b-41d4-a716-446655440000".to_string(),
+            name: "Acme Corporation".to_string(),
+            slug: "acme-corp".to_string(),
+            plan: OrganizationPlan::Pro,
+            status: OrganizationStatus::Active,
+            created_at: 1700000000000,
+            settings: HashMap::from([("theme".to_string(), "dark".to_string())]),
+        };
+
+        let json = serde_json::to_string(&org).unwrap();
+        let parsed: Organization = serde_json::from_str(&json).unwrap();
+
+        assert_eq!(parsed.id, "550e8400-e29b-41d4-a716-446655440000");
+        assert_eq!(parsed.name, "Acme Corporation");
+        assert_eq!(parsed.slug, "acme-corp");
+        assert_eq!(parsed.plan, OrganizationPlan::Pro);
+        assert_eq!(parsed.status, OrganizationStatus::Active);
+        assert_eq!(parsed.settings.get("theme").unwrap(), "dark");
+    }
+
+    #[test]
+    fn test_producer_serde_roundtrip() {
+        let producer = Producer {
+            id: "producer-001".to_string(),
+            organization_id: Some("org-1".to_string()),
+            transactional_id: Some("tx-writer-1".to_string()),
+            epoch: 3,
+            state: ProducerState::Active,
+            created_at: 1700000000000,
+            last_heartbeat: 1700000010000,
+            metadata: Some(HashMap::from([
+                ("client".to_string(), "rust".to_string()),
+            ])),
+        };
+
+        let json = serde_json::to_string(&producer).unwrap();
+        let parsed: Producer = serde_json::from_str(&json).unwrap();
+
+        assert_eq!(parsed.id, "producer-001");
+        assert_eq!(parsed.organization_id, Some("org-1".to_string()));
+        assert_eq!(parsed.transactional_id, Some("tx-writer-1".to_string()));
+        assert_eq!(parsed.epoch, 3);
+        assert_eq!(parsed.state, ProducerState::Active);
+        assert_eq!(parsed.created_at, 1700000000000);
+        assert_eq!(parsed.last_heartbeat, 1700000010000);
+    }
+
+    #[test]
+    fn test_transaction_serde_roundtrip() {
+        let txn = Transaction {
+            transaction_id: "txn-001".to_string(),
+            producer_id: "producer-001".to_string(),
+            state: TransactionState::Preparing,
+            timeout_ms: 30000,
+            started_at: 1700000000000,
+            updated_at: 1700000010000,
+            completed_at: None,
+        };
+
+        let json = serde_json::to_string(&txn).unwrap();
+        let parsed: Transaction = serde_json::from_str(&json).unwrap();
+
+        assert_eq!(parsed.transaction_id, "txn-001");
+        assert_eq!(parsed.producer_id, "producer-001");
+        assert_eq!(parsed.state, TransactionState::Preparing);
+        assert_eq!(parsed.timeout_ms, 30000);
+        assert_eq!(parsed.completed_at, None);
+    }
+
+    #[test]
+    fn test_lease_transfer_serde_roundtrip() {
+        let transfer = LeaseTransfer {
+            transfer_id: "transfer-001".to_string(),
+            topic: "orders".to_string(),
+            partition_id: 0,
+            from_agent_id: "agent-001".to_string(),
+            to_agent_id: "agent-002".to_string(),
+            from_epoch: 5,
+            state: LeaseTransferState::Accepted,
+            reason: LeaderChangeReason::GracefulHandoff,
+            initiated_at: 1700000000000,
+            completed_at: None,
+            timeout_at: 1700000030000,
+            last_flushed_offset: Some(1000),
+            high_watermark: Some(1001),
+            error: None,
+        };
+
+        let json = serde_json::to_string(&transfer).unwrap();
+        let parsed: LeaseTransfer = serde_json::from_str(&json).unwrap();
+
+        assert_eq!(parsed.transfer_id, "transfer-001");
+        assert_eq!(parsed.topic, "orders");
+        assert_eq!(parsed.partition_id, 0);
+        assert_eq!(parsed.from_agent_id, "agent-001");
+        assert_eq!(parsed.to_agent_id, "agent-002");
+        assert_eq!(parsed.from_epoch, 5);
+        assert_eq!(parsed.state, LeaseTransferState::Accepted);
+        assert_eq!(parsed.reason, LeaderChangeReason::GracefulHandoff);
+        assert_eq!(parsed.last_flushed_offset, Some(1000));
+        assert_eq!(parsed.high_watermark, Some(1001));
+        assert_eq!(parsed.error, None);
+    }
+
+    #[test]
+    fn test_lease_transfer_serde_with_error() {
+        let transfer = LeaseTransfer {
+            transfer_id: "transfer-002".to_string(),
+            topic: "orders".to_string(),
+            partition_id: 1,
+            from_agent_id: "agent-001".to_string(),
+            to_agent_id: "agent-003".to_string(),
+            from_epoch: 2,
+            state: LeaseTransferState::Failed,
+            reason: LeaderChangeReason::AgentCrash,
+            initiated_at: 1700000000000,
+            completed_at: Some(1700000005000),
+            timeout_at: 1700000030000,
+            last_flushed_offset: None,
+            high_watermark: None,
+            error: Some("Agent crashed during transfer".to_string()),
+        };
+
+        let json = serde_json::to_string(&transfer).unwrap();
+        let parsed: LeaseTransfer = serde_json::from_str(&json).unwrap();
+
+        assert_eq!(parsed.state, LeaseTransferState::Failed);
+        assert_eq!(
+            parsed.error,
+            Some("Agent crashed during transfer".to_string())
+        );
+        assert_eq!(parsed.completed_at, Some(1700000005000));
+    }
+
+    // ========================================================================
+    // CreateOrganization Tests
+    // ========================================================================
+
+    #[test]
+    fn test_create_organization_serde_roundtrip() {
+        let create_org = CreateOrganization {
+            name: "Test Org".to_string(),
+            slug: "test-org".to_string(),
+            plan: OrganizationPlan::Pro,
+            settings: HashMap::from([("region".to_string(), "us-east-1".to_string())]),
+        };
+
+        let json = serde_json::to_string(&create_org).unwrap();
+        let parsed: CreateOrganization = serde_json::from_str(&json).unwrap();
+
+        assert_eq!(parsed.name, "Test Org");
+        assert_eq!(parsed.slug, "test-org");
+        assert_eq!(parsed.plan, OrganizationPlan::Pro);
+        assert_eq!(parsed.settings.get("region").unwrap(), "us-east-1");
+    }
+
+    #[test]
+    fn test_create_organization_default_plan() {
+        // When plan is missing from JSON, it defaults to Free
+        let json = r#"{"name":"Test","slug":"test","settings":{}}"#;
+        let parsed: CreateOrganization = serde_json::from_str(json).unwrap();
+        assert_eq!(parsed.plan, OrganizationPlan::Free);
+    }
+
+    // ========================================================================
+    // CreateApiKey Tests
+    // ========================================================================
+
+    #[test]
+    fn test_create_api_key_serde_roundtrip() {
+        let create_key = CreateApiKey {
+            name: "Production Key".to_string(),
+            permissions: vec!["read".to_string(), "write".to_string()],
+            scopes: vec!["orders".to_string(), "events-*".to_string()],
+            expires_in_ms: Some(86400000),
+        };
+
+        let json = serde_json::to_string(&create_key).unwrap();
+        let parsed: CreateApiKey = serde_json::from_str(&json).unwrap();
+
+        assert_eq!(parsed.name, "Production Key");
+        assert_eq!(parsed.permissions, vec!["read", "write"]);
+        assert_eq!(parsed.scopes, vec!["orders", "events-*"]);
+        assert_eq!(parsed.expires_in_ms, Some(86400000));
+    }
+
+    #[test]
+    fn test_create_api_key_default_permissions() {
+        // When permissions is missing, it defaults to ["read", "write"]
+        let json = r#"{"name":"Test Key","scopes":[],"expires_in_ms":null}"#;
+        let parsed: CreateApiKey = serde_json::from_str(json).unwrap();
+        assert_eq!(parsed.permissions, vec!["read", "write"]);
+    }
+
+    // ========================================================================
+    // ApiKey Tests
+    // ========================================================================
+
+    #[test]
+    fn test_api_key_serde_roundtrip() {
+        let api_key = ApiKey {
+            id: "key-001".to_string(),
+            organization_id: "org-001".to_string(),
+            name: "Production Key".to_string(),
+            key_prefix: "sk_live_abc1".to_string(),
+            permissions: vec!["read".to_string(), "write".to_string()],
+            scopes: vec!["orders".to_string()],
+            expires_at: Some(1700000086400),
+            last_used_at: Some(1700000000000),
+            created_at: 1699999999000,
+            created_by: Some("user-001".to_string()),
+        };
+
+        let json = serde_json::to_string(&api_key).unwrap();
+        let parsed: ApiKey = serde_json::from_str(&json).unwrap();
+
+        assert_eq!(parsed.id, "key-001");
+        assert_eq!(parsed.organization_id, "org-001");
+        assert_eq!(parsed.name, "Production Key");
+        assert_eq!(parsed.key_prefix, "sk_live_abc1");
+        assert_eq!(parsed.permissions, vec!["read", "write"]);
+        assert_eq!(parsed.scopes, vec!["orders"]);
+        assert_eq!(parsed.expires_at, Some(1700000086400));
+        assert_eq!(parsed.last_used_at, Some(1700000000000));
+        assert_eq!(parsed.created_by, Some("user-001".to_string()));
+    }
+
+    // ========================================================================
+    // ProducerSequence Tests
+    // ========================================================================
+
+    #[test]
+    fn test_producer_sequence_serde_roundtrip() {
+        let seq = ProducerSequence {
+            producer_id: "producer-001".to_string(),
+            topic: "orders".to_string(),
+            partition_id: 0,
+            last_sequence: 99,
+            updated_at: 1700000000000,
+        };
+
+        let json = serde_json::to_string(&seq).unwrap();
+        let parsed: ProducerSequence = serde_json::from_str(&json).unwrap();
+
+        assert_eq!(parsed.producer_id, "producer-001");
+        assert_eq!(parsed.topic, "orders");
+        assert_eq!(parsed.partition_id, 0);
+        assert_eq!(parsed.last_sequence, 99);
+    }
+
+    #[test]
+    fn test_producer_sequence_initial_value() {
+        let seq = ProducerSequence {
+            producer_id: "producer-001".to_string(),
+            topic: "orders".to_string(),
+            partition_id: 0,
+            last_sequence: -1,
+            updated_at: 0,
+        };
+
+        assert_eq!(seq.last_sequence, -1);
+    }
+
+    // ========================================================================
+    // OrganizationUsage Tests
+    // ========================================================================
+
+    #[test]
+    fn test_organization_usage_serde_roundtrip() {
+        let usage = OrganizationUsage {
+            organization_id: "org-001".to_string(),
+            metric: "storage_bytes".to_string(),
+            value: 5_000_000_000,
+            period_start: 1700000000000,
+        };
+
+        let json = serde_json::to_string(&usage).unwrap();
+        let parsed: OrganizationUsage = serde_json::from_str(&json).unwrap();
+
+        assert_eq!(parsed.organization_id, "org-001");
+        assert_eq!(parsed.metric, "storage_bytes");
+        assert_eq!(parsed.value, 5_000_000_000);
+        assert_eq!(parsed.period_start, 1700000000000);
+    }
+
+    // ========================================================================
+    // PartitionLSO Tests
+    // ========================================================================
+
+    #[test]
+    fn test_partition_lso_serde_roundtrip() {
+        let lso = PartitionLSO {
+            topic: "orders".to_string(),
+            partition_id: 0,
+            last_stable_offset: 500,
+            updated_at: 1700000000000,
+        };
+
+        let json = serde_json::to_string(&lso).unwrap();
+        let parsed: PartitionLSO = serde_json::from_str(&json).unwrap();
+
+        assert_eq!(parsed.topic, "orders");
+        assert_eq!(parsed.partition_id, 0);
+        assert_eq!(parsed.last_stable_offset, 500);
+    }
+
+    // ========================================================================
+    // TransactionPartition Tests
+    // ========================================================================
+
+    #[test]
+    fn test_transaction_partition_serde_roundtrip() {
+        let tp = TransactionPartition {
+            transaction_id: "txn-001".to_string(),
+            topic: "orders".to_string(),
+            partition_id: 0,
+            first_offset: 100,
+            last_offset: 200,
+        };
+
+        let json = serde_json::to_string(&tp).unwrap();
+        let parsed: TransactionPartition = serde_json::from_str(&json).unwrap();
+
+        assert_eq!(parsed.transaction_id, "txn-001");
+        assert_eq!(parsed.topic, "orders");
+        assert_eq!(parsed.partition_id, 0);
+        assert_eq!(parsed.first_offset, 100);
+        assert_eq!(parsed.last_offset, 200);
+    }
+
+    // ========================================================================
+    // TransactionMarker Tests
+    // ========================================================================
+
+    #[test]
+    fn test_transaction_marker_serde_roundtrip() {
+        let marker = TransactionMarker {
+            transaction_id: "txn-001".to_string(),
+            topic: "orders".to_string(),
+            partition_id: 0,
+            offset: 201,
+            marker_type: TransactionMarkerType::Commit,
+            timestamp: 1700000000000,
+        };
+
+        let json = serde_json::to_string(&marker).unwrap();
+        let parsed: TransactionMarker = serde_json::from_str(&json).unwrap();
+
+        assert_eq!(parsed.transaction_id, "txn-001");
+        assert_eq!(parsed.marker_type, TransactionMarkerType::Commit);
+        assert_eq!(parsed.offset, 201);
+    }
+
+    // ========================================================================
+    // InitProducerConfig Tests
+    // ========================================================================
+
+    #[test]
+    fn test_init_producer_config_serde_roundtrip() {
+        let config = InitProducerConfig {
+            transactional_id: Some("tx-writer-1".to_string()),
+            organization_id: Some("org-1".to_string()),
+            timeout_ms: 60000,
+            metadata: Some(HashMap::from([
+                ("client".to_string(), "rust-client".to_string()),
+            ])),
+        };
+
+        let json = serde_json::to_string(&config).unwrap();
+        let parsed: InitProducerConfig = serde_json::from_str(&json).unwrap();
+
+        assert_eq!(parsed.transactional_id, Some("tx-writer-1".to_string()));
+        assert_eq!(parsed.organization_id, Some("org-1".to_string()));
+        assert_eq!(parsed.timeout_ms, 60000);
+    }
+
+    #[test]
+    fn test_init_producer_config_serde_minimal() {
+        let config = InitProducerConfig {
+            transactional_id: None,
+            organization_id: None,
+            timeout_ms: 30000,
+            metadata: None,
+        };
+
+        let json = serde_json::to_string(&config).unwrap();
+        let parsed: InitProducerConfig = serde_json::from_str(&json).unwrap();
+
+        assert_eq!(parsed.transactional_id, None);
+        assert_eq!(parsed.organization_id, None);
+        assert_eq!(parsed.timeout_ms, 30000);
+        assert_eq!(parsed.metadata, None);
+    }
+
+    // ========================================================================
+    // MaterializedView Tests
+    // ========================================================================
+
+    #[test]
+    fn test_materialized_view_serde_roundtrip() {
+        let view = MaterializedView {
+            id: "view-001".to_string(),
+            organization_id: "org-001".to_string(),
+            name: "order_counts".to_string(),
+            source_topic: "orders".to_string(),
+            query_sql: "SELECT status, COUNT(*) as cnt FROM orders GROUP BY status".to_string(),
+            refresh_mode: MaterializedViewRefreshMode::Continuous,
+            status: MaterializedViewStatus::Running,
+            error_message: None,
+            row_count: 42,
+            last_refresh_at: Some(1700000000000),
+            created_at: 1699999999000,
+            updated_at: 1700000000000,
+        };
+
+        let json = serde_json::to_string(&view).unwrap();
+        let parsed: MaterializedView = serde_json::from_str(&json).unwrap();
+
+        assert_eq!(parsed.id, "view-001");
+        assert_eq!(parsed.name, "order_counts");
+        assert_eq!(parsed.source_topic, "orders");
+        assert_eq!(parsed.status, MaterializedViewStatus::Running);
+        assert_eq!(parsed.row_count, 42);
+    }
+
+    #[test]
+    fn test_materialized_view_with_error() {
+        let view = MaterializedView {
+            id: "view-002".to_string(),
+            organization_id: "org-001".to_string(),
+            name: "broken_view".to_string(),
+            source_topic: "orders".to_string(),
+            query_sql: "INVALID SQL".to_string(),
+            refresh_mode: MaterializedViewRefreshMode::Manual,
+            status: MaterializedViewStatus::Error,
+            error_message: Some("Parse error: unexpected token".to_string()),
+            row_count: 0,
+            last_refresh_at: None,
+            created_at: 1699999999000,
+            updated_at: 1700000000000,
+        };
+
+        let json = serde_json::to_string(&view).unwrap();
+        let parsed: MaterializedView = serde_json::from_str(&json).unwrap();
+
+        assert_eq!(parsed.status, MaterializedViewStatus::Error);
+        assert_eq!(
+            parsed.error_message,
+            Some("Parse error: unexpected token".to_string())
+        );
+    }
+}

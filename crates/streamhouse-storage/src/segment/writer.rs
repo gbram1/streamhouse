@@ -430,4 +430,602 @@ mod tests {
         // 1000 records * ~1KB each = ~1MB raw, should compress to much less
         assert!(segment_bytes.len() < 500_000); // Less than 500KB
     }
+
+    // ---------------------------------------------------------------
+    // Empty segment edge case
+    // ---------------------------------------------------------------
+
+    #[test]
+    fn test_writer_empty_segment_finish_fails() {
+        let writer = SegmentWriter::new(Compression::None);
+        // Finishing a segment with no records should error
+        let result = writer.finish();
+        assert!(result.is_err());
+    }
+
+    // ---------------------------------------------------------------
+    // Roundtrip: write then read back with SegmentReader
+    // ---------------------------------------------------------------
+
+    #[test]
+    fn test_roundtrip_none_compression_single() {
+        use crate::segment::reader::SegmentReader;
+
+        let mut writer = SegmentWriter::new(Compression::None);
+        let record = Record::new(
+            42,
+            9_999_999,
+            Some(Bytes::from("the-key")),
+            Bytes::from("the-value"),
+        );
+        writer.append(&record).unwrap();
+        let data = writer.finish().unwrap();
+
+        let reader = SegmentReader::new(Bytes::from(data)).unwrap();
+        assert_eq!(reader.record_count(), 1);
+        assert_eq!(reader.base_offset(), 42);
+        assert_eq!(reader.end_offset(), 42);
+
+        let records = reader.read_all().unwrap();
+        assert_eq!(records.len(), 1);
+        assert_eq!(records[0], record);
+    }
+
+    #[test]
+    fn test_roundtrip_lz4_compression_single() {
+        use crate::segment::reader::SegmentReader;
+
+        let mut writer = SegmentWriter::new(Compression::Lz4);
+        let record = Record::new(
+            0,
+            1_000_000,
+            Some(Bytes::from("k")),
+            Bytes::from("v"),
+        );
+        writer.append(&record).unwrap();
+        let data = writer.finish().unwrap();
+
+        let reader = SegmentReader::new(Bytes::from(data)).unwrap();
+        let records = reader.read_all().unwrap();
+        assert_eq!(records.len(), 1);
+        assert_eq!(records[0], record);
+    }
+
+    #[test]
+    fn test_roundtrip_none_compression_many_records() {
+        use crate::segment::reader::SegmentReader;
+
+        let mut writer = SegmentWriter::new(Compression::None);
+        let mut originals = Vec::new();
+        for i in 0..150 {
+            let record = Record::new(
+                1000 + i,
+                5_000_000 + i * 100,
+                Some(Bytes::from(format!("key-{}", i))),
+                Bytes::from(format!("value-payload-{}", i)),
+            );
+            originals.push(record.clone());
+            writer.append(&record).unwrap();
+        }
+        assert_eq!(writer.record_count(), 150);
+        assert_eq!(writer.base_offset(), Some(1000));
+        assert_eq!(writer.last_offset(), Some(1149));
+
+        let data = writer.finish().unwrap();
+        let reader = SegmentReader::new(Bytes::from(data)).unwrap();
+        assert_eq!(reader.record_count(), 150);
+        assert_eq!(reader.base_offset(), 1000);
+        assert_eq!(reader.end_offset(), 1149);
+
+        let records = reader.read_all().unwrap();
+        assert_eq!(records.len(), 150);
+        for (i, rec) in records.iter().enumerate() {
+            assert_eq!(rec, &originals[i], "mismatch at index {}", i);
+        }
+    }
+
+    #[test]
+    fn test_roundtrip_lz4_compression_many_records() {
+        use crate::segment::reader::SegmentReader;
+
+        let mut writer = SegmentWriter::new(Compression::Lz4);
+        let mut originals = Vec::new();
+        for i in 0..200 {
+            let record = Record::new(
+                i,
+                1_000_000 + i * 10,
+                Some(Bytes::from(format!("k{}", i))),
+                Bytes::from(vec![b'A' + (i % 26) as u8; 512]),
+            );
+            originals.push(record.clone());
+            writer.append(&record).unwrap();
+        }
+
+        let data = writer.finish().unwrap();
+        let reader = SegmentReader::new(Bytes::from(data)).unwrap();
+        let records = reader.read_all().unwrap();
+        assert_eq!(records.len(), 200);
+        for (i, rec) in records.iter().enumerate() {
+            assert_eq!(rec, &originals[i], "mismatch at index {}", i);
+        }
+    }
+
+    // ---------------------------------------------------------------
+    // read_from_offset roundtrips
+    // ---------------------------------------------------------------
+
+    #[test]
+    fn test_roundtrip_read_from_offset_none() {
+        use crate::segment::reader::SegmentReader;
+
+        let mut writer = SegmentWriter::new(Compression::None);
+        let mut originals = Vec::new();
+        for i in 0..100 {
+            let record = Record::new(
+                500 + i,
+                10_000 + i,
+                Some(Bytes::from(format!("key{}", i))),
+                Bytes::from(format!("val{}", i)),
+            );
+            originals.push(record.clone());
+            writer.append(&record).unwrap();
+        }
+
+        let data = writer.finish().unwrap();
+        let reader = SegmentReader::new(Bytes::from(data)).unwrap();
+
+        // Read from offset 550 (50th record onward)
+        let records = reader.read_from_offset(550).unwrap();
+        assert_eq!(records.len(), 50);
+        assert_eq!(records[0].offset, 550);
+        assert_eq!(records[49].offset, 599);
+        for (i, rec) in records.iter().enumerate() {
+            assert_eq!(rec, &originals[50 + i]);
+        }
+    }
+
+    #[test]
+    fn test_roundtrip_read_from_offset_lz4() {
+        use crate::segment::reader::SegmentReader;
+
+        let mut writer = SegmentWriter::new(Compression::Lz4);
+        let mut originals = Vec::new();
+        for i in 0..100 {
+            let record = Record::new(
+                i,
+                1_000 + i * 5,
+                None,
+                Bytes::from(format!("payload-{:04}", i)),
+            );
+            originals.push(record.clone());
+            writer.append(&record).unwrap();
+        }
+
+        let data = writer.finish().unwrap();
+        let reader = SegmentReader::new(Bytes::from(data)).unwrap();
+
+        // Read from offset 75
+        let records = reader.read_from_offset(75).unwrap();
+        assert_eq!(records.len(), 25);
+        assert_eq!(records[0].offset, 75);
+        assert_eq!(records[24].offset, 99);
+    }
+
+    #[test]
+    fn test_roundtrip_read_from_offset_first_record() {
+        use crate::segment::reader::SegmentReader;
+
+        let mut writer = SegmentWriter::new(Compression::None);
+        for i in 0..10 {
+            let record = Record::new(i, i * 100, None, Bytes::from("data"));
+            writer.append(&record).unwrap();
+        }
+        let data = writer.finish().unwrap();
+        let reader = SegmentReader::new(Bytes::from(data)).unwrap();
+
+        // Reading from offset 0 should return all records
+        let records = reader.read_from_offset(0).unwrap();
+        assert_eq!(records.len(), 10);
+    }
+
+    #[test]
+    fn test_roundtrip_read_from_offset_last_record() {
+        use crate::segment::reader::SegmentReader;
+
+        let mut writer = SegmentWriter::new(Compression::None);
+        for i in 0..10 {
+            let record = Record::new(i, i * 100, None, Bytes::from("data"));
+            writer.append(&record).unwrap();
+        }
+        let data = writer.finish().unwrap();
+        let reader = SegmentReader::new(Bytes::from(data)).unwrap();
+
+        // Reading from last offset should return 1 record
+        let records = reader.read_from_offset(9).unwrap();
+        assert_eq!(records.len(), 1);
+        assert_eq!(records[0].offset, 9);
+    }
+
+    #[test]
+    fn test_roundtrip_read_from_offset_beyond_end() {
+        use crate::segment::reader::SegmentReader;
+
+        let mut writer = SegmentWriter::new(Compression::None);
+        for i in 0..10 {
+            let record = Record::new(i, i * 100, None, Bytes::from("data"));
+            writer.append(&record).unwrap();
+        }
+        let data = writer.finish().unwrap();
+        let reader = SegmentReader::new(Bytes::from(data)).unwrap();
+
+        // Reading beyond the last offset should return empty
+        let records = reader.read_from_offset(100).unwrap();
+        assert_eq!(records.len(), 0);
+    }
+
+    // ---------------------------------------------------------------
+    // Records without keys
+    // ---------------------------------------------------------------
+
+    #[test]
+    fn test_roundtrip_records_without_keys() {
+        use crate::segment::reader::SegmentReader;
+
+        let mut writer = SegmentWriter::new(Compression::None);
+        let mut originals = Vec::new();
+        for i in 0..50 {
+            let record = Record::new(i, 1_000_000 + i, None, Bytes::from("no-key-value"));
+            originals.push(record.clone());
+            writer.append(&record).unwrap();
+        }
+
+        let data = writer.finish().unwrap();
+        let reader = SegmentReader::new(Bytes::from(data)).unwrap();
+        let records = reader.read_all().unwrap();
+        assert_eq!(records.len(), 50);
+        for (i, rec) in records.iter().enumerate() {
+            assert!(rec.key.is_none());
+            assert_eq!(rec, &originals[i]);
+        }
+    }
+
+    // ---------------------------------------------------------------
+    // Mixed records (some with keys, some without)
+    // ---------------------------------------------------------------
+
+    #[test]
+    fn test_roundtrip_mixed_keys() {
+        use crate::segment::reader::SegmentReader;
+
+        let mut writer = SegmentWriter::new(Compression::Lz4);
+        let mut originals = Vec::new();
+        for i in 0..100 {
+            let key = if i % 3 == 0 {
+                Some(Bytes::from(format!("key-{}", i)))
+            } else {
+                None
+            };
+            let record = Record::new(i, 5_000 + i, key, Bytes::from(format!("v{}", i)));
+            originals.push(record.clone());
+            writer.append(&record).unwrap();
+        }
+
+        let data = writer.finish().unwrap();
+        let reader = SegmentReader::new(Bytes::from(data)).unwrap();
+        let records = reader.read_all().unwrap();
+        assert_eq!(records.len(), 100);
+        for (i, rec) in records.iter().enumerate() {
+            assert_eq!(rec, &originals[i], "mismatch at index {}", i);
+        }
+    }
+
+    // ---------------------------------------------------------------
+    // Large records (test block flushing with big payloads)
+    // ---------------------------------------------------------------
+
+    #[test]
+    fn test_roundtrip_large_values_trigger_block_flush() {
+        use crate::segment::reader::SegmentReader;
+
+        // Each record is 128KB, so ~8 records should fill a 1MB block
+        let mut writer = SegmentWriter::new(Compression::None);
+        let mut originals = Vec::new();
+        for i in 0..20 {
+            let value = vec![(i as u8).wrapping_mul(7); 128 * 1024]; // 128KB
+            let record = Record::new(
+                i as u64,
+                1_000_000 + i as u64,
+                Some(Bytes::from(format!("big-{}", i))),
+                Bytes::from(value),
+            );
+            originals.push(record.clone());
+            writer.append(&record).unwrap();
+        }
+
+        let data = writer.finish().unwrap();
+        let reader = SegmentReader::new(Bytes::from(data)).unwrap();
+        let records = reader.read_all().unwrap();
+        assert_eq!(records.len(), 20);
+        for (i, rec) in records.iter().enumerate() {
+            assert_eq!(rec, &originals[i], "mismatch at record {}", i);
+        }
+    }
+
+    #[test]
+    fn test_roundtrip_large_values_lz4_block_flush() {
+        use crate::segment::reader::SegmentReader;
+
+        let mut writer = SegmentWriter::new(Compression::Lz4);
+        let mut originals = Vec::new();
+        for i in 0..20 {
+            // Highly compressible: same byte repeated
+            let value = vec![0xAB; 128 * 1024];
+            let record = Record::new(
+                i as u64,
+                2_000_000 + i as u64,
+                None,
+                Bytes::from(value),
+            );
+            originals.push(record.clone());
+            writer.append(&record).unwrap();
+        }
+
+        let data = writer.finish().unwrap();
+
+        // With LZ4, highly compressible data should be much smaller
+        let raw_data_size = 20 * 128 * 1024; // ~2.5MB
+        assert!(
+            data.len() < raw_data_size / 2,
+            "compressed size {} should be much less than raw {}",
+            data.len(),
+            raw_data_size
+        );
+
+        let reader = SegmentReader::new(Bytes::from(data)).unwrap();
+        let records = reader.read_all().unwrap();
+        assert_eq!(records.len(), 20);
+        for (i, rec) in records.iter().enumerate() {
+            assert_eq!(rec, &originals[i]);
+        }
+    }
+
+    // ---------------------------------------------------------------
+    // Header / footer structure tests
+    // ---------------------------------------------------------------
+
+    #[test]
+    fn test_segment_header_structure() {
+        let mut writer = SegmentWriter::new(Compression::Lz4);
+        for i in 0..5 {
+            let record = Record::new(i + 10, 1000 + i, None, Bytes::from("hello"));
+            writer.append(&record).unwrap();
+        }
+        let data = writer.finish().unwrap();
+
+        // Check magic bytes
+        assert_eq!(&data[0..4], &SEGMENT_MAGIC);
+
+        // Check version (bytes 4..6, big-endian u16)
+        let version = u16::from_be_bytes([data[4], data[5]]);
+        assert_eq!(version, super::super::SEGMENT_VERSION);
+
+        // Check compression (bytes 6..8, big-endian u16)
+        let compression = u16::from_be_bytes([data[6], data[7]]);
+        assert_eq!(compression, Compression::Lz4 as u16);
+
+        // Check base offset (bytes 8..16, big-endian u64)
+        let base_offset =
+            u64::from_be_bytes(data[8..16].try_into().unwrap());
+        assert_eq!(base_offset, 10);
+
+        // Check end offset (bytes 16..24, big-endian u64)
+        let end_offset =
+            u64::from_be_bytes(data[16..24].try_into().unwrap());
+        assert_eq!(end_offset, 14);
+
+        // Check record count (bytes 24..28, big-endian u32)
+        let record_count =
+            u32::from_be_bytes(data[24..28].try_into().unwrap());
+        assert_eq!(record_count, 5);
+    }
+
+    #[test]
+    fn test_segment_footer_magic_bytes() {
+        let mut writer = SegmentWriter::new(Compression::None);
+        let record = Record::new(0, 0, None, Bytes::from("x"));
+        writer.append(&record).unwrap();
+        let data = writer.finish().unwrap();
+
+        let footer_start = data.len() - FOOTER_SIZE;
+        // Magic bytes in footer at offset +12..+16
+        assert_eq!(
+            &data[footer_start + 12..footer_start + 16],
+            &SEGMENT_MAGIC
+        );
+    }
+
+    #[test]
+    fn test_segment_crc_integrity() {
+        let mut writer = SegmentWriter::new(Compression::None);
+        for i in 0..10 {
+            writer
+                .append(&Record::new(i, i * 10, None, Bytes::from("payload")))
+                .unwrap();
+        }
+        let data = writer.finish().unwrap();
+
+        let footer_start = data.len() - FOOTER_SIZE;
+        // CRC32 is at footer offset +8..+12
+        let stored_crc =
+            u32::from_be_bytes(data[footer_start + 8..footer_start + 12].try_into().unwrap());
+        let calculated_crc = crc32fast::hash(&data[..footer_start]);
+        assert_eq!(stored_crc, calculated_crc);
+    }
+
+    // ---------------------------------------------------------------
+    // Zstd should fail (unsupported)
+    // ---------------------------------------------------------------
+
+    #[test]
+    fn test_writer_zstd_unsupported() {
+        let mut writer = SegmentWriter::new(Compression::Zstd);
+        // Write enough to trigger a block flush
+        for i in 0..2000 {
+            let record = Record::new(
+                i,
+                1000 + i,
+                None,
+                Bytes::from(vec![0u8; 1024]),
+            );
+            // Append might succeed until flush is triggered
+            let _ = writer.append(&record);
+        }
+        // finish() should fail because Zstd is not implemented
+        let result = writer.finish();
+        assert!(result.is_err());
+    }
+
+    // ---------------------------------------------------------------
+    // record_count, base_offset, last_offset accessors
+    // ---------------------------------------------------------------
+
+    #[test]
+    fn test_writer_accessors_initial_state() {
+        let writer = SegmentWriter::new(Compression::None);
+        assert_eq!(writer.record_count(), 0);
+        assert_eq!(writer.base_offset(), None);
+        assert_eq!(writer.last_offset(), None);
+    }
+
+    #[test]
+    fn test_writer_accessors_after_multiple_appends() {
+        let mut writer = SegmentWriter::new(Compression::None);
+        for i in 0..5 {
+            let record = Record::new(100 + i, 5000 + i, None, Bytes::from("x"));
+            writer.append(&record).unwrap();
+
+            assert_eq!(writer.record_count(), (i + 1) as u32);
+            assert_eq!(writer.base_offset(), Some(100));
+            assert_eq!(writer.last_offset(), Some(100 + i));
+        }
+    }
+
+    // ---------------------------------------------------------------
+    // Segment size comparison: None vs Lz4
+    // ---------------------------------------------------------------
+
+    #[test]
+    fn test_lz4_produces_smaller_segment_than_none() {
+        let records: Vec<Record> = (0..100)
+            .map(|i| {
+                Record::new(
+                    i,
+                    1_000_000 + i,
+                    Some(Bytes::from("repeated-key")),
+                    Bytes::from(vec![b'Z'; 2048]), // 2KB of highly compressible data
+                )
+            })
+            .collect();
+
+        let mut writer_none = SegmentWriter::new(Compression::None);
+        let mut writer_lz4 = SegmentWriter::new(Compression::Lz4);
+
+        for rec in &records {
+            writer_none.append(rec).unwrap();
+            writer_lz4.append(rec).unwrap();
+        }
+
+        let data_none = writer_none.finish().unwrap();
+        let data_lz4 = writer_lz4.finish().unwrap();
+
+        assert!(
+            data_lz4.len() < data_none.len(),
+            "LZ4 ({}) should be smaller than None ({})",
+            data_lz4.len(),
+            data_none.len()
+        );
+    }
+
+    // ---------------------------------------------------------------
+    // Empty value records
+    // ---------------------------------------------------------------
+
+    #[test]
+    fn test_roundtrip_empty_values() {
+        use crate::segment::reader::SegmentReader;
+
+        let mut writer = SegmentWriter::new(Compression::None);
+        let mut originals = Vec::new();
+        for i in 0..10 {
+            let record = Record::new(i, i * 100, None, Bytes::new());
+            originals.push(record.clone());
+            writer.append(&record).unwrap();
+        }
+
+        let data = writer.finish().unwrap();
+        let reader = SegmentReader::new(Bytes::from(data)).unwrap();
+        let records = reader.read_all().unwrap();
+        assert_eq!(records.len(), 10);
+        for (i, rec) in records.iter().enumerate() {
+            assert!(rec.value.is_empty());
+            assert_eq!(rec, &originals[i]);
+        }
+    }
+
+    // ---------------------------------------------------------------
+    // Non-sequential offsets
+    // ---------------------------------------------------------------
+
+    #[test]
+    fn test_roundtrip_non_sequential_offsets() {
+        use crate::segment::reader::SegmentReader;
+
+        let mut writer = SegmentWriter::new(Compression::None);
+        let offsets = [10, 20, 30, 50, 100, 200, 500];
+        let mut originals = Vec::new();
+        for &offset in &offsets {
+            let record = Record::new(offset, 1000 + offset, None, Bytes::from("gap"));
+            originals.push(record.clone());
+            writer.append(&record).unwrap();
+        }
+
+        let data = writer.finish().unwrap();
+        let reader = SegmentReader::new(Bytes::from(data)).unwrap();
+        let records = reader.read_all().unwrap();
+        assert_eq!(records.len(), offsets.len());
+        for (i, rec) in records.iter().enumerate() {
+            assert_eq!(rec, &originals[i]);
+        }
+    }
+
+    // ---------------------------------------------------------------
+    // Stress test: 500 records with Lz4 roundtrip
+    // ---------------------------------------------------------------
+
+    #[test]
+    fn test_roundtrip_500_records_lz4() {
+        use crate::segment::reader::SegmentReader;
+
+        let mut writer = SegmentWriter::new(Compression::Lz4);
+        let mut originals = Vec::new();
+        for i in 0..500 {
+            let record = Record::new(
+                i,
+                1_000_000_000 + i * 1000,
+                Some(Bytes::from(format!("user-{}", i % 50))),
+                Bytes::from(format!("event-data-{}-{}", i, "x".repeat((i % 100) as usize))),
+            );
+            originals.push(record.clone());
+            writer.append(&record).unwrap();
+        }
+
+        let data = writer.finish().unwrap();
+        let reader = SegmentReader::new(Bytes::from(data)).unwrap();
+        assert_eq!(reader.record_count(), 500);
+        let records = reader.read_all().unwrap();
+        assert_eq!(records.len(), 500);
+        for (i, rec) in records.iter().enumerate() {
+            assert_eq!(rec, &originals[i], "mismatch at index {}", i);
+        }
+    }
 }

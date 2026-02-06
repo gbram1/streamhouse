@@ -1,7 +1,11 @@
 {
   "permissions": {
     "allow": [
-      "Read(//Users/gabrielbram/Desktop/streamhouse/**)"
+      "Read(//Users/gabrielbram/Desktop/streamhouse/**)",
+      "Write(//Users/gabrielbram/Desktop/streamhouse/crates/**)",
+      "Edit(//Users/gabrielbram/Desktop/streamhouse/crates/**)",
+      "Bash(cargo test:*)",
+      "Bash(cargo check:*)"
     ]
   }
 }

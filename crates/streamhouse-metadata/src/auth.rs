@@ -461,4 +461,170 @@ mod tests {
             "Permission denied for: write"
         );
     }
+
+    #[test]
+    fn test_auth_error_display_expired() {
+        assert_eq!(AuthError::ExpiredApiKey.to_string(), "Expired API key");
+    }
+
+    #[test]
+    fn test_auth_error_display_organization_suspended() {
+        assert_eq!(
+            AuthError::OrganizationSuspended.to_string(),
+            "Organization is suspended"
+        );
+    }
+
+    #[test]
+    fn test_auth_error_display_organization_deleted() {
+        assert_eq!(
+            AuthError::OrganizationDeleted.to_string(),
+            "Organization is deleted"
+        );
+    }
+
+    #[test]
+    fn test_auth_error_display_internal() {
+        assert_eq!(
+            AuthError::InternalError("db connection failed".to_string()).to_string(),
+            "Internal error: db connection failed"
+        );
+    }
+
+    #[test]
+    fn test_auth_error_error_code_expired() {
+        assert_eq!(AuthError::ExpiredApiKey.error_code(), "EXPIRED_API_KEY");
+    }
+
+    #[test]
+    fn test_auth_error_error_code_deleted() {
+        assert_eq!(
+            AuthError::OrganizationDeleted.error_code(),
+            "ORGANIZATION_DELETED"
+        );
+    }
+
+    #[test]
+    fn test_auth_error_error_code_internal() {
+        assert_eq!(
+            AuthError::InternalError("test".to_string()).error_code(),
+            "INTERNAL_ERROR"
+        );
+    }
+
+    #[test]
+    fn test_auth_error_equality() {
+        assert_eq!(AuthError::MissingApiKey, AuthError::MissingApiKey);
+        assert_eq!(AuthError::InvalidApiKey, AuthError::InvalidApiKey);
+        assert_eq!(AuthError::ExpiredApiKey, AuthError::ExpiredApiKey);
+        assert_eq!(
+            AuthError::OrganizationSuspended,
+            AuthError::OrganizationSuspended
+        );
+        assert_eq!(
+            AuthError::OrganizationDeleted,
+            AuthError::OrganizationDeleted
+        );
+        assert_eq!(
+            AuthError::PermissionDenied("write".to_string()),
+            AuthError::PermissionDenied("write".to_string())
+        );
+        assert_eq!(
+            AuthError::InternalError("err".to_string()),
+            AuthError::InternalError("err".to_string())
+        );
+    }
+
+    #[test]
+    fn test_auth_error_inequality() {
+        assert_ne!(AuthError::MissingApiKey, AuthError::InvalidApiKey);
+        assert_ne!(AuthError::ExpiredApiKey, AuthError::MissingApiKey);
+        assert_ne!(
+            AuthError::PermissionDenied("read".to_string()),
+            AuthError::PermissionDenied("write".to_string())
+        );
+        assert_ne!(
+            AuthError::InternalError("a".to_string()),
+            AuthError::InternalError("b".to_string())
+        );
+    }
+
+    #[test]
+    fn test_auth_error_clone() {
+        let err = AuthError::PermissionDenied("admin".to_string());
+        let cloned = err.clone();
+        assert_eq!(err, cloned);
+    }
+
+    #[test]
+    fn test_auth_error_debug() {
+        let err = AuthError::MissingApiKey;
+        let debug = format!("{:?}", err);
+        assert!(debug.contains("MissingApiKey"));
+    }
+
+    #[test]
+    fn test_auth_error_is_error_trait() {
+        let err: &dyn std::error::Error = &AuthError::MissingApiKey;
+        assert_eq!(err.to_string(), "Missing API key");
+    }
+
+    #[test]
+    fn test_auth_error_status_codes_are_valid_http() {
+        // All status codes should be valid HTTP status codes
+        let errors = vec![
+            AuthError::MissingApiKey,
+            AuthError::InvalidApiKey,
+            AuthError::ExpiredApiKey,
+            AuthError::OrganizationSuspended,
+            AuthError::OrganizationDeleted,
+            AuthError::PermissionDenied("test".to_string()),
+            AuthError::InternalError("test".to_string()),
+        ];
+        for err in errors {
+            let code = err.status_code();
+            assert!(
+                code >= 100 && code < 600,
+                "Invalid HTTP status code {} for {:?}",
+                code,
+                err
+            );
+        }
+    }
+
+    #[test]
+    fn test_auth_error_401_errors() {
+        // All authentication errors should be 401
+        assert_eq!(AuthError::MissingApiKey.status_code(), 401);
+        assert_eq!(AuthError::InvalidApiKey.status_code(), 401);
+        assert_eq!(AuthError::ExpiredApiKey.status_code(), 401);
+    }
+
+    #[test]
+    fn test_auth_error_403_errors() {
+        // All authorization errors should be 403
+        assert_eq!(AuthError::OrganizationSuspended.status_code(), 403);
+        assert_eq!(AuthError::OrganizationDeleted.status_code(), 403);
+        assert_eq!(
+            AuthError::PermissionDenied("any".to_string()).status_code(),
+            403
+        );
+    }
+
+    #[test]
+    fn test_extract_bearer_token_with_whitespace() {
+        let auth_header = "Bearer   sk_live_abc123  ";
+        if let Some(key) = auth_header.strip_prefix("Bearer ") {
+            assert_eq!(key.trim(), "sk_live_abc123");
+        } else {
+            panic!("Failed to extract Bearer token with whitespace");
+        }
+    }
+
+    #[test]
+    fn test_extract_bearer_token_not_bearer() {
+        let auth_header = "Basic abc123";
+        let result = auth_header.strip_prefix("Bearer ");
+        assert!(result.is_none());
+    }
 }
