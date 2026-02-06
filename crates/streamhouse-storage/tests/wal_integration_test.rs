@@ -62,8 +62,67 @@ fn create_write_config_with_wal(wal_dir: std::path::PathBuf) -> WriteConfig {
     }
 }
 
+/// Proof test: WAL recovery restores offset continuity without any flush.
+/// This isolates the recovery mechanism from the flush behavior.
 #[tokio::test]
-#[ignore = "WAL recovery requires PartitionWriter WAL integration investigation"]
+async fn test_wal_recovery_offset_continuity() {
+    let temp_dir = TempDir::new().unwrap();
+    let metadata = create_test_metadata().await;
+    let object_store = Arc::new(InMemory::new());
+    let write_config = create_write_config_with_wal(temp_dir.path().to_path_buf());
+
+    // Write 50 records, then crash (drop without flush)
+    {
+        let mut writer = PartitionWriter::new(
+            "test-topic".to_string(),
+            0,
+            object_store.clone(),
+            metadata.clone(),
+            write_config.clone(),
+        )
+        .await
+        .unwrap();
+
+        for i in 0..50 {
+            let offset = writer
+                .append(
+                    Some(Bytes::from(format!("key-{}", i))),
+                    Bytes::from(format!("value-{}", i)),
+                    now_ms() as u64,
+                )
+                .await
+                .unwrap();
+            assert_eq!(offset, i as u64);
+        }
+        // Crash: drop without flush
+    }
+
+    // Metadata still shows HW=0 (nothing flushed to S3)
+    let partition = metadata.get_partition("test-topic", 0).await.unwrap().unwrap();
+    assert_eq!(partition.high_watermark, 0, "Nothing was flushed to S3");
+
+    // Restart: WAL recovery should replay 50 records into the segment buffer
+    {
+        let mut writer = PartitionWriter::new(
+            "test-topic".to_string(),
+            0,
+            object_store.clone(),
+            metadata.clone(),
+            write_config.clone(),
+        )
+        .await
+        .unwrap();
+
+        // The next offset should be 50, proving recovery replayed all 50 records
+        let offset = writer
+            .append(None, Bytes::from("post-recovery"), now_ms() as u64)
+            .await
+            .unwrap();
+        assert_eq!(offset, 50, "WAL recovery restored 50 records, next offset is 50");
+    }
+}
+
+#[tokio::test]
 async fn test_crash_recovery_no_data_loss() {
     // This test simulates a crash before S3 flush and verifies all data is recovered
 
@@ -125,8 +184,9 @@ async fn test_crash_recovery_no_data_loss() {
             .unwrap();
         assert_eq!(offset, 100, "Next offset should be 100 (recovery worked!)");
 
-        // Now flush to S3 - this persists recovered + new records
-        writer.flush().await.unwrap();
+        // Use flush_durable() to force S3 upload regardless of size/age thresholds
+        // (flush() is a no-op for small segments that haven't reached thresholds)
+        writer.flush_durable().await.unwrap();
     }
 
     // Step 3: Verify segment in metadata has 101 records (100 recovered + 1 new)
@@ -146,7 +206,6 @@ async fn test_crash_recovery_no_data_loss() {
 }
 
 #[tokio::test]
-#[ignore = "WAL recovery requires PartitionWriter WAL integration investigation"]
 async fn test_wal_truncated_after_flush() {
     // This test verifies WAL is truncated after successful S3 upload
 
@@ -177,8 +236,8 @@ async fn test_wal_truncated_after_flush() {
             .unwrap();
     }
 
-    // Flush to S3 (should truncate WAL)
-    writer.flush().await.unwrap();
+    // flush_durable() forces S3 upload and truncates WAL
+    writer.flush_durable().await.unwrap();
 
     // Verify metadata shows 50 records
     let partition = metadata.get_partition("test-topic", 0).await.unwrap().unwrap();
@@ -202,7 +261,7 @@ async fn test_wal_truncated_after_flush() {
     let offset = writer_after_flush.append(None, Bytes::from("after-restart"), now_ms() as u64).await.unwrap();
     assert_eq!(offset, 50, "WAL was truncated, offset continues from metadata");
 
-    writer_after_flush.flush().await.unwrap();
+    writer_after_flush.flush_durable().await.unwrap();
 
     // Verify final state
     let partition = metadata.get_partition("test-topic", 0).await.unwrap().unwrap();
@@ -210,7 +269,6 @@ async fn test_wal_truncated_after_flush() {
 }
 
 #[tokio::test]
-#[ignore = "WAL recovery requires PartitionWriter WAL integration investigation"]
 async fn test_multiple_crash_recovery_cycles() {
     // This test simulates multiple crash-recovery cycles
 
@@ -240,7 +298,7 @@ async fn test_multiple_crash_recovery_cycles() {
         // Crash (no flush)
     }
 
-    // Cycle 2: Recover 20, write 30 more, crash
+    // Cycle 2: Recover 20, write 1 more, flush, write 30 more, crash
     {
         let mut writer = PartitionWriter::new(
             "test-topic".to_string(),
@@ -252,23 +310,24 @@ async fn test_multiple_crash_recovery_cycles() {
         .await
         .unwrap();
 
-        // Write one more and flush to persist
+        // Write one more and flush_durable to persist (20 recovered + 1 new = 21)
         writer.append(None, Bytes::from("test"), now_ms() as u64).await.unwrap();
-        writer.flush().await.unwrap();
+        writer.flush_durable().await.unwrap();
 
         let partition = metadata.get_partition("test-topic", 0).await.unwrap().unwrap();
         assert_eq!(partition.high_watermark, 21, "Should have 20 recovered + 1 new");
 
-        for i in 20..50 {
+        // Write 30 more records (offsets 21-50)
+        for i in 0..30 {
             writer
-                .append(Some(Bytes::from(format!("key-{}", i))), Bytes::from("value"), now_ms() as u64)
+                .append(Some(Bytes::from(format!("key-{}", 20 + i))), Bytes::from("value"), now_ms() as u64)
                 .await
                 .unwrap();
         }
-        // Crash (no flush)
+        // Crash (no flush) — WAL has 30 unflushed records
     }
 
-    // Cycle 3: Recover all 50, flush
+    // Cycle 3: Recover 30 from WAL, flush
     {
         let mut writer = PartitionWriter::new(
             "test-topic".to_string(),
@@ -281,22 +340,21 @@ async fn test_multiple_crash_recovery_cycles() {
         .unwrap();
 
         // Flush to persist all recovered records
-        writer.flush().await.unwrap();
+        writer.flush_durable().await.unwrap();
 
         let partition = metadata.get_partition("test-topic", 0).await.unwrap().unwrap();
-        assert_eq!(partition.high_watermark, 50, "Should have all 50 records");
-
-        writer.flush().await.unwrap();
+        // 21 from cycle 2 flush + 30 recovered from WAL = 51
+        assert_eq!(partition.high_watermark, 51, "Should have all 51 records (20+1+30)");
     }
 
-    // Verify final state
+    // Verify final state: 2 segments from 2 flush_durable calls
     let segments = metadata.get_segments("test-topic", 0).await.unwrap();
-    assert_eq!(segments.len(), 1);
-    assert_eq!(segments[0].record_count, 50);
+    assert_eq!(segments.len(), 2, "Two segments: one from cycle 2, one from cycle 3");
+    let total_records: u32 = segments.iter().map(|s| s.record_count).sum();
+    assert_eq!(total_records, 51, "Total: 20 recovered + 1 new + 30 recovered = 51");
 }
 
 #[tokio::test]
-#[ignore = "WAL recovery requires PartitionWriter WAL integration investigation"]
 async fn test_concurrent_partition_wals() {
     // This test verifies multiple partitions can have independent WALs
 
@@ -369,11 +427,11 @@ async fn test_concurrent_partition_wals() {
         .await
         .unwrap();
 
-        // Write one more and flush to persist
+        // Write one more and flush_durable to persist
         let offset = writer.append(None, Bytes::from("test"), now_ms() as u64).await.unwrap();
         assert_eq!(offset, 10, "Partition {} recovered 10 records", partition_id);
 
-        writer.flush().await.unwrap();
+        writer.flush_durable().await.unwrap();
 
         let partition = metadata.get_partition("test-topic", partition_id).await.unwrap().unwrap();
         assert_eq!(
