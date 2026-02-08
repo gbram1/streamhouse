@@ -32,7 +32,7 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use streamhouse_proto::streamhouse::{
-    stream_house_client::StreamHouseClient, ProduceBatchRequest, Record,
+    stream_house_client::StreamHouseClient, ConsumeRequest, ProduceBatchRequest, Record,
 };
 use tokio::sync::Mutex;
 use tonic::transport::Channel;
@@ -260,6 +260,156 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         println!("    - Ensure running with: --release");
     }
 
+    // Step 6: Verification — consume back all records and check for loss
+    println!();
+    println!("--- Message Loss Verification ---");
+    println!();
+    println!("  Waiting 3s for server flushes...");
+    tokio::time::sleep(Duration::from_secs(3)).await;
+
+    let mut total_consumed = 0u64;
+    let mut total_produced_check = 0u64;
+    let mut partition_results: Vec<(u32, u64, u64, u64)> = Vec::new(); // (id, produced, consumed, hw)
+
+    for partition_id in 0..PARTITIONS {
+        let produced = stats.per_partition_sent[partition_id as usize].load(Ordering::Relaxed);
+        total_produced_check += produced;
+
+        let mut client = StreamHouseClient::new(channel.clone())
+            .max_decoding_message_size(64 * 1024 * 1024)
+            .max_encoding_message_size(64 * 1024 * 1024);
+
+        // First, get the high watermark with a small fetch
+        let resp = client
+            .consume(ConsumeRequest {
+                topic: TOPIC.to_string(),
+                partition: partition_id,
+                offset: 0,
+                max_records: 1,
+                consumer_group: None,
+            })
+            .await;
+
+        let (consumed, hw) = match resp {
+            Ok(response) => {
+                let inner = response.into_inner();
+                let hw = inner.high_watermark;
+
+                // Now consume all records in batches to get exact count
+                let mut consumed_count = 0u64;
+                let mut current_offset = 0u64;
+                let fetch_batch = 10_000u32;
+
+                loop {
+                    let resp = client
+                        .consume(ConsumeRequest {
+                            topic: TOPIC.to_string(),
+                            partition: partition_id,
+                            offset: current_offset,
+                            max_records: fetch_batch,
+                            consumer_group: None,
+                        })
+                        .await;
+
+                    match resp {
+                        Ok(r) => {
+                            let inner = r.into_inner();
+                            let batch_count = inner.records.len() as u64;
+                            if batch_count == 0 {
+                                break;
+                            }
+                            consumed_count += batch_count;
+                            // Advance past the last record
+                            current_offset = inner.records.last().unwrap().offset + 1;
+                            if !inner.has_more {
+                                break;
+                            }
+                        }
+                        Err(e) => {
+                            println!("  Partition {:>2}: consume error: {}", partition_id, e);
+                            break;
+                        }
+                    }
+                }
+
+                (consumed_count, hw)
+            }
+            Err(e) => {
+                println!("  Partition {:>2}: consume error: {}", partition_id, e);
+                (0, 0)
+            }
+        };
+
+        total_consumed += consumed;
+        partition_results.push((partition_id, produced, consumed, hw));
+    }
+
+    // Report per-partition breakdown
+    println!("  {:>5}  {:>12}  {:>12}  {:>12}  {:>8}", "Part", "Produced", "Consumed", "HW", "Loss");
+    println!("  {:->5}  {:->12}  {:->12}  {:->12}  {:->8}", "", "", "", "", "");
+
+    for (pid, produced, consumed, hw) in &partition_results {
+        // produced doesn't include warmup, but HW/consumed does — compare consumed vs hw
+        let loss = if *consumed < *hw { hw - consumed } else { 0 };
+        println!(
+            "  {:>5}  {:>12}  {:>12}  {:>12}  {:>8}",
+            pid,
+            format_number(*produced),
+            format_number(*consumed),
+            format_number(*hw),
+            loss
+        );
+    }
+
+    let total_hw: u64 = partition_results.iter().map(|(_, _, _, hw)| hw).sum();
+    println!("  {:->5}  {:->12}  {:->12}  {:->12}  {:->8}", "", "", "", "", "");
+    println!(
+        "  {:>5}  {:>12}  {:>12}  {:>12}  {:>8}",
+        "TOTAL",
+        format_number(total_produced_check),
+        format_number(total_consumed),
+        format_number(total_hw),
+        if total_consumed < total_hw { total_hw - total_consumed } else { 0 }
+    );
+
+    println!();
+
+    // Note: produced count excludes warmup records, but HW includes them
+    let warmup_records = (WARMUP_BATCHES * BATCH_SIZE) as u64;
+    let expected_total = total_produced_check + warmup_records;
+    let loss = if total_hw > total_consumed { total_hw - total_consumed } else { 0 };
+
+    if loss == 0 && total_consumed > 0 {
+        println!("  ZERO MESSAGE LOSS - all {} consumed records accounted for", format_number(total_consumed));
+    } else if loss > 0 {
+        println!(
+            "  WARNING: {} records lost ({:.4}% loss rate)",
+            loss,
+            loss as f64 / total_hw as f64 * 100.0
+        );
+    }
+
+    if total_consumed >= expected_total {
+        println!("  Produced (stress): {}  Warmup: {}  HW total: {}  Consumed: {}",
+            format_number(total_produced_check),
+            format_number(warmup_records),
+            format_number(total_hw),
+            format_number(total_consumed),
+        );
+    } else {
+        let unflushed = if expected_total > total_hw { expected_total - total_hw } else { 0 };
+        println!("  Produced (stress): {}  Warmup: {}  HW total: {}  Consumed: {}",
+            format_number(total_produced_check),
+            format_number(warmup_records),
+            format_number(total_hw),
+            format_number(total_consumed),
+        );
+        if unflushed > 0 {
+            println!("  Note: {} records not yet flushed to S3 (in WAL/segment buffer)",
+                format_number(unflushed));
+        }
+    }
+
     println!();
     Ok(())
 }
@@ -350,6 +500,8 @@ async fn producer_task(
 
                 stats.records_sent.fetch_add(count, Ordering::Relaxed);
                 stats.batches_sent.fetch_add(1, Ordering::Relaxed);
+                stats.per_partition_sent[partition as usize]
+                    .fetch_add(count, Ordering::Relaxed);
                 stats.batch_latencies.lock().await.push(latency_ms);
             }
             Err(_) => {
@@ -393,15 +545,21 @@ struct Stats {
     batches_sent: AtomicU64,
     errors: AtomicU64,
     batch_latencies: Mutex<Vec<f64>>,
+    per_partition_sent: Vec<AtomicU64>,
 }
 
 impl Stats {
     fn new() -> Self {
+        let mut per_partition = Vec::with_capacity(PARTITIONS as usize);
+        for _ in 0..PARTITIONS {
+            per_partition.push(AtomicU64::new(0));
+        }
         Self {
             records_sent: AtomicU64::new(0),
             batches_sent: AtomicU64::new(0),
             errors: AtomicU64::new(0),
             batch_latencies: Mutex::new(Vec::with_capacity(100_000)),
+            per_partition_sent: per_partition,
         }
     }
 }
