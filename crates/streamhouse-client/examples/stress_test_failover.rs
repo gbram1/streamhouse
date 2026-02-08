@@ -94,6 +94,7 @@ fn start_server(grpc_port: u16, http_port: u16, kafka_port: u16, data_dir: &str)
 
     std::fs::create_dir_all(data_path.join("storage")).expect("create storage dir");
     std::fs::create_dir_all(data_path.join("cache")).expect("create cache dir");
+    std::fs::create_dir_all(data_path.join("wal")).expect("create shared wal dir");
 
     // Log server output to files for debugging
     let log_path = data_path.join(format!("server-{}.log", grpc_port));
@@ -109,6 +110,8 @@ fn start_server(grpc_port: u16, http_port: u16, kafka_port: u16, data_dir: &str)
         .env("STREAMHOUSE_METADATA", data_path.join("metadata.db").to_str().unwrap())
         .env("STREAMHOUSE_CACHE", data_path.join("cache").to_str().unwrap())
         .env("FLUSH_INTERVAL_SECS", "5")
+        .env("WAL_ENABLED", "true")
+        .env("WAL_DIR", data_path.join("wal").to_str().unwrap())
         .env("RUST_LOG", "warn")
         .env("STREAMHOUSE_AUTH_ENABLED", "false")
         .stdout(Stdio::from(log_file))

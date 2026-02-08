@@ -62,7 +62,7 @@ use streamhouse_metadata::PostgresMetadataStore;
 use streamhouse_metadata::{MetadataStore, SqliteMetadataStore};
 use streamhouse_schema_registry::{SchemaRegistry, SchemaRegistryApi};
 use streamhouse_server::{pb::stream_house_server::StreamHouseServer, StreamHouseService};
-use streamhouse_storage::{SegmentCache, WriteConfig, WriterPool};
+use streamhouse_storage::{SegmentCache, SyncPolicy, WALConfig, WriteConfig, WriterPool};
 use tonic::transport::Server as GrpcServer;
 use tonic_reflection::server::Builder as ReflectionBuilder;
 use tower_http::services::ServeDir;
@@ -198,6 +198,49 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .and_then(|s| s.parse::<u64>().ok())
         .unwrap_or(10 * 1000); // 10 seconds default for dev
 
+    // Generate agent_id early (needed for WAL config)
+    let agent_id = format!("unified-{}", std::process::id());
+
+    // WAL configuration (Phase 12.4.5: Shared WAL for Zero-Loss Failover)
+    let wal_enabled = std::env::var("WAL_ENABLED")
+        .ok()
+        .and_then(|s| s.parse::<bool>().ok())
+        .unwrap_or(false); // Disabled by default for backward compat
+
+    let wal_config = if wal_enabled {
+        let wal_dir = std::env::var("WAL_DIR").unwrap_or_else(|_| "./data/wal".to_string());
+        let wal_sync_interval_ms = std::env::var("WAL_SYNC_INTERVAL_MS")
+            .ok()
+            .and_then(|s| s.parse::<u64>().ok())
+            .unwrap_or(100);
+        let wal_max_size = std::env::var("WAL_MAX_SIZE")
+            .ok()
+            .and_then(|s| s.parse::<u64>().ok())
+            .unwrap_or(1024 * 1024 * 1024); // 1GB
+
+        tracing::info!("WAL enabled:");
+        tracing::info!("  Directory: {}", wal_dir);
+        tracing::info!("  Sync interval: {}ms", wal_sync_interval_ms);
+        tracing::info!("  Max size: {}MB", wal_max_size / (1024 * 1024));
+        tracing::info!("  Agent ID: {}", agent_id);
+
+        Some(WALConfig {
+            directory: wal_dir.into(),
+            sync_policy: SyncPolicy::Interval {
+                interval: Duration::from_millis(wal_sync_interval_ms),
+            },
+            max_size_bytes: wal_max_size,
+            batch_enabled: true,
+            batch_max_records: 1000,
+            batch_max_bytes: 1024 * 1024,
+            batch_max_age_ms: 10,
+            agent_id: Some(agent_id.clone()),
+        })
+    } else {
+        tracing::info!("WAL disabled (set WAL_ENABLED=true to enable)");
+        None
+    };
+
     // Throttle configuration (enabled by default for production safety)
     let throttle_enabled = std::env::var("THROTTLE_ENABLED")
         .ok()
@@ -220,7 +263,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         s3_endpoint: std::env::var("S3_ENDPOINT").ok(),
         block_size_target: 1024 * 1024, // 1MB
         s3_upload_retries: 3,
-        wal_config: None, // WAL disabled by default
+        wal_config,
         throttle_config,
         ..Default::default()
     };
@@ -290,7 +333,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Register unified server as an agent
     tracing::info!("🤖 Registering unified server as agent");
     use streamhouse_metadata::AgentInfo;
-    let agent_id = format!("unified-{}", std::process::id());
     let now_ms = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap()
