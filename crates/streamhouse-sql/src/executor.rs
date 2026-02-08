@@ -5,7 +5,8 @@ use std::sync::Arc;
 use std::time::Instant;
 
 use streamhouse_metadata::{
-    CreateMaterializedView, MaterializedViewRefreshMode, MaterializedViewStatus, MetadataStore,
+    CreateMaterializedView, MaterializedView, MaterializedViewRefreshMode, MaterializedViewStatus,
+    MetadataStore,
 };
 use streamhouse_storage::SegmentCache;
 
@@ -124,12 +125,17 @@ impl SqlExecutor {
         start: Instant,
         timeout_ms: u64,
     ) -> Result<QueryResult> {
-        // Validate topic exists
-        let topic = self
-            .metadata
-            .get_topic(&query.topic)
-            .await?
-            .ok_or_else(|| SqlError::TopicNotFound(query.topic.clone()))?;
+        // Validate topic exists; if not, check if it's a materialized view
+        let topic = match self.metadata.get_topic(&query.topic).await? {
+            Some(t) => t,
+            None => {
+                // Check if this is a materialized view name
+                if let Some(view) = self.metadata.get_materialized_view(&query.topic).await? {
+                    return self.execute_select_from_view(&view, &query, start).await;
+                }
+                return Err(SqlError::TopicNotFound(query.topic.clone()));
+            }
+        };
 
         // Determine which partitions to scan
         let partition_filter = query.filters.iter().find_map(|f| {
@@ -298,6 +304,195 @@ impl SqlExecutor {
             execution_time_ms: start.elapsed().as_millis() as u64,
             truncated,
         })
+    }
+
+    /// Execute a SELECT query against a materialized view's stored aggregation data.
+    ///
+    /// Materialized view data is stored as rows with:
+    /// - `agg_key`: format "{group_key}:{window_start}:{window_end}"
+    /// - `agg_values`: JSON object with aggregation results (e.g., {"count_0": 5, "sum_1": 100})
+    /// - `window_start` / `window_end`: window boundaries
+    async fn execute_select_from_view(
+        &self,
+        view: &MaterializedView,
+        query: &SelectQuery,
+        start: Instant,
+    ) -> Result<QueryResult> {
+        let limit = query.limit.unwrap_or(MAX_ROWS).min(MAX_ROWS);
+
+        // Fetch materialized view data
+        let mv_data = self
+            .metadata
+            .get_materialized_view_data(&view.id, Some(limit))
+            .await?;
+
+        if mv_data.is_empty() {
+            return Ok(QueryResult {
+                columns: vec![ColumnInfo {
+                    name: "message".to_string(),
+                    data_type: "string".to_string(),
+                }],
+                rows: vec![vec![serde_json::Value::String(format!(
+                    "Materialized view '{}' has no data yet",
+                    view.name
+                ))]],
+                row_count: 1,
+                execution_time_ms: start.elapsed().as_millis() as u64,
+                truncated: false,
+            });
+        }
+
+        // Build column list from first row's agg_values keys + standard columns
+        let mut agg_columns: Vec<String> = Vec::new();
+        if let Some(first) = mv_data.first() {
+            if let serde_json::Value::Object(map) = &first.agg_values {
+                agg_columns = map.keys().cloned().collect();
+                agg_columns.sort(); // deterministic order
+            }
+        }
+
+        // Determine which columns to include based on the SELECT projection
+        let select_all = query.columns.iter().any(|c| matches!(c, SelectColumn::All));
+
+        // Build the full column metadata
+        let all_column_names: Vec<String> = {
+            let mut cols = vec![
+                "group_key".to_string(),
+                "window_start".to_string(),
+                "window_end".to_string(),
+            ];
+            cols.extend(agg_columns.iter().cloned());
+            cols
+        };
+
+        let (projected_columns, projected_indices): (Vec<ColumnInfo>, Vec<usize>) = if select_all {
+            let cols: Vec<ColumnInfo> = all_column_names
+                .iter()
+                .map(|name| ColumnInfo {
+                    name: name.clone(),
+                    data_type: if name == "window_start" || name == "window_end" {
+                        "bigint".to_string()
+                    } else if agg_columns.contains(name) {
+                        "number".to_string()
+                    } else {
+                        "string".to_string()
+                    },
+                })
+                .collect();
+            let indices: Vec<usize> = (0..all_column_names.len()).collect();
+            (cols, indices)
+        } else {
+            let mut cols = Vec::new();
+            let mut indices = Vec::new();
+            for select_col in &query.columns {
+                let col_name = match select_col {
+                    SelectColumn::Column(name) => name.clone(),
+                    SelectColumn::JsonExtract { alias, path, .. } => {
+                        alias.clone().unwrap_or_else(|| path.clone())
+                    }
+                    _ => continue,
+                };
+                if let Some(idx) = all_column_names.iter().position(|n| n == &col_name) {
+                    cols.push(ColumnInfo {
+                        name: col_name.clone(),
+                        data_type: if col_name == "window_start" || col_name == "window_end" {
+                            "bigint".to_string()
+                        } else if agg_columns.contains(&col_name) {
+                            "number".to_string()
+                        } else {
+                            "string".to_string()
+                        },
+                    });
+                    indices.push(idx);
+                }
+            }
+            // If no columns matched, fall back to all
+            if cols.is_empty() {
+                let all_cols: Vec<ColumnInfo> = all_column_names
+                    .iter()
+                    .map(|name| ColumnInfo {
+                        name: name.clone(),
+                        data_type: "string".to_string(),
+                    })
+                    .collect();
+                let all_indices: Vec<usize> = (0..all_column_names.len()).collect();
+                (all_cols, all_indices)
+            } else {
+                (cols, indices)
+            }
+        };
+
+        // Convert MV data rows into result rows
+        let mut rows: Vec<Row> = Vec::new();
+        for data in &mv_data {
+            // Parse agg_key format: "{group_key}:{window_start}:{window_end}"
+            let group_key = Self::parse_group_key_from_agg_key(&data.agg_key);
+
+            // Build full row: [group_key, window_start, window_end, ...agg_values]
+            let mut full_row: Vec<serde_json::Value> = Vec::with_capacity(all_column_names.len());
+
+            // group_key
+            full_row.push(serde_json::Value::String(group_key));
+
+            // window_start
+            full_row.push(match data.window_start {
+                Some(ts) => serde_json::Value::Number(ts.into()),
+                None => serde_json::Value::Null,
+            });
+
+            // window_end
+            full_row.push(match data.window_end {
+                Some(ts) => serde_json::Value::Number(ts.into()),
+                None => serde_json::Value::Null,
+            });
+
+            // agg_values (in sorted key order matching agg_columns)
+            for col_name in &agg_columns {
+                let val = if let serde_json::Value::Object(map) = &data.agg_values {
+                    map.get(col_name).cloned().unwrap_or(serde_json::Value::Null)
+                } else {
+                    serde_json::Value::Null
+                };
+                full_row.push(val);
+            }
+
+            // Project to selected columns
+            let projected_row: Row = projected_indices
+                .iter()
+                .map(|&idx| full_row[idx].clone())
+                .collect();
+
+            rows.push(projected_row);
+
+            if rows.len() >= limit {
+                break;
+            }
+        }
+
+        let truncated = rows.len() >= limit;
+
+        Ok(QueryResult {
+            columns: projected_columns,
+            row_count: rows.len(),
+            rows,
+            execution_time_ms: start.elapsed().as_millis() as u64,
+            truncated,
+        })
+    }
+
+    /// Parse group key from the composite agg_key format.
+    /// Format: "{group_key}:{window_start}:{window_end}" or just "{group_key}" for non-windowed
+    fn parse_group_key_from_agg_key(agg_key: &str) -> String {
+        // Split from the right to handle group keys that may contain colons
+        let parts: Vec<&str> = agg_key.rsplitn(3, ':').collect();
+        if parts.len() == 3 {
+            // Verify the last two parts look like timestamps (numeric)
+            if parts[0].parse::<i64>().is_ok() && parts[1].parse::<i64>().is_ok() {
+                return parts[2].to_string();
+            }
+        }
+        // Not in window format, return the whole key
+        agg_key.to_string()
     }
 
     async fn execute_count(
@@ -2197,4 +2392,44 @@ fn build_window_column_info(
     }
 
     columns
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_parse_group_key_from_agg_key_windowed() {
+        // Standard format: group_key:window_start:window_end
+        let key = SqlExecutor::parse_group_key_from_agg_key("user1:1000:2000");
+        assert_eq!(key, "user1");
+    }
+
+    #[test]
+    fn test_parse_group_key_from_agg_key_default_group() {
+        // Default group key when no GROUP BY
+        let key = SqlExecutor::parse_group_key_from_agg_key("_:1000:2000");
+        assert_eq!(key, "_");
+    }
+
+    #[test]
+    fn test_parse_group_key_from_agg_key_no_window() {
+        // Non-windowed aggregation (no colons with timestamps)
+        let key = SqlExecutor::parse_group_key_from_agg_key("some_group_key");
+        assert_eq!(key, "some_group_key");
+    }
+
+    #[test]
+    fn test_parse_group_key_with_colons_in_group_key() {
+        // Group key that itself contains colons (edge case)
+        let key = SqlExecutor::parse_group_key_from_agg_key("ns:sub:value:1000:2000");
+        assert_eq!(key, "ns:sub:value");
+    }
+
+    #[test]
+    fn test_parse_group_key_non_numeric_suffix() {
+        // Colons but non-numeric suffixes — should return whole key
+        let key = SqlExecutor::parse_group_key_from_agg_key("a:b:c");
+        assert_eq!(key, "a:b:c");
+    }
 }
