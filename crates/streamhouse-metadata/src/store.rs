@@ -85,6 +85,7 @@ use crate::{
 };
 use async_trait::async_trait;
 use sqlx::sqlite::{SqliteConnectOptions, SqlitePool, SqlitePoolOptions};
+use sqlx::Row;
 use std::collections::HashMap;
 use std::path::Path;
 use std::str::FromStr;
@@ -126,6 +127,46 @@ impl SqliteMetadataStore {
 
     fn now_ms() -> i64 {
         chrono::Utc::now().timestamp_millis()
+    }
+
+    /// Helper to convert a SQLite row to MaterializedView
+    fn row_to_materialized_view(r: sqlx::sqlite::SqliteRow) -> MaterializedView {
+        use sqlx::Row;
+
+        let refresh_mode_str: String = r.get("refresh_mode");
+        let interval_ms: Option<i64> = r.get("refresh_interval_ms");
+        let refresh_mode = match refresh_mode_str.as_str() {
+            "continuous" => MaterializedViewRefreshMode::Continuous,
+            "periodic" => MaterializedViewRefreshMode::Periodic {
+                interval_ms: interval_ms.unwrap_or(300000),
+            },
+            "manual" => MaterializedViewRefreshMode::Manual,
+            _ => MaterializedViewRefreshMode::Continuous,
+        };
+
+        let status_str: String = r.get("status");
+        let status = match status_str.as_str() {
+            "initializing" => MaterializedViewStatus::Initializing,
+            "running" => MaterializedViewStatus::Running,
+            "paused" => MaterializedViewStatus::Paused,
+            "error" => MaterializedViewStatus::Error,
+            _ => MaterializedViewStatus::Initializing,
+        };
+
+        MaterializedView {
+            id: r.get("id"),
+            organization_id: r.get("organization_id"),
+            name: r.get("name"),
+            source_topic: r.get("source_topic"),
+            query_sql: r.get("query_sql"),
+            refresh_mode,
+            status,
+            error_message: r.get("error_message"),
+            row_count: r.get::<i64, _>("row_count") as u64,
+            last_refresh_at: r.get::<Option<i64>, _>("last_refresh_at"),
+            created_at: r.get::<i64, _>("created_at"),
+            updated_at: r.get::<i64, _>("updated_at"),
+        }
     }
 }
 
@@ -2545,87 +2586,286 @@ impl MetadataStore for SqliteMetadataStore {
     }
 
     // ============================================================
-    // MATERIALIZED VIEW OPERATIONS (SQLite stub implementations)
-    // Note: Full implementation is in PostgreSQL backend
+    // MATERIALIZED VIEW OPERATIONS
     // ============================================================
 
     async fn create_materialized_view(
         &self,
-        _config: CreateMaterializedView,
+        config: CreateMaterializedView,
     ) -> Result<MaterializedView> {
-        Err(MetadataError::NotImplemented(
-            "Materialized views not supported in SQLite backend".to_string(),
-        ))
+        let now = Self::now_ms();
+        let id = format!("mv-{}-{}", &config.name, uuid::Uuid::new_v4());
+        let org_id = config
+            .organization_id
+            .clone()
+            .unwrap_or_else(|| "00000000-0000-0000-0000-000000000000".to_string());
+
+        let (refresh_mode_str, interval_ms): (&str, Option<i64>) = match &config.refresh_mode {
+            MaterializedViewRefreshMode::Continuous => ("continuous", None),
+            MaterializedViewRefreshMode::Periodic { interval_ms } => {
+                ("periodic", Some(*interval_ms))
+            }
+            MaterializedViewRefreshMode::Manual => ("manual", None),
+        };
+
+        sqlx::query(
+            "INSERT INTO materialized_views \
+             (id, organization_id, name, source_topic, query_sql, refresh_mode, refresh_interval_ms, status, created_at, updated_at) \
+             VALUES (?, ?, ?, ?, ?, ?, ?, 'initializing', ?, ?)",
+        )
+        .bind(&id)
+        .bind(&org_id)
+        .bind(&config.name)
+        .bind(&config.source_topic)
+        .bind(&config.query_sql)
+        .bind(refresh_mode_str)
+        .bind(interval_ms)
+        .bind(now)
+        .bind(now)
+        .execute(&self.pool)
+        .await?;
+
+        Ok(MaterializedView {
+            id,
+            organization_id: org_id,
+            name: config.name,
+            source_topic: config.source_topic,
+            query_sql: config.query_sql,
+            refresh_mode: config.refresh_mode,
+            status: MaterializedViewStatus::Initializing,
+            error_message: None,
+            row_count: 0,
+            last_refresh_at: None,
+            created_at: now,
+            updated_at: now,
+        })
     }
 
-    async fn get_materialized_view(&self, _name: &str) -> Result<Option<MaterializedView>> {
-        Ok(None) // No views in SQLite
+    async fn get_materialized_view(&self, name: &str) -> Result<Option<MaterializedView>> {
+        let row = sqlx::query(
+            "SELECT id, organization_id, name, source_topic, query_sql, \
+                    refresh_mode, refresh_interval_ms, status, error_message, \
+                    row_count, last_refresh_at, created_at, updated_at \
+             FROM materialized_views WHERE name = ?",
+        )
+        .bind(name)
+        .fetch_optional(&self.pool)
+        .await?;
+
+        Ok(row.map(Self::row_to_materialized_view))
     }
 
-    async fn get_materialized_view_by_id(&self, _id: &str) -> Result<Option<MaterializedView>> {
-        Ok(None) // No views in SQLite
+    async fn get_materialized_view_by_id(&self, id: &str) -> Result<Option<MaterializedView>> {
+        let row = sqlx::query(
+            "SELECT id, organization_id, name, source_topic, query_sql, \
+                    refresh_mode, refresh_interval_ms, status, error_message, \
+                    row_count, last_refresh_at, created_at, updated_at \
+             FROM materialized_views WHERE id = ?",
+        )
+        .bind(id)
+        .fetch_optional(&self.pool)
+        .await?;
+
+        Ok(row.map(Self::row_to_materialized_view))
     }
 
     async fn list_materialized_views(&self) -> Result<Vec<MaterializedView>> {
-        Ok(vec![]) // No views in SQLite
+        let rows = sqlx::query(
+            "SELECT id, organization_id, name, source_topic, query_sql, \
+                    refresh_mode, refresh_interval_ms, status, error_message, \
+                    row_count, last_refresh_at, created_at, updated_at \
+             FROM materialized_views ORDER BY name",
+        )
+        .fetch_all(&self.pool)
+        .await?;
+
+        Ok(rows
+            .into_iter()
+            .map(Self::row_to_materialized_view)
+            .collect())
     }
 
     async fn update_materialized_view_status(
         &self,
-        _id: &str,
-        _status: MaterializedViewStatus,
-        _error_message: Option<&str>,
+        id: &str,
+        status: MaterializedViewStatus,
+        error_message: Option<&str>,
     ) -> Result<()> {
-        Err(MetadataError::NotImplemented(
-            "Materialized views not supported in SQLite backend".to_string(),
-        ))
+        let status_str = match status {
+            MaterializedViewStatus::Initializing => "initializing",
+            MaterializedViewStatus::Running => "running",
+            MaterializedViewStatus::Paused => "paused",
+            MaterializedViewStatus::Error => "error",
+        };
+        let now = Self::now_ms();
+
+        sqlx::query(
+            "UPDATE materialized_views SET status = ?, error_message = ?, updated_at = ? WHERE id = ?",
+        )
+        .bind(status_str)
+        .bind(error_message)
+        .bind(now)
+        .bind(id)
+        .execute(&self.pool)
+        .await?;
+
+        Ok(())
     }
 
     async fn update_materialized_view_stats(
         &self,
-        _id: &str,
-        _row_count: u64,
-        _last_refresh_at: i64,
+        id: &str,
+        row_count: u64,
+        last_refresh_at: i64,
     ) -> Result<()> {
-        Err(MetadataError::NotImplemented(
-            "Materialized views not supported in SQLite backend".to_string(),
-        ))
+        let now = Self::now_ms();
+
+        sqlx::query(
+            "UPDATE materialized_views SET row_count = ?, last_refresh_at = ?, updated_at = ? WHERE id = ?",
+        )
+        .bind(row_count as i64)
+        .bind(last_refresh_at)
+        .bind(now)
+        .bind(id)
+        .execute(&self.pool)
+        .await?;
+
+        Ok(())
     }
 
-    async fn delete_materialized_view(&self, _name: &str) -> Result<()> {
-        Ok(()) // No-op for SQLite
+    async fn delete_materialized_view(&self, name: &str) -> Result<()> {
+        // Get the view ID first so we can cascade-delete offsets and data
+        let row = sqlx::query("SELECT id FROM materialized_views WHERE name = ?")
+            .bind(name)
+            .fetch_optional(&self.pool)
+            .await?;
+
+        if let Some(row) = row {
+            let id: String = row.get("id");
+            // Delete data and offsets first (SQLite may not enforce FK cascades)
+            sqlx::query("DELETE FROM materialized_view_data WHERE view_id = ?")
+                .bind(&id)
+                .execute(&self.pool)
+                .await?;
+            sqlx::query("DELETE FROM materialized_view_offsets WHERE view_id = ?")
+                .bind(&id)
+                .execute(&self.pool)
+                .await?;
+            sqlx::query("DELETE FROM materialized_views WHERE id = ?")
+                .bind(&id)
+                .execute(&self.pool)
+                .await?;
+        }
+
+        Ok(())
     }
 
     async fn get_materialized_view_offsets(
         &self,
-        _view_id: &str,
+        view_id: &str,
     ) -> Result<Vec<MaterializedViewOffset>> {
-        Ok(vec![]) // No views in SQLite
+        let rows = sqlx::query(
+            "SELECT view_id, partition_id, last_offset, last_processed_at \
+             FROM materialized_view_offsets WHERE view_id = ? ORDER BY partition_id",
+        )
+        .bind(view_id)
+        .fetch_all(&self.pool)
+        .await?;
+
+        Ok(rows
+            .into_iter()
+            .map(|r| MaterializedViewOffset {
+                view_id: r.get("view_id"),
+                partition_id: r.get::<i32, _>("partition_id") as u32,
+                last_offset: r.get::<i64, _>("last_offset") as u64,
+                last_processed_at: r.get::<i64, _>("last_processed_at"),
+            })
+            .collect())
     }
 
     async fn update_materialized_view_offset(
         &self,
-        _view_id: &str,
-        _partition_id: u32,
-        _last_offset: u64,
+        view_id: &str,
+        partition_id: u32,
+        last_offset: u64,
     ) -> Result<()> {
-        Err(MetadataError::NotImplemented(
-            "Materialized views not supported in SQLite backend".to_string(),
-        ))
+        let now = Self::now_ms();
+
+        sqlx::query(
+            "INSERT INTO materialized_view_offsets (view_id, partition_id, last_offset, last_processed_at) \
+             VALUES (?, ?, ?, ?) \
+             ON CONFLICT(view_id, partition_id) DO UPDATE SET \
+                last_offset = excluded.last_offset, \
+                last_processed_at = excluded.last_processed_at",
+        )
+        .bind(view_id)
+        .bind(partition_id as i32)
+        .bind(last_offset as i64)
+        .bind(now)
+        .execute(&self.pool)
+        .await?;
+
+        Ok(())
     }
 
     async fn get_materialized_view_data(
         &self,
-        _view_id: &str,
-        _limit: Option<usize>,
+        view_id: &str,
+        limit: Option<usize>,
     ) -> Result<Vec<MaterializedViewData>> {
-        Ok(vec![]) // No views in SQLite
+        let limit_val = limit.unwrap_or(1000) as i64;
+
+        let rows = sqlx::query(
+            "SELECT view_id, agg_key, agg_values, window_start, window_end, updated_at \
+             FROM materialized_view_data WHERE view_id = ? ORDER BY agg_key LIMIT ?",
+        )
+        .bind(view_id)
+        .bind(limit_val)
+        .fetch_all(&self.pool)
+        .await?;
+
+        Ok(rows
+            .into_iter()
+            .map(|r| {
+                let agg_values_str: String = r.get("agg_values");
+                let agg_values: serde_json::Value =
+                    serde_json::from_str(&agg_values_str).unwrap_or(serde_json::Value::Null);
+                MaterializedViewData {
+                    view_id: r.get("view_id"),
+                    agg_key: r.get("agg_key"),
+                    agg_values,
+                    window_start: r.get::<Option<i64>, _>("window_start"),
+                    window_end: r.get::<Option<i64>, _>("window_end"),
+                    updated_at: r.get::<i64, _>("updated_at"),
+                }
+            })
+            .collect())
     }
 
-    async fn upsert_materialized_view_data(&self, _data: MaterializedViewData) -> Result<()> {
-        Err(MetadataError::NotImplemented(
-            "Materialized views not supported in SQLite backend".to_string(),
-        ))
+    async fn upsert_materialized_view_data(&self, data: MaterializedViewData) -> Result<()> {
+        let now = Self::now_ms();
+        let agg_values_str = serde_json::to_string(&data.agg_values)
+            .unwrap_or_else(|_| "{}".to_string());
+
+        sqlx::query(
+            "INSERT INTO materialized_view_data (view_id, agg_key, agg_values, window_start, window_end, updated_at) \
+             VALUES (?, ?, ?, ?, ?, ?) \
+             ON CONFLICT(view_id, agg_key) DO UPDATE SET \
+                agg_values = excluded.agg_values, \
+                window_start = excluded.window_start, \
+                window_end = excluded.window_end, \
+                updated_at = excluded.updated_at",
+        )
+        .bind(&data.view_id)
+        .bind(&data.agg_key)
+        .bind(&agg_values_str)
+        .bind(data.window_start)
+        .bind(data.window_end)
+        .bind(now)
+        .execute(&self.pool)
+        .await?;
+
+        Ok(())
     }
 }
 
@@ -2799,5 +3039,191 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(offset, Some(200));
+    }
+
+    #[tokio::test]
+    async fn test_materialized_view_crud() {
+        let store = setup_test_store().await;
+
+        // Create a materialized view
+        let config = CreateMaterializedView {
+            name: "test_view".to_string(),
+            source_topic: "events".to_string(),
+            query_sql: "SELECT COUNT(*) FROM events GROUP BY TUMBLE(timestamp, INTERVAL '5 minutes')".to_string(),
+            refresh_mode: MaterializedViewRefreshMode::Continuous,
+            organization_id: None,
+        };
+
+        let view = store.create_materialized_view(config).await.unwrap();
+        assert_eq!(view.name, "test_view");
+        assert_eq!(view.source_topic, "events");
+        assert_eq!(view.row_count, 0);
+
+        // Get by name
+        let fetched = store.get_materialized_view("test_view").await.unwrap().unwrap();
+        assert_eq!(fetched.id, view.id);
+        assert_eq!(fetched.name, "test_view");
+
+        // Get by id
+        let fetched_by_id = store.get_materialized_view_by_id(&view.id).await.unwrap().unwrap();
+        assert_eq!(fetched_by_id.name, "test_view");
+
+        // List views
+        let views = store.list_materialized_views().await.unwrap();
+        assert_eq!(views.len(), 1);
+        assert_eq!(views[0].name, "test_view");
+
+        // Update status
+        store
+            .update_materialized_view_status(&view.id, MaterializedViewStatus::Running, None)
+            .await
+            .unwrap();
+        let updated = store.get_materialized_view_by_id(&view.id).await.unwrap().unwrap();
+        assert_eq!(updated.status, MaterializedViewStatus::Running);
+
+        // Update stats
+        store
+            .update_materialized_view_stats(&view.id, 42, 1000)
+            .await
+            .unwrap();
+        let updated = store.get_materialized_view_by_id(&view.id).await.unwrap().unwrap();
+        assert_eq!(updated.row_count, 42);
+
+        // Delete
+        store.delete_materialized_view("test_view").await.unwrap();
+        let deleted = store.get_materialized_view("test_view").await.unwrap();
+        assert!(deleted.is_none());
+    }
+
+    #[tokio::test]
+    async fn test_materialized_view_data_upsert_and_query() {
+        let store = setup_test_store().await;
+
+        // Create a view first
+        let config = CreateMaterializedView {
+            name: "data_view".to_string(),
+            source_topic: "events".to_string(),
+            query_sql: "SELECT COUNT(*) FROM events".to_string(),
+            refresh_mode: MaterializedViewRefreshMode::Continuous,
+            organization_id: None,
+        };
+        let view = store.create_materialized_view(config).await.unwrap();
+
+        // Upsert some aggregation data
+        let data1 = MaterializedViewData {
+            view_id: view.id.clone(),
+            agg_key: "user1:1000:2000".to_string(),
+            agg_values: serde_json::json!({"count_0": 5, "sum_1": 100}),
+            window_start: Some(1000),
+            window_end: Some(2000),
+            updated_at: 0,
+        };
+        store.upsert_materialized_view_data(data1).await.unwrap();
+
+        let data2 = MaterializedViewData {
+            view_id: view.id.clone(),
+            agg_key: "user2:1000:2000".to_string(),
+            agg_values: serde_json::json!({"count_0": 3, "sum_1": 50}),
+            window_start: Some(1000),
+            window_end: Some(2000),
+            updated_at: 0,
+        };
+        store.upsert_materialized_view_data(data2).await.unwrap();
+
+        // Query data
+        let results = store.get_materialized_view_data(&view.id, None).await.unwrap();
+        assert_eq!(results.len(), 2);
+
+        // Verify values
+        let r1 = results.iter().find(|r| r.agg_key == "user1:1000:2000").unwrap();
+        assert_eq!(r1.agg_values["count_0"], 5);
+        assert_eq!(r1.agg_values["sum_1"], 100);
+        assert_eq!(r1.window_start, Some(1000));
+        assert_eq!(r1.window_end, Some(2000));
+
+        // Upsert (update existing key)
+        let data1_updated = MaterializedViewData {
+            view_id: view.id.clone(),
+            agg_key: "user1:1000:2000".to_string(),
+            agg_values: serde_json::json!({"count_0": 10, "sum_1": 200}),
+            window_start: Some(1000),
+            window_end: Some(2000),
+            updated_at: 0,
+        };
+        store.upsert_materialized_view_data(data1_updated).await.unwrap();
+
+        let results = store.get_materialized_view_data(&view.id, None).await.unwrap();
+        assert_eq!(results.len(), 2); // still 2 rows
+        let r1 = results.iter().find(|r| r.agg_key == "user1:1000:2000").unwrap();
+        assert_eq!(r1.agg_values["count_0"], 10);
+
+        // Test limit
+        let limited = store.get_materialized_view_data(&view.id, Some(1)).await.unwrap();
+        assert_eq!(limited.len(), 1);
+    }
+
+    #[tokio::test]
+    async fn test_materialized_view_offsets() {
+        let store = setup_test_store().await;
+
+        // Create a view
+        let config = CreateMaterializedView {
+            name: "offset_view".to_string(),
+            source_topic: "events".to_string(),
+            query_sql: "SELECT COUNT(*) FROM events".to_string(),
+            refresh_mode: MaterializedViewRefreshMode::Continuous,
+            organization_id: None,
+        };
+        let view = store.create_materialized_view(config).await.unwrap();
+
+        // Set offsets for partitions
+        store.update_materialized_view_offset(&view.id, 0, 100).await.unwrap();
+        store.update_materialized_view_offset(&view.id, 1, 200).await.unwrap();
+
+        // Get offsets
+        let offsets = store.get_materialized_view_offsets(&view.id).await.unwrap();
+        assert_eq!(offsets.len(), 2);
+        assert!(offsets.iter().any(|o| o.partition_id == 0 && o.last_offset == 100));
+        assert!(offsets.iter().any(|o| o.partition_id == 1 && o.last_offset == 200));
+
+        // Update an existing offset
+        store.update_materialized_view_offset(&view.id, 0, 500).await.unwrap();
+        let offsets = store.get_materialized_view_offsets(&view.id).await.unwrap();
+        let p0 = offsets.iter().find(|o| o.partition_id == 0).unwrap();
+        assert_eq!(p0.last_offset, 500);
+    }
+
+    #[tokio::test]
+    async fn test_materialized_view_cascade_delete() {
+        let store = setup_test_store().await;
+
+        // Create view with data and offsets
+        let config = CreateMaterializedView {
+            name: "cascade_view".to_string(),
+            source_topic: "events".to_string(),
+            query_sql: "SELECT COUNT(*) FROM events".to_string(),
+            refresh_mode: MaterializedViewRefreshMode::Continuous,
+            organization_id: None,
+        };
+        let view = store.create_materialized_view(config).await.unwrap();
+
+        store.update_materialized_view_offset(&view.id, 0, 100).await.unwrap();
+        store.upsert_materialized_view_data(MaterializedViewData {
+            view_id: view.id.clone(),
+            agg_key: "key1:0:1000".to_string(),
+            agg_values: serde_json::json!({"count_0": 1}),
+            window_start: Some(0),
+            window_end: Some(1000),
+            updated_at: 0,
+        }).await.unwrap();
+
+        // Delete view — should cascade
+        store.delete_materialized_view("cascade_view").await.unwrap();
+
+        // Verify data and offsets are gone
+        let offsets = store.get_materialized_view_offsets(&view.id).await.unwrap();
+        assert!(offsets.is_empty());
+        let data = store.get_materialized_view_data(&view.id, None).await.unwrap();
+        assert!(data.is_empty());
     }
 }
