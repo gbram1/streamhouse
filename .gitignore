@@ -35,3 +35,5 @@ web/out/
 web/.env.local
 web/.vercel
 examples/production-demo/target/
+
+/scripts/data-failover
