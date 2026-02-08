@@ -67,7 +67,7 @@
 use crate::error::Result;
 use bytes::Bytes;
 use serde::{Deserialize, Serialize};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
@@ -107,6 +107,13 @@ pub struct WALConfig {
     /// Maximum time to hold records in batch before auto-flush (default: 10ms)
     #[serde(default = "default_batch_max_age_ms")]
     pub batch_max_age_ms: u64,
+
+    /// Agent ID for shared WAL support (Phase 12.4.5).
+    /// When set, WAL files are named {topic}-{partition}-{agent_id}.wal,
+    /// enabling cross-agent recovery on partition failover.
+    /// When None, uses legacy naming: {topic}-{partition}.wal
+    #[serde(default)]
+    pub agent_id: Option<String>,
 }
 
 fn default_batch_enabled() -> bool {
@@ -137,6 +144,7 @@ impl Default for WALConfig {
             batch_max_records: default_batch_max_records(),
             batch_max_bytes: default_batch_max_bytes(),
             batch_max_age_ms: default_batch_max_age_ms(),
+            agent_id: None,
         }
     }
 }
@@ -270,8 +278,13 @@ impl WAL {
         // Create WAL directory if it doesn't exist
         tokio::fs::create_dir_all(&config.directory).await?;
 
-        // WAL file path: {dir}/{topic}-{partition}.wal
-        let filename = format!("{}-{}.wal", topic, partition_id);
+        // WAL file path: {dir}/{topic}-{partition}-{agent_id}.wal (shared WAL)
+        //            or: {dir}/{topic}-{partition}.wal (legacy)
+        let filename = if let Some(ref agent_id) = config.agent_id {
+            format!("{}-{}-{}.wal", topic, partition_id, agent_id)
+        } else {
+            format!("{}-{}.wal", topic, partition_id)
+        };
         let path = config.directory.join(filename);
 
         // Open file in append mode
@@ -477,7 +490,7 @@ impl WAL {
         Ok(())
     }
 
-    /// Recover all records from the WAL.
+    /// Recover all records from this agent's WAL file.
     ///
     /// Flushes any pending batch first, then reads the entire WAL file
     /// and returns all valid records. Skips corrupted records (CRC mismatch).
@@ -485,8 +498,117 @@ impl WAL {
         // Flush any pending batch first
         self.flush_batch().await?;
 
-        // Open a separate read handle (writer task still owns the append handle)
-        let file = File::open(&self.path).await?;
+        let records = Self::read_wal_file(&self.path).await?;
+
+        info!(
+            topic = self.topic,
+            partition = self.partition_id,
+            recovered = records.len(),
+            "WAL recovery complete"
+        );
+
+        Ok(records)
+    }
+
+    /// Recover WAL records from ALL agents for a given partition (Phase 12.4.5).
+    ///
+    /// Scans the WAL directory for files matching:
+    ///   - `{topic}-{partition}-*.wal`  (agent-specific files from other agents)
+    ///   - `{topic}-{partition}.wal`    (legacy files without agent_id)
+    ///
+    /// Does NOT read this agent's own WAL file (that's handled by `recover()`
+    /// after `WAL::open()`).
+    ///
+    /// Returns `(recovered_records, stale_file_paths)` where stale_file_paths
+    /// contains paths of WAL files from other agents that should be deleted
+    /// after the recovered records are safely flushed to S3.
+    pub async fn recover_partition(
+        directory: &Path,
+        topic: &str,
+        partition_id: u32,
+        own_agent_id: &str,
+    ) -> Result<(Vec<WALRecord>, Vec<PathBuf>)> {
+        let mut all_records = Vec::new();
+        let mut stale_files = Vec::new();
+
+        // Patterns to match:
+        //   {topic}-{partition}-{agent_id}.wal  (agent-specific)
+        //   {topic}-{partition}.wal             (legacy)
+        let prefix = format!("{}-{}", topic, partition_id);
+        let own_filename = format!("{}-{}-{}.wal", topic, partition_id, own_agent_id);
+
+        let mut entries = match tokio::fs::read_dir(directory).await {
+            Ok(entries) => entries,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                return Ok((Vec::new(), Vec::new()));
+            }
+            Err(e) => return Err(e.into()),
+        };
+
+        while let Some(entry) = entries.next_entry().await? {
+            let file_name = entry.file_name();
+            let name = file_name.to_string_lossy();
+
+            // Skip if not a WAL file for this partition
+            if !name.starts_with(&prefix) || !name.ends_with(".wal") {
+                continue;
+            }
+
+            // Skip this agent's own file (recovered separately via recover())
+            if name == own_filename {
+                continue;
+            }
+
+            // Validate it's actually for this partition:
+            //   "{topic}-{partition}.wal" or "{topic}-{partition}-{something}.wal"
+            let after_prefix = &name[prefix.len()..];
+            if after_prefix != ".wal" && !after_prefix.starts_with('-') {
+                continue;
+            }
+
+            let path = entry.path();
+
+            info!(
+                topic = topic,
+                partition = partition_id,
+                path = ?path,
+                "Found stale WAL file from another agent"
+            );
+
+            match Self::read_wal_file(&path).await {
+                Ok(records) => {
+                    info!(
+                        topic = topic,
+                        partition = partition_id,
+                        path = ?path,
+                        records = records.len(),
+                        "Recovered records from stale WAL"
+                    );
+                    all_records.extend(records);
+                    stale_files.push(path);
+                }
+                Err(e) => {
+                    warn!(
+                        topic = topic,
+                        partition = partition_id,
+                        path = ?path,
+                        error = %e,
+                        "Failed to read stale WAL file, skipping"
+                    );
+                }
+            }
+        }
+
+        Ok((all_records, stale_files))
+    }
+
+    /// Read and parse all valid records from a WAL file.
+    ///
+    /// Shared helper used by both `recover()` and `recover_partition()`.
+    /// Skips corrupted records (CRC mismatch) and handles partial records
+    /// at the end of the file gracefully.
+    async fn read_wal_file(path: &Path) -> Result<Vec<WALRecord>> {
+        let file = File::open(path).await?;
         let mut reader = BufReader::new(file);
         let mut records = Vec::new();
 
@@ -509,8 +631,7 @@ impl WAL {
                 Ok(_) => {}
                 Err(e) if e.kind() == std::io::ErrorKind::UnexpectedEof => {
                     warn!(
-                        topic = self.topic,
-                        partition = self.partition_id,
+                        path = ?path,
                         "Partial record at end of WAL, truncating"
                     );
                     break;
@@ -537,8 +658,7 @@ impl WAL {
 
             if stored_crc != computed_crc {
                 warn!(
-                    topic = self.topic,
-                    partition = self.partition_id,
+                    path = ?path,
                     "Corrupted WAL record (CRC mismatch), skipping"
                 );
                 continue;
@@ -591,13 +711,6 @@ impl WAL {
                 timestamp,
             });
         }
-
-        info!(
-            topic = self.topic,
-            partition = self.partition_id,
-            recovered = records.len(),
-            "WAL recovery complete"
-        );
 
         Ok(records)
     }
@@ -957,6 +1070,7 @@ mod tests {
             batch_max_records: 5, // Flush after 5 records
             batch_max_bytes: 1024 * 1024,
             batch_max_age_ms: 10000,
+            agent_id: None,
         };
 
         let wal = WAL::open("test-topic", 0, config).await.unwrap();
@@ -989,6 +1103,7 @@ mod tests {
             batch_max_records: 1000,
             batch_max_bytes: 200, // Flush after 200 bytes (record has ~24 byte header)
             batch_max_age_ms: 10000,
+            agent_id: None,
         };
 
         let wal = WAL::open("test-topic", 0, config).await.unwrap();
@@ -1031,6 +1146,7 @@ mod tests {
             batch_max_records: 1000, // High threshold
             batch_max_bytes: 1024 * 1024,
             batch_max_age_ms: 10000,
+            agent_id: None,
         };
 
         let wal = WAL::open("test-topic", 0, config).await.unwrap();
@@ -1089,6 +1205,7 @@ mod tests {
             batch_max_records: 1000,
             batch_max_bytes: 1024 * 1024,
             batch_max_age_ms: 10000,
+            agent_id: None,
         };
 
         let wal = WAL::open("test-topic", 0, config).await.unwrap();
@@ -1105,5 +1222,243 @@ mod tests {
         // Verify no records
         let records = wal.recover().await.unwrap();
         assert_eq!(records.len(), 0);
+    }
+
+    // ========================================================================
+    // Phase 12.4.5: Shared WAL Tests
+    // ========================================================================
+
+    #[tokio::test]
+    async fn test_wal_agent_specific_filename() {
+        let temp_dir = TempDir::new().unwrap();
+
+        // Without agent_id: legacy naming
+        let config_legacy = WALConfig {
+            directory: temp_dir.path().to_path_buf(),
+            sync_policy: SyncPolicy::Always,
+            max_size_bytes: 1024 * 1024,
+            agent_id: None,
+            ..Default::default()
+        };
+        let wal = WAL::open("orders", 3, config_legacy).await.unwrap();
+        assert!(temp_dir.path().join("orders-3.wal").exists());
+        drop(wal);
+
+        // With agent_id: agent-specific naming
+        let config_agent = WALConfig {
+            directory: temp_dir.path().to_path_buf(),
+            sync_policy: SyncPolicy::Always,
+            max_size_bytes: 1024 * 1024,
+            agent_id: Some("agent-abc".to_string()),
+            ..Default::default()
+        };
+        let wal = WAL::open("orders", 3, config_agent).await.unwrap();
+        assert!(temp_dir.path().join("orders-3-agent-abc.wal").exists());
+        drop(wal);
+    }
+
+    #[tokio::test]
+    async fn test_recover_partition_finds_other_agents_wal() {
+        let temp_dir = TempDir::new().unwrap();
+
+        // Agent A writes records to its WAL file
+        let config_a = WALConfig {
+            directory: temp_dir.path().to_path_buf(),
+            sync_policy: SyncPolicy::Always,
+            max_size_bytes: 1024 * 1024,
+            agent_id: Some("agent-a".to_string()),
+            ..Default::default()
+        };
+        let wal_a = WAL::open("orders", 0, config_a).await.unwrap();
+        wal_a.append(Some(b"k1"), b"from-agent-a-1").await.unwrap();
+        wal_a.append(Some(b"k2"), b"from-agent-a-2").await.unwrap();
+        wal_a.sync().await.unwrap();
+        drop(wal_a); // Agent A crashes
+
+        // Agent B takes over — recover_partition should find Agent A's file
+        let (records, stale_files) =
+            WAL::recover_partition(temp_dir.path(), "orders", 0, "agent-b")
+                .await
+                .unwrap();
+
+        assert_eq!(records.len(), 2);
+        assert_eq!(records[0].value, Bytes::from("from-agent-a-1"));
+        assert_eq!(records[1].value, Bytes::from("from-agent-a-2"));
+        assert_eq!(stale_files.len(), 1);
+        assert!(stale_files[0]
+            .file_name()
+            .unwrap()
+            .to_string_lossy()
+            .contains("agent-a"));
+    }
+
+    #[tokio::test]
+    async fn test_recover_partition_skips_own_wal() {
+        let temp_dir = TempDir::new().unwrap();
+
+        // Agent B already has its own WAL file
+        let config_b = WALConfig {
+            directory: temp_dir.path().to_path_buf(),
+            sync_policy: SyncPolicy::Always,
+            max_size_bytes: 1024 * 1024,
+            agent_id: Some("agent-b".to_string()),
+            ..Default::default()
+        };
+        let wal_b = WAL::open("orders", 0, config_b).await.unwrap();
+        wal_b.append(Some(b"own"), b"own-record").await.unwrap();
+        wal_b.sync().await.unwrap();
+        drop(wal_b);
+
+        // recover_partition should NOT return agent-b's own file
+        let (records, stale_files) =
+            WAL::recover_partition(temp_dir.path(), "orders", 0, "agent-b")
+                .await
+                .unwrap();
+
+        assert_eq!(records.len(), 0);
+        assert_eq!(stale_files.len(), 0);
+    }
+
+    #[tokio::test]
+    async fn test_recover_partition_multiple_agents() {
+        let temp_dir = TempDir::new().unwrap();
+
+        // Agent A writes 2 records
+        let config_a = WALConfig {
+            directory: temp_dir.path().to_path_buf(),
+            sync_policy: SyncPolicy::Always,
+            max_size_bytes: 1024 * 1024,
+            agent_id: Some("agent-a".to_string()),
+            ..Default::default()
+        };
+        let wal_a = WAL::open("orders", 0, config_a).await.unwrap();
+        wal_a.append(Some(b"k1"), b"a-record-1").await.unwrap();
+        wal_a.append(Some(b"k2"), b"a-record-2").await.unwrap();
+        wal_a.sync().await.unwrap();
+        drop(wal_a);
+
+        // Agent B writes 1 record (maybe it also crashed previously)
+        let config_b = WALConfig {
+            directory: temp_dir.path().to_path_buf(),
+            sync_policy: SyncPolicy::Always,
+            max_size_bytes: 1024 * 1024,
+            agent_id: Some("agent-b".to_string()),
+            ..Default::default()
+        };
+        let wal_b = WAL::open("orders", 0, config_b).await.unwrap();
+        wal_b.append(Some(b"k3"), b"b-record-1").await.unwrap();
+        wal_b.sync().await.unwrap();
+        drop(wal_b);
+
+        // Agent C takes over — should find both A and B's records
+        let (records, stale_files) =
+            WAL::recover_partition(temp_dir.path(), "orders", 0, "agent-c")
+                .await
+                .unwrap();
+
+        assert_eq!(records.len(), 3);
+        assert_eq!(stale_files.len(), 2);
+    }
+
+    #[tokio::test]
+    async fn test_recover_partition_finds_legacy_files() {
+        let temp_dir = TempDir::new().unwrap();
+
+        // Create a legacy WAL file (no agent_id in name)
+        let config_legacy = WALConfig {
+            directory: temp_dir.path().to_path_buf(),
+            sync_policy: SyncPolicy::Always,
+            max_size_bytes: 1024 * 1024,
+            agent_id: None,
+            ..Default::default()
+        };
+        let wal_legacy = WAL::open("orders", 0, config_legacy).await.unwrap();
+        wal_legacy
+            .append(Some(b"k1"), b"legacy-record")
+            .await
+            .unwrap();
+        wal_legacy.sync().await.unwrap();
+        drop(wal_legacy);
+
+        // New agent with agent_id should pick up legacy file
+        let (records, stale_files) =
+            WAL::recover_partition(temp_dir.path(), "orders", 0, "agent-new")
+                .await
+                .unwrap();
+
+        assert_eq!(records.len(), 1);
+        assert_eq!(records[0].value, Bytes::from("legacy-record"));
+        assert_eq!(stale_files.len(), 1);
+    }
+
+    #[tokio::test]
+    async fn test_recover_partition_does_not_match_other_partitions() {
+        let temp_dir = TempDir::new().unwrap();
+
+        // WAL for partition 0
+        let config_p0 = WALConfig {
+            directory: temp_dir.path().to_path_buf(),
+            sync_policy: SyncPolicy::Always,
+            max_size_bytes: 1024 * 1024,
+            agent_id: Some("agent-a".to_string()),
+            ..Default::default()
+        };
+        let wal_p0 = WAL::open("orders", 0, config_p0).await.unwrap();
+        wal_p0
+            .append(Some(b"k1"), b"partition-0-record")
+            .await
+            .unwrap();
+        wal_p0.sync().await.unwrap();
+        drop(wal_p0);
+
+        // WAL for partition 1
+        let config_p1 = WALConfig {
+            directory: temp_dir.path().to_path_buf(),
+            sync_policy: SyncPolicy::Always,
+            max_size_bytes: 1024 * 1024,
+            agent_id: Some("agent-a".to_string()),
+            ..Default::default()
+        };
+        let wal_p1 = WAL::open("orders", 1, config_p1).await.unwrap();
+        wal_p1
+            .append(Some(b"k2"), b"partition-1-record")
+            .await
+            .unwrap();
+        wal_p1.sync().await.unwrap();
+        drop(wal_p1);
+
+        // Recover for partition 0 — should NOT see partition 1's records
+        let (records, stale_files) =
+            WAL::recover_partition(temp_dir.path(), "orders", 0, "agent-b")
+                .await
+                .unwrap();
+
+        assert_eq!(records.len(), 1);
+        assert_eq!(records[0].value, Bytes::from("partition-0-record"));
+        assert_eq!(stale_files.len(), 1);
+    }
+
+    #[tokio::test]
+    async fn test_recover_partition_empty_dir() {
+        let temp_dir = TempDir::new().unwrap();
+
+        let (records, stale_files) =
+            WAL::recover_partition(temp_dir.path(), "orders", 0, "agent-a")
+                .await
+                .unwrap();
+
+        assert_eq!(records.len(), 0);
+        assert_eq!(stale_files.len(), 0);
+    }
+
+    #[tokio::test]
+    async fn test_recover_partition_nonexistent_dir() {
+        let (records, stale_files) =
+            WAL::recover_partition(Path::new("/tmp/nonexistent-wal-dir-12345"), "orders", 0, "agent-a")
+                .await
+                .unwrap();
+
+        assert_eq!(records.len(), 0);
+        assert_eq!(stale_files.len(), 0);
     }
 }

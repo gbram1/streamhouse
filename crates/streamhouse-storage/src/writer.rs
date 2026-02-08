@@ -151,6 +151,9 @@ pub struct PartitionWriter {
     // S3 Throttle Coordinator (optional)
     throttle: Option<ThrottleCoordinator>,
 
+    // Stale WAL files from other agents to clean up after first S3 flush (Phase 12.4.5)
+    stale_wal_files: Vec<std::path::PathBuf>,
+
     // Configuration
     config: WriteConfig,
 }
@@ -210,21 +213,64 @@ impl PartitionWriter {
         let mut current_segment = SegmentWriter::new(Compression::Lz4);
 
         // Initialize WAL if configured
+        let mut stale_wal_files = Vec::new();
         let wal = if let Some(ref wal_config) = config.wal_config {
+            // Phase 12.4.5: Shared WAL recovery
+            // If agent_id is configured, scan for WAL files from other agents
+            let other_agent_records = if let Some(ref agent_id) = wal_config.agent_id {
+                match WAL::recover_partition(
+                    &wal_config.directory,
+                    &topic,
+                    partition_id,
+                    agent_id,
+                )
+                .await
+                {
+                    Ok((records, stale_paths)) => {
+                        stale_wal_files = stale_paths;
+                        records
+                    }
+                    Err(e) => {
+                        tracing::warn!(
+                            topic = %topic,
+                            partition = partition_id,
+                            error = %e,
+                            "Failed to scan for shared WAL files, continuing with own WAL only"
+                        );
+                        Vec::new()
+                    }
+                }
+            } else {
+                Vec::new()
+            };
+
+            // Open this agent's WAL (creates new file or opens existing)
             let wal = WAL::open(&topic, partition_id, wal_config.clone()).await?;
 
-            // Recover any unflushed records from WAL
-            let recovered_records = wal.recover().await?;
-            if !recovered_records.is_empty() {
+            // Recover from this agent's own WAL (same-node restart case)
+            let own_records = wal.recover().await?;
+
+            // Merge: other agents' records first, then own records
+            let total_other = other_agent_records.len();
+            let total_own = own_records.len();
+            let all_recovered: Vec<_> = other_agent_records
+                .into_iter()
+                .chain(own_records)
+                .collect();
+
+            if !all_recovered.is_empty() {
                 tracing::info!(
                     topic = %topic,
                     partition = partition_id,
-                    recovered = recovered_records.len(),
+                    from_other_agents = total_other,
+                    from_own_wal = total_own,
+                    total = all_recovered.len(),
+                    stale_files = stale_wal_files.len(),
                     "Recovering unflushed records from WAL"
                 );
 
                 // Replay records into current segment
-                for wal_record in recovered_records {
+                for wal_record in all_recovered {
                     let record = Record::new(
                         current_offset,
                         wal_record.timestamp,
@@ -266,6 +312,7 @@ impl PartitionWriter {
             metadata,
             wal,
             throttle,
+            stale_wal_files,
             config,
         })
     }
@@ -436,6 +483,32 @@ impl PartitionWriter {
                 partition = self.partition_id,
                 "WAL truncated after successful S3 upload"
             );
+        }
+
+        // Phase 12.4.5: Clean up stale WAL files from other agents
+        // Only safe to delete after recovered records are in S3
+        if !self.stale_wal_files.is_empty() {
+            for stale_path in self.stale_wal_files.drain(..) {
+                match tokio::fs::remove_file(&stale_path).await {
+                    Ok(()) => {
+                        tracing::info!(
+                            topic = %self.topic,
+                            partition = self.partition_id,
+                            path = ?stale_path,
+                            "Removed stale WAL file from another agent"
+                        );
+                    }
+                    Err(e) => {
+                        tracing::warn!(
+                            topic = %self.topic,
+                            partition = self.partition_id,
+                            path = ?stale_path,
+                            error = %e,
+                            "Failed to remove stale WAL file"
+                        );
+                    }
+                }
+            }
         }
 
         // Reset state for new segment
