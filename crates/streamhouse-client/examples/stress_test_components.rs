@@ -234,6 +234,7 @@ async fn bench_wal(value: &Bytes) -> anyhow::Result<WalStats> {
         batch_max_records: 5000,
         batch_max_bytes: 4 * 1024 * 1024,
         batch_max_age_ms: 5,
+        agent_id: None,
     };
 
     let wal = WAL::open("wal-bench", 0, config).await?;
@@ -291,6 +292,7 @@ async fn run_full_write_path(value: &Bytes) -> anyhow::Result<FullRunStats> {
             batch_max_records: 5000,
             batch_max_bytes: 4 * 1024 * 1024,
             batch_max_age_ms: 5,
+            agent_id: None,
         }),
         ..Default::default()
     };

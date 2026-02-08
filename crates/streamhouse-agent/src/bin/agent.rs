@@ -194,6 +194,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             batch_max_records: 1000,
             batch_max_bytes: 1024 * 1024,
             batch_max_age_ms: 10,
+            agent_id: Some(agent_id.clone()),
         })
     } else {
         info!("WAL disabled (set WAL_ENABLED=true to enable or remove WAL_ENABLED=false override)");
