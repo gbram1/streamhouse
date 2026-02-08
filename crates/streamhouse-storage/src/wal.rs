@@ -247,6 +247,11 @@ pub struct WAL {
 
     /// Writer task handle (aborted on drop)
     writer_handle: Option<tokio::task::JoinHandle<()>>,
+
+    /// When true, append() waits for each record to be flushed (batch_enabled=false).
+    /// This preserves crash-safety: each record is durable before append() returns.
+    /// When false (batched mode), append() is fire-and-forget for maximum throughput.
+    sync_append: bool,
 }
 
 impl Drop for WAL {
@@ -318,6 +323,8 @@ impl WAL {
             "WAL opened"
         );
 
+        let sync_append = !config.batch_enabled;
+
         Ok(Self {
             topic: topic.to_string(),
             partition_id,
@@ -326,6 +333,7 @@ impl WAL {
             cmd_tx,
             current_size,
             writer_handle: Some(writer_handle),
+            sync_append,
         })
     }
 
@@ -399,6 +407,13 @@ impl WAL {
             .send(WalCmd::Append { data, count: 1 })
             .await
             .map_err(|_| wal_closed_error())?;
+
+        // When batching is disabled, wait for this record to be flushed to disk
+        // before returning. This preserves crash-safety: the record is durable
+        // once append() returns, matching the old synchronous WAL behavior.
+        if self.sync_append {
+            self.flush_batch().await?;
+        }
 
         Ok(())
     }
