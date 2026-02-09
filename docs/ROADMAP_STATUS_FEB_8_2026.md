@@ -292,7 +292,43 @@ Shared WAL write path:
 (producers get errors, no silent data loss). This is an availability impact, not a durability
 impact — already-acked records are safe on the shared disk or in S3.
 
-**Status**: Not started. Identified via failover stress test (Phase 12.4 WAL optimization session).
+**Status**: **COMPLETE**. Implemented Feb 8, 2026. Agent-specific WAL filenames
+(`{topic}-{partition}-{agent_id}.wal`), `recover_partition()` for cross-agent WAL scanning,
+stale file cleanup after S3 flush. Unified server supports `WAL_ENABLED` + `WAL_DIR` env vars.
+Stress test result: loss dropped from 0.02% (12.6K/64.56M) to 0.0032% (436/13.76M). Remaining
+loss is records in the WAL channel buffer not yet fdatasynced at kill -9 time.
+
+---
+
+#### Phase 12.4.6: WAL Batch Write Optimization (~1 day)
+
+**Problem**: Enabling WAL dropped throughput from ~1.5M msg/s to ~310K msg/s (5x regression).
+The `produce_batch` gRPC handler calls `wal.append()` individually for each record in the batch
+(2000 times per request). Each call allocates a `Vec<u8>`, serializes the record, and sends
+through the mpsc channel. This creates 2000 allocations + 2000 channel sends per produce request.
+
+**Root cause**: The `produce_batch` handler loops over records and calls `PartitionWriter::append()`
+one at a time. Each `append()` calls `wal.append()` which serializes and sends individually.
+Meanwhile, `WAL::append_batch()` already exists and can serialize all records into a single buffer
+with a single channel send — but it's not used by the produce path.
+
+Additionally, `WAL::append_batch()` currently always calls `flush_batch()` (waits for fdatasync)
+regardless of batch mode. In batched mode (`batch_enabled=true`), individual `append()` calls are
+fire-and-forget — the writer task flushes on thresholds. `append_batch()` should respect the same
+`sync_append` flag.
+
+**Implementation plan**:
+1. Fix `WAL::append_batch()` to respect `sync_append` (skip `flush_batch()` in batched mode)
+2. Add `PartitionWriter::append_batch()` that collects records and calls `wal.append_batch()` once
+3. Update `produce_batch` in `services/mod.rs` to use `PartitionWriter::append_batch()`
+
+**Expected result**: ~800K-1.2M msg/s with WAL enabled (based on WAL standalone benchmark of
+2.21M rec/s with group commit). The single channel send per 2000-record batch amortizes
+serialization and channel overhead.
+
+**Detailed analysis**: See `docs/WAL_PERFORMANCE_TRADEOFFS.md` for full options comparison.
+
+**Status**: Not started. Analysis complete, implementation sketched.
 
 ---
 
@@ -467,7 +503,7 @@ Documentation        [████████░░░░░░░░░░░�
 
 | Tier | Phases | Effort | Calendar |
 |------|--------|--------|----------|
-| **Tier 1** (Medium priority) | 12.4.5, 10.3c, 11.2, 11.4, 12.2, UI.9 | ~100h | ~2.5 weeks |
+| **Tier 1** (Medium priority) | 12.4.6, 10.3c, 11.2, 11.4, 12.2, UI.9 | ~92h | ~2.3 weeks |
 | **Tier 2** (Lower priority) | 10.6-10.10, 12.3, 13, 14.2-14.3, 15, 16 | ~250h | ~6 weeks |
 | **Tier 3** (Strategic) | 11, 19, 20 (npm) | ~340h | ~8.5 weeks |
 | **Tier 4** (AI/ML) | AI-1 through AI-6 | ~285h | ~7 weeks |
@@ -478,8 +514,9 @@ Documentation        [████████░░░░░░░░░░░�
 ## Recommended Next Priorities
 
 ### Quick wins (< 1 week each)
-1. **Phase 12.4.5: Shared WAL** — Closes the 0.02% silent data loss gap on agent failover. Prerequisite for any production multi-agent deployment. Without this, acked records can be lost when a node dies and a different node takes over.
-2. **Phase 12.2: Framework Integrations** — Spring Boot + FastAPI bindings drive adoption
+1. ~~**Phase 12.4.5: Shared WAL**~~ — **DONE**. Loss reduced from 0.02% to 0.0032% on failover.
+2. **Phase 12.4.6: WAL Batch Optimization** — Recovers WAL-enabled throughput from 310K to ~1M msg/s. One-day fix: use `append_batch()` in produce path instead of per-record `append()`, fix `flush_batch` sync behavior.
+3. **Phase 12.2: Framework Integrations** — Spring Boot + FastAPI bindings drive adoption
 3. **Phase 11.2: RBAC** — Enterprise customers expect role-based access
 4. **AI-1: Natural Language -> SQL** — High-impact differentiator, builds on existing SQL engine
 
