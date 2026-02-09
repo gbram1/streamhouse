@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { SignInButton } from "@clerk/nextjs";
 import { Button } from "@/components/ui/button";
 import {
   ArrowRight,
@@ -117,6 +118,7 @@ export default function Home() {
                 <GithubIcon className="h-5 w-5" />
               </Link>
               <Link href="/dashboard">
+                <SignInButton />
                 <Button variant="ghost" className="text-sm text-slate-600">
                   Sign in
                 </Button>
@@ -164,8 +166,8 @@ export default function Home() {
 
             {/* Subheadline */}
             <p className="mx-auto mt-6 max-w-2xl text-lg text-slate-600">
-              Legacy streaming infrastructure is too heavy, slow, and complicated.
-              StreamHouse is S3-native, serverless, and ready.
+              Legacy streaming infrastructure is too heavy, slow, and
+              complicated. StreamHouse is S3-native, serverless, and ready.
             </p>
 
             {/* CTAs */}
@@ -215,7 +217,11 @@ export default function Home() {
                   </p>
                   {[
                     { icon: KafkaIcon, name: "Kafka", color: "text-slate-600" },
-                    { icon: PostgresIcon, name: "Postgres", color: "text-blue-600" },
+                    {
+                      icon: PostgresIcon,
+                      name: "Postgres",
+                      color: "text-blue-600",
+                    },
                     { icon: AwsIcon, name: "AWS", color: "text-orange-500" },
                   ].map((source, i) => (
                     <div
@@ -223,14 +229,18 @@ export default function Home() {
                       className="flex items-center gap-3"
                       style={{
                         opacity: mounted ? 1 : 0,
-                        transform: mounted ? "translateX(0)" : "translateX(-20px)",
+                        transform: mounted
+                          ? "translateX(0)"
+                          : "translateX(-20px)",
                         transition: `all 0.5s ease ${i * 0.1}s`,
                       }}
                     >
                       <div className="flex h-10 w-10 items-center justify-center rounded-lg border border-slate-200 bg-white shadow-sm">
                         <source.icon />
                       </div>
-                      <span className="text-sm text-slate-600">{source.name}</span>
+                      <span className="text-sm text-slate-600">
+                        {source.name}
+                      </span>
                       <div className="h-px w-16 bg-gradient-to-r from-slate-300 to-transparent lg:w-24" />
                     </div>
                   ))}
@@ -242,8 +252,16 @@ export default function Home() {
                     Destinations
                   </p>
                   {[
-                    { icon: ClickhouseIcon, name: "ClickHouse", color: "text-yellow-500" },
-                    { icon: SparkIcon, name: "Spark", color: "text-orange-500" },
+                    {
+                      icon: ClickhouseIcon,
+                      name: "ClickHouse",
+                      color: "text-yellow-500",
+                    },
+                    {
+                      icon: SparkIcon,
+                      name: "Spark",
+                      color: "text-orange-500",
+                    },
                     { icon: FlinkIcon, name: "Flink", color: "text-pink-500" },
                   ].map((dest, i) => (
                     <div
@@ -251,12 +269,16 @@ export default function Home() {
                       className="flex items-center gap-3"
                       style={{
                         opacity: mounted ? 1 : 0,
-                        transform: mounted ? "translateX(0)" : "translateX(20px)",
+                        transform: mounted
+                          ? "translateX(0)"
+                          : "translateX(20px)",
                         transition: `all 0.5s ease ${i * 0.1}s`,
                       }}
                     >
                       <div className="h-px w-16 bg-gradient-to-l from-slate-300 to-transparent lg:w-24" />
-                      <span className="text-sm text-slate-600">{dest.name}</span>
+                      <span className="text-sm text-slate-600">
+                        {dest.name}
+                      </span>
                       <div className="flex h-10 w-10 items-center justify-center rounded-lg border border-slate-200 bg-white shadow-sm">
                         <dest.icon />
                       </div>
@@ -298,8 +320,8 @@ export default function Home() {
                   Kafka wasn&apos;t built for the cloud
                 </h2>
                 <p className="mt-4 text-slate-600">
-                  Traditional streaming requires expensive disks, complex replication,
-                  and constant operational overhead.
+                  Traditional streaming requires expensive disks, complex
+                  replication, and constant operational overhead.
                 </p>
                 <div className="mt-8 space-y-3">
                   {[
@@ -328,8 +350,8 @@ export default function Home() {
                   S3-native from day one
                 </h2>
                 <p className="mt-4 text-slate-600">
-                  StreamHouse uses object storage as the source of truth. Stateless
-                  agents. Zero replication. Infinite scale.
+                  StreamHouse uses object storage as the source of truth.
+                  Stateless agents. Zero replication. Infinite scale.
                 </p>
                 <div className="mt-8 space-y-3">
                   {[
@@ -423,22 +445,26 @@ export default function Home() {
                 {
                   icon: Cloud,
                   title: "S3-Native Storage",
-                  description: "Direct writes to object storage with LZ4 compression.",
+                  description:
+                    "Direct writes to object storage with LZ4 compression.",
                 },
                 {
                   icon: Layers,
                   title: "Zero Replication",
-                  description: "S3 handles durability. No inter-broker traffic costs.",
+                  description:
+                    "S3 handles durability. No inter-broker traffic costs.",
                 },
                 {
                   icon: Code2,
                   title: "SQL Processing",
-                  description: "Built-in stream processing. No separate Flink cluster.",
+                  description:
+                    "Built-in stream processing. No separate Flink cluster.",
                 },
                 {
                   icon: Server,
                   title: "Stateless Agents",
-                  description: "Kill, restart, or scale freely. All state in S3.",
+                  description:
+                    "Kill, restart, or scale freely. All state in S3.",
                 },
                 {
                   icon: Database,
@@ -521,7 +547,9 @@ export default function Home() {
                       <span className="text-teal-400">$</span>{" "}
                       <span className="text-white">cargo run --bin agent</span>
                     </div>
-                    <div className="pl-4 text-green-400">✓ Listening on :9090</div>
+                    <div className="pl-4 text-green-400">
+                      ✓ Listening on :9090
+                    </div>
                     <div className="pt-2 text-slate-500"># Produce events</div>
                     <div>
                       <span className="text-teal-400">$</span>{" "}
@@ -571,8 +599,7 @@ export default function Home() {
                 },
                 {
                   title: "Change data capture",
-                  description:
-                    "Simplified CDC with built-in transformations.",
+                  description: "Simplified CDC with built-in transformations.",
                   tag: "Data Sync",
                 },
               ].map((useCase) => (
