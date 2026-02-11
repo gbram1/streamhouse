@@ -201,6 +201,23 @@ pub fn create_router(state: AppState) -> Router {
         .route("/ai/health", get(handlers::ai::ai_health))
         // Schema inference
         .route("/schema/infer", post(handlers::ai::infer_schema))
+        // Connectors
+        .route(
+            "/connectors",
+            get(handlers::connectors::list_connectors).post(handlers::connectors::create_connector),
+        )
+        .route(
+            "/connectors/:name",
+            get(handlers::connectors::get_connector).delete(handlers::connectors::delete_connector),
+        )
+        .route(
+            "/connectors/:name/pause",
+            post(handlers::connectors::pause_connector),
+        )
+        .route(
+            "/connectors/:name/resume",
+            post(handlers::connectors::resume_connector),
+        )
         .with_state(state.clone());
 
     // Admin routes (always require admin permission)

@@ -100,6 +100,27 @@ export interface ConsumerGroupLag {
   topics: string[];
 }
 
+export interface Connector {
+  name: string;
+  connectorType: string;
+  connectorClass: string;
+  topics: string[];
+  config: Record<string, string>;
+  state: string;
+  errorMessage: string | null;
+  recordsProcessed: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CreateConnectorRequest {
+  name: string;
+  connectorType: string;
+  connectorClass: string;
+  topics: string[];
+  config?: Record<string, string>;
+}
+
 class ApiClient {
   private baseUrl: string;
 
@@ -217,6 +238,38 @@ class ApiClient {
 
   async getConsumerGroupLag(groupId: string): Promise<ConsumerGroupLag> {
     return this.request<ConsumerGroupLag>(`/api/v1/consumer-groups/${groupId}/lag`);
+  }
+
+  // Connectors
+  async listConnectors(): Promise<Connector[]> {
+    return this.request<Connector[]>('/api/v1/connectors');
+  }
+
+  async createConnector(req: CreateConnectorRequest): Promise<Connector> {
+    return this.request<Connector>('/api/v1/connectors', {
+      method: 'POST',
+      body: JSON.stringify(req),
+    });
+  }
+
+  async deleteConnector(name: string): Promise<void> {
+    await this.request(`/api/v1/connectors/${encodeURIComponent(name)}`, {
+      method: 'DELETE',
+    });
+  }
+
+  async pauseConnector(name: string): Promise<Connector> {
+    return this.request<Connector>(
+      `/api/v1/connectors/${encodeURIComponent(name)}/pause`,
+      { method: 'POST' }
+    );
+  }
+
+  async resumeConnector(name: string): Promise<Connector> {
+    return this.request<Connector>(
+      `/api/v1/connectors/${encodeURIComponent(name)}/resume`,
+      { method: 'POST' }
+    );
   }
 
   // Health
