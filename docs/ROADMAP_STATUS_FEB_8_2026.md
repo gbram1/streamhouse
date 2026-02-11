@@ -9,7 +9,7 @@
 
 ## Executive Summary
 
-StreamHouse is ~80% feature-complete against the full roadmap. The core streaming platform, security, observability, streaming SQL, client SDKs, web UI, production hardening, RBAC, cross-region replication, backup tools, and framework integrations are all implemented and verified in source code. The major remaining gaps are **horizontal scaling** (distributed multi-node architecture), **AI/ML capabilities**, and **connectors**.
+StreamHouse is ~83% feature-complete against the full roadmap. The core streaming platform, security, observability, streaming SQL, client SDKs, web UI, production hardening, RBAC, cross-region replication, backup tools, framework integrations, and AI-powered NL-to-SQL + schema inference are all implemented and verified in source code. The major remaining gaps are **horizontal scaling** (distributed multi-node architecture), **advanced AI/ML capabilities** (ML feature pipelines, ML-based anomaly detection, vector streaming, intelligent alerting), and **connectors**.
 
 | Category | Status |
 |----------|--------|
@@ -31,7 +31,8 @@ StreamHouse is ~80% feature-complete against the full roadmap. The core streamin
 | Backup & migration tools | **COMPLETE** |
 | Consumer simulator UI | **COMPLETE** |
 | Distributed architecture (horizontal scale) | **NOT STARTED** |
-| AI/ML capabilities | **NOT STARTED** |
+| AI: NL-to-SQL + Schema Inference | **COMPLETE** |
+| AI: ML pipelines, anomaly, vectors, alerting | **NOT STARTED** |
 | Connectors (Kafka Connect, Debezium CDC) | **NOT STARTED** |
 
 ---

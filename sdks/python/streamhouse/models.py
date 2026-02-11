@@ -119,7 +119,7 @@ class ConsumeResult:
     def from_dict(cls, data: Dict[str, Any]) -> "ConsumeResult":
         return cls(
             records=[ConsumedRecord.from_dict(r) for r in data.get("records", [])],
-            next_offset=data.get("next_offset", 0),
+            next_offset=data.get("nextOffset", data.get("next_offset", 0)),
         )
 
 
