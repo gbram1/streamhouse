@@ -37,8 +37,10 @@ export default function AgentsPage() {
     const fetchAgents = async () => {
       try {
         const response = await fetch(`${API_URL}/api/v1/agents`);
-        const data = await response.json();
-        setAgents(data);
+        if (response.ok) {
+          const data = await response.json();
+          setAgents(Array.isArray(data) ? data : []);
+        }
       } catch (error) {
         console.error('Failed to fetch agents:', error);
       } finally {
@@ -47,7 +49,7 @@ export default function AgentsPage() {
     };
 
     fetchAgents();
-    const interval = setInterval(fetchAgents, 5000); // Refresh every 5 seconds
+    const interval = setInterval(fetchAgents, 5000);
     return () => clearInterval(interval);
   }, []);
   const getAgentHealth = (agent: Agent): 'healthy' | 'degraded' | 'unhealthy' => {
@@ -92,7 +94,7 @@ export default function AgentsPage() {
           </div>
           <div className="mt-2 text-3xl font-bold">{totalPartitions}</div>
           <p className="mt-1 text-xs text-muted-foreground">
-            Avg {(totalPartitions / agents.length).toFixed(1)} per agent
+            {agents.length > 0 ? `Avg ${(totalPartitions / agents.length).toFixed(1)} per agent` : 'No agents'}
           </p>
         </Card>
 

@@ -193,9 +193,11 @@ export default function StoragePage() {
             </p>
           </div>
           <div>
-            <p className="text-sm text-muted-foreground">Storage Reclaimed (24h)</p>
+            <p className="text-sm text-muted-foreground">Avg Segment Size</p>
             <p className="mt-2 text-3xl font-bold">
-              {isLoading ? '...' : formatBytes((storage?.retentionCleanupCount || 0) * 1024 * 1024)}
+              {isLoading ? '...' : (storage?.segmentCount || 0) > 0
+                ? formatBytes(Math.round((storage?.totalSizeBytes || 0) / (storage?.segmentCount || 1)))
+                : '--'}
             </p>
           </div>
         </div>
