@@ -23,12 +23,12 @@ pub async fn handle_list_offsets(
     body: &mut BytesMut,
 ) -> KafkaResult<BytesMut> {
     // Parse request
-    let topics = if header.api_version >= 6 {
+    let (isolation_level, topics) = if header.api_version >= 6 {
         // Compact protocol
         let _replica_id = body.get_i32();
-        let _isolation_level = body.get_i8();
+        let isolation_level = body.get_i8();
 
-        parse_compact_array(body, |b| {
+        let topics = parse_compact_array(body, |b| {
             let name = parse_compact_string(b)?;
             let partitions = parse_compact_array(b, |b| {
                 let partition_index = b.get_i32();
@@ -39,18 +39,20 @@ pub async fn handle_list_offsets(
             })?;
             skip_tagged_fields(b)?;
             Ok((name, partitions))
-        })?
+        })?;
+
+        (isolation_level, topics)
     } else {
         // Legacy protocol
         let _replica_id = body.get_i32();
 
-        let _isolation_level = if header.api_version >= 2 {
+        let isolation_level = if header.api_version >= 2 {
             body.get_i8()
         } else {
             0
         };
 
-        parse_array(body, |b| {
+        let topics = parse_array(body, |b| {
             let name = parse_string(b)?;
             let partitions = parse_array(b, |b| {
                 let partition_index = b.get_i32();
@@ -63,10 +65,12 @@ pub async fn handle_list_offsets(
                 Ok((partition_index, timestamp))
             })?;
             Ok((name, partitions))
-        })?
+        })?;
+
+        (isolation_level, topics)
     };
 
-    debug!("ListOffsets: topics={}", topics.len());
+    debug!("ListOffsets: topics={}, isolation_level={}", topics.len(), isolation_level);
 
     // Get offsets
     let mut topic_responses = Vec::new();
@@ -76,7 +80,7 @@ pub async fn handle_list_offsets(
 
         for (partition_index, timestamp) in partitions {
             let response =
-                get_partition_offset(state, &topic_name, partition_index as u32, timestamp).await;
+                get_partition_offset(state, &topic_name, partition_index as u32, timestamp, isolation_level).await;
             partition_responses.push(response);
         }
 
@@ -161,6 +165,7 @@ async fn get_partition_offset(
     topic_name: &str,
     partition_id: u32,
     timestamp: i64,
+    isolation_level: i8,
 ) -> ListOffsetsPartitionResponse {
     // Get partition info
     let partition = match state.metadata.get_partition(topic_name, partition_id).await {
@@ -188,7 +193,21 @@ async fn get_partition_offset(
     // Determine offset based on timestamp
     // -1 = latest, -2 = earliest
     let offset = match timestamp {
-        -1 => partition.high_watermark as i64,
+        -1 => {
+            if isolation_level == 1 {
+                // READ_COMMITTED: return LSO instead of HWM
+                match state
+                    .metadata
+                    .get_last_stable_offset(topic_name, partition_id)
+                    .await
+                {
+                    Ok(lso) => lso as i64,
+                    Err(_) => partition.high_watermark as i64, // Fall back to HWM
+                }
+            } else {
+                partition.high_watermark as i64
+            }
+        }
         -2 => 0, // Earliest is always 0 for now
         _ts => {
             // TODO: Implement timestamp-based lookup

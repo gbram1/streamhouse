@@ -199,8 +199,8 @@ async fn process_records(
     record_data: Vec<u8>,
 ) -> PartitionProduceResponse {
     // Parse RecordBatch
-    let records = match parse_record_batch(&record_data) {
-        Ok(records) => records,
+    let batch_meta = match parse_record_batch(&record_data) {
+        Ok(meta) => meta,
         Err(e) => {
             warn!("Failed to parse record batch: {}", e);
             return PartitionProduceResponse {
@@ -212,6 +212,85 @@ async fn process_records(
             };
         }
     };
+
+    // Idempotent produce validation (producer_id >= 0 means idempotent)
+    if batch_meta.producer_id >= 0 {
+        let producer = match state
+            .metadata
+            .get_producer_by_numeric_id(batch_meta.producer_id)
+            .await
+        {
+            Ok(Some(p)) => p,
+            Ok(None) => {
+                // Unknown producer ID
+                return PartitionProduceResponse {
+                    partition_index: partition_id as i32,
+                    error_code: ErrorCode::UnknownProducerId,
+                    base_offset: -1,
+                    log_append_time: -1,
+                    log_start_offset: 0,
+                };
+            }
+            Err(e) => {
+                warn!("Failed to lookup producer: {}", e);
+                return PartitionProduceResponse {
+                    partition_index: partition_id as i32,
+                    error_code: ErrorCode::UnknownServerError,
+                    base_offset: -1,
+                    log_append_time: -1,
+                    log_start_offset: 0,
+                };
+            }
+        };
+
+        // Validate producer epoch
+        if producer.epoch != batch_meta.producer_epoch as u32 {
+            return PartitionProduceResponse {
+                partition_index: partition_id as i32,
+                error_code: ErrorCode::InvalidProducerEpoch,
+                base_offset: -1,
+                log_append_time: -1,
+                log_start_offset: 0,
+            };
+        }
+
+        // Check and update sequence for deduplication
+        match state
+            .metadata
+            .check_and_update_sequence(
+                &producer.id,
+                topic_name,
+                partition_id,
+                batch_meta.base_sequence as i64,
+                batch_meta.records.len() as u32,
+            )
+            .await
+        {
+            Ok(true) => {
+                // Sequence is valid, proceed with write
+            }
+            Ok(false) => {
+                // Duplicate detected
+                return PartitionProduceResponse {
+                    partition_index: partition_id as i32,
+                    error_code: ErrorCode::DuplicateSequenceNumber,
+                    base_offset: -1,
+                    log_append_time: -1,
+                    log_start_offset: 0,
+                };
+            }
+            Err(e) => {
+                warn!("Sequence check failed: {}", e);
+                return PartitionProduceResponse {
+                    partition_index: partition_id as i32,
+                    error_code: ErrorCode::OutOfOrderSequenceNumber,
+                    base_offset: -1,
+                    log_append_time: -1,
+                    log_start_offset: 0,
+                };
+            }
+        }
+    }
 
     // Get writer from pool
     let writer = match state.writer_pool.get_writer(topic_name, partition_id).await {
@@ -234,7 +313,7 @@ async fn process_records(
     let mut base_offset = 0i64;
     let timestamp = chrono::Utc::now().timestamp_millis() as u64;
 
-    for record in records {
+    for record in batch_meta.records {
         let value = bytes::Bytes::from(record.value);
         let key = record.key.map(bytes::Bytes::from);
 
@@ -272,8 +351,16 @@ struct ParsedRecord {
     _headers: Vec<(String, Vec<u8>)>,
 }
 
+/// Metadata extracted from a Kafka RecordBatch header for idempotent produce validation.
+struct RecordBatchMeta {
+    producer_id: i64,
+    producer_epoch: i16,
+    base_sequence: i32,
+    records: Vec<ParsedRecord>,
+}
+
 /// Parse a Kafka RecordBatch
-fn parse_record_batch(data: &[u8]) -> KafkaResult<Vec<ParsedRecord>> {
+fn parse_record_batch(data: &[u8]) -> KafkaResult<RecordBatchMeta> {
     if data.len() < 61 {
         return Err(KafkaError::Protocol("RecordBatch too short".to_string()));
     }
@@ -298,9 +385,9 @@ fn parse_record_batch(data: &[u8]) -> KafkaResult<Vec<ParsedRecord>> {
     let _last_offset_delta = buf.get_i32();
     let _first_timestamp = buf.get_i64();
     let _max_timestamp = buf.get_i64();
-    let _producer_id = buf.get_i64();
-    let _producer_epoch = buf.get_i16();
-    let _base_sequence = buf.get_i32();
+    let producer_id = buf.get_i64();
+    let producer_epoch = buf.get_i16();
+    let base_sequence = buf.get_i32();
     let record_count = buf.get_i32();
 
     // Get compression type from attributes
@@ -323,7 +410,12 @@ fn parse_record_batch(data: &[u8]) -> KafkaResult<Vec<ParsedRecord>> {
         records.push(record);
     }
 
-    Ok(records)
+    Ok(RecordBatchMeta {
+        producer_id,
+        producer_epoch,
+        base_sequence,
+        records,
+    })
 }
 
 fn parse_record(buf: &mut BytesMut) -> KafkaResult<ParsedRecord> {

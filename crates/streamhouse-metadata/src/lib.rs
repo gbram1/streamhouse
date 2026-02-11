@@ -1278,6 +1278,32 @@ pub trait MetadataStore: Send + Sync {
     /// Number of producers deleted.
     async fn cleanup_expired_producers(&self, timeout_ms: i64) -> Result<u64>;
 
+    /// Allocate a numeric producer ID (for Kafka protocol compatibility).
+    ///
+    /// Atomically increments the sequence counter and sets the numeric_id
+    /// on the producer record.
+    ///
+    /// # Arguments
+    ///
+    /// * `producer_id` - Internal UUID producer ID
+    ///
+    /// # Returns
+    ///
+    /// The allocated numeric (i64) producer ID.
+    async fn allocate_numeric_producer_id(&self, producer_id: &str) -> Result<i64>;
+
+    /// Get a producer by numeric ID.
+    ///
+    /// # Arguments
+    ///
+    /// * `numeric_id` - Numeric producer ID (Kafka i64)
+    ///
+    /// # Returns
+    ///
+    /// - `Ok(Some(Producer))` if found
+    /// - `Ok(None)` if not found
+    async fn get_producer_by_numeric_id(&self, numeric_id: i64) -> Result<Option<Producer>>;
+
     // ---- Sequence Operations (Idempotent Producers) ----
 
     /// Get the last sequence number for a producer/partition.

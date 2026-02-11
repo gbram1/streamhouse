@@ -1635,12 +1635,13 @@ impl MetadataStore for SqliteMetadataStore {
             created_at: now,
             last_heartbeat: now,
             metadata: config.metadata,
+            numeric_id: None,
         })
     }
 
     async fn get_producer(&self, producer_id: &str) -> Result<Option<Producer>> {
         let query = format!(
-            "SELECT id, organization_id, transactional_id, epoch, created_at, last_heartbeat, state, metadata \
+            "SELECT id, organization_id, transactional_id, epoch, created_at, last_heartbeat, state, metadata, numeric_id \
              FROM producers WHERE id = '{}'",
             producer_id
         );
@@ -1654,6 +1655,7 @@ impl MetadataStore for SqliteMetadataStore {
             i64,
             String,
             String,
+            Option<i64>,
         )> = sqlx::query_as(&query).fetch_optional(&self.pool).await?;
 
         Ok(row.map(
@@ -1666,6 +1668,7 @@ impl MetadataStore for SqliteMetadataStore {
                 last_heartbeat,
                 state,
                 metadata_json,
+                numeric_id,
             )| {
                 Producer {
                     id,
@@ -1676,6 +1679,7 @@ impl MetadataStore for SqliteMetadataStore {
                     created_at,
                     last_heartbeat,
                     metadata: serde_json::from_str(&metadata_json).ok(),
+                    numeric_id,
                 }
             },
         ))
@@ -1688,12 +1692,12 @@ impl MetadataStore for SqliteMetadataStore {
     ) -> Result<Option<Producer>> {
         let query = match organization_id {
             Some(org_id) => format!(
-                "SELECT id, organization_id, transactional_id, epoch, created_at, last_heartbeat, state, metadata \
+                "SELECT id, organization_id, transactional_id, epoch, created_at, last_heartbeat, state, metadata, numeric_id \
                  FROM producers WHERE transactional_id = '{}' AND organization_id = '{}'",
                 transactional_id, org_id
             ),
             None => format!(
-                "SELECT id, organization_id, transactional_id, epoch, created_at, last_heartbeat, state, metadata \
+                "SELECT id, organization_id, transactional_id, epoch, created_at, last_heartbeat, state, metadata, numeric_id \
                  FROM producers WHERE transactional_id = '{}' AND organization_id IS NULL",
                 transactional_id
             ),
@@ -1708,6 +1712,7 @@ impl MetadataStore for SqliteMetadataStore {
             i64,
             String,
             String,
+            Option<i64>,
         )> = sqlx::query_as(&query).fetch_optional(&self.pool).await?;
 
         Ok(row.map(
@@ -1720,6 +1725,7 @@ impl MetadataStore for SqliteMetadataStore {
                 last_heartbeat,
                 state,
                 metadata_json,
+                numeric_id,
             )| {
                 Producer {
                     id,
@@ -1730,6 +1736,7 @@ impl MetadataStore for SqliteMetadataStore {
                     created_at,
                     last_heartbeat,
                     metadata: serde_json::from_str(&metadata_json).ok(),
+                    numeric_id,
                 }
             },
         ))
@@ -1770,6 +1777,75 @@ impl MetadataStore for SqliteMetadataStore {
         );
         let result = sqlx::query(&query).execute(&self.pool).await?;
         Ok(result.rows_affected())
+    }
+
+    async fn allocate_numeric_producer_id(&self, producer_id: &str) -> Result<i64> {
+        // Atomically get and increment the sequence
+        sqlx::query("UPDATE producer_id_sequence SET next_id = next_id + 1 WHERE id = 1")
+            .execute(&self.pool)
+            .await?;
+
+        let row: (i64,) = sqlx::query_as(
+            "SELECT next_id - 1 FROM producer_id_sequence WHERE id = 1",
+        )
+        .fetch_one(&self.pool)
+        .await?;
+        let numeric_id = row.0;
+
+        // Set the numeric_id on the producer
+        let update_query = format!(
+            "UPDATE producers SET numeric_id = {} WHERE id = '{}'",
+            numeric_id, producer_id
+        );
+        sqlx::query(&update_query).execute(&self.pool).await?;
+
+        Ok(numeric_id)
+    }
+
+    async fn get_producer_by_numeric_id(&self, numeric_id: i64) -> Result<Option<Producer>> {
+        let query = format!(
+            "SELECT id, organization_id, transactional_id, epoch, created_at, last_heartbeat, state, metadata, numeric_id \
+             FROM producers WHERE numeric_id = {}",
+            numeric_id
+        );
+
+        let row: Option<(
+            String,
+            Option<String>,
+            Option<String>,
+            i64,
+            i64,
+            i64,
+            String,
+            String,
+            Option<i64>,
+        )> = sqlx::query_as(&query).fetch_optional(&self.pool).await?;
+
+        Ok(row.map(
+            |(
+                id,
+                organization_id,
+                transactional_id,
+                epoch,
+                created_at,
+                last_heartbeat,
+                state,
+                metadata_json,
+                numeric_id,
+            )| {
+                Producer {
+                    id,
+                    organization_id,
+                    transactional_id,
+                    epoch: epoch as u32,
+                    state: state.parse().unwrap_or(ProducerState::Active),
+                    created_at,
+                    last_heartbeat,
+                    metadata: serde_json::from_str(&metadata_json).ok(),
+                    numeric_id,
+                }
+            },
+        ))
     }
 
     // ---- Sequence Operations ----

@@ -790,6 +790,14 @@ impl<S: MetadataStore + 'static> MetadataStore for CachedMetadataStore<S> {
         self.inner.cleanup_expired_producers(timeout_ms).await
     }
 
+    async fn allocate_numeric_producer_id(&self, producer_id: &str) -> Result<i64> {
+        self.inner.allocate_numeric_producer_id(producer_id).await
+    }
+
+    async fn get_producer_by_numeric_id(&self, numeric_id: i64) -> Result<Option<Producer>> {
+        self.inner.get_producer_by_numeric_id(numeric_id).await
+    }
+
     async fn get_producer_sequence(
         &self,
         producer_id: &str,

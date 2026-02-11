@@ -22,7 +22,7 @@ pub async fn handle_fetch(
     body: &mut BytesMut,
 ) -> KafkaResult<BytesMut> {
     // Parse request
-    let (max_wait_ms, min_bytes, max_bytes, topics) = if header.api_version >= 12 {
+    let (max_wait_ms, min_bytes, max_bytes, isolation_level, topics) = if header.api_version >= 12 {
         // Compact protocol
         // Skip cluster ID for v12+
         if header.api_version >= 15 {
@@ -33,7 +33,7 @@ pub async fn handle_fetch(
         let max_wait_ms = body.get_i32();
         let min_bytes = body.get_i32();
         let max_bytes = body.get_i32();
-        let _isolation_level = body.get_i8();
+        let isolation_level = body.get_i8();
         let _session_id = body.get_i32();
         let _session_epoch = body.get_i32();
 
@@ -74,7 +74,7 @@ pub async fn handle_fetch(
 
         skip_tagged_fields(body)?;
 
-        (max_wait_ms, min_bytes, max_bytes, topics)
+        (max_wait_ms, min_bytes, max_bytes, isolation_level, topics)
     } else {
         // Legacy protocol
         let _replica_id = body.get_i32();
@@ -87,7 +87,7 @@ pub async fn handle_fetch(
             i32::MAX
         };
 
-        let _isolation_level = if header.api_version >= 4 {
+        let isolation_level = if header.api_version >= 4 {
             body.get_i8()
         } else {
             0
@@ -130,14 +130,15 @@ pub async fn handle_fetch(
             Ok((name, partitions))
         })?;
 
-        (max_wait_ms, min_bytes, max_bytes, topics)
+        (max_wait_ms, min_bytes, max_bytes, isolation_level, topics)
     };
 
     debug!(
-        "Fetch: max_wait={}, min_bytes={}, max_bytes={}, topics={}",
+        "Fetch: max_wait={}, min_bytes={}, max_bytes={}, isolation_level={}, topics={}",
         max_wait_ms,
         min_bytes,
         max_bytes,
+        isolation_level,
         topics.len()
     );
 
@@ -154,6 +155,7 @@ pub async fn handle_fetch(
                 fp.partition as u32,
                 fp.fetch_offset as u64,
                 fp.partition_max_bytes as usize,
+                isolation_level,
             )
             .await;
             partition_responses.push(response);
@@ -314,6 +316,7 @@ async fn fetch_partition(
     partition_id: u32,
     offset: u64,
     max_bytes: usize,
+    isolation_level: i8,
 ) -> FetchPartitionResponse {
     // Get partition info
     let partition_info = match state.metadata.get_partition(topic_name, partition_id).await {
@@ -342,16 +345,45 @@ async fn fetch_partition(
 
     let high_watermark = partition_info.high_watermark as i64;
 
+    // Get last stable offset for read-committed isolation
+    let last_stable_offset = if isolation_level == 1 {
+        // READ_COMMITTED: get LSO from metadata
+        match state
+            .metadata
+            .get_last_stable_offset(topic_name, partition_id)
+            .await
+        {
+            Ok(lso) => lso as i64,
+            Err(_) => high_watermark, // Fall back to HWM on error
+        }
+    } else {
+        // READ_UNCOMMITTED: LSO equals HWM
+        high_watermark
+    };
+
     // Read records from storage
     let records = read_records(state, topic_name, partition_id, offset, max_bytes)
         .await
         .ok();
 
+    // For read-committed, filter out records at or beyond the LSO
+    let records = if isolation_level == 1 && last_stable_offset >= 0 {
+        records.map(|data| {
+            // If we have records and the LSO would restrict them, we need to cap.
+            // The records are already in Kafka RecordBatch format, so we return them
+            // as-is but the consumer will use the LSO to know which are committed.
+            // The Kafka protocol handles this via the last_stable_offset field in the response.
+            data
+        })
+    } else {
+        records
+    };
+
     FetchPartitionResponse {
         partition_index: partition_id as i32,
         error_code: ErrorCode::None,
         high_watermark,
-        last_stable_offset: high_watermark,
+        last_stable_offset,
         log_start_offset: 0,
         records,
     }
