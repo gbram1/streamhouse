@@ -1,8 +1,12 @@
 .PHONY: test coverage bench fuzz lint audit ci build clean
 
-# Run all tests with nextest
+# Run all tests (uses nextest if installed, falls back to cargo test)
 test:
-	cargo nextest run --workspace --all-features
+	@if command -v cargo-nextest >/dev/null 2>&1; then \
+		cargo nextest run --workspace --all-features; \
+	else \
+		cargo test --workspace --all-features; \
+	fi
 
 # Run doctests (nextest doesn't support these)
 doctest:
