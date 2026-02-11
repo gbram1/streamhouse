@@ -39,3 +39,4 @@ examples/production-demo/target/
 /scripts/data-failover
 /sdks/java/target/
 **/__pycache__
+**/target
