@@ -13,6 +13,7 @@ members = [
     "crates/streamhouse-proto",
     "crates/streamhouse-api",
     "crates/streamhouse-schema-registry", "crates/streamhouse-observability",
+    "crates/streamhouse-connectors",
 ]
 exclude = ["fuzz"]
 

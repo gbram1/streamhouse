@@ -105,11 +105,12 @@
 //! - Memory: (10K × 500B) + (1M × 200B) = 205 MB
 
 use crate::{
-    AgentInfo, ApiKey, ConsumerOffset, CreateApiKey, CreateMaterializedView, CreateOrganization,
-    InitProducerConfig, LeaderChangeReason, LeaseTransfer, MaterializedView, MaterializedViewData,
-    MaterializedViewOffset, MaterializedViewStatus, MetadataStore, Organization, OrganizationPlan,
-    OrganizationQuota, OrganizationStatus, OrganizationUsage, Partition, PartitionLease, Producer,
-    Result, SegmentInfo, Topic, TopicConfig, Transaction, TransactionMarker, TransactionPartition,
+    AgentInfo, ApiKey, ConnectorInfo, ConsumerOffset, CreateApiKey, CreateMaterializedView,
+    CreateOrganization, InitProducerConfig, LeaderChangeReason, LeaseTransfer, MaterializedView,
+    MaterializedViewData, MaterializedViewOffset, MaterializedViewStatus, MetadataStore,
+    Organization, OrganizationPlan, OrganizationQuota, OrganizationStatus, OrganizationUsage,
+    Partition, PartitionLease, Producer, Result, SegmentInfo, Topic, TopicConfig, Transaction,
+    TransactionMarker, TransactionPartition,
 };
 use async_trait::async_trait;
 use lru::LruCache;
@@ -1086,6 +1087,34 @@ impl<S: MetadataStore + 'static> MetadataStore for CachedMetadataStore<S> {
 
     async fn upsert_materialized_view_data(&self, data: MaterializedViewData) -> Result<()> {
         self.inner.upsert_materialized_view_data(data).await
+    }
+
+    // ============================================================
+    // CONNECTOR OPERATIONS (delegated, no caching)
+    // ============================================================
+
+    async fn create_connector(&self, connector: ConnectorInfo) -> Result<()> {
+        self.inner.create_connector(connector).await
+    }
+
+    async fn get_connector(&self, name: &str) -> Result<Option<ConnectorInfo>> {
+        self.inner.get_connector(name).await
+    }
+
+    async fn list_connectors(&self) -> Result<Vec<ConnectorInfo>> {
+        self.inner.list_connectors().await
+    }
+
+    async fn delete_connector(&self, name: &str) -> Result<()> {
+        self.inner.delete_connector(name).await
+    }
+
+    async fn update_connector_state(&self, name: &str, state: &str, error_message: Option<&str>) -> Result<()> {
+        self.inner.update_connector_state(name, state, error_message).await
+    }
+
+    async fn update_connector_records_processed(&self, name: &str, records_processed: i64) -> Result<()> {
+        self.inner.update_connector_records_processed(name, records_processed).await
     }
 }
 

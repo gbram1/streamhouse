@@ -1,0 +1,44 @@
+[package]
+name = "streamhouse-connectors"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[dependencies]
+# Internal crates
+streamhouse-core = { path = "../streamhouse-core" }
+streamhouse-metadata = { path = "../streamhouse-metadata" }
+
+# Async runtime
+tokio = { workspace = true }
+async-trait = { workspace = true }
+
+# Serialization
+serde = { workspace = true }
+serde_json = { workspace = true }
+apache-avro = { workspace = true }
+
+# Data / storage
+bytes = { workspace = true }
+chrono = { workspace = true }
+object_store = { workspace = true }
+arrow = { workspace = true }
+parquet = { workspace = true }
+
+# Error handling / logging
+thiserror = { workspace = true }
+tracing = { workspace = true }
+
+# UUID
+uuid = { workspace = true }
+
+# HTTP (for Elasticsearch sink)
+reqwest = { version = "0.12", features = ["json"], default-features = false }
+
+# Postgres (optional)
+sqlx = { workspace = true, optional = true, features = ["postgres"] }
+
+[features]
+default = []
+postgres = ["dep:sqlx"]

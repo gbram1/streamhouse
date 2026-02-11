@@ -1480,6 +1480,21 @@ pub struct MaterializedViewData {
     pub updated_at: i64,
 }
 
+/// Connector definition stored in metadata
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ConnectorInfo {
+    pub name: String,
+    pub connector_type: String,
+    pub connector_class: String,
+    pub topics: Vec<String>,
+    pub config: HashMap<String, String>,
+    pub state: String,
+    pub error_message: Option<String>,
+    pub records_processed: i64,
+    pub created_at: i64,
+    pub updated_at: i64,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

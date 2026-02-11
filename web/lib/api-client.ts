@@ -144,4 +144,10 @@ export const API_ENDPOINTS = {
 
   // API Keys
   apiKey: (id: string) => `/api/v1/api-keys/${encodeURIComponent(id)}`,
+
+  // Connectors
+  connectors: '/api/v1/connectors',
+  connector: (name: string) => `/api/v1/connectors/${encodeURIComponent(name)}`,
+  connectorPause: (name: string) => `/api/v1/connectors/${encodeURIComponent(name)}/pause`,
+  connectorResume: (name: string) => `/api/v1/connectors/${encodeURIComponent(name)}/resume`,
 } as const;

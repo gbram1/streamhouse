@@ -20,6 +20,7 @@ import {
   Settings,
   Sparkles,
   PlayCircle,
+  Plug,
 } from 'lucide-react';
 
 const navigation = [
@@ -52,6 +53,11 @@ const navigation = [
     name: 'Agents',
     href: '/agents',
     icon: Server,
+  },
+  {
+    name: 'Connectors',
+    href: '/connectors',
+    icon: Plug,
   },
   {
     name: 'Schemas',

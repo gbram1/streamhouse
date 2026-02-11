@@ -1694,4 +1694,26 @@ pub trait MetadataStore: Send + Sync {
 
     /// Upsert aggregated data for a materialized view.
     async fn upsert_materialized_view_data(&self, data: MaterializedViewData) -> Result<()>;
+
+    // ============================================================
+    // CONNECTOR OPERATIONS
+    // ============================================================
+
+    /// Create a new connector.
+    async fn create_connector(&self, connector: ConnectorInfo) -> Result<()>;
+
+    /// Get a connector by name.
+    async fn get_connector(&self, name: &str) -> Result<Option<ConnectorInfo>>;
+
+    /// List all connectors.
+    async fn list_connectors(&self) -> Result<Vec<ConnectorInfo>>;
+
+    /// Delete a connector by name.
+    async fn delete_connector(&self, name: &str) -> Result<()>;
+
+    /// Update the state (and optional error message) of a connector.
+    async fn update_connector_state(&self, name: &str, state: &str, error_message: Option<&str>) -> Result<()>;
+
+    /// Update the records_processed counter for a connector.
+    async fn update_connector_records_processed(&self, name: &str, records_processed: i64) -> Result<()>;
 }
