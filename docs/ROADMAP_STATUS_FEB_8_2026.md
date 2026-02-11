@@ -225,6 +225,22 @@ StreamHouse is ~83% feature-complete against the full roadmap. The core streamin
 - Integration examples
 - Production deployment guide
 
+### AI-1: Natural Language → SQL
+- Anthropic Claude API integration (`claude-sonnet-4-20250514`) with `ANTHROPIC_API_KEY` env var
+- Schema-aware prompt building from metadata topic list
+- Endpoints: POST `/api/v1/query/ask`, POST `/api/v1/query/estimate`, POST `/api/v1/query/history/{id}/refine`
+- Query history (in-memory, max 1000 entries) with GET/DELETE `/api/v1/query/history`
+- Cost estimation with warnings and optimization suggestions
+- Health check endpoint: GET `/api/v1/ai/health`
+- Implementation: `crates/streamhouse-api/src/handlers/ai.rs` (~1592 lines)
+- Frontend: `web/app/ai/page.tsx` (~977 lines) — 3-tab UI (Ask, Schema Inference, History)
+
+### AI-2: Schema Inference
+- AI-powered field type detection and description generation from message samples
+- POST `/api/v1/schema/infer` endpoint
+- Schema Inference tab in AI page with field analysis table and index recommendations
+- Implementation: part of `handlers/ai.rs` and `web/app/ai/page.tsx`
+
 ---
 
 ## REMAINING WORK
@@ -511,27 +527,27 @@ Features that add competitive differentiation but aren't blocking production use
 - Shorter command syntax
 - **Status**: Planned (`docs/PHASE_20_NPM_DISTRIBUTION_PLAN.md`). Not started.
 
-### Tier 4: AI/ML Capabilities (~285 hours)
+### Tier 4: AI/ML Capabilities (~245 hours remaining)
 
-None of these have been started. All are greenfield.
+AI-1 and AI-2 are already implemented. Remaining phases are greenfield.
 
-| Phase | Feature | Est. | Priority |
-|-------|---------|------|----------|
-| AI-1 | Natural Language -> SQL | 25h | HIGH — quick differentiator |
-| AI-2 | Schema inference (auto-detect from messages) | 15h | HIGH |
-| AI-3 | ML feature pipelines (feature store integration) | 55h | HIGH |
-| AI-4 | Anomaly detection (ML-based, beyond z-score) | 40h | MEDIUM |
-| AI-5 | Vector/embedding streaming (RAG pipelines) | 100h | STRATEGIC |
-| AI-6 | Intelligent alerting (ML-driven thresholds) | 50h | LOWER |
+| Phase | Feature | Est. | Priority | Status |
+|-------|---------|------|----------|--------|
+| ~~AI-1~~ | ~~Natural Language -> SQL~~ | ~~25h~~ | ~~HIGH~~ | **COMPLETE** |
+| ~~AI-2~~ | ~~Schema inference (auto-detect from messages)~~ | ~~15h~~ | ~~HIGH~~ | **COMPLETE** |
+| AI-3 | ML feature pipelines (feature store integration) | 55h | HIGH | Not started |
+| AI-4 | Anomaly detection (ML-based, beyond z-score) | 40h | MEDIUM | Not started |
+| AI-5 | Vector/embedding streaming (RAG pipelines) | 100h | STRATEGIC | Not started |
+| AI-6 | Intelligent alerting (ML-driven thresholds) | 50h | LOWER | Not started |
 
-Note: Basic anomaly detection (`zscore()`, `anomaly()`) and vector similarity (`cosine_similarity()`, `euclidean_distance()`) already exist in the SQL engine. These AI phases would add ML model integration, training pipelines, and more sophisticated algorithms.
+Note: Basic anomaly detection (`zscore()`, `anomaly()`) and vector similarity (`cosine_similarity()`, `euclidean_distance()`) already exist in the SQL engine. AI-1 (NL-to-SQL) uses Anthropic Claude API with schema-aware prompt building. AI-2 (Schema inference) uses AI to auto-detect field types and generate descriptions from message samples. Remaining AI phases would add ML model integration, training pipelines, and more sophisticated algorithms.
 
 ---
 
 ## Progress Visualization
 
 ```
-OVERALL COMPLETION  █████████████████████████░░░░░░░  ~80%
+OVERALL COMPLETION  ██████████████████████████░░░░░░  ~83%
 
 Core Platform        [██████████████████████████████] 100%  Phases 1-6
 Observability        [██████████████████████████████] 100%  Phase 7
@@ -560,7 +576,8 @@ Connectors           [░░░░░░░░░░░░░░░░░░░�
 Chaos Testing        [░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░]   0%  Phase 10.6
 Distributed Arch     [░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░]   0%  Phase 11
 Stream Processing    [░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░]   0%  Phase 19
-AI/ML Capabilities   [░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░]   0%  Tier 4
+AI: NL-to-SQL        [██████████████████████████████] 100%  AI-1 + AI-2
+AI: ML/Advanced      [░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░]   0%  AI-3 through AI-6
 Testing & Quality    [██████░░░░░░░░░░░░░░░░░░░░░░░░]  20%  Phase 15
 Documentation        [████████░░░░░░░░░░░░░░░░░░░░░░]  25%  Phase 16
 ```
@@ -574,8 +591,8 @@ Documentation        [████████░░░░░░░░░░░�
 | ~~**Tier 1**~~ | ~~12.4.6, 10.3c, 11.2, 11.4, 12.2, UI.9, UI.10~~ | ~~112h~~ | ~~2.8 weeks~~ | **COMPLETE** |
 | **Tier 2** (Lower priority) | 10.6-10.10, 12.3, 13, 14.2-14.3, 15, 16 | ~250h | ~6 weeks | Not started |
 | **Tier 3** (Strategic) | 11, 19, 20 (npm) | ~340h | ~8.5 weeks | Not started |
-| **Tier 4** (AI/ML) | AI-1 through AI-6 | ~285h | ~7 weeks | Not started |
-| **TOTAL REMAINING** | | **~875h** | **~22 weeks** | |
+| **Tier 4** (AI/ML) | ~~AI-1, AI-2~~ DONE; AI-3 through AI-6 | ~245h | ~6 weeks | Partially complete |
+| **TOTAL REMAINING** | | **~835h** | **~21 weeks** | |
 
 ---
 
@@ -590,7 +607,8 @@ Documentation        [████████░░░░░░░░░░░�
 6. ~~**Phase 10.3c: Cross-Region Replication**~~ — **DONE** (Feb 10).
 7. ~~**Phase 11.4: Backup & Migration Tools**~~ — **DONE** (Feb 10).
 8. ~~**UI.9: Consumer Simulator**~~ — **DONE** (Feb 10).
-9. **AI-1: Natural Language -> SQL** — High-impact differentiator, builds on existing SQL engine
+9. ~~**AI-1: Natural Language -> SQL**~~ — **DONE** (already implemented in `handlers/ai.rs` + `web/app/ai/page.tsx`)
+10. ~~**AI-2: Schema Inference**~~ — **DONE** (implemented alongside AI-1)
 
 ### Medium-term (1-2 weeks each)
 4. **Phase 15: Testing & Quality** — CI pipeline, coverage tracking, fuzz testing
