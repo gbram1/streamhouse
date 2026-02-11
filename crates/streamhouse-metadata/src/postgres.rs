@@ -1854,12 +1854,13 @@ impl MetadataStore for PostgresMetadataStore {
             created_at: now,
             last_heartbeat: now,
             metadata: config.metadata,
+            numeric_id: None,
         })
     }
 
     async fn get_producer(&self, producer_id: &str) -> Result<Option<Producer>> {
         let row = sqlx::query(
-            "SELECT id, organization_id, transactional_id, epoch, created_at, last_heartbeat, state, metadata \
+            "SELECT id, organization_id, transactional_id, epoch, created_at, last_heartbeat, state, metadata, numeric_id \
              FROM producers WHERE id = $1"
         )
         .bind(producer_id)
@@ -1878,6 +1879,7 @@ impl MetadataStore for PostgresMetadataStore {
                 created_at: r.get("created_at"),
                 last_heartbeat: r.get("last_heartbeat"),
                 metadata: metadata_json.and_then(|s| serde_json::from_str(&s).ok()),
+                numeric_id: r.get("numeric_id"),
             }
         }))
     }
@@ -1889,7 +1891,7 @@ impl MetadataStore for PostgresMetadataStore {
     ) -> Result<Option<Producer>> {
         let row = match organization_id {
             Some(org_id) => sqlx::query(
-                "SELECT id, organization_id, transactional_id, epoch, created_at, last_heartbeat, state, metadata \
+                "SELECT id, organization_id, transactional_id, epoch, created_at, last_heartbeat, state, metadata, numeric_id \
                  FROM producers WHERE transactional_id = $1 AND organization_id = $2"
             )
             .bind(transactional_id)
@@ -1897,7 +1899,7 @@ impl MetadataStore for PostgresMetadataStore {
             .fetch_optional(&self.pool)
             .await?,
             None => sqlx::query(
-                "SELECT id, organization_id, transactional_id, epoch, created_at, last_heartbeat, state, metadata \
+                "SELECT id, organization_id, transactional_id, epoch, created_at, last_heartbeat, state, metadata, numeric_id \
                  FROM producers WHERE transactional_id = $1 AND organization_id IS NULL"
             )
             .bind(transactional_id)
@@ -1917,6 +1919,7 @@ impl MetadataStore for PostgresMetadataStore {
                 created_at: r.get("created_at"),
                 last_heartbeat: r.get("last_heartbeat"),
                 metadata: metadata_json.and_then(|s| serde_json::from_str(&s).ok()),
+                numeric_id: r.get("numeric_id"),
             }
         }))
     }
@@ -1955,6 +1958,51 @@ impl MetadataStore for PostgresMetadataStore {
                 .execute(&self.pool)
                 .await?;
         Ok(result.rows_affected())
+    }
+
+    async fn allocate_numeric_producer_id(&self, producer_id: &str) -> Result<i64> {
+        // Atomically get and increment the sequence, returning the allocated ID
+        let row = sqlx::query(
+            "UPDATE producer_id_sequence SET next_id = next_id + 1 WHERE id = 1 RETURNING next_id - 1 AS allocated_id"
+        )
+        .fetch_one(&self.pool)
+        .await?;
+        let numeric_id: i64 = row.get("allocated_id");
+
+        // Set the numeric_id on the producer
+        sqlx::query("UPDATE producers SET numeric_id = $1 WHERE id = $2")
+            .bind(numeric_id)
+            .bind(producer_id)
+            .execute(&self.pool)
+            .await?;
+
+        Ok(numeric_id)
+    }
+
+    async fn get_producer_by_numeric_id(&self, numeric_id: i64) -> Result<Option<Producer>> {
+        let row = sqlx::query(
+            "SELECT id, organization_id, transactional_id, epoch, created_at, last_heartbeat, state, metadata, numeric_id \
+             FROM producers WHERE numeric_id = $1"
+        )
+        .bind(numeric_id)
+        .fetch_optional(&self.pool)
+        .await?;
+
+        Ok(row.map(|r| {
+            let state_str: String = r.get("state");
+            let metadata_json: Option<String> = r.get("metadata");
+            Producer {
+                id: r.get("id"),
+                organization_id: r.get("organization_id"),
+                transactional_id: r.get("transactional_id"),
+                epoch: r.get::<i32, _>("epoch") as u32,
+                state: state_str.parse().unwrap_or(ProducerState::Active),
+                created_at: r.get("created_at"),
+                last_heartbeat: r.get("last_heartbeat"),
+                metadata: metadata_json.and_then(|s| serde_json::from_str(&s).ok()),
+                numeric_id: r.get("numeric_id"),
+            }
+        }))
     }
 
     // ---- Sequence Operations ----

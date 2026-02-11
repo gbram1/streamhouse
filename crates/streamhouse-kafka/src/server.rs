@@ -281,6 +281,19 @@ async fn handle_request(
             handlers::handle_describe_groups(state, header, body).await?
         }
         Some(ApiKey::ListGroups) => handlers::handle_list_groups(state, header, body).await?,
+        Some(ApiKey::InitProducerId) => {
+            handlers::handle_init_producer_id(state, header, body).await?
+        }
+        Some(ApiKey::AddPartitionsToTxn) => {
+            handlers::handle_add_partitions_to_txn(state, header, body).await?
+        }
+        Some(ApiKey::AddOffsetsToTxn) => {
+            handlers::handle_add_offsets_to_txn(state, header, body).await?
+        }
+        Some(ApiKey::EndTxn) => handlers::handle_end_txn(state, header, body).await?,
+        Some(ApiKey::TxnOffsetCommit) => {
+            handlers::handle_txn_offset_commit(state, header, body).await?
+        }
         None => {
             warn!("Unsupported API key: {}", header.api_key);
             return Err(KafkaError::UnsupportedApi(

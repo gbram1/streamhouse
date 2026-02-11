@@ -912,6 +912,10 @@ pub struct Producer {
 
     /// Optional metadata (client info, etc.).
     pub metadata: Option<HashMap<String, String>>,
+
+    /// Numeric producer ID for Kafka protocol compatibility.
+    /// Kafka uses i64 producer IDs; this maps to the UUID-based `id` field.
+    pub numeric_id: Option<i64>,
 }
 
 /// Producer state.
@@ -3095,6 +3099,7 @@ mod tests {
             created_at: 1700000000000,
             last_heartbeat: 1700000010000,
             metadata: Some(HashMap::from([("client".to_string(), "rust".to_string())])),
+            numeric_id: None,
         };
 
         let json = serde_json::to_string(&producer).unwrap();

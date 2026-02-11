@@ -20,6 +20,11 @@ pub enum ApiKey {
     ApiVersions = 18,
     CreateTopics = 19,
     DeleteTopics = 20,
+    InitProducerId = 22,
+    AddPartitionsToTxn = 24,
+    AddOffsetsToTxn = 25,
+    EndTxn = 26,
+    TxnOffsetCommit = 28,
 }
 
 impl ApiKey {
@@ -41,6 +46,11 @@ impl ApiKey {
             18 => Some(ApiKey::ApiVersions),
             19 => Some(ApiKey::CreateTopics),
             20 => Some(ApiKey::DeleteTopics),
+            22 => Some(ApiKey::InitProducerId),
+            24 => Some(ApiKey::AddPartitionsToTxn),
+            25 => Some(ApiKey::AddOffsetsToTxn),
+            26 => Some(ApiKey::EndTxn),
+            28 => Some(ApiKey::TxnOffsetCommit),
             _ => None,
         }
     }
@@ -139,6 +149,31 @@ pub fn supported_api_versions() -> Vec<ApiVersionRange> {
             api_key: ApiKey::DeleteTopics as i16,
             min_version: 0,
             max_version: 6,
+        },
+        ApiVersionRange {
+            api_key: ApiKey::InitProducerId as i16,
+            min_version: 0,
+            max_version: 3,
+        },
+        ApiVersionRange {
+            api_key: ApiKey::AddPartitionsToTxn as i16,
+            min_version: 0,
+            max_version: 3,
+        },
+        ApiVersionRange {
+            api_key: ApiKey::AddOffsetsToTxn as i16,
+            min_version: 0,
+            max_version: 3,
+        },
+        ApiVersionRange {
+            api_key: ApiKey::EndTxn as i16,
+            min_version: 0,
+            max_version: 3,
+        },
+        ApiVersionRange {
+            api_key: ApiKey::TxnOffsetCommit as i16,
+            min_version: 0,
+            max_version: 3,
         },
     ]
 }
@@ -277,6 +312,11 @@ mod tests {
             (18, ApiKey::ApiVersions),
             (19, ApiKey::CreateTopics),
             (20, ApiKey::DeleteTopics),
+            (22, ApiKey::InitProducerId),
+            (24, ApiKey::AddPartitionsToTxn),
+            (25, ApiKey::AddOffsetsToTxn),
+            (26, ApiKey::EndTxn),
+            (28, ApiKey::TxnOffsetCommit),
         ];
 
         for (raw, expected) in cases {
@@ -294,7 +334,7 @@ mod tests {
     #[test]
     fn test_api_key_from_i16_invalid_values() {
         // Gaps in the enum
-        for invalid in [4, 5, 6, 7, 17] {
+        for invalid in [4, 5, 6, 7, 17, 21, 23, 27] {
             assert_eq!(
                 ApiKey::from_i16(invalid),
                 None,
@@ -306,7 +346,7 @@ mod tests {
         assert_eq!(ApiKey::from_i16(-1), None);
         assert_eq!(ApiKey::from_i16(i16::MIN), None);
         // Out of range positive
-        assert_eq!(ApiKey::from_i16(21), None);
+        assert_eq!(ApiKey::from_i16(29), None);
         assert_eq!(ApiKey::from_i16(100), None);
         assert_eq!(ApiKey::from_i16(i16::MAX), None);
     }
@@ -330,6 +370,11 @@ mod tests {
             ApiKey::ApiVersions,
             ApiKey::CreateTopics,
             ApiKey::DeleteTopics,
+            ApiKey::InitProducerId,
+            ApiKey::AddPartitionsToTxn,
+            ApiKey::AddOffsetsToTxn,
+            ApiKey::EndTxn,
+            ApiKey::TxnOffsetCommit,
         ];
 
         for key in keys {
@@ -361,6 +406,11 @@ mod tests {
         assert_eq!(ApiKey::ApiVersions.as_i16(), 18);
         assert_eq!(ApiKey::CreateTopics.as_i16(), 19);
         assert_eq!(ApiKey::DeleteTopics.as_i16(), 20);
+        assert_eq!(ApiKey::InitProducerId.as_i16(), 22);
+        assert_eq!(ApiKey::AddPartitionsToTxn.as_i16(), 24);
+        assert_eq!(ApiKey::AddOffsetsToTxn.as_i16(), 25);
+        assert_eq!(ApiKey::EndTxn.as_i16(), 26);
+        assert_eq!(ApiKey::TxnOffsetCommit.as_i16(), 28);
     }
 
     #[test]
@@ -398,8 +448,8 @@ mod tests {
     #[test]
     fn test_supported_api_versions_count() {
         let versions = supported_api_versions();
-        // Should have one entry per ApiKey variant (16 variants)
-        assert_eq!(versions.len(), 16);
+        // Should have one entry per ApiKey variant (21 variants)
+        assert_eq!(versions.len(), 21);
     }
 
     #[test]
@@ -453,6 +503,11 @@ mod tests {
         assert_eq!(map[&18].max_version, 3); // ApiVersions
         assert_eq!(map[&19].max_version, 7); // CreateTopics
         assert_eq!(map[&20].max_version, 6); // DeleteTopics
+        assert_eq!(map[&22].max_version, 3); // InitProducerId
+        assert_eq!(map[&24].max_version, 3); // AddPartitionsToTxn
+        assert_eq!(map[&25].max_version, 3); // AddOffsetsToTxn
+        assert_eq!(map[&26].max_version, 3); // EndTxn
+        assert_eq!(map[&28].max_version, 3); // TxnOffsetCommit
     }
 
     #[test]
