@@ -76,6 +76,11 @@ object_store = { workspace = true }
 [features]
 postgres = ["streamhouse-metadata/postgres"]
 
+[dev-dependencies]
+tempfile = { workspace = true }
+http-body-util = "0.1"
+hyper = "1.1"
+
 [[bin]]
 name = "api"
 path = "src/bin/api.rs"
