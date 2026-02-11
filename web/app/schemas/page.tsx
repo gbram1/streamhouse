@@ -195,12 +195,43 @@ export default function SchemasPage() {
         </div>
       </Card>
 
-      {/* Schema Usage Stats */}
+      {/* Schema Format Distribution */}
       <Card className="mt-6 p-6">
-        <h3 className="text-lg font-semibold mb-4">Top Schemas by Usage</h3>
-        <div className="flex h-64 items-center justify-center text-muted-foreground">
-          <p>Usage chart will be rendered here</p>
-        </div>
+        <h3 className="text-lg font-semibold mb-4">Schema Format Distribution</h3>
+        {isLoading ? (
+          <div className="flex h-32 items-center justify-center text-muted-foreground">
+            <p>Loading...</p>
+          </div>
+        ) : !subjects || subjects.length === 0 ? (
+          <div className="flex h-32 items-center justify-center text-muted-foreground">
+            <p>Register schemas to see format distribution</p>
+          </div>
+        ) : (
+          <div className="space-y-4">
+            {[
+              { label: 'Avro', count: avroCount, color: 'bg-blue-500' },
+              { label: 'Protobuf', count: protobufCount, color: 'bg-purple-500' },
+              { label: 'JSON', count: jsonCount, color: 'bg-green-500' },
+            ]
+              .filter((f) => f.count > 0)
+              .map((format) => (
+                <div key={format.label}>
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="text-sm font-medium">{format.label}</span>
+                    <span className="text-sm text-muted-foreground">
+                      {format.count} schema{format.count !== 1 ? 's' : ''} ({Math.round((format.count / subjects.length) * 100)}%)
+                    </span>
+                  </div>
+                  <div className="h-2.5 bg-secondary rounded-full overflow-hidden">
+                    <div
+                      className={`h-full ${format.color} rounded-full transition-all duration-300`}
+                      style={{ width: `${(format.count / subjects.length) * 100}%` }}
+                    />
+                  </div>
+                </div>
+              ))}
+          </div>
+        )}
       </Card>
     </DashboardLayout>
   );

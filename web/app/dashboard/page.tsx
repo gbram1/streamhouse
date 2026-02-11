@@ -6,7 +6,7 @@ import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { AreaChart } from '@/components/charts/area-chart';
 import { BarChart } from '@/components/charts/bar-chart';
-import { Skeleton, SkeletonCard, SkeletonChart } from '@/components/ui/skeleton';
+import { Skeleton, SkeletonChart } from '@/components/ui/skeleton';
 import { NoDataAvailable } from '@/components/ui/empty-state';
 import {
   Database,
@@ -25,7 +25,7 @@ import {
   TrendingDown,
 } from 'lucide-react';
 import { useEffect, useState } from 'react';
-import { formatBytes, cn } from '@/lib/utils';
+import { formatBytes } from '@/lib/utils';
 import Link from 'next/link';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080';
@@ -54,39 +54,44 @@ interface DashboardMetrics {
 }
 
 export default function Dashboard() {
-  const [metrics, setMetrics] = useState<DashboardMetrics>({
-    topicsCount: 0,
-    agentsCount: 0,
-    consumerGroupsCount: 0,
-    totalStorageBytes: 0,
-    partitionsCount: 0,
-    schemasCount: 0,
-    messagesPerSecond: 0,
-  });
+  const [metrics, setMetrics] = useState<DashboardMetrics | null>(null);
   const [throughputData, setThroughputData] = useState<ThroughputPoint[]>([]);
   const [consumerLagData, setConsumerLagData] = useState<ConsumerLagPoint[]>([]);
   const [loading, setLoading] = useState(true);
+  const [apiConnected, setApiConnected] = useState(false);
 
   useEffect(() => {
     const fetchMetrics = async () => {
       try {
         // Fetch all metrics in parallel
         const [topics, agents, consumerGroups, storage, schemas, throughput] = await Promise.all([
-          fetch(`${API_URL}/api/v1/topics`).then(r => r.json()).catch(() => []),
-          fetch(`${API_URL}/api/v1/agents`).then(r => r.json()).catch(() => []),
-          fetch(`${API_URL}/api/v1/consumer-groups`).then(r => r.json()).catch(() => []),
-          fetch(`${API_URL}/api/v1/metrics/storage`).then(r => r.json()).catch(() => ({ totalSizeBytes: 0 })),
-          fetch(`${API_URL}/schemas/subjects`).then(r => r.json()).catch(() => []),
-          fetch(`${API_URL}/api/v1/metrics/throughput?time_range=5m`).then(r => r.json()).catch(() => []),
+          fetch(`${API_URL}/api/v1/topics`).then(r => r.ok ? r.json() : null).catch(() => null),
+          fetch(`${API_URL}/api/v1/agents`).then(r => r.ok ? r.json() : null).catch(() => null),
+          fetch(`${API_URL}/api/v1/consumer-groups`).then(r => r.ok ? r.json() : null).catch(() => null),
+          fetch(`${API_URL}/api/v1/metrics/storage`).then(r => r.ok ? r.json() : null).catch(() => null),
+          fetch(`${API_URL}/schemas/subjects`).then(r => r.ok ? r.json() : null).catch(() => null),
+          fetch(`${API_URL}/api/v1/metrics/throughput?time_range=5m`).then(r => r.ok ? r.json() : null).catch(() => null),
         ]);
+
+        // Check if at least one endpoint responded
+        const connected = topics !== null || agents !== null || storage !== null;
+        setApiConnected(connected);
+
+        if (!connected) {
+          setMetrics(null);
+          setThroughputData([]);
+          setConsumerLagData([]);
+          return;
+        }
 
         // Calculate partitions count from topics
         const partitionsCount = (topics || []).reduce((acc: number, topic: any) =>
           acc + (topic.partition_count || topic.partitions || 0), 0);
 
         // Get latest and previous throughput for trend calculation
-        const latestThroughput = throughput.length > 0 ? throughput[throughput.length - 1] : null;
-        const previousThroughput = throughput.length > 1 ? throughput[throughput.length - 2] : null;
+        const throughputArr = throughput || [];
+        const latestThroughput = throughputArr.length > 0 ? throughputArr[throughputArr.length - 1] : null;
+        const previousThroughput = throughputArr.length > 1 ? throughputArr[throughputArr.length - 2] : null;
 
         // Calculate trend percentage
         let trend: number | undefined;
@@ -95,7 +100,7 @@ export default function Dashboard() {
         }
 
         // Format throughput data for chart
-        const formattedThroughput = (throughput || []).map((point: any) => ({
+        const formattedThroughput = throughputArr.map((point: any) => ({
           ...point,
           time: new Date(point.timestamp * 1000).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }),
         }));
@@ -106,7 +111,9 @@ export default function Dashboard() {
           .filter((g: any) => g.totalLag > 0)
           .slice(0, 5)
           .map((g: any) => ({
-            topic: g.groupId.length > 15 ? g.groupId.slice(0, 15) + '...' : g.groupId,
+            topic: (g.groupId || g.id || 'unknown').length > 15
+              ? (g.groupId || g.id || 'unknown').slice(0, 15) + '...'
+              : (g.groupId || g.id || 'unknown'),
             lag: g.totalLag,
           }));
         setConsumerLagData(lagData);
@@ -123,6 +130,8 @@ export default function Dashboard() {
         });
       } catch (error) {
         console.error('Failed to fetch dashboard metrics:', error);
+        setApiConnected(false);
+        setMetrics(null);
       } finally {
         setLoading(false);
       }
@@ -132,6 +141,13 @@ export default function Dashboard() {
     const interval = setInterval(fetchMetrics, 5000);
     return () => clearInterval(interval);
   }, []);
+
+  // Helper: show "--" when not connected, actual value when connected
+  const displayValue = (value: number | undefined, formatter?: (v: number) => string): string => {
+    if (!apiConnected || metrics === null) return '--';
+    const v = value ?? 0;
+    return formatter ? formatter(v) : v.toString();
+  };
 
   // Skeleton loading for metric cards
   const MetricSkeleton = () => (
@@ -169,10 +185,10 @@ export default function Dashboard() {
           <>
             <MetricCard
               title="Messages/sec"
-              value={metrics.messagesPerSecond.toLocaleString()}
+              value={displayValue(metrics?.messagesPerSecond)}
               description="Real-time throughput"
               icon={Activity}
-              trend={metrics.messagesPerSecondTrend !== undefined ? {
+              trend={apiConnected && metrics?.messagesPerSecondTrend !== undefined ? {
                 value: metrics.messagesPerSecondTrend,
                 label: "vs previous"
               } : undefined}
@@ -180,50 +196,53 @@ export default function Dashboard() {
 
             <MetricCard
               title="Active Topics"
-              value={metrics.topicsCount.toString()}
+              value={displayValue(metrics?.topicsCount)}
               description="Event streams"
               icon={Database}
             />
 
             <MetricCard
               title="Consumer Groups"
-              value={metrics.consumerGroupsCount.toString()}
+              value={displayValue(metrics?.consumerGroupsCount)}
               description="Active consumers"
               icon={Users}
             />
 
             <MetricCard
               title="Total Storage"
-              value={formatBytes(metrics.totalStorageBytes)}
+              value={apiConnected && metrics ? formatBytes(metrics.totalStorageBytes) : '--'}
               description="Across all topics"
               icon={HardDrive}
             />
 
             <MetricCard
               title="System Health"
-              value="Healthy"
-              description="All systems operational"
+              value={apiConnected ? 'Healthy' : 'Unavailable'}
+              description={apiConnected ? 'All systems operational' : 'Server not connected'}
               icon={Heart}
-              className="border-green-500/30 bg-green-500/5"
+              className={apiConnected
+                ? 'border-green-500/30 bg-green-500/5'
+                : 'border-yellow-500/30 bg-yellow-500/5'
+              }
             />
 
             <MetricCard
               title="Active Agents"
-              value={metrics.agentsCount.toString()}
+              value={displayValue(metrics?.agentsCount)}
               description="Stateless brokers"
               icon={Server}
             />
 
             <MetricCard
               title="Schemas"
-              value={metrics.schemasCount.toString()}
+              value={displayValue(metrics?.schemasCount)}
               description="Registered schemas"
               icon={FileCode2}
             />
 
             <MetricCard
               title="Partitions"
-              value={metrics.partitionsCount.toString()}
+              value={displayValue(metrics?.partitionsCount)}
               description="Total partitions"
               icon={Database}
             />
@@ -242,12 +261,12 @@ export default function Dashboard() {
             </div>
             {!loading && throughputData.length > 0 && (
               <div className="flex items-center gap-1 text-sm">
-                {metrics.messagesPerSecondTrend !== undefined && metrics.messagesPerSecondTrend > 0 ? (
+                {metrics?.messagesPerSecondTrend !== undefined && metrics.messagesPerSecondTrend > 0 ? (
                   <TrendingUp className="h-4 w-4 text-green-500" />
-                ) : metrics.messagesPerSecondTrend !== undefined && metrics.messagesPerSecondTrend < 0 ? (
+                ) : metrics?.messagesPerSecondTrend !== undefined && metrics.messagesPerSecondTrend < 0 ? (
                   <TrendingDown className="h-4 w-4 text-red-500" />
                 ) : null}
-                <span className="font-medium">{metrics.messagesPerSecond.toLocaleString()}/s</span>
+                <span className="font-medium">{metrics?.messagesPerSecond?.toLocaleString() ?? 0}/s</span>
               </div>
             )}
           </div>
@@ -265,8 +284,11 @@ export default function Dashboard() {
           ) : (
             <div className="h-64">
               <NoDataAvailable
-                message="No throughput data available yet"
-                description="Start producing messages to see throughput metrics"
+                message={apiConnected ? "No throughput data yet" : "Server not connected"}
+                description={apiConnected
+                  ? "Start producing messages to see throughput metrics"
+                  : "Connect to a running StreamHouse server to see metrics"
+                }
               />
             </div>
           )}
@@ -302,8 +324,11 @@ export default function Dashboard() {
           ) : (
             <div className="h-64">
               <NoDataAvailable
-                message="No consumer lag detected"
-                description="All consumer groups are caught up"
+                message={apiConnected ? "No consumer lag detected" : "Server not connected"}
+                description={apiConnected
+                  ? "All consumer groups are caught up"
+                  : "Connect to a running StreamHouse server to see consumer lag"
+                }
               />
             </div>
           )}

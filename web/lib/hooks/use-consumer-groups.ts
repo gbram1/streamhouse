@@ -23,10 +23,10 @@ export function useConsumerGroups() {
       // Transform API response to match UI expected format
       return data.map((group): ConsumerGroup => ({
         id: group.groupId,
-        state: 'stable', // API doesn't provide state yet
-        memberCount: group.partitionCount, // Use partition count as proxy
-        totalLag: Math.max(0, group.totalLag), // Ensure non-negative
-        lagTrend: 'stable', // API doesn't provide trend yet
+        state: (group as any).state || (group.partitionCount > 0 ? 'stable' : 'empty'),
+        memberCount: group.partitionCount,
+        totalLag: Math.max(0, group.totalLag),
+        lagTrend: (group as any).lagTrend || (group.totalLag > 1000 ? 'increasing' : 'stable'),
       }));
     },
   });
