@@ -48,6 +48,7 @@ export default function MonitoringPage() {
   const [metrics, setMetrics] = useState<SystemMetrics | null>(null);
   const [metricsHistory, setMetricsHistory] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [apiConnected, setApiConnected] = useState(false);
 
   useEffect(() => {
     const fetchData = async () => {
@@ -61,18 +62,16 @@ export default function MonitoringPage() {
         setAlerts(alertsRes || []);
         setMetrics(metricsRes);
 
-        // Generate sample metrics history for chart if no real data
-        if (!metricsRes) {
-          const now = Date.now();
-          const history = Array.from({ length: 20 }, (_, i) => ({
-            time: new Date(now - (19 - i) * 30000).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }),
-            cpu: Math.random() * 30 + 20,
-            memory: Math.random() * 20 + 40,
-          }));
-          setMetricsHistory(history);
+        // Track API connection status
+        if (metricsRes) {
+          setApiConnected(true);
+        } else {
+          setApiConnected(false);
+          setMetricsHistory([]);
         }
       } catch (error) {
         console.error('Failed to fetch monitoring data:', error);
+        setApiConnected(false);
       } finally {
         setLoading(false);
       }
@@ -229,6 +228,29 @@ export default function MonitoringPage() {
         )}
       </div>
 
+      {/* API Connection Status */}
+      <Card className={cn(
+        'mt-6 p-4 flex items-center gap-3',
+        apiConnected
+          ? 'border-green-500/30 bg-green-500/5'
+          : 'border-yellow-500/30 bg-yellow-500/5'
+      )}>
+        <div className={cn(
+          'h-3 w-3 rounded-full',
+          apiConnected ? 'bg-green-500 animate-pulse' : 'bg-yellow-500'
+        )} />
+        <div>
+          <span className="text-sm font-medium">
+            {apiConnected ? 'Connected to StreamHouse server' : 'Not connected to StreamHouse server'}
+          </span>
+          <p className="text-xs text-muted-foreground">
+            {apiConnected
+              ? `Receiving metrics from ${API_URL}`
+              : 'Connect to a running server to see real-time data'}
+          </p>
+        </div>
+      </Card>
+
       {/* System Metrics Chart */}
       <Card className="mt-6 p-6">
         <div className="flex items-center justify-between mb-4">
@@ -257,8 +279,8 @@ export default function MonitoringPage() {
           <div className="flex h-64 items-center justify-center text-muted-foreground">
             <div className="text-center">
               <Activity className="mx-auto h-12 w-12 opacity-50 mb-4" />
-              <p>No metrics data available</p>
-              <p className="text-sm mt-1">System metrics will appear here once collected</p>
+              <p className="font-medium">Connect to a running StreamHouse server to see real-time system metrics</p>
+              <p className="text-sm mt-2">CPU, memory, and disk usage will appear here once the server is connected</p>
             </div>
           </div>
         )}

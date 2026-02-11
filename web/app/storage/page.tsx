@@ -2,7 +2,8 @@
 
 import { DashboardLayout } from '@/components/layout/dashboard-layout';
 import { Card } from '@/components/ui/card';
-import { HardDrive, Database, Zap, Cloud, Activity } from 'lucide-react';
+import { Badge } from '@/components/ui/badge';
+import { HardDrive, Database, Zap, Activity, CheckCircle, XCircle } from 'lucide-react';
 import { useStorageMetrics } from '@/lib/hooks/use-metrics';
 import { formatBytes, formatCompactNumber, formatPercent } from '@/lib/utils';
 
@@ -99,7 +100,21 @@ export default function StoragePage() {
 
       {/* WAL Status */}
       <Card className="mt-6 p-6">
-        <h3 className="text-lg font-semibold mb-4">Write-Ahead Log (WAL)</h3>
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="text-lg font-semibold">Write-Ahead Log (WAL)</h3>
+          {!isLoading && (
+            <Badge
+              variant={storage?.walEnabled ? 'default' : 'destructive'}
+              className={storage?.walEnabled ? 'bg-green-600' : ''}
+            >
+              {storage?.walEnabled ? (
+                <><CheckCircle className="mr-1 h-3 w-3" /> Enabled</>
+              ) : (
+                <><XCircle className="mr-1 h-3 w-3" /> Disabled</>
+              )}
+            </Badge>
+          )}
+        </div>
         <div className="grid grid-cols-1 gap-6 md:grid-cols-3">
           <div>
             <p className="text-sm text-muted-foreground">WAL Size</p>
@@ -116,7 +131,7 @@ export default function StoragePage() {
           <div>
             <p className="text-sm text-muted-foreground">Sync Lag</p>
             <p className="mt-2 text-2xl font-bold">
-              {isLoading ? '...' : '0ms'}
+              {isLoading ? '...' : `${storage?.walSyncLagMs ?? 0}ms`}
             </p>
           </div>
         </div>
@@ -126,19 +141,42 @@ export default function StoragePage() {
       <Card className="mt-6 p-6">
         <h3 className="text-lg font-semibold mb-4">Cache Performance</h3>
         <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
-          {/* Hit Rate Chart */}
-          <div>
-            <h4 className="text-sm font-medium text-muted-foreground mb-4">Cache Hit Rate Over Time (24h)</h4>
-            <div className="flex h-52 items-center justify-center text-muted-foreground">
-              <p>Time-series cache metrics not yet implemented</p>
+          {/* Hit Rate */}
+          <div className="p-4 rounded-lg border bg-card">
+            <h4 className="text-sm font-medium text-muted-foreground mb-3">Cache Hit Rate</h4>
+            <div className="text-4xl font-bold text-green-600 mb-3">
+              {isLoading ? '...' : formatPercent(storage?.cacheHitRate || 0)}
             </div>
+            <div className="h-3 bg-secondary rounded-full overflow-hidden">
+              <div
+                className="h-full bg-green-500 rounded-full transition-all duration-500"
+                style={{ width: `${(storage?.cacheHitRate || 0) * 100}%` }}
+              />
+            </div>
+            <p className="text-xs text-muted-foreground mt-2">
+              Higher hit rate means fewer S3 requests
+            </p>
           </div>
 
-          {/* Eviction Rate */}
-          <div>
-            <h4 className="text-sm font-medium text-muted-foreground mb-4">Cache Evictions (12h)</h4>
-            <div className="flex h-52 items-center justify-center text-muted-foreground">
-              <p>Time-series cache metrics not yet implemented</p>
+          {/* Evictions */}
+          <div className="p-4 rounded-lg border bg-card">
+            <h4 className="text-sm font-medium text-muted-foreground mb-3">Cache Evictions</h4>
+            <div className="text-4xl font-bold mb-3">
+              {isLoading ? '...' : formatCompactNumber(storage?.cacheEvictions || 0)}
+            </div>
+            <div className="grid grid-cols-2 gap-4 mt-4">
+              <div>
+                <p className="text-xs text-muted-foreground">Cache Size</p>
+                <p className="text-sm font-medium mt-1">
+                  {isLoading ? '...' : formatBytes(storage?.cacheSize || 0)}
+                </p>
+              </div>
+              <div>
+                <p className="text-xs text-muted-foreground">Eviction Rate</p>
+                <p className="text-sm font-medium mt-1">
+                  {isLoading ? '...' : `${storage?.cacheEvictions || 0} entries`}
+                </p>
+              </div>
             </div>
           </div>
         </div>
@@ -169,19 +207,27 @@ export default function StoragePage() {
         <div className="grid grid-cols-1 gap-6 md:grid-cols-4">
           <div>
             <p className="text-sm text-muted-foreground">Request Count (24h)</p>
-            <p className="mt-2 text-2xl font-bold">-</p>
+            <p className="mt-2 text-2xl font-bold">
+              {isLoading ? '...' : formatCompactNumber(storage?.s3RequestCount || 0)}
+            </p>
           </div>
           <div>
             <p className="text-sm text-muted-foreground">Throttle Rate</p>
-            <p className="mt-2 text-2xl font-bold">0%</p>
+            <p className="mt-2 text-2xl font-bold">
+              {isLoading ? '...' : formatPercent(storage?.s3ThrottleRate || 0)}
+            </p>
           </div>
           <div>
             <p className="text-sm text-muted-foreground">Est. Monthly Cost</p>
-            <p className="mt-2 text-2xl font-bold">$0.00</p>
+            <p className="mt-2 text-2xl font-bold">
+              {isLoading ? '...' : `$${((storage?.s3RequestCount || 0) * 0.000005).toFixed(2)}`}
+            </p>
           </div>
           <div>
             <p className="text-sm text-muted-foreground">Avg Request Latency</p>
-            <p className="mt-2 text-2xl font-bold">-</p>
+            <p className="mt-2 text-2xl font-bold">
+              {isLoading ? '...' : `${storage?.s3AvgLatencyMs ?? '-'}ms`}
+            </p>
           </div>
         </div>
       </Card>

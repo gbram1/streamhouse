@@ -119,7 +119,10 @@ pub mod types;
 pub mod postgres;
 
 pub use auth::{ApiKeyAuth, AuthError, AuthResult};
-pub use backup::{MetadataBackup, RestoreStats};
+pub use backup::{
+    BackupScheduleConfig, BackupScheduler, KafkaMigrator, MetadataBackup, MigrationEstimate,
+    RestoreStats, SchemaImporter, TopicMirror,
+};
 pub use cached_store::{CacheConfig, CacheMetrics, CachedMetadataStore};
 pub use error::{MetadataError, Result};
 pub use quota::{QuotaCheck, QuotaEnforcer, QuotaSummary};

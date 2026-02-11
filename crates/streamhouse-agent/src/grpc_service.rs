@@ -628,63 +628,55 @@ impl ProducerService for ProducerServiceImpl {
             }
         };
 
-        // Append records
-        let mut base_offset = None;
-        let mut record_count = 0;
+        // Batch append — single WAL write for the entire produce request
+        let batch: Vec<(Option<bytes::Bytes>, bytes::Bytes, u64)> = req
+            .records
+            .into_iter()
+            .map(|r| (r.key.map(bytes::Bytes::from), bytes::Bytes::from(r.value), r.timestamp))
+            .collect();
 
-        {
+        let (base_offset, record_count) = {
             let mut writer_guard = writer.lock().await;
 
-            for record in req.records {
-                let timestamp = record.timestamp;
-                let key = record.key.map(bytes::Bytes::from);
-                let value = bytes::Bytes::from(record.value);
-
-                match writer_guard.append(key, value, timestamp).await {
-                    Ok(offset) => {
-                        if base_offset.is_none() {
-                            base_offset = Some(offset);
-                        }
-                        record_count += 1;
-                    }
-                    Err(e) => {
-                        // Check for throttle errors and propagate backpressure (Phase 12.4.2)
-                        let error_msg = e.to_string();
-                        if error_msg.contains("S3 operation rate limited") {
-                            warn!(
-                                topic = %req.topic,
-                                partition = req.partition,
-                                "S3 rate limited - rejecting produce request with backpressure"
-                            );
-                            return Err(Status::resource_exhausted(
-                                "S3 rate limit exceeded - please slow down",
-                            ));
-                        } else if error_msg.contains("S3 circuit breaker open") {
-                            error!(
-                                topic = %req.topic,
-                                partition = req.partition,
-                                "S3 circuit breaker open - rejecting produce request"
-                            );
-                            return Err(Status::unavailable(
-                                "S3 service is temporarily unavailable - circuit breaker open",
-                            ));
-                        }
-
+            match writer_guard.append_batch(&batch).await {
+                Ok(offsets) => {
+                    let base = *offsets.first().ok_or_else(|| {
+                        Status::internal("No offsets returned from batch append")
+                    })?;
+                    (base, offsets.len() as u64)
+                }
+                Err(e) => {
+                    let error_msg = e.to_string();
+                    if error_msg.contains("S3 operation rate limited") {
+                        warn!(
+                            topic = %req.topic,
+                            partition = req.partition,
+                            "S3 rate limited - rejecting produce request with backpressure"
+                        );
+                        return Err(Status::resource_exhausted(
+                            "S3 rate limit exceeded - please slow down",
+                        ));
+                    } else if error_msg.contains("S3 circuit breaker open") {
                         error!(
                             topic = %req.topic,
                             partition = req.partition,
-                            error = %e,
-                            "Failed to append record"
+                            "S3 circuit breaker open - rejecting produce request"
                         );
-                        return Err(Status::internal(format!("Failed to append record: {}", e)));
+                        return Err(Status::unavailable(
+                            "S3 service is temporarily unavailable - circuit breaker open",
+                        ));
                     }
+
+                    error!(
+                        topic = %req.topic,
+                        partition = req.partition,
+                        error = %e,
+                        "Failed to append batch"
+                    );
+                    return Err(Status::internal(format!("Failed to append batch: {}", e)));
                 }
             }
-        }
-
-        let base_offset = base_offset.ok_or_else(|| {
-            Status::internal("No base offset assigned (should not happen with non-empty batch)")
-        })?;
+        };
 
         debug!(
             topic = %req.topic,
@@ -791,7 +783,7 @@ impl ProducerService for ProducerServiceImpl {
 
         Ok(Response::new(ProduceResponse {
             base_offset,
-            record_count,
+            record_count: record_count as u32,
             log_append_time: None,
             record_errors: vec![],
             duplicates_filtered: false,

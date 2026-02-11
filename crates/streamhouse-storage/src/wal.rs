@@ -461,8 +461,12 @@ impl WAL {
             .await
             .map_err(|_| wal_closed_error())?;
 
-        // append_batch always syncs (matching current behavior)
-        self.flush_batch().await?;
+        // Only sync when batching is disabled (sync_append mode).
+        // In batched mode, the writer task handles flushing on thresholds,
+        // same as individual append() calls — this avoids blocking on every batch.
+        if self.sync_append {
+            self.flush_batch().await?;
+        }
 
         debug!(
             topic = self.topic,

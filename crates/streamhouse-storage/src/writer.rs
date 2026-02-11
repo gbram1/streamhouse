@@ -396,6 +396,52 @@ impl PartitionWriter {
         Ok(offset)
     }
 
+    /// Append a batch of records, using a single WAL write for the entire batch.
+    ///
+    /// This amortizes WAL channel overhead: instead of N individual channel sends,
+    /// all records are serialized into one buffer and sent as a single message.
+    /// Segment appends are still per-record to maintain offset assignment semantics.
+    pub async fn append_batch(
+        &mut self,
+        records: &[(Option<Bytes>, Bytes, u64)], // (key, value, timestamp)
+    ) -> Result<Vec<u64>> {
+        if records.is_empty() {
+            return Ok(vec![]);
+        }
+
+        // Assign offsets upfront
+        let base_offset = self.current_offset;
+        let offsets: Vec<u64> = (0..records.len() as u64)
+            .map(|i| base_offset + i)
+            .collect();
+        self.current_offset += records.len() as u64;
+
+        // Single WAL write for the entire batch
+        if let Some(ref wal) = self.wal {
+            let wal_records: Vec<(Option<&[u8]>, &[u8])> = records
+                .iter()
+                .map(|(key, value, _ts)| (key.as_deref(), value.as_ref()))
+                .collect();
+            wal.append_batch(&wal_records).await?;
+        }
+
+        // Append each record to the segment (maintains offset/index semantics)
+        for (i, (key, value, timestamp)) in records.iter().enumerate() {
+            let record = Record::new(offsets[i], *timestamp, key.clone(), value.clone());
+            self.segment_size_estimate += record.estimated_size();
+            self.current_segment
+                .append(&record)
+                .map_err(|e| Error::SegmentError(e.to_string()))?;
+        }
+
+        // Check if we should roll the segment after the batch
+        if self.should_roll_segment() {
+            self.roll_segment().await?;
+        }
+
+        Ok(offsets)
+    }
+
     /// Check if we should create a new segment
     fn should_roll_segment(&self) -> bool {
         // Check size threshold
