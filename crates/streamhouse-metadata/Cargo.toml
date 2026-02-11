@@ -20,12 +20,15 @@ sha2 = "0.10"
 rand = "0.8"
 lru = "0.12"
 regex = "1"
+reqwest = { version = "0.12", features = ["json"], default-features = false, optional = true }
+flate2 = { version = "1", optional = true }
 
 [features]
 default = ["sqlite"]
 sqlite = ["sqlx/sqlite"]
 postgres = ["sqlx/postgres"]
 all-backends = ["sqlite", "postgres"]
+migration-tools = ["reqwest/rustls-tls", "flate2"]
 
 [lints.rust]
-unexpected_cfgs = { level = "warn", check-cfg = ['cfg(feature, values("axum"))'] }
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(feature, values("axum", "migration-tools"))'] }

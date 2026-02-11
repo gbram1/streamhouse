@@ -186,13 +186,13 @@ class StreamHouseClient:
                 params=params,
                 timeout=self.timeout,
             )
-            if response.status_code >= 400:
-                self._handle_response_error(response.status_code, response.text)
-            if response.status_code == 204:
-                return None
-            return response.json() if response.text else None
         except requests.exceptions.RequestException as e:
             raise ConnectionError(f"Connection failed: {e}")
+        if response.status_code >= 400:
+            self._handle_response_error(response.status_code, response.text)
+        if response.status_code == 204:
+            return None
+        return response.json() if response.text else None
 
     # =========================================================================
     # Topic Operations

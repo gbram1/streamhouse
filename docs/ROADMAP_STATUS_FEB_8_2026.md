@@ -367,6 +367,32 @@ serialization and channel overhead.
 - Offset reset controls
 - **Status**: Not started.
 
+#### UI.10: Web Console Polish & Fixes (~2-3 days)
+
+**Problem**: Many dashboard components display hardcoded or placeholder values instead of
+real data from the backend. The UI looks complete at first glance but several metrics are
+non-functional, undermining trust in the monitoring experience.
+
+**Known issues**:
+- **Storage page — WAL Sync Lag**: Hardcoded to `'0ms'` (`/app/storage/page.tsx:119`), not fetched from API
+- **Storage page — WAL Size / Uncommitted Entries**: May always show 0 if backend `/api/v1/metrics/storage` doesn't populate `walSize` / `walUncommittedEntries`
+- **Storage page — S3 Metrics**: Request count, throttle rate, cost estimates all hardcoded/placeholder (`-`, `$0.00`)
+- **Storage page — Cache Performance**: "Time-series cache metrics not yet implemented" placeholder
+- **Agents page — CPU/Memory/Disk**: All show `0%` / `N/A` — resource metrics not wired to backend
+- **Consumers page — Lag Trend Chart**: "Time-series lag metrics not yet implemented" placeholder
+- **Monitoring page — System Metrics**: Falls back to generated sample data when API unavailable
+
+**Implementation plan**:
+1. Audit every dashboard page for hardcoded/placeholder values
+2. Wire WAL metrics (size, uncommitted entries, sync lag) from backend Prometheus counters through REST API to UI
+3. Wire agent resource metrics (CPU, memory, disk) or remove the placeholders
+4. Implement or stub time-series endpoints for cache performance and consumer lag trends
+5. Replace S3 placeholder metrics with real values from the rate limiter / circuit breaker stats
+6. End-to-end smoke test: start server, produce messages, verify every dashboard widget shows live data
+7. Fix any broken navigation, dead links, or layout issues discovered during audit
+
+**Status**: Not started.
+
 ### Tier 2: Lower Priority (~6 weeks)
 
 Features that add competitive differentiation but aren't blocking production use.
@@ -484,6 +510,7 @@ Multi-Tenancy        [███████████████████�
 Streaming SQL        [██████████████████████████████] 100%  Phases 21-25
 Client SDKs          [██████████████████████████████] 100%  Phase 12.1
 Web Console          [██████████████████████████████] 100%  Web UI
+Web Console Polish   [░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░]   0%  UI.10
 Enhanced CLI         [██████████████████████████████] 100%  Phase 14
 Developer Experience [██████████████████████████████] 100%  Phase 20
 RBAC & Governance    [░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░]   0%  Phase 11.2
@@ -503,11 +530,11 @@ Documentation        [████████░░░░░░░░░░░�
 
 | Tier | Phases | Effort | Calendar |
 |------|--------|--------|----------|
-| **Tier 1** (Medium priority) | 12.4.6, 10.3c, 11.2, 11.4, 12.2, UI.9 | ~92h | ~2.3 weeks |
+| **Tier 1** (Medium priority) | 12.4.6, 10.3c, 11.2, 11.4, 12.2, UI.9, UI.10 | ~112h | ~2.8 weeks |
 | **Tier 2** (Lower priority) | 10.6-10.10, 12.3, 13, 14.2-14.3, 15, 16 | ~250h | ~6 weeks |
 | **Tier 3** (Strategic) | 11, 19, 20 (npm) | ~340h | ~8.5 weeks |
 | **Tier 4** (AI/ML) | AI-1 through AI-6 | ~285h | ~7 weeks |
-| **TOTAL** | | **~975h** | **~24 weeks** |
+| **TOTAL** | | **~995h** | **~25 weeks** |
 
 ---
 
@@ -516,7 +543,8 @@ Documentation        [████████░░░░░░░░░░░�
 ### Quick wins (< 1 week each)
 1. ~~**Phase 12.4.5: Shared WAL**~~ — **DONE**. Loss reduced from 0.02% to 0.0032% on failover.
 2. **Phase 12.4.6: WAL Batch Optimization** — Recovers WAL-enabled throughput from 310K to ~1M msg/s. One-day fix: use `append_batch()` in produce path instead of per-record `append()`, fix `flush_batch` sync behavior.
-3. **Phase 12.2: Framework Integrations** — Spring Boot + FastAPI bindings drive adoption
+3. **UI.10: Web Console Polish** — Fix hardcoded/placeholder metrics (WAL always 0, agent CPU/mem N/A, S3 stats $0.00). Wire real backend data to every dashboard widget.
+4. **Phase 12.2: Framework Integrations** — Spring Boot + FastAPI bindings drive adoption
 3. **Phase 11.2: RBAC** — Enterprise customers expect role-based access
 4. **AI-1: Natural Language -> SQL** — High-impact differentiator, builds on existing SQL engine
 

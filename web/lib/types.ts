@@ -165,6 +165,12 @@ export interface StorageMetrics {
   cacheSize: number;
   walSize: number;
   walUncommittedEntries: number;
+  walSyncLagMs: number;
+  walEnabled: boolean;
+  s3RequestCount: number;
+  s3ThrottleRate: number;
+  s3AvgLatencyMs: number;
+  cacheEvictions: number;
 }
 
 // WebSocket Messages

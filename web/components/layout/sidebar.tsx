@@ -19,6 +19,7 @@ import {
   Key,
   Settings,
   Sparkles,
+  PlayCircle,
 } from 'lucide-react';
 
 const navigation = [
@@ -76,6 +77,11 @@ const navigation = [
     name: 'Storage',
     href: '/storage',
     icon: HardDrive,
+  },
+  {
+    name: 'Consumer Simulator',
+    href: '/consumer-simulator',
+    icon: PlayCircle,
   },
   {
     name: 'Monitoring',

@@ -169,12 +169,53 @@ export default function ConsumersPage() {
         </div>
       </Card>
 
-      {/* Consumer Lag Over Time */}
+      {/* Top Consumer Groups by Lag */}
       <Card className="mt-6 p-6">
-        <h3 className="text-lg font-semibold mb-4">Consumer Lag Over Time (24h)</h3>
-        <div className="flex h-64 items-center justify-center text-muted-foreground">
-          <p>Time-series lag metrics not yet implemented</p>
-        </div>
+        <h3 className="text-lg font-semibold mb-4">Top Consumer Groups by Lag</h3>
+        {isLoading ? (
+          <div className="flex h-48 items-center justify-center text-muted-foreground">
+            <p>Loading lag data...</p>
+          </div>
+        ) : !consumerGroups || consumerGroups.length === 0 ? (
+          <div className="flex h-48 items-center justify-center text-muted-foreground">
+            <p>No consumer groups to display</p>
+          </div>
+        ) : (() => {
+          const topGroups = [...consumerGroups]
+            .sort((a, b) => b.totalLag - a.totalLag)
+            .slice(0, 5);
+          const maxLag = Math.max(...topGroups.map((g) => g.totalLag), 1);
+
+          return (
+            <div className="space-y-4">
+              {topGroups.map((group) => {
+                const pct = (group.totalLag / maxLag) * 100;
+                return (
+                  <div key={group.id}>
+                    <div className="flex items-center justify-between mb-1.5">
+                      <span className="text-sm font-medium truncate max-w-50">{group.id}</span>
+                      <span className={`text-sm font-medium ${getLagColor(group.totalLag)}`}>
+                        {formatCompactNumber(group.totalLag)} messages
+                      </span>
+                    </div>
+                    <div className="h-3 bg-secondary rounded-full overflow-hidden">
+                      <div
+                        className={`h-full rounded-full transition-all duration-300 ${
+                          group.totalLag === 0
+                            ? 'bg-green-500'
+                            : group.totalLag < 1000
+                            ? 'bg-yellow-500'
+                            : 'bg-red-500'
+                        }`}
+                        style={{ width: `${Math.max(pct, 2)}%` }}
+                      />
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          );
+        })()}
       </Card>
     </DashboardLayout>
   );

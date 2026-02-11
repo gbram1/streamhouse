@@ -25,6 +25,8 @@ pub mod leader;
 pub mod models;
 pub mod oauth;
 pub mod pitr;
+pub mod rbac;
+pub mod replication;
 pub mod prometheus;
 pub mod sasl;
 pub mod shutdown;
@@ -64,6 +66,15 @@ pub use pitr::{
     BackupMetadata, BackupStatus, BaseBackup, PitrConfig, PitrConfigBuilder, PitrError,
     PitrManager, RecoveryResult, RecoveryTarget, SystemSnapshot,
     VerificationResult as PitrVerificationResult, WalEntry, WalOperation, WalSegment, WalStats,
+};
+pub use rbac::{
+    DataMasker, DataMaskingPolicy, MaskType, Permission, RbacError, RbacLayer, RbacManager,
+    RbacMiddleware, Role, RoleAssignment, ADMIN_ROLE_ID, DEVELOPER_ROLE_ID, OPERATOR_ROLE_ID,
+    VIEWER_ROLE_ID,
+};
+pub use replication::{
+    RegionEndpoint, RegionReplicationState, ReplicatedSegment, ReplicationConfig, ReplicationError,
+    ReplicationLag, ReplicationManager, ReplicationMode, ReplicationStats, ReplicationStatus,
 };
 pub use prometheus::PrometheusClient;
 pub use sasl::{

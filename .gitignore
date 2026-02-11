@@ -37,3 +37,5 @@ web/.vercel
 examples/production-demo/target/
 
 /scripts/data-failover
+/sdks/java/target/
+**/__pycache__
