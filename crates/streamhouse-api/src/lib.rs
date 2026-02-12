@@ -25,6 +25,7 @@ pub mod leader;
 pub mod models;
 pub mod oauth;
 pub mod pitr;
+pub mod opa;
 pub mod rbac;
 pub mod replication;
 pub mod prometheus;
@@ -66,6 +67,10 @@ pub use pitr::{
     BackupMetadata, BackupStatus, BaseBackup, PitrConfig, PitrConfigBuilder, PitrError,
     PitrManager, RecoveryResult, RecoveryTarget, SystemSnapshot,
     VerificationResult as PitrVerificationResult, WalEntry, WalOperation, WalSegment, WalStats,
+};
+pub use opa::{
+    OpaClient, OpaConfig, OpaDecision, OpaDecisionSource, OpaError, OpaInput, OpaLayer,
+    OpaRbacManager, OpaResult, OpaResponse, OpaService,
 };
 pub use rbac::{
     DataMasker, DataMaskingPolicy, MaskType, Permission, RbacError, RbacLayer, RbacManager,
