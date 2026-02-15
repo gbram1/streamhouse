@@ -1,10 +1,25 @@
 //! Message produce endpoint
 
-use axum::{extract::State, http::StatusCode, Json};
+use axum::{
+    extract::State,
+    http::{HeaderMap, StatusCode},
+    Json,
+};
 use bytes::Bytes;
 use std::collections::HashMap;
 
 use crate::{models::*, AppState};
+use streamhouse_metadata::DEFAULT_ORGANIZATION_ID;
+
+/// Extract organization ID from request headers, defaulting to DEFAULT_ORGANIZATION_ID.
+fn extract_org_id(headers: &HeaderMap) -> String {
+    headers
+        .get("x-organization-id")
+        .and_then(|v| v.to_str().ok())
+        .filter(|s| !s.is_empty())
+        .map(|s| s.to_string())
+        .unwrap_or_else(|| DEFAULT_ORGANIZATION_ID.to_string())
+}
 
 #[utoipa::path(
     post,
@@ -20,8 +35,22 @@ use crate::{models::*, AppState};
 )]
 pub async fn produce(
     State(state): State<AppState>,
+    headers: HeaderMap,
     Json(req): Json<ProduceRequest>,
 ) -> Result<Json<ProduceResponse>, StatusCode> {
+    let org_id = extract_org_id(&headers);
+
+    // Verify topic belongs to org
+    if state
+        .metadata
+        .get_topic_for_org(&org_id, &req.topic)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+        .is_none()
+    {
+        return Err(StatusCode::NOT_FOUND);
+    }
+
     // Validate topic exists
     let topic = state
         .metadata
@@ -114,8 +143,22 @@ pub async fn produce(
 )]
 pub async fn produce_batch(
     State(state): State<AppState>,
+    headers: HeaderMap,
     Json(req): Json<BatchProduceRequest>,
 ) -> Result<Json<BatchProduceResponse>, StatusCode> {
+    let org_id = extract_org_id(&headers);
+
+    // Verify topic belongs to org
+    if state
+        .metadata
+        .get_topic_for_org(&org_id, &req.topic)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+        .is_none()
+    {
+        return Err(StatusCode::NOT_FOUND);
+    }
+
     // Validate topic exists
     let topic = state
         .metadata

@@ -386,6 +386,146 @@ impl MetadataStore for PostgresMetadataStore {
             .collect())
     }
 
+    async fn list_topics_for_org(&self, org_id: &str) -> Result<Vec<Topic>> {
+        let rows = sqlx::query(
+            "SELECT name, partition_count, retention_ms, created_at, config
+             FROM topics WHERE organization_id = $1 ORDER BY created_at DESC",
+        )
+        .bind(org_id)
+        .fetch_all(&self.pool)
+        .await?;
+
+        Ok(rows
+            .iter()
+            .map(|r| {
+                let config: std::collections::HashMap<String, String> =
+                    serde_json::from_value(r.get("config")).unwrap_or_default();
+                let cleanup_policy = config
+                    .get("cleanup.policy")
+                    .map(|s| CleanupPolicy::from_str(s))
+                    .unwrap_or_default();
+                Topic {
+                    name: r.get("name"),
+                    partition_count: r.get::<i32, _>("partition_count") as u32,
+                    retention_ms: r.get("retention_ms"),
+                    cleanup_policy,
+                    created_at: r.get("created_at"),
+                    config,
+                }
+            })
+            .collect())
+    }
+
+    async fn create_topic_for_org(&self, org_id: &str, config: TopicConfig) -> Result<()> {
+        let mut tx = self.pool.begin().await?;
+        let now_ms = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_millis() as i64;
+
+        let mut config_map = config.config.clone();
+        config_map.insert(
+            "cleanup.policy".to_string(),
+            config.cleanup_policy.as_str().to_string(),
+        );
+        let config_json = serde_json::to_value(&config_map)?;
+
+        sqlx::query(
+            "INSERT INTO topics (organization_id, name, partition_count, retention_ms, created_at, updated_at, config)
+             VALUES ($1, $2, $3, $4, $5, $6, $7)",
+        )
+        .bind(org_id)
+        .bind(&config.name)
+        .bind(config.partition_count as i32)
+        .bind(config.retention_ms)
+        .bind(now_ms)
+        .bind(now_ms)
+        .bind(&config_json)
+        .execute(&mut *tx)
+        .await?;
+
+        for partition_id in 0..config.partition_count {
+            sqlx::query(
+                "INSERT INTO partitions (organization_id, topic, partition_id, high_watermark, created_at, updated_at)
+                 VALUES ($1, $2, $3, 0, $4, $5)",
+            )
+            .bind(org_id)
+            .bind(&config.name)
+            .bind(partition_id as i32)
+            .bind(now_ms)
+            .bind(now_ms)
+            .execute(&mut *tx)
+            .await?;
+        }
+
+        tx.commit().await?;
+        Ok(())
+    }
+
+    async fn delete_topic_for_org(&self, org_id: &str, name: &str) -> Result<()> {
+        let result = sqlx::query(
+            "DELETE FROM topics WHERE organization_id = $1 AND name = $2",
+        )
+        .bind(org_id)
+        .bind(name)
+        .execute(&self.pool)
+        .await?;
+
+        if result.rows_affected() == 0 {
+            return Err(MetadataError::TopicNotFound(name.to_string()));
+        }
+        Ok(())
+    }
+
+    async fn get_topic_for_org(&self, org_id: &str, name: &str) -> Result<Option<Topic>> {
+        let row = sqlx::query(
+            "SELECT name, partition_count, retention_ms, created_at, config
+             FROM topics WHERE organization_id = $1 AND name = $2",
+        )
+        .bind(org_id)
+        .bind(name)
+        .fetch_optional(&self.pool)
+        .await?;
+
+        Ok(row.map(|r| {
+            let config: std::collections::HashMap<String, String> =
+                serde_json::from_value(r.get("config")).unwrap_or_default();
+            let cleanup_policy = config
+                .get("cleanup.policy")
+                .map(|s| CleanupPolicy::from_str(s))
+                .unwrap_or_default();
+            Topic {
+                name: r.get("name"),
+                partition_count: r.get::<i32, _>("partition_count") as u32,
+                retention_ms: r.get("retention_ms"),
+                cleanup_policy,
+                created_at: r.get("created_at"),
+                config,
+            }
+        }))
+    }
+
+    async fn ensure_organization(&self, org_id: &str, name: &str) -> Result<()> {
+        let now_ms = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_millis() as i64;
+        let slug = name.to_lowercase().replace(' ', "-");
+        sqlx::query(
+            "INSERT INTO organizations (id, name, slug, plan, status, created_at, updated_at)
+             VALUES ($1, $2, $3, 'free', 'active', $4, $5)
+             ON CONFLICT (id) DO NOTHING",
+        )
+        .bind(org_id)
+        .bind(name)
+        .bind(&slug)
+        .bind(now_ms)
+        .bind(now_ms)
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
     async fn get_partition(&self, topic: &str, partition_id: u32) -> Result<Option<Partition>> {
         let row = sqlx::query(
             "SELECT topic, partition_id, high_watermark

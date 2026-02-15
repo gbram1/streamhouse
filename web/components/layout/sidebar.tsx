@@ -2,6 +2,7 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
+import { UserButton, OrganizationSwitcher } from '@clerk/nextjs';
 import { cn } from '@/lib/utils';
 import {
   LayoutDashboard,
@@ -114,11 +115,22 @@ export function Sidebar() {
 
   return (
     <div className="flex h-full w-64 flex-col border-r bg-sidebar">
-      {/* Logo */}
-      <div className="flex h-16 items-center border-b px-6">
+      {/* Logo & Org Switcher */}
+      <div className="flex flex-col border-b px-6 py-4 gap-3">
         <h1 className="text-xl font-bold text-sidebar-foreground">
           StreamHouse
         </h1>
+        <OrganizationSwitcher
+          hidePersonal={false}
+          afterCreateOrganizationUrl="/"
+          afterSelectOrganizationUrl="/"
+          appearance={{
+            elements: {
+              rootBox: 'w-full',
+              organizationSwitcherTrigger: 'w-full justify-between',
+            }
+          }}
+        />
       </div>
 
       {/* Navigation */}
@@ -175,10 +187,16 @@ export function Sidebar() {
 
       {/* Footer */}
       <div className="border-t p-4">
-        <div className="flex items-center gap-3">
-          <div className="h-2 w-2 rounded-full bg-green-500" />
-          <span className="text-xs text-sidebar-foreground">Connected</span>
-        </div>
+        <UserButton
+          showName
+          appearance={{
+            elements: {
+              rootBox: 'w-full',
+              userButtonBox: 'w-full',
+              userButtonTrigger: 'w-full justify-start',
+            }
+          }}
+        />
       </div>
     </div>
   );

@@ -436,6 +436,26 @@ impl<S: MetadataStore + 'static> MetadataStore for CachedMetadataStore<S> {
         Ok(topics)
     }
 
+    async fn list_topics_for_org(&self, org_id: &str) -> Result<Vec<Topic>> {
+        self.inner.list_topics_for_org(org_id).await
+    }
+
+    async fn create_topic_for_org(&self, org_id: &str, config: TopicConfig) -> Result<()> {
+        self.inner.create_topic_for_org(org_id, config).await
+    }
+
+    async fn delete_topic_for_org(&self, org_id: &str, name: &str) -> Result<()> {
+        self.inner.delete_topic_for_org(org_id, name).await
+    }
+
+    async fn get_topic_for_org(&self, org_id: &str, name: &str) -> Result<Option<Topic>> {
+        self.inner.get_topic_for_org(org_id, name).await
+    }
+
+    async fn ensure_organization(&self, org_id: &str, name: &str) -> Result<()> {
+        self.inner.ensure_organization(org_id, name).await
+    }
+
     // ========================================================================
     // PARTITION OPERATIONS
     // ========================================================================

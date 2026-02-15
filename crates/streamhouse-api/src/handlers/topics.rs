@@ -2,13 +2,23 @@
 
 use axum::{
     extract::{Path, Query, State},
-    http::StatusCode,
+    http::{HeaderMap, StatusCode},
     Json,
 };
 use chrono::{DateTime, Utc};
 
 use crate::{models::*, AppState};
-use streamhouse_metadata::TopicConfig;
+use streamhouse_metadata::{TopicConfig, DEFAULT_ORGANIZATION_ID};
+
+/// Extract organization ID from request headers, defaulting to DEFAULT_ORGANIZATION_ID.
+fn extract_org_id(headers: &HeaderMap) -> String {
+    headers
+        .get("x-organization-id")
+        .and_then(|v| v.to_str().ok())
+        .filter(|s| !s.is_empty())
+        .map(|s| s.to_string())
+        .unwrap_or_else(|| DEFAULT_ORGANIZATION_ID.to_string())
+}
 
 /// Decode message value, handling Avro Object Container format
 /// Returns JSON string if Avro, otherwise returns raw string
@@ -121,10 +131,18 @@ fn format_timestamp(timestamp_millis: i64) -> String {
     ),
     tag = "topics"
 )]
-pub async fn list_topics(State(state): State<AppState>) -> Result<Json<Vec<Topic>>, StatusCode> {
+pub async fn list_topics(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> Result<Json<Vec<Topic>>, StatusCode> {
+    let org_id = extract_org_id(&headers);
+
+    // Ensure the organization exists (lazy creation from Clerk)
+    let _ = state.metadata.ensure_organization(&org_id, &org_id).await;
+
     let topics = state
         .metadata
-        .list_topics()
+        .list_topics_for_org(&org_id)
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
@@ -169,8 +187,14 @@ pub async fn list_topics(State(state): State<AppState>) -> Result<Json<Vec<Topic
 )]
 pub async fn create_topic(
     State(state): State<AppState>,
+    headers: HeaderMap,
     Json(req): Json<CreateTopicRequest>,
 ) -> Result<(StatusCode, Json<Topic>), StatusCode> {
+    let org_id = extract_org_id(&headers);
+
+    // Ensure the organization exists (lazy creation from Clerk)
+    let _ = state.metadata.ensure_organization(&org_id, &org_id).await;
+
     // Validate input
     if req.name.is_empty() {
         return Err(StatusCode::BAD_REQUEST);
@@ -179,10 +203,10 @@ pub async fn create_topic(
         return Err(StatusCode::BAD_REQUEST);
     }
 
-    // Check if topic already exists
+    // Check if topic already exists for this org
     if state
         .metadata
-        .get_topic(&req.name)
+        .get_topic_for_org(&org_id, &req.name)
         .await
         .unwrap_or(None)
         .is_some()
@@ -201,7 +225,7 @@ pub async fn create_topic(
 
     state
         .metadata
-        .create_topic(config)
+        .create_topic_for_org(&org_id, config)
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
@@ -231,11 +255,14 @@ pub async fn create_topic(
 )]
 pub async fn get_topic(
     State(state): State<AppState>,
+    headers: HeaderMap,
     Path(name): Path<String>,
 ) -> Result<Json<Topic>, StatusCode> {
+    let org_id = extract_org_id(&headers);
+
     let topic = state
         .metadata
-        .get_topic(&name)
+        .get_topic_for_org(&org_id, &name)
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
         .ok_or(StatusCode::NOT_FOUND)?;
@@ -277,12 +304,15 @@ pub async fn get_topic(
 )]
 pub async fn delete_topic(
     State(state): State<AppState>,
+    headers: HeaderMap,
     Path(name): Path<String>,
 ) -> Result<StatusCode, StatusCode> {
-    // Check if topic exists
+    let org_id = extract_org_id(&headers);
+
+    // Check if topic exists for this org
     state
         .metadata
-        .get_topic(&name)
+        .get_topic_for_org(&org_id, &name)
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
         .ok_or(StatusCode::NOT_FOUND)?;
@@ -290,7 +320,7 @@ pub async fn delete_topic(
     // Delete topic
     state
         .metadata
-        .delete_topic(&name)
+        .delete_topic_for_org(&org_id, &name)
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 

@@ -299,6 +299,31 @@ pub trait MetadataStore: Send + Sync {
     /// For large systems, consider pagination (future enhancement).
     async fn list_topics(&self) -> Result<Vec<Topic>>;
 
+    /// List topics for a specific organization.
+    async fn list_topics_for_org(&self, _org_id: &str) -> Result<Vec<Topic>> {
+        self.list_topics().await
+    }
+
+    /// Create a topic for a specific organization.
+    async fn create_topic_for_org(&self, _org_id: &str, config: TopicConfig) -> Result<()> {
+        self.create_topic(config).await
+    }
+
+    /// Delete a topic for a specific organization.
+    async fn delete_topic_for_org(&self, _org_id: &str, name: &str) -> Result<()> {
+        self.delete_topic(name).await
+    }
+
+    /// Get a topic for a specific organization (verifies ownership).
+    async fn get_topic_for_org(&self, _org_id: &str, name: &str) -> Result<Option<Topic>> {
+        self.get_topic(name).await
+    }
+
+    /// Ensure an organization exists, creating it if necessary (lazy sync from external auth).
+    async fn ensure_organization(&self, _org_id: &str, _name: &str) -> Result<()> {
+        Ok(())
+    }
+
     /// List topics matching a wildcard pattern.
     ///
     /// Supports glob-style patterns where `*` matches any sequence of characters.

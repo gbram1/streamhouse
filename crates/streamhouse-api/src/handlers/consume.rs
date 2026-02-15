@@ -1,10 +1,25 @@
 //! Message consume endpoint
 
-use axum::{extract::State, http::StatusCode, Json};
+use axum::{
+    extract::State,
+    http::{HeaderMap, StatusCode},
+    Json,
+};
 use serde::Deserialize;
 
 use crate::models::{ConsumeResponse, ConsumedRecord};
 use crate::AppState;
+use streamhouse_metadata::DEFAULT_ORGANIZATION_ID;
+
+/// Extract organization ID from request headers, defaulting to DEFAULT_ORGANIZATION_ID.
+fn extract_org_id(headers: &HeaderMap) -> String {
+    headers
+        .get("x-organization-id")
+        .and_then(|v| v.to_str().ok())
+        .filter(|s| !s.is_empty())
+        .map(|s| s.to_string())
+        .unwrap_or_else(|| DEFAULT_ORGANIZATION_ID.to_string())
+}
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -40,8 +55,22 @@ fn default_max_records() -> usize {
 )]
 pub async fn consume(
     State(state): State<AppState>,
+    headers: HeaderMap,
     axum::extract::Query(req): axum::extract::Query<ConsumeRequest>,
 ) -> Result<Json<ConsumeResponse>, StatusCode> {
+    let org_id = extract_org_id(&headers);
+
+    // Verify topic belongs to org
+    if state
+        .metadata
+        .get_topic_for_org(&org_id, &req.topic)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+        .is_none()
+    {
+        return Err(StatusCode::NOT_FOUND);
+    }
+
     // Validate topic exists
     let topic = state
         .metadata
