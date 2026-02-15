@@ -326,6 +326,160 @@ impl MetadataStore for SqliteMetadataStore {
             .collect())
     }
 
+    async fn list_topics_for_org(&self, org_id: &str) -> Result<Vec<Topic>> {
+        let rows = sqlx::query!(
+            r#"
+            SELECT name as "name!", partition_count as "partition_count!", retention_ms, created_at as "created_at!", config as "config!"
+            FROM topics
+            WHERE organization_id = ?
+            ORDER BY name
+            "#,
+            org_id
+        )
+        .fetch_all(&self.pool)
+        .await?;
+
+        Ok(rows
+            .into_iter()
+            .map(|r| {
+                let config: HashMap<String, String> =
+                    serde_json::from_str(&r.config).unwrap_or_default();
+                let cleanup_policy = config
+                    .get("cleanup.policy")
+                    .map(|s| CleanupPolicy::from_str(s))
+                    .unwrap_or_default();
+                Topic {
+                    name: r.name,
+                    partition_count: r.partition_count as u32,
+                    retention_ms: r.retention_ms,
+                    cleanup_policy,
+                    created_at: r.created_at,
+                    config,
+                }
+            })
+            .collect())
+    }
+
+    async fn create_topic_for_org(&self, org_id: &str, config: TopicConfig) -> Result<()> {
+        let mut tx = self.pool.begin().await?;
+        let now = Self::now_ms();
+
+        let mut config_map = config.config.clone();
+        config_map.insert(
+            "cleanup.policy".to_string(),
+            config.cleanup_policy.as_str().to_string(),
+        );
+        let config_json = serde_json::to_string(&config_map)?;
+
+        let result = sqlx::query!(
+            r#"
+            INSERT INTO topics (organization_id, name, partition_count, retention_ms, created_at, updated_at, config)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            "#,
+            org_id,
+            config.name,
+            config.partition_count,
+            config.retention_ms,
+            now,
+            now,
+            config_json,
+        )
+        .execute(&mut *tx)
+        .await;
+
+        if let Err(e) = result {
+            if e.to_string().contains("UNIQUE constraint failed") {
+                return Err(MetadataError::TopicAlreadyExists(config.name));
+            }
+            return Err(e.into());
+        }
+
+        for partition_id in 0..config.partition_count {
+            sqlx::query!(
+                r#"
+                INSERT INTO partitions (organization_id, topic, partition_id, high_watermark, created_at, updated_at)
+                VALUES (?, ?, ?, 0, ?, ?)
+                "#,
+                org_id,
+                config.name,
+                partition_id,
+                now,
+                now,
+            )
+            .execute(&mut *tx)
+            .await?;
+        }
+
+        tx.commit().await?;
+        Ok(())
+    }
+
+    async fn delete_topic_for_org(&self, org_id: &str, name: &str) -> Result<()> {
+        let rows_affected = sqlx::query!(
+            "DELETE FROM topics WHERE organization_id = ? AND name = ?",
+            org_id,
+            name
+        )
+        .execute(&self.pool)
+        .await?
+        .rows_affected();
+
+        if rows_affected == 0 {
+            return Err(MetadataError::TopicNotFound(name.to_string()));
+        }
+        Ok(())
+    }
+
+    async fn get_topic_for_org(&self, org_id: &str, name: &str) -> Result<Option<Topic>> {
+        let row = sqlx::query!(
+            r#"
+            SELECT name as "name!", partition_count as "partition_count!", retention_ms, created_at as "created_at!", config as "config!"
+            FROM topics
+            WHERE organization_id = ? AND name = ?
+            "#,
+            org_id,
+            name
+        )
+        .fetch_optional(&self.pool)
+        .await?;
+
+        Ok(row.map(|r| {
+            let config: HashMap<String, String> =
+                serde_json::from_str(&r.config).unwrap_or_default();
+            let cleanup_policy = config
+                .get("cleanup.policy")
+                .map(|s| CleanupPolicy::from_str(s))
+                .unwrap_or_default();
+            Topic {
+                name: r.name,
+                partition_count: r.partition_count as u32,
+                retention_ms: r.retention_ms,
+                cleanup_policy,
+                created_at: r.created_at,
+                config,
+            }
+        }))
+    }
+
+    async fn ensure_organization(&self, org_id: &str, name: &str) -> Result<()> {
+        let now = Self::now_ms();
+        let slug = name.to_lowercase().replace(' ', "-");
+        sqlx::query!(
+            r#"
+            INSERT OR IGNORE INTO organizations (id, name, slug, plan, status, created_at, updated_at)
+            VALUES (?, ?, ?, 'free', 'active', ?, ?)
+            "#,
+            org_id,
+            name,
+            slug,
+            now,
+            now,
+        )
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
     async fn get_partition(&self, topic: &str, partition_id: u32) -> Result<Option<Partition>> {
         let row = sqlx::query!(
             r#"

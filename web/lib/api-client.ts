@@ -13,9 +13,14 @@ export interface ApiResponse<T> {
 
 class ApiClient {
   private baseUrl: string;
+  private organizationId: string | null = null;
 
   constructor(baseUrl: string = API_BASE_URL) {
     this.baseUrl = baseUrl;
+  }
+
+  setOrganizationId(id: string | null) {
+    this.organizationId = id;
   }
 
   private async request<T>(
@@ -28,6 +33,7 @@ class ApiClient {
       ...options,
       headers: {
         'Content-Type': 'application/json',
+        ...(this.organizationId && { 'X-Organization-Id': this.organizationId }),
         ...options.headers,
       },
     };
