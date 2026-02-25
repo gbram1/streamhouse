@@ -14,6 +14,7 @@ use utoipa::OpenApi;
 use utoipa_swagger_ui::SwaggerUi;
 
 pub mod acl;
+pub mod active_active;
 pub mod audit;
 pub mod audit_store;
 pub mod auth;
@@ -32,10 +33,29 @@ pub mod prometheus;
 pub mod sasl;
 pub mod shutdown;
 pub mod tls;
+pub mod cluster;
+pub mod discovery;
+pub mod health_monitor;
+
+pub use cluster::{
+    ClusterCoordinator, ClusterNode, ClusterTopology, NodeStatus,
+};
+pub use discovery::{
+    DiscoveredNode, DiscoveryConfig, DiscoveryEvent, DnsDiscovery, MetadataStoreDiscovery,
+    ServiceDiscovery, StaticDiscovery,
+};
+pub use health_monitor::{
+    ClusterHealth, ClusterHealthMonitor, HealthThresholds, NodeHealth, NodeHealthStatus,
+};
 
 pub use acl::{
     AclAction, AclCheckResult, AclChecker, AclConfig, AclEntry, AclLayer, AclPermission,
     AclResource,
+};
+pub use active_active::{
+    ActiveActiveConfig, ActiveActiveCoordinator, ActiveActiveError, ActiveActiveStats,
+    ConflictRecord, ConflictResolution, ConflictResolver, ConflictStrategy, RegionState,
+    SyncResult,
 };
 pub use audit::{log_audit_event, AuditConfig, AuditEntry, AuditEventType, AuditLayer};
 pub use audit_store::{

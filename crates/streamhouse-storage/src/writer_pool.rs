@@ -319,4 +319,133 @@ impl WriterPool {
     }
 }
 
-// Tests will be added in integration tests once server integration is complete
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use object_store::memory::InMemory;
+    use streamhouse_metadata::{SqliteMetadataStore, TopicConfig};
+
+    /// Helper to create an in-memory metadata store with a test topic
+    async fn create_test_metadata(topic: &str, partition_count: u32) -> Arc<dyn MetadataStore> {
+        let store = SqliteMetadataStore::new_in_memory().await.unwrap();
+        store
+            .create_topic(TopicConfig {
+                name: topic.to_string(),
+                partition_count,
+                retention_ms: Some(86400000),
+                config: Default::default(),
+                cleanup_policy: Default::default(),
+            })
+            .await
+            .unwrap();
+        Arc::new(store)
+    }
+
+    fn test_config() -> WriteConfig {
+        WriteConfig {
+            segment_max_size: 1024 * 1024,
+            s3_bucket: "test-bucket".to_string(),
+            s3_region: "us-east-1".to_string(),
+            ..Default::default()
+        }
+    }
+
+    #[tokio::test]
+    async fn test_writer_pool_creation() {
+        let metadata = create_test_metadata("orders", 3).await;
+        let object_store: Arc<dyn ObjectStore> = Arc::new(InMemory::new());
+        let pool = WriterPool::new(metadata, object_store, test_config());
+        assert_eq!(pool.writer_count().await, 0);
+    }
+
+    #[tokio::test]
+    async fn test_writer_count_increases_on_get_writer() {
+        let metadata = create_test_metadata("orders", 3).await;
+        let object_store: Arc<dyn ObjectStore> = Arc::new(InMemory::new());
+        let pool = WriterPool::new(metadata, object_store, test_config());
+
+        assert_eq!(pool.writer_count().await, 0);
+
+        let _w = pool.get_writer("orders", 0).await.unwrap();
+        assert_eq!(pool.writer_count().await, 1);
+
+        let _w = pool.get_writer("orders", 1).await.unwrap();
+        assert_eq!(pool.writer_count().await, 2);
+    }
+
+    #[tokio::test]
+    async fn test_get_writer_returns_same_writer_for_same_partition() {
+        let metadata = create_test_metadata("orders", 3).await;
+        let object_store: Arc<dyn ObjectStore> = Arc::new(InMemory::new());
+        let pool = WriterPool::new(metadata, object_store, test_config());
+
+        let w1 = pool.get_writer("orders", 0).await.unwrap();
+        let w2 = pool.get_writer("orders", 0).await.unwrap();
+
+        // Should be the same Arc (same pointer)
+        assert!(Arc::ptr_eq(&w1, &w2));
+        assert_eq!(pool.writer_count().await, 1);
+    }
+
+    #[tokio::test]
+    async fn test_get_writer_different_partitions() {
+        let metadata = create_test_metadata("orders", 3).await;
+        let object_store: Arc<dyn ObjectStore> = Arc::new(InMemory::new());
+        let pool = WriterPool::new(metadata, object_store, test_config());
+
+        let w0 = pool.get_writer("orders", 0).await.unwrap();
+        let w1 = pool.get_writer("orders", 1).await.unwrap();
+
+        // Different partitions should produce different writers
+        assert!(!Arc::ptr_eq(&w0, &w1));
+        assert_eq!(pool.writer_count().await, 2);
+    }
+
+    #[tokio::test]
+    async fn test_flush_all_empty_pool() {
+        let metadata = create_test_metadata("orders", 3).await;
+        let object_store: Arc<dyn ObjectStore> = Arc::new(InMemory::new());
+        let pool = WriterPool::new(metadata, object_store, test_config());
+
+        // Flush on empty pool should succeed without error
+        pool.flush_all().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn test_flush_all_with_writers() {
+        let metadata = create_test_metadata("orders", 3).await;
+        let object_store: Arc<dyn ObjectStore> = Arc::new(InMemory::new());
+        let pool = WriterPool::new(metadata, object_store, test_config());
+
+        let _w0 = pool.get_writer("orders", 0).await.unwrap();
+        let _w1 = pool.get_writer("orders", 1).await.unwrap();
+
+        // Flush should succeed even with writers that have no data
+        pool.flush_all().await.unwrap();
+        assert_eq!(pool.writer_count().await, 2);
+    }
+
+    #[tokio::test]
+    async fn test_shutdown_empty_pool() {
+        let metadata = create_test_metadata("orders", 3).await;
+        let object_store: Arc<dyn ObjectStore> = Arc::new(InMemory::new());
+        let pool = WriterPool::new(metadata, object_store, test_config());
+
+        pool.shutdown().await.unwrap();
+        assert_eq!(pool.writer_count().await, 0);
+    }
+
+    #[tokio::test]
+    async fn test_shutdown_with_writers() {
+        let metadata = create_test_metadata("orders", 3).await;
+        let object_store: Arc<dyn ObjectStore> = Arc::new(InMemory::new());
+        let pool = WriterPool::new(metadata, object_store, test_config());
+
+        let _w = pool.get_writer("orders", 0).await.unwrap();
+
+        // Shutdown should call flush_all and succeed
+        pool.shutdown().await.unwrap();
+        // Writers still exist after shutdown (pool just flushes, doesn't clear)
+        assert_eq!(pool.writer_count().await, 1);
+    }
+}

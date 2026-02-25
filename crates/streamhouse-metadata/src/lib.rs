@@ -109,10 +109,12 @@
 pub mod auth;
 pub mod backup;
 pub mod cached_store;
+pub mod dedup;
 pub mod error;
 pub mod quota;
 pub mod store;
 pub mod tenant;
+pub mod transaction;
 pub mod types;
 
 #[cfg(feature = "postgres")]
@@ -124,9 +126,14 @@ pub use backup::{
     RestoreStats, SchemaImporter, TopicMirror,
 };
 pub use cached_store::{CacheConfig, CacheMetrics, CachedMetadataStore};
+pub use dedup::{DedupCache, DedupResult, DedupStats};
 pub use error::{MetadataError, Result};
 pub use quota::{QuotaCheck, QuotaEnforcer, QuotaSummary};
 pub use store::SqliteMetadataStore;
+pub use transaction::{
+    CoordinatorTransactionState, TransactionCoordinator, TransactionCoordinatorError,
+    TransactionRecord, TransactionStats,
+};
 pub use types::*;
 
 #[cfg(feature = "postgres")]

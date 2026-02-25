@@ -1,0 +1,44 @@
+{
+  "db_name": "SQLite",
+  "query": "\n            SELECT name as \"name!\", partition_count as \"partition_count!\", retention_ms, created_at as \"created_at!\", config as \"config!\"\n            FROM topics\n            WHERE organization_id = ? AND name = ?\n            ",
+  "describe": {
+    "columns": [
+      {
+        "name": "name!",
+        "ordinal": 0,
+        "type_info": "Text"
+      },
+      {
+        "name": "partition_count!",
+        "ordinal": 1,
+        "type_info": "Int64"
+      },
+      {
+        "name": "retention_ms",
+        "ordinal": 2,
+        "type_info": "Int64"
+      },
+      {
+        "name": "created_at!",
+        "ordinal": 3,
+        "type_info": "Int64"
+      },
+      {
+        "name": "config!",
+        "ordinal": 4,
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Right": 2
+    },
+    "nullable": [
+      false,
+      false,
+      true,
+      false,
+      false
+    ]
+  },
+  "hash": "5e9b5c317de32ffb176eeb95cfa12e3b625ed79bf070238da9a55dea1449db3e"
+}

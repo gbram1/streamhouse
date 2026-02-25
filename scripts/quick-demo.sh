@@ -22,7 +22,7 @@ if ! lsof -i :50051 > /dev/null 2>&1; then
     echo -e "${YELLOW}⚠ Server not running on port 50051${NC}"
     echo "Start the server first:"
     echo "  source .env.dev"
-    echo "  cargo run --release --bin streamhouse-server"
+    echo "  cargo run --release --bin unified-server"
     exit 1
 fi
 

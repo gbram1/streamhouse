@@ -138,3 +138,111 @@ fn default_multipart_part_size() -> usize {
 fn default_parallel_upload_parts() -> usize {
     4 // Upload 4 parts concurrently
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_default_segment_max_size() {
+        let config = WriteConfig::default();
+        assert_eq!(config.segment_max_size, 64 * 1024 * 1024); // 64MB
+    }
+
+    #[test]
+    fn test_default_segment_max_age() {
+        let config = WriteConfig::default();
+        assert_eq!(config.segment_max_age_ms, 10 * 60 * 1000); // 10 min
+    }
+
+    #[test]
+    fn test_default_s3_config() {
+        let config = WriteConfig::default();
+        assert_eq!(config.s3_bucket, "streamhouse");
+        assert_eq!(config.s3_region, "us-east-1");
+        assert!(config.s3_endpoint.is_none());
+    }
+
+    #[test]
+    fn test_default_block_size() {
+        let config = WriteConfig::default();
+        assert_eq!(config.block_size_target, 1024 * 1024); // 1MB
+    }
+
+    #[test]
+    fn test_default_retries() {
+        let config = WriteConfig::default();
+        assert_eq!(config.s3_upload_retries, 3);
+    }
+
+    #[test]
+    fn test_default_wal_disabled() {
+        let config = WriteConfig::default();
+        assert!(config.wal_config.is_none());
+    }
+
+    #[test]
+    fn test_default_throttle_disabled() {
+        let config = WriteConfig::default();
+        assert!(config.throttle_config.is_none());
+    }
+
+    #[test]
+    fn test_default_multipart_threshold() {
+        let config = WriteConfig::default();
+        assert_eq!(config.multipart_threshold, 8 * 1024 * 1024); // 8MB
+    }
+
+    #[test]
+    fn test_default_multipart_part_size() {
+        let config = WriteConfig::default();
+        // Must be >= 5MB per S3 requirements
+        assert!(config.multipart_part_size >= 5 * 1024 * 1024);
+        assert_eq!(config.multipart_part_size, 8 * 1024 * 1024); // 8MB
+    }
+
+    #[test]
+    fn test_default_parallel_upload_parts() {
+        let config = WriteConfig::default();
+        assert_eq!(config.parallel_upload_parts, 4);
+    }
+
+    #[test]
+    fn test_custom_config() {
+        let config = WriteConfig {
+            segment_max_size: 1024 * 1024, // 1MB
+            s3_bucket: "test-bucket".to_string(),
+            s3_region: "eu-west-1".to_string(),
+            s3_endpoint: Some("http://localhost:9000".to_string()),
+            ..Default::default()
+        };
+        assert_eq!(config.segment_max_size, 1024 * 1024);
+        assert_eq!(config.s3_bucket, "test-bucket");
+        assert_eq!(config.s3_region, "eu-west-1");
+        assert_eq!(config.s3_endpoint.unwrap(), "http://localhost:9000");
+        // Verify other fields kept defaults
+        assert_eq!(config.block_size_target, 1024 * 1024);
+        assert_eq!(config.s3_upload_retries, 3);
+    }
+
+    #[test]
+    fn test_serialization_roundtrip() {
+        let config = WriteConfig::default();
+        let json = serde_json::to_string(&config).unwrap();
+        let deserialized: WriteConfig = serde_json::from_str(&json).unwrap();
+        assert_eq!(deserialized.segment_max_size, config.segment_max_size);
+        assert_eq!(deserialized.s3_bucket, config.s3_bucket);
+        assert_eq!(deserialized.s3_region, config.s3_region);
+        assert_eq!(deserialized.multipart_part_size, config.multipart_part_size);
+    }
+
+    #[test]
+    fn test_deserialization_with_defaults() {
+        // Minimal JSON with only required fields
+        let json = r#"{"s3_bucket":"test","s3_region":"us-east-1"}"#;
+        let config: WriteConfig = serde_json::from_str(json).unwrap();
+        assert_eq!(config.s3_bucket, "test");
+        assert_eq!(config.segment_max_size, 64 * 1024 * 1024); // default applied
+        assert_eq!(config.block_size_target, 1024 * 1024);       // default applied
+    }
+}

@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "\n            INSERT OR IGNORE INTO organizations (id, name, slug, plan, status, created_at, updated_at)\n            VALUES (?, ?, ?, 'free', 'active', ?, ?)\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 5
+    },
+    "nullable": []
+  },
+  "hash": "ae21c831f03d1565def7827334edf676e35eabae0e3a485c7be8019a54792809"
+}

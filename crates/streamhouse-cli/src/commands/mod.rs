@@ -5,6 +5,7 @@
 //! - Consumer: Consumer group management operations
 //! - SQL: SQL query operations
 
+pub mod auth;
 pub mod consumer;
 pub mod schema;
 pub mod sql;

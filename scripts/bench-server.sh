@@ -5,7 +5,7 @@
 
 set -e
 
-SERVER_ADDR="localhost:9090"
+SERVER_ADDR="localhost:50051"
 TOPIC="perf-test"
 PARTITIONS=3
 
@@ -20,8 +20,8 @@ echo "===================================="
 echo ""
 
 # Check if server is running
-if ! nc -z localhost 9090 2>/dev/null; then
-    echo "❌ Server not running on port 9090"
+if ! nc -z localhost 50051 2>/dev/null; then
+    echo "❌ Server not running on port 50051"
     echo "   Start it with: ./start-dev.sh"
     exit 1
 fi

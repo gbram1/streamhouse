@@ -730,8 +730,57 @@ pub async fn validate_epoch(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::collections::HashMap as StdHashMap;
     use std::sync::Arc;
-    use streamhouse_metadata::SqliteMetadataStore;
+    use streamhouse_metadata::{SqliteMetadataStore, TopicConfig};
+
+    /// Helper: create a metadata store backed by a temp SQLite DB.
+    async fn make_store() -> (Arc<dyn MetadataStore>, tempfile::TempDir) {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let db_path = temp_dir.path().join("test.db");
+        let store = SqliteMetadataStore::new(db_path.to_str().unwrap())
+            .await
+            .unwrap();
+        (Arc::new(store) as Arc<dyn MetadataStore>, temp_dir)
+    }
+
+    /// Helper: create a topic and register an agent so FK constraints pass.
+    async fn setup_topic_and_agent(
+        store: &Arc<dyn MetadataStore>,
+        topic_name: &str,
+        partitions: u32,
+        agent_id: &str,
+    ) {
+        // Create topic (also creates partition rows)
+        store
+            .create_topic(TopicConfig {
+                name: topic_name.to_string(),
+                partition_count: partitions,
+                retention_ms: None,
+                config: StdHashMap::new(),
+                ..Default::default()
+            })
+            .await
+            .unwrap();
+
+        // Register agent (FK on leader_agent_id -> agents.agent_id)
+        store
+            .register_agent(streamhouse_metadata::AgentInfo {
+                agent_id: agent_id.to_string(),
+                address: "127.0.0.1:9090".to_string(),
+                availability_zone: "test-az".to_string(),
+                agent_group: "test".to_string(),
+                last_heartbeat: current_timestamp_ms(),
+                started_at: current_timestamp_ms(),
+                metadata: StdHashMap::new(),
+            })
+            .await
+            .unwrap();
+    }
+
+    // ----------------------------------------------------------------
+    // 1. Creation / configuration
+    // ----------------------------------------------------------------
 
     #[tokio::test]
     async fn test_lease_manager_creation() {
@@ -745,5 +794,202 @@ mod tests {
 
         let manager = LeaseManager::new("test-agent".to_string(), metadata);
         assert_eq!(manager.agent_id, "test-agent");
+    }
+
+    #[tokio::test]
+    async fn test_lease_manager_starts_with_no_leases() {
+        let (store, _dir) = make_store().await;
+        let manager = LeaseManager::new("agent-empty".to_string(), store);
+
+        let active = manager.get_active_leases().await;
+        assert!(active.is_empty(), "new manager should have no active leases");
+    }
+
+    // ----------------------------------------------------------------
+    // 2. Acquire / cache behaviour
+    // ----------------------------------------------------------------
+
+    #[tokio::test]
+    async fn test_ensure_lease_acquires_and_caches() {
+        let (store, _dir) = make_store().await;
+        setup_topic_and_agent(&store, "orders", 1, "agent-acq").await;
+        let manager = LeaseManager::new("agent-acq".to_string(), store);
+
+        // First call acquires from store
+        let epoch1 = manager.ensure_lease("orders", 0).await.unwrap();
+        assert!(epoch1 > 0, "epoch should be positive after acquire");
+
+        // Second call should hit cache and return the same epoch
+        let epoch2 = manager.ensure_lease("orders", 0).await.unwrap();
+        assert_eq!(epoch1, epoch2, "cached epoch should match");
+    }
+
+    #[tokio::test]
+    async fn test_ensure_lease_different_partitions() {
+        let (store, _dir) = make_store().await;
+        setup_topic_and_agent(&store, "topic-a", 2, "agent-parts").await;
+        let manager = LeaseManager::new("agent-parts".to_string(), store);
+
+        let e0 = manager.ensure_lease("topic-a", 0).await.unwrap();
+        let e1 = manager.ensure_lease("topic-a", 1).await.unwrap();
+
+        // Both should be valid epochs
+        assert!(e0 > 0);
+        assert!(e1 > 0);
+
+        // Active leases should contain both
+        let active = manager.get_active_leases().await;
+        assert_eq!(active.len(), 2);
+    }
+
+    // ----------------------------------------------------------------
+    // 3. get_epoch
+    // ----------------------------------------------------------------
+
+    #[tokio::test]
+    async fn test_get_epoch_returns_none_when_no_lease() {
+        let (store, _dir) = make_store().await;
+        let manager = LeaseManager::new("agent-noep".to_string(), store);
+
+        let epoch = manager.get_epoch("nonexistent", 42).await;
+        assert!(epoch.is_none(), "should be None for unknown partition");
+    }
+
+    #[tokio::test]
+    async fn test_get_epoch_returns_some_after_acquire() {
+        let (store, _dir) = make_store().await;
+        setup_topic_and_agent(&store, "events", 1, "agent-getep").await;
+        let manager = LeaseManager::new("agent-getep".to_string(), store);
+
+        let acquired = manager.ensure_lease("events", 0).await.unwrap();
+        let fetched = manager.get_epoch("events", 0).await;
+        assert_eq!(fetched, Some(acquired));
+    }
+
+    // ----------------------------------------------------------------
+    // 4. Release lease
+    // ----------------------------------------------------------------
+
+    #[tokio::test]
+    async fn test_release_lease_removes_from_cache() {
+        let (store, _dir) = make_store().await;
+        setup_topic_and_agent(&store, "orders", 1, "agent-rel").await;
+        let manager = LeaseManager::new("agent-rel".to_string(), store);
+
+        manager.ensure_lease("orders", 0).await.unwrap();
+        assert!(manager.get_epoch("orders", 0).await.is_some());
+
+        manager.release_lease("orders", 0).await.unwrap();
+        assert!(
+            manager.get_epoch("orders", 0).await.is_none(),
+            "epoch should be None after release"
+        );
+
+        let active = manager.get_active_leases().await;
+        assert!(active.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_release_all_leases() {
+        let (store, _dir) = make_store().await;
+        setup_topic_and_agent(&store, "t1", 1, "agent-relall").await;
+        setup_topic_and_agent(&store, "t2", 2, "agent-relall").await;
+        setup_topic_and_agent(&store, "t3", 3, "agent-relall").await;
+        let manager = LeaseManager::new("agent-relall".to_string(), store);
+
+        manager.ensure_lease("t1", 0).await.unwrap();
+        manager.ensure_lease("t2", 1).await.unwrap();
+        manager.ensure_lease("t3", 2).await.unwrap();
+        assert_eq!(manager.get_active_leases().await.len(), 3);
+
+        manager.release_all_leases().await.unwrap();
+        assert!(manager.get_active_leases().await.is_empty());
+    }
+
+    // ----------------------------------------------------------------
+    // 5. validate_epoch (public free function)
+    // ----------------------------------------------------------------
+
+    #[tokio::test]
+    async fn test_validate_epoch_success() {
+        let (store, _dir) = make_store().await;
+        setup_topic_and_agent(&store, "data", 1, "agent-ve").await;
+        let manager = LeaseManager::new("agent-ve".to_string(), store);
+
+        let epoch = manager.ensure_lease("data", 0).await.unwrap();
+        let result = validate_epoch(&manager, "data", 0, epoch).await;
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_validate_epoch_stale() {
+        let (store, _dir) = make_store().await;
+        setup_topic_and_agent(&store, "data", 1, "agent-stale").await;
+        let manager = LeaseManager::new("agent-stale".to_string(), store);
+
+        let epoch = manager.ensure_lease("data", 0).await.unwrap();
+        // A different epoch than the one we hold should be rejected
+        let result = validate_epoch(&manager, "data", 0, epoch + 999).await;
+        assert!(result.is_err());
+        match result.unwrap_err() {
+            AgentError::StaleEpoch { expected, actual } => {
+                assert_eq!(expected, epoch + 999);
+                assert_eq!(actual, epoch);
+            }
+            other => panic!("expected StaleEpoch, got {:?}", other),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_validate_epoch_no_lease() {
+        let (store, _dir) = make_store().await;
+        let manager = LeaseManager::new("agent-nolease".to_string(), store);
+
+        // No lease acquired, should return LeaseExpired
+        let result = validate_epoch(&manager, "missing", 0, 1).await;
+        assert!(result.is_err());
+        match result.unwrap_err() {
+            AgentError::LeaseExpired { topic, partition } => {
+                assert_eq!(topic, "missing");
+                assert_eq!(partition, 0);
+            }
+            other => panic!("expected LeaseExpired, got {:?}", other),
+        }
+    }
+
+    // ----------------------------------------------------------------
+    // 6. is_expired helper
+    // ----------------------------------------------------------------
+
+    #[test]
+    fn test_is_expired_past() {
+        // A timestamp in the past should be expired
+        assert!(is_expired(0));
+        assert!(is_expired(1_000_000));
+    }
+
+    #[test]
+    fn test_is_expired_future() {
+        // A timestamp far in the future should NOT be expired
+        let future = current_timestamp_ms() + 60_000;
+        assert!(!is_expired(future));
+    }
+
+    // ----------------------------------------------------------------
+    // 7. Renewal task start / stop
+    // ----------------------------------------------------------------
+
+    #[tokio::test]
+    async fn test_start_and_stop_renewal_task() {
+        let (store, _dir) = make_store().await;
+        let manager = LeaseManager::new("agent-renewal".to_string(), store);
+
+        manager.start_renewal_task().await.unwrap();
+        // Give the spawned task a moment to start
+        tokio::time::sleep(Duration::from_millis(50)).await;
+
+        manager.stop_renewal_task().await.unwrap();
+        // Stopping twice should be harmless
+        manager.stop_renewal_task().await.unwrap();
     }
 }

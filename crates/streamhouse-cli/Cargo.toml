@@ -45,5 +45,11 @@ toml = "0.8"     # For config file parsing
 urlencoding = "2.1"
 chrono = "0.4"
 
+# Directories
+dirs = "5.0"
+
+[dev-dependencies]
+tempfile = { workspace = true }
+
 [build-dependencies]
 tonic-build = { workspace = true }

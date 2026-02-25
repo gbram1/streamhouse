@@ -336,4 +336,221 @@ mod tests {
         let client = SchemaRegistryClient::new("http://localhost:8081");
         assert_eq!(client.client.base_url, "http://localhost:8081");
     }
+
+    #[test]
+    fn test_client_creation_with_trailing_slash() {
+        let client = RestClient::new("http://localhost:8081/");
+        assert_eq!(client.base_url, "http://localhost:8081/");
+    }
+
+    #[test]
+    fn test_client_creation_with_path_prefix() {
+        let client = RestClient::new("http://localhost:8081/api/v1");
+        assert_eq!(client.base_url, "http://localhost:8081/api/v1");
+    }
+
+    #[test]
+    fn test_client_creation_from_string_type() {
+        let url = String::from("https://schema-registry.example.com:443");
+        let client = RestClient::new(url);
+        assert_eq!(
+            client.base_url,
+            "https://schema-registry.example.com:443"
+        );
+    }
+
+    #[test]
+    fn test_url_building_concatenation() {
+        // Verify the URL building pattern used by get/post/put/delete
+        let client = RestClient::new("http://localhost:8081");
+        let url = format!("{}{}", client.base_url, "/subjects");
+        assert_eq!(url, "http://localhost:8081/subjects");
+    }
+
+    #[test]
+    fn test_url_building_with_subject_and_version() {
+        let client = RestClient::new("http://localhost:8081");
+        let subject = "my-topic-value";
+        let version = "latest";
+        let url = format!(
+            "{}/subjects/{}/versions/{}",
+            client.base_url, subject, version
+        );
+        assert_eq!(
+            url,
+            "http://localhost:8081/subjects/my-topic-value/versions/latest"
+        );
+    }
+
+    #[test]
+    fn test_url_building_schema_by_id() {
+        let client = RestClient::new("http://localhost:8081");
+        let id = 42;
+        let url = format!("{}/schemas/ids/{}", client.base_url, id);
+        assert_eq!(url, "http://localhost:8081/schemas/ids/42");
+    }
+
+    #[test]
+    fn test_schema_registry_client_from_string() {
+        let url = String::from("https://registry.prod.example.com");
+        let client = SchemaRegistryClient::new(url);
+        assert_eq!(
+            client.client.base_url,
+            "https://registry.prod.example.com"
+        );
+    }
+
+    #[test]
+    fn test_register_schema_request_serialization_minimal() {
+        let request = RegisterSchemaRequest {
+            schema: r#"{"type":"string"}"#.to_string(),
+            schema_type: None,
+            references: None,
+            metadata: None,
+        };
+        let json = serde_json::to_string(&request).unwrap();
+        let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
+
+        assert_eq!(parsed["schema"], r#"{"type":"string"}"#);
+        // Optional fields with skip_serializing_if should be absent
+        assert!(parsed.get("schemaType").is_none());
+        assert!(parsed.get("references").is_none());
+        assert!(parsed.get("metadata").is_none());
+    }
+
+    #[test]
+    fn test_register_schema_request_serialization_full() {
+        let request = RegisterSchemaRequest {
+            schema: r#"{"type":"record","name":"Test","fields":[]}"#.to_string(),
+            schema_type: Some("AVRO".to_string()),
+            references: Some(vec![SchemaReference {
+                name: "other.avsc".to_string(),
+                subject: "other-value".to_string(),
+                version: 1,
+            }]),
+            metadata: Some(serde_json::json!({"owner": "team-a"})),
+        };
+        let json = serde_json::to_string(&request).unwrap();
+        let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
+
+        assert_eq!(parsed["schemaType"], "AVRO");
+        assert_eq!(parsed["references"][0]["name"], "other.avsc");
+        assert_eq!(parsed["references"][0]["subject"], "other-value");
+        assert_eq!(parsed["references"][0]["version"], 1);
+        assert_eq!(parsed["metadata"]["owner"], "team-a");
+    }
+
+    #[test]
+    fn test_register_schema_response_deserialization() {
+        let json = r#"{"id": 7}"#;
+        let response: RegisterSchemaResponse = serde_json::from_str(json).unwrap();
+        assert_eq!(response.id, 7);
+    }
+
+    #[test]
+    fn test_schema_reference_roundtrip() {
+        let reference = SchemaReference {
+            name: "com.example.User".to_string(),
+            subject: "user-value".to_string(),
+            version: 3,
+        };
+        let json = serde_json::to_string(&reference).unwrap();
+        let deserialized: SchemaReference = serde_json::from_str(&json).unwrap();
+
+        assert_eq!(deserialized.name, "com.example.User");
+        assert_eq!(deserialized.subject, "user-value");
+        assert_eq!(deserialized.version, 3);
+    }
+
+    #[test]
+    fn test_schema_response_deserialization() {
+        let json = r#"{
+            "subject": "orders-value",
+            "version": 2,
+            "id": 10,
+            "schema": "{\"type\":\"string\"}",
+            "schemaType": "AVRO",
+            "references": [
+                {"name": "ref1", "subject": "ref-subject", "version": 1}
+            ]
+        }"#;
+        let response: SchemaResponse = serde_json::from_str(json).unwrap();
+        assert_eq!(response.subject, "orders-value");
+        assert_eq!(response.version, 2);
+        assert_eq!(response.id, 10);
+        assert_eq!(response.schema, r#"{"type":"string"}"#);
+        assert_eq!(response.schema_type, "AVRO");
+        assert_eq!(response.references.len(), 1);
+        assert_eq!(response.references[0].name, "ref1");
+    }
+
+    #[test]
+    fn test_schema_response_deserialization_no_references() {
+        let json = r#"{
+            "subject": "events-value",
+            "version": 1,
+            "id": 5,
+            "schema": "{}",
+            "schemaType": "JSON"
+        }"#;
+        let response: SchemaResponse = serde_json::from_str(json).unwrap();
+        assert_eq!(response.subject, "events-value");
+        assert!(response.references.is_empty());
+    }
+
+    #[test]
+    fn test_compatibility_config_deserialization() {
+        let json = r#"{"compatibilityLevel": "BACKWARD"}"#;
+        let config: CompatibilityConfig = serde_json::from_str(json).unwrap();
+        assert_eq!(config.compatibility_level, "BACKWARD");
+    }
+
+    #[test]
+    fn test_compatibility_config_roundtrip() {
+        let config = CompatibilityConfig {
+            compatibility_level: "FULL_TRANSITIVE".to_string(),
+        };
+        let json = serde_json::to_string(&config).unwrap();
+        let deserialized: CompatibilityConfig = serde_json::from_str(&json).unwrap();
+        assert_eq!(
+            deserialized.compatibility_level,
+            "FULL_TRANSITIVE"
+        );
+        // Verify the rename is applied
+        assert!(json.contains("compatibilityLevel"));
+        assert!(!json.contains("compatibility_level"));
+    }
+
+    #[test]
+    fn test_set_compatibility_request_serialization() {
+        let request = SetCompatibilityRequest {
+            compatibility: "FORWARD".to_string(),
+        };
+        let json = serde_json::to_string(&request).unwrap();
+        let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed["compatibility"], "FORWARD");
+    }
+
+    #[test]
+    fn test_compatibility_levels_serialize() {
+        // Test all standard Schema Registry compatibility levels
+        let levels = [
+            "NONE",
+            "BACKWARD",
+            "BACKWARD_TRANSITIVE",
+            "FORWARD",
+            "FORWARD_TRANSITIVE",
+            "FULL",
+            "FULL_TRANSITIVE",
+        ];
+        for level in levels {
+            let config = CompatibilityConfig {
+                compatibility_level: level.to_string(),
+            };
+            let json = serde_json::to_string(&config).unwrap();
+            let deserialized: CompatibilityConfig =
+                serde_json::from_str(&json).unwrap();
+            assert_eq!(deserialized.compatibility_level, level);
+        }
+    }
 }

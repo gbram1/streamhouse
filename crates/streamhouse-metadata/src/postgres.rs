@@ -2888,9 +2888,125 @@ impl MetadataStore for PostgresMetadataStore {
 
         Ok(())
     }
+
+    async fn create_connector(&self, connector: ConnectorInfo) -> Result<()> {
+        let topics_json = serde_json::to_string(&connector.topics)?;
+        let config_json = serde_json::to_string(&connector.config)?;
+
+        sqlx::query(
+            "INSERT INTO connectors (name, connector_type, connector_class, topics, config, state, records_processed, created_at, updated_at) \
+             VALUES ($1, $2, $3, $4, $5, $6, 0, $7, $8)",
+        )
+        .bind(&connector.name)
+        .bind(&connector.connector_type)
+        .bind(&connector.connector_class)
+        .bind(&topics_json)
+        .bind(&config_json)
+        .bind(&connector.state)
+        .bind(connector.created_at)
+        .bind(connector.updated_at)
+        .execute(&self.pool)
+        .await?;
+
+        Ok(())
+    }
+
+    async fn get_connector(&self, name: &str) -> Result<Option<ConnectorInfo>> {
+        let row = sqlx::query(
+            "SELECT name, connector_type, connector_class, topics, config, state, \
+                    error_message, records_processed, created_at, updated_at \
+             FROM connectors WHERE name = $1",
+        )
+        .bind(name)
+        .fetch_optional(&self.pool)
+        .await?;
+
+        match row {
+            Some(r) => Ok(Some(Self::row_to_connector_info(r)?)),
+            None => Ok(None),
+        }
+    }
+
+    async fn list_connectors(&self) -> Result<Vec<ConnectorInfo>> {
+        let rows = sqlx::query(
+            "SELECT name, connector_type, connector_class, topics, config, state, \
+                    error_message, records_processed, created_at, updated_at \
+             FROM connectors ORDER BY name",
+        )
+        .fetch_all(&self.pool)
+        .await?;
+
+        rows.into_iter()
+            .map(Self::row_to_connector_info)
+            .collect()
+    }
+
+    async fn delete_connector(&self, name: &str) -> Result<()> {
+        sqlx::query("DELETE FROM connectors WHERE name = $1")
+            .bind(name)
+            .execute(&self.pool)
+            .await?;
+
+        Ok(())
+    }
+
+    async fn update_connector_state(&self, name: &str, state: &str, error_message: Option<&str>) -> Result<()> {
+        let now = Self::now_ms();
+
+        sqlx::query(
+            "UPDATE connectors SET state = $1, error_message = $2, updated_at = $3 WHERE name = $4",
+        )
+        .bind(state)
+        .bind(error_message)
+        .bind(now)
+        .bind(name)
+        .execute(&self.pool)
+        .await?;
+
+        Ok(())
+    }
+
+    async fn update_connector_records_processed(&self, name: &str, records_processed: i64) -> Result<()> {
+        let now = Self::now_ms();
+
+        sqlx::query(
+            "UPDATE connectors SET records_processed = $1, updated_at = $2 WHERE name = $3",
+        )
+        .bind(records_processed)
+        .bind(now)
+        .bind(name)
+        .execute(&self.pool)
+        .await?;
+
+        Ok(())
+    }
 }
 
 impl PostgresMetadataStore {
+    /// Helper to convert a database row to ConnectorInfo
+    fn row_to_connector_info(r: sqlx::postgres::PgRow) -> Result<ConnectorInfo> {
+        use sqlx::Row;
+
+        let topics_str: String = r.get("topics");
+        let config_str: String = r.get("config");
+
+        let topics: Vec<String> = serde_json::from_str(&topics_str)?;
+        let config: std::collections::HashMap<String, String> = serde_json::from_str(&config_str)?;
+
+        Ok(ConnectorInfo {
+            name: r.get("name"),
+            connector_type: r.get("connector_type"),
+            connector_class: r.get("connector_class"),
+            topics,
+            config,
+            state: r.get("state"),
+            error_message: r.get("error_message"),
+            records_processed: r.get("records_processed"),
+            created_at: r.get("created_at"),
+            updated_at: r.get("updated_at"),
+        })
+    }
+
     /// Helper to convert a database row to MaterializedView
     fn row_to_materialized_view(r: sqlx::postgres::PgRow) -> MaterializedView {
         use sqlx::Row;

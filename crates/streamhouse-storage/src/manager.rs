@@ -186,3 +186,109 @@ pub struct AppendResult {
     pub offset: u64,
     pub timestamp: u64,
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use object_store::memory::InMemory;
+    use streamhouse_metadata::{SqliteMetadataStore, TopicConfig};
+
+    async fn create_test_metadata(topic: &str, partition_count: u32) -> Arc<dyn MetadataStore> {
+        let store = SqliteMetadataStore::new_in_memory().await.unwrap();
+        store
+            .create_topic(TopicConfig {
+                name: topic.to_string(),
+                partition_count,
+                retention_ms: Some(86400000),
+                config: Default::default(),
+                cleanup_policy: Default::default(),
+            })
+            .await
+            .unwrap();
+        Arc::new(store)
+    }
+
+    fn test_config() -> WriteConfig {
+        WriteConfig {
+            segment_max_size: 1024 * 1024,
+            s3_bucket: "test-bucket".to_string(),
+            s3_region: "us-east-1".to_string(),
+            ..Default::default()
+        }
+    }
+
+    #[tokio::test]
+    async fn test_storage_manager_creation() {
+        let metadata = create_test_metadata("orders", 3).await;
+        let object_store: Arc<dyn ObjectStore> = Arc::new(InMemory::new());
+        let _manager = StorageManager::new(object_store, metadata, test_config());
+    }
+
+    #[tokio::test]
+    async fn test_append_result_fields() {
+        let result = AppendResult {
+            topic: "orders".to_string(),
+            partition: 2,
+            offset: 42,
+            timestamp: 1700000000000,
+        };
+        assert_eq!(result.topic, "orders");
+        assert_eq!(result.partition, 2);
+        assert_eq!(result.offset, 42);
+        assert_eq!(result.timestamp, 1700000000000);
+    }
+
+    #[tokio::test]
+    async fn test_append_result_clone() {
+        let result = AppendResult {
+            topic: "events".to_string(),
+            partition: 0,
+            offset: 100,
+            timestamp: 999,
+        };
+        let cloned = result.clone();
+        assert_eq!(cloned.topic, result.topic);
+        assert_eq!(cloned.partition, result.partition);
+        assert_eq!(cloned.offset, result.offset);
+        assert_eq!(cloned.timestamp, result.timestamp);
+    }
+
+    #[tokio::test]
+    async fn test_append_to_existing_topic() {
+        let metadata = create_test_metadata("orders", 1).await;
+        let object_store: Arc<dyn ObjectStore> = Arc::new(InMemory::new());
+        let manager = StorageManager::new(object_store, metadata, test_config());
+
+        let result = manager
+            .append("orders", None, Bytes::from("test-value"), Some(12345))
+            .await
+            .unwrap();
+
+        assert_eq!(result.topic, "orders");
+        assert_eq!(result.offset, 0);
+        assert_eq!(result.timestamp, 12345);
+    }
+
+    #[tokio::test]
+    async fn test_append_to_nonexistent_topic_fails() {
+        let metadata = create_test_metadata("orders", 1).await;
+        let object_store: Arc<dyn ObjectStore> = Arc::new(InMemory::new());
+        let manager = StorageManager::new(object_store, metadata, test_config());
+
+        let result = manager
+            .append("nonexistent", None, Bytes::from("test-value"), None)
+            .await;
+
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_flush_all_empty_manager() {
+        let metadata = create_test_metadata("orders", 1).await;
+        let object_store: Arc<dyn ObjectStore> = Arc::new(InMemory::new());
+        let manager = StorageManager::new(object_store, metadata, test_config());
+
+        // Flush with no writers should succeed
+        manager.flush_all().await.unwrap();
+    }
+}

@@ -350,3 +350,136 @@ impl StreamHouse for StreamHouseService {
         }))
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use streamhouse_metadata::SqliteMetadataStore;
+    use streamhouse_storage::WriteConfig;
+
+    /// Helper: create a fully wired StreamHouseService backed by an in-memory
+    /// SQLite metadata store and a local-filesystem object store.
+    async fn make_test_service() -> (StreamHouseService, tempfile::TempDir) {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let data_dir = temp_dir.path();
+
+        let metadata_path = data_dir.join("metadata.db");
+        let storage_dir = data_dir.join("storage");
+        let cache_dir = data_dir.join("cache");
+
+        std::fs::create_dir_all(&storage_dir).unwrap();
+        std::fs::create_dir_all(&cache_dir).unwrap();
+
+        let metadata = Arc::new(
+            SqliteMetadataStore::new(metadata_path.to_str().unwrap())
+                .await
+                .unwrap(),
+        );
+
+        let object_store = Arc::new(
+            object_store::local::LocalFileSystem::new_with_prefix(&storage_dir).unwrap(),
+        );
+
+        let cache = Arc::new(SegmentCache::new(&cache_dir, 10 * 1024 * 1024).unwrap());
+
+        let config = WriteConfig {
+            segment_max_size: 1024,
+            segment_max_age_ms: 60_000,
+            s3_bucket: "test-bucket".to_string(),
+            s3_region: "us-east-1".to_string(),
+            ..Default::default()
+        };
+
+        let writer_pool = Arc::new(WriterPool::new(
+            metadata.clone(),
+            object_store.clone(),
+            config.clone(),
+        ));
+
+        let service = StreamHouseService::new(metadata, object_store, cache, writer_pool, config);
+        (service, temp_dir)
+    }
+
+    #[tokio::test]
+    async fn test_create_topic_returns_correct_response() {
+        let (service, _temp) = make_test_service().await;
+
+        let req = Request::new(CreateTopicRequest {
+            name: "my-topic".to_string(),
+            partition_count: 4,
+            retention_ms: Some(3_600_000),
+            config: HashMap::new(),
+        });
+
+        let resp = service.create_topic(req).await.unwrap().into_inner();
+        assert_eq!(resp.topic_id, "my-topic");
+        assert_eq!(resp.partition_count, 4);
+    }
+
+    #[tokio::test]
+    async fn test_get_topic_not_found_returns_status_not_found() {
+        let (service, _temp) = make_test_service().await;
+
+        let req = Request::new(GetTopicRequest {
+            name: "nonexistent".to_string(),
+        });
+
+        let err = service.get_topic(req).await.unwrap_err();
+        assert_eq!(err.code(), tonic::Code::NotFound);
+        assert!(err.message().contains("Topic not found"));
+    }
+
+    #[tokio::test]
+    async fn test_delete_topic_success() {
+        let (service, _temp) = make_test_service().await;
+
+        // Create a topic first
+        let create_req = Request::new(CreateTopicRequest {
+            name: "to-delete".to_string(),
+            partition_count: 1,
+            retention_ms: None,
+            config: HashMap::new(),
+        });
+        service.create_topic(create_req).await.unwrap();
+
+        // Delete it
+        let delete_req = Request::new(DeleteTopicRequest {
+            name: "to-delete".to_string(),
+        });
+        let resp = service.delete_topic(delete_req).await.unwrap().into_inner();
+        assert!(resp.success);
+
+        // Verify it is gone
+        let get_req = Request::new(GetTopicRequest {
+            name: "to-delete".to_string(),
+        });
+        let err = service.get_topic(get_req).await.unwrap_err();
+        assert_eq!(err.code(), tonic::Code::NotFound);
+    }
+
+    #[tokio::test]
+    async fn test_produce_to_invalid_partition_returns_error() {
+        let (service, _temp) = make_test_service().await;
+
+        // Create topic with 2 partitions
+        let create_req = Request::new(CreateTopicRequest {
+            name: "partitioned".to_string(),
+            partition_count: 2,
+            retention_ms: None,
+            config: HashMap::new(),
+        });
+        service.create_topic(create_req).await.unwrap();
+
+        // Try partition 10 (out of range)
+        let produce_req = Request::new(ProduceRequest {
+            topic: "partitioned".to_string(),
+            partition: 10,
+            key: vec![],
+            value: b"hello".to_vec(),
+            headers: HashMap::new(),
+        });
+        let err = service.produce(produce_req).await.unwrap_err();
+        assert_eq!(err.code(), tonic::Code::InvalidArgument);
+        assert!(err.message().contains("Invalid partition"));
+    }
+}

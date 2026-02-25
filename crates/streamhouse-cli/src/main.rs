@@ -69,6 +69,7 @@ pub mod pb {
     tonic::include_proto!("streamhouse");
 }
 
+mod auth;
 mod commands;
 #[allow(dead_code)]
 mod config;
@@ -167,6 +168,11 @@ enum Commands {
     Offset {
         #[command(subcommand)]
         command: OffsetCommands,
+    },
+    /// Authentication management
+    Auth {
+        #[command(subcommand)]
+        command: commands::auth::AuthCommands,
     },
 }
 
@@ -300,6 +306,10 @@ async fn main() -> Result<()> {
             }
             Commands::Sql { command } => {
                 commands::sql::handle_sql_command(command, &cli.api_url).await?
+            }
+            Commands::Auth { command } => {
+                // Auth commands don't need gRPC connection
+                println!("Auth command: {:?}", command);
             }
         }
     }

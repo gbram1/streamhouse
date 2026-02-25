@@ -75,3 +75,104 @@ impl Config {
         Ok(path)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_default_config() {
+        let config = Config::default();
+        assert_eq!(config.rest_api_url, "http://localhost:8080");
+        assert_eq!(config.grpc_url, Some("http://localhost:9090".to_string()));
+        assert_eq!(config.output_format, OutputFormat::Table);
+        assert!(config.colored);
+    }
+
+    #[test]
+    fn test_output_format_equality() {
+        assert_eq!(OutputFormat::Table, OutputFormat::Table);
+        assert_eq!(OutputFormat::Json, OutputFormat::Json);
+        assert_ne!(OutputFormat::Table, OutputFormat::Json);
+    }
+
+    #[test]
+    fn test_config_serialization_roundtrip() {
+        let config = Config {
+            rest_api_url: "http://example.com:8080".to_string(),
+            grpc_url: Some("http://example.com:9090".to_string()),
+            output_format: OutputFormat::Json,
+            colored: false,
+        };
+
+        let toml_str = toml::to_string_pretty(&config).unwrap();
+        let deserialized: Config = toml::from_str(&toml_str).unwrap();
+
+        assert_eq!(deserialized.rest_api_url, config.rest_api_url);
+        assert_eq!(deserialized.grpc_url, config.grpc_url);
+        assert_eq!(deserialized.output_format, config.output_format);
+        assert_eq!(deserialized.colored, config.colored);
+    }
+
+    #[test]
+    fn test_config_deserialize_all_formats() {
+        let toml_str = r#"
+            rest_api_url = "http://localhost:8080"
+            output_format = "json"
+            colored = true
+        "#;
+        let config: Config = toml::from_str(toml_str).unwrap();
+        assert_eq!(config.output_format, OutputFormat::Json);
+
+        let toml_str = r#"
+            rest_api_url = "http://localhost:8080"
+            output_format = "yaml"
+            colored = true
+        "#;
+        let config: Config = toml::from_str(toml_str).unwrap();
+        assert_eq!(config.output_format, OutputFormat::Yaml);
+
+        let toml_str = r#"
+            rest_api_url = "http://localhost:8080"
+            output_format = "text"
+            colored = true
+        "#;
+        let config: Config = toml::from_str(toml_str).unwrap();
+        assert_eq!(config.output_format, OutputFormat::Text);
+    }
+
+    #[test]
+    fn test_config_optional_grpc_url() {
+        let toml_str = r#"
+            rest_api_url = "http://localhost:8080"
+            output_format = "table"
+            colored = true
+        "#;
+        let config: Config = toml::from_str(toml_str).unwrap();
+        assert!(config.grpc_url.is_none());
+    }
+
+    #[test]
+    fn test_config_save_and_load() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let config_path = temp_dir.path().join("config.toml");
+
+        let config = Config {
+            rest_api_url: "http://test:8080".to_string(),
+            grpc_url: None,
+            output_format: OutputFormat::Yaml,
+            colored: false,
+        };
+
+        // Save manually
+        let contents = toml::to_string_pretty(&config).unwrap();
+        std::fs::write(&config_path, &contents).unwrap();
+
+        // Read back
+        let loaded_str = std::fs::read_to_string(&config_path).unwrap();
+        let loaded: Config = toml::from_str(&loaded_str).unwrap();
+        assert_eq!(loaded.rest_api_url, "http://test:8080");
+        assert_eq!(loaded.output_format, OutputFormat::Yaml);
+        assert!(!loaded.colored);
+    }
+}

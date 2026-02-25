@@ -3,7 +3,8 @@
 
 set -e
 
-SERVER_ADDR="localhost:9090"
+GRPC_PORT="${GRPC_PORT:-50051}"
+SERVER_ADDR="localhost:${GRPC_PORT}"
 
 echo "🧪 StreamHouse Server Test Suite"
 echo "=================================="
@@ -17,9 +18,9 @@ if ! command -v grpcurl &> /dev/null; then
 fi
 
 # Check if server is running
-if ! nc -z localhost 9090 2>/dev/null; then
-    echo "❌ Server not running on port 9090"
-    echo "   Start it with: ./start-dev.sh"
+if ! nc -z localhost "${GRPC_PORT}" 2>/dev/null; then
+    echo "❌ Server not running on port ${GRPC_PORT}"
+    echo "   Start it with: STREAMHOUSE_ADDR=0.0.0.0:${GRPC_PORT} cargo run --bin unified-server"
     exit 1
 fi
 

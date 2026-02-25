@@ -669,6 +669,157 @@ mod tests {
         assert_eq!(agents.len(), 0);
     }
 
+    #[test]
+    fn test_agent_config_defaults() {
+        let config = AgentConfig::default();
+        assert_eq!(config.agent_id, "");
+        assert_eq!(config.address, "");
+        assert_eq!(config.availability_zone, "default");
+        assert_eq!(config.agent_group, "default");
+        assert_eq!(config.heartbeat_interval, Duration::from_secs(20));
+        assert_eq!(config.heartbeat_timeout, Duration::from_secs(60));
+        assert!(config.metadata.is_none());
+        assert!(config.managed_topics.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_builder_sets_fields() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let db_path = temp_dir.path().join("test_builder.db");
+        let metadata = SqliteMetadataStore::new(db_path.to_str().unwrap())
+            .await
+            .unwrap();
+        let metadata = Arc::new(metadata) as Arc<dyn MetadataStore>;
+
+        let agent = Agent::builder()
+            .agent_id("my-agent")
+            .address("10.0.0.1:9090")
+            .availability_zone("us-west-2a")
+            .agent_group("staging")
+            .heartbeat_interval(Duration::from_secs(5))
+            .heartbeat_timeout(Duration::from_secs(15))
+            .metadata(r#"{"version":"2.0"}"#)
+            .metadata_store(metadata)
+            .build()
+            .await
+            .unwrap();
+
+        assert_eq!(agent.agent_id(), "my-agent");
+        assert_eq!(agent.address(), "10.0.0.1:9090");
+        assert_eq!(agent.availability_zone(), "us-west-2a");
+        assert_eq!(agent.agent_group(), "staging");
+    }
+
+    #[tokio::test]
+    async fn test_builder_requires_agent_id() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let db_path = temp_dir.path().join("test_no_id.db");
+        let metadata = SqliteMetadataStore::new(db_path.to_str().unwrap())
+            .await
+            .unwrap();
+        let metadata = Arc::new(metadata) as Arc<dyn MetadataStore>;
+
+        let result = Agent::builder()
+            .address("10.0.0.1:9090")
+            .metadata_store(metadata)
+            .build()
+            .await;
+
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_builder_requires_address() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let db_path = temp_dir.path().join("test_no_addr.db");
+        let metadata = SqliteMetadataStore::new(db_path.to_str().unwrap())
+            .await
+            .unwrap();
+        let metadata = Arc::new(metadata) as Arc<dyn MetadataStore>;
+
+        let result = Agent::builder()
+            .agent_id("agent-1")
+            .metadata_store(metadata)
+            .build()
+            .await;
+
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_builder_requires_metadata_store() {
+        let result = Agent::builder()
+            .agent_id("agent-1")
+            .address("10.0.0.1:9090")
+            .build()
+            .await;
+
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_agent_not_started_initially() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let db_path = temp_dir.path().join("test_not_started.db");
+        let metadata = SqliteMetadataStore::new(db_path.to_str().unwrap())
+            .await
+            .unwrap();
+        let metadata = Arc::new(metadata) as Arc<dyn MetadataStore>;
+
+        let agent = Agent::builder()
+            .agent_id("agent-1")
+            .address("127.0.0.1:9090")
+            .metadata_store(metadata)
+            .build()
+            .await
+            .unwrap();
+
+        assert!(!agent.is_started().await);
+    }
+
+    #[tokio::test]
+    async fn test_stop_when_not_started_is_ok() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let db_path = temp_dir.path().join("test_stop_not_started.db");
+        let metadata = SqliteMetadataStore::new(db_path.to_str().unwrap())
+            .await
+            .unwrap();
+        let metadata = Arc::new(metadata) as Arc<dyn MetadataStore>;
+
+        let agent = Agent::builder()
+            .agent_id("agent-1")
+            .address("127.0.0.1:9090")
+            .metadata_store(metadata)
+            .build()
+            .await
+            .unwrap();
+
+        // Should not error when stopping a non-started agent
+        agent.stop().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn test_agent_managed_topics() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let db_path = temp_dir.path().join("test_managed.db");
+        let metadata = SqliteMetadataStore::new(db_path.to_str().unwrap())
+            .await
+            .unwrap();
+        let metadata = Arc::new(metadata) as Arc<dyn MetadataStore>;
+
+        let agent = Agent::builder()
+            .agent_id("agent-topics")
+            .address("127.0.0.1:9090")
+            .metadata_store(metadata)
+            .managed_topics(vec!["orders".to_string(), "events".to_string()])
+            .build()
+            .await
+            .unwrap();
+
+        // Before start, no assigned partitions
+        assert!(agent.partition_assigner().await.is_none());
+    }
+
     #[tokio::test]
     async fn test_agent_cannot_start_twice() {
         let temp_dir = tempfile::tempdir().unwrap();

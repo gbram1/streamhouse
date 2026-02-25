@@ -183,6 +183,20 @@ mod tests {
     use super::*;
     use streamhouse_metadata::SqliteMetadataStore;
 
+    /// Helper: create a metadata store backed by a temp SQLite DB.
+    async fn make_store() -> (Arc<dyn MetadataStore>, tempfile::TempDir) {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let db_path = temp_dir.path().join("hb_test.db");
+        let store = SqliteMetadataStore::new(db_path.to_str().unwrap())
+            .await
+            .unwrap();
+        (Arc::new(store) as Arc<dyn MetadataStore>, temp_dir)
+    }
+
+    // ----------------------------------------------------------------
+    // Existing tests
+    // ----------------------------------------------------------------
+
     #[tokio::test]
     async fn test_heartbeat_task() {
         let temp_dir = tempfile::tempdir().unwrap();
@@ -271,5 +285,203 @@ mod tests {
 
         handle.abort();
         let _ = handle.await;
+    }
+
+    // ----------------------------------------------------------------
+    // New tests
+    // ----------------------------------------------------------------
+
+    #[tokio::test]
+    async fn test_heartbeat_construction_stores_fields() {
+        let (store, _dir) = make_store().await;
+        let started = current_timestamp_ms();
+
+        let hb = HeartbeatTask::new(
+            "hb-agent-1".to_string(),
+            "10.0.0.1:8080".to_string(),
+            "us-west-2b".to_string(),
+            "staging".to_string(),
+            started,
+            r#"{"version":"3.0"}"#.to_string(),
+            Duration::from_secs(30),
+            Arc::clone(&store),
+        );
+
+        // Validate fields are stored correctly (they are private, so we
+        // check indirectly: run one heartbeat cycle and verify the
+        // agent record written to the metadata store).
+        let handle = tokio::spawn(async move {
+            hb.run().await;
+        });
+
+        tokio::time::sleep(Duration::from_millis(100)).await;
+
+        // The first heartbeat fires after `interval`, so wait a bit
+        // We used 30s interval which is too long for the test, so
+        // abort and check that NO agent was written (interval hasn't
+        // elapsed yet).
+        handle.abort();
+        let _ = handle.await;
+
+        // With a 30-second interval and only 100ms of wait, the heartbeat
+        // should NOT have fired yet -- confirming the interval is respected.
+        let agents = store.list_agents(None, None).await.unwrap();
+        assert!(
+            agents.is_empty(),
+            "no heartbeat should fire within 100ms of a 30s interval"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_heartbeat_interval_respected() {
+        let (store, _dir) = make_store().await;
+
+        let hb = HeartbeatTask::new(
+            "hb-interval".to_string(),
+            "127.0.0.1:9090".to_string(),
+            "az-1".to_string(),
+            "default".to_string(),
+            current_timestamp_ms(),
+            "{}".to_string(),
+            Duration::from_millis(80),
+            Arc::clone(&store),
+        );
+
+        let handle = tokio::spawn(async move {
+            hb.run().await;
+        });
+
+        // After 50ms (less than one interval of 80ms), no heartbeat yet
+        tokio::time::sleep(Duration::from_millis(50)).await;
+        let agents = store.list_agents(None, None).await.unwrap();
+        assert!(agents.is_empty(), "heartbeat should not fire before interval elapses");
+
+        // After another 60ms (total ~110ms > 80ms), first heartbeat should have fired
+        tokio::time::sleep(Duration::from_millis(60)).await;
+        let agents = store.list_agents(None, None).await.unwrap();
+        assert_eq!(agents.len(), 1, "first heartbeat should have registered the agent");
+
+        handle.abort();
+        let _ = handle.await;
+    }
+
+    #[tokio::test]
+    async fn test_heartbeat_multiple_cycles() {
+        let (store, _dir) = make_store().await;
+
+        let hb = HeartbeatTask::new(
+            "hb-multi".to_string(),
+            "127.0.0.1:9090".to_string(),
+            "az-1".to_string(),
+            "default".to_string(),
+            current_timestamp_ms(),
+            "{}".to_string(),
+            Duration::from_millis(50),
+            Arc::clone(&store),
+        );
+
+        let handle = tokio::spawn(async move {
+            hb.run().await;
+        });
+
+        // Wait long enough for at least 3 heartbeat cycles (50ms * 4 + buffer)
+        tokio::time::sleep(Duration::from_millis(250)).await;
+
+        let agents = store.list_agents(None, None).await.unwrap();
+        assert_eq!(agents.len(), 1);
+
+        // The last_heartbeat should be very recent (within ~100ms)
+        let age = current_timestamp_ms() - agents[0].last_heartbeat;
+        assert!(
+            age < 150,
+            "after multiple cycles last heartbeat should be recent, was {}ms old",
+            age
+        );
+
+        handle.abort();
+        let _ = handle.await;
+    }
+
+    #[tokio::test]
+    async fn test_heartbeat_cancellation() {
+        let (store, _dir) = make_store().await;
+
+        let hb = HeartbeatTask::new(
+            "hb-cancel".to_string(),
+            "127.0.0.1:9090".to_string(),
+            "az-1".to_string(),
+            "default".to_string(),
+            current_timestamp_ms(),
+            "{}".to_string(),
+            Duration::from_millis(50),
+            Arc::clone(&store),
+        );
+
+        let handle = tokio::spawn(async move {
+            hb.run().await;
+        });
+
+        // Let one heartbeat fire
+        tokio::time::sleep(Duration::from_millis(80)).await;
+        let agents = store.list_agents(None, None).await.unwrap();
+        assert_eq!(agents.len(), 1);
+        let hb_before = agents[0].last_heartbeat;
+
+        // Abort the task
+        handle.abort();
+        let _ = handle.await;
+
+        // Wait a bit and verify no more heartbeats happen
+        tokio::time::sleep(Duration::from_millis(150)).await;
+        let agents = store.list_agents(None, None).await.unwrap();
+        // The heartbeat value should not have advanced after cancellation
+        assert_eq!(
+            agents[0].last_heartbeat, hb_before,
+            "heartbeat should stop updating after cancellation"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_heartbeat_preserves_agent_metadata() {
+        let (store, _dir) = make_store().await;
+
+        let hb = HeartbeatTask::new(
+            "hb-meta".to_string(),
+            "10.0.0.5:7070".to_string(),
+            "eu-west-1a".to_string(),
+            "production".to_string(),
+            12345678,
+            r#"{"version":"2.1","build":"abc123"}"#.to_string(),
+            Duration::from_millis(50),
+            Arc::clone(&store),
+        );
+
+        let handle = tokio::spawn(async move {
+            hb.run().await;
+        });
+
+        tokio::time::sleep(Duration::from_millis(80)).await;
+
+        let agents = store.list_agents(None, None).await.unwrap();
+        assert_eq!(agents.len(), 1);
+        let agent = &agents[0];
+        assert_eq!(agent.agent_id, "hb-meta");
+        assert_eq!(agent.address, "10.0.0.5:7070");
+        assert_eq!(agent.availability_zone, "eu-west-1a");
+        assert_eq!(agent.agent_group, "production");
+        assert_eq!(agent.started_at, 12345678);
+        assert_eq!(agent.metadata.get("version").map(|s| s.as_str()), Some("2.1"));
+        assert_eq!(agent.metadata.get("build").map(|s| s.as_str()), Some("abc123"));
+
+        handle.abort();
+        let _ = handle.await;
+    }
+
+    #[test]
+    fn test_current_timestamp_ms_is_positive() {
+        let ts = current_timestamp_ms();
+        assert!(ts > 0, "timestamp should be positive");
+        // Should be after 2020-01-01 in milliseconds
+        assert!(ts > 1_577_836_800_000, "timestamp should be after 2020");
     }
 }

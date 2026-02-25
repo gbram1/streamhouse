@@ -285,3 +285,106 @@ pub struct CacheStats {
     /// Cache utilization percentage (0-100)
     pub utilization_pct: f64,
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn test_cache_creation() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let cache = SegmentCache::new(temp_dir.path().join("cache"), 1024 * 1024).unwrap();
+        let stats = cache.stats().await;
+        assert_eq!(stats.current_size, 0);
+        assert_eq!(stats.entry_count, 0);
+        assert_eq!(stats.max_size, 1024 * 1024);
+        assert_eq!(stats.utilization_pct, 0.0);
+    }
+
+    #[tokio::test]
+    async fn test_cache_miss() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let cache = SegmentCache::new(temp_dir.path().join("cache"), 1024 * 1024).unwrap();
+        let result = cache.get("nonexistent-key").await.unwrap();
+        assert!(result.is_none());
+    }
+
+    #[tokio::test]
+    async fn test_cache_put_and_get() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let cache = SegmentCache::new(temp_dir.path().join("cache"), 1024 * 1024).unwrap();
+
+        let data = Bytes::from(vec![1u8, 2, 3, 4, 5]);
+        cache.put("segment-1", data.clone()).await.unwrap();
+
+        let retrieved = cache.get("segment-1").await.unwrap();
+        assert!(retrieved.is_some());
+        assert_eq!(retrieved.unwrap(), data);
+    }
+
+    #[tokio::test]
+    async fn test_cache_stats_after_put() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let cache = SegmentCache::new(temp_dir.path().join("cache"), 1024).unwrap();
+
+        cache.put("seg-a", Bytes::from(vec![0u8; 100])).await.unwrap();
+        cache.put("seg-b", Bytes::from(vec![0u8; 200])).await.unwrap();
+
+        let stats = cache.stats().await;
+        assert_eq!(stats.current_size, 300);
+        assert_eq!(stats.entry_count, 2);
+    }
+
+    #[tokio::test]
+    async fn test_cache_lru_eviction() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        // Max cache: 250 bytes
+        let cache = SegmentCache::new(temp_dir.path().join("cache"), 250).unwrap();
+
+        // Put 100 bytes
+        cache.put("seg-a", Bytes::from(vec![1u8; 100])).await.unwrap();
+        // Put 100 bytes
+        cache.put("seg-b", Bytes::from(vec![2u8; 100])).await.unwrap();
+        // Put 100 bytes — should evict seg-a (LRU)
+        cache.put("seg-c", Bytes::from(vec![3u8; 100])).await.unwrap();
+
+        // seg-a should have been evicted
+        let result = cache.get("seg-a").await.unwrap();
+        assert!(result.is_none());
+
+        // seg-b and seg-c should still be cached
+        assert!(cache.get("seg-b").await.unwrap().is_some());
+        assert!(cache.get("seg-c").await.unwrap().is_some());
+    }
+
+    #[tokio::test]
+    async fn test_cache_path_format() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let cache = SegmentCache::new(temp_dir.path().join("cache"), 1024).unwrap();
+        let path = cache.cache_path("orders-0-00000000000000000000");
+        assert!(path.to_str().unwrap().ends_with("orders-0-00000000000000000000.seg"));
+    }
+
+    #[tokio::test]
+    async fn test_cache_utilization_percentage() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let cache = SegmentCache::new(temp_dir.path().join("cache"), 1000).unwrap();
+
+        cache.put("seg-a", Bytes::from(vec![0u8; 500])).await.unwrap();
+        let stats = cache.stats().await;
+        assert!((stats.utilization_pct - 50.0).abs() < 0.01);
+    }
+
+    #[tokio::test]
+    async fn test_cache_oversize_segment() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        // Max cache: 50 bytes
+        let cache = SegmentCache::new(temp_dir.path().join("cache"), 50).unwrap();
+
+        // Put 100 bytes — larger than max cache. Should not panic.
+        cache.put("big-seg", Bytes::from(vec![0u8; 100])).await.unwrap();
+
+        // Stats may be inconsistent but shouldn't panic
+        let _stats = cache.stats().await;
+    }
+}

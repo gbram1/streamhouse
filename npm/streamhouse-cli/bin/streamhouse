@@ -1,0 +1,9 @@
+#!/usr/bin/env bash
+set -e
+DIR="$(cd "$(dirname "$0")/.." && pwd)"
+BINARY="$DIR/streamctl"
+if [ ! -f "$BINARY" ]; then
+  echo "Error: streamctl binary not found. Run 'npm install' to download it." >&2
+  exit 1
+fi
+exec "$BINARY" "$@"

@@ -100,7 +100,7 @@ echo "  • Upload to MinIO via S3 API"
 echo "  • Register metadata in PostgreSQL/SQLite"
 echo ""
 
-cd /Users/gabrielbram/Desktop/streamhouse
+cd "$(dirname "$0")/.."
 
 # Run the write example
 cargo run --quiet --package streamhouse-storage --example write_with_real_api 2>&1 | grep -v "warning:" | grep -v "Compiling" | sed 's/^/  /'

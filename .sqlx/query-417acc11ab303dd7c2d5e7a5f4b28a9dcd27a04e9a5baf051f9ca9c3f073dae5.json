@@ -33,7 +33,7 @@
       "Right": 1
     },
     "nullable": [
-      true,
+      false,
       false,
       true,
       false,

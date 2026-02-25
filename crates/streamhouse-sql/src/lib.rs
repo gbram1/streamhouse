@@ -63,10 +63,18 @@
 //! - No subqueries
 
 mod arrow_executor;
+pub mod cdc;
 mod error;
 mod executor;
 mod parser;
+pub mod streaming;
 mod types;
+pub mod watermark;
+
+pub mod checkpoint_manager;
+pub mod operators;
+pub mod rocksdb_state;
+pub mod scheduler;
 
 pub use arrow_executor::ArrowExecutor;
 pub use error::SqlError;

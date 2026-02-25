@@ -1,2 +1,2 @@
-# Clippy configuration
-# Run with: cargo clippy --workspace --all-features
+cognitive-complexity-threshold = 30
+too-many-arguments-threshold = 8

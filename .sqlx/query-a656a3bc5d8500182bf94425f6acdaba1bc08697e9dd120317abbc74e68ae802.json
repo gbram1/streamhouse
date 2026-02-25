@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "\n                INSERT INTO partitions (organization_id, topic, partition_id, high_watermark, created_at, updated_at)\n                VALUES (?, ?, ?, 0, ?, ?)\n                ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 5
+    },
+    "nullable": []
+  },
+  "hash": "a656a3bc5d8500182bf94425f6acdaba1bc08697e9dd120317abbc74e68ae802"
+}

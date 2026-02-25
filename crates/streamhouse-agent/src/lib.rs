@@ -45,6 +45,9 @@ pub mod error;
 pub mod grpc_service;
 pub mod heartbeat;
 pub mod lease_manager;
+pub mod partition_monitor;
+pub mod connection_pool;
+pub mod rebalancer;
 
 #[cfg(feature = "metrics")]
 pub mod metrics_server;
@@ -55,6 +58,15 @@ pub use error::{AgentError, Result};
 pub use grpc_service::ProducerServiceImpl;
 pub use heartbeat::HeartbeatTask;
 pub use lease_manager::{validate_epoch, LeaseManager};
+pub use partition_monitor::{PartitionMonitor, PartitionMonitorConfig, PartitionStats};
+pub use connection_pool::{
+    CircuitBreaker, CircuitState, ConnectionPool, PoolConfig, PoolError, PoolStats,
+    PooledConnection,
+};
+pub use rebalancer::{
+    NodeLoad, PartitionMovement, PartitionRebalancer, RebalanceConfig, RebalancePlan,
+    RebalanceStrategy,
+};
 
 #[cfg(feature = "metrics")]
 pub use grpc_service::AgentMetrics;

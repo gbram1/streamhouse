@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "DELETE FROM topics WHERE organization_id = ? AND name = ?",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 2
+    },
+    "nullable": []
+  },
+  "hash": "a547763e2f5b0548dde62f91d68ca86b8d3e412e022b07cbad616a32304eb6f9"
+}

@@ -363,6 +363,98 @@ lazy_static! {
         "streamhouse_subjects_total",
         "Total number of schema subjects"
     ).expect("metric can be created");
+
+    // ============================================================================
+    // Per-Producer Debugging Metrics (Phase 10.7: Idempotent Producers)
+    // ============================================================================
+
+    /// Producer dedup results (accepted, duplicate, gap)
+    pub static ref PRODUCER_DEDUP_TOTAL: IntCounterVec = IntCounterVec::new(
+        Opts::new("streamhouse_producer_dedup_total", "Total producer dedup checks by result"),
+        &["producer_id", "result"] // result=accepted/duplicate/gap
+    ).expect("metric can be created");
+
+    /// Current producer sequence number per (producer, topic, partition)
+    pub static ref PRODUCER_SEQUENCE_CURRENT: IntGaugeVec = IntGaugeVec::new(
+        Opts::new("streamhouse_producer_sequence_current", "Current producer sequence number"),
+        &["producer_id", "topic", "partition"]
+    ).expect("metric can be created");
+
+    /// Producer fence events (epoch bumps / fencing of old instances)
+    pub static ref PRODUCER_FENCE_TOTAL: IntCounterVec = IntCounterVec::new(
+        Opts::new("streamhouse_producer_fence_total", "Total producer fence events"),
+        &["producer_id"]
+    ).expect("metric can be created");
+
+    // ============================================================================
+    // Partition Imbalance Metrics (Phase 10.8: Hot-Partition Detection)
+    // ============================================================================
+
+    /// Per-partition write rate in records/sec
+    pub static ref PARTITION_WRITE_RATE: IntGaugeVec = IntGaugeVec::new(
+        Opts::new("streamhouse_partition_write_rate", "Partition write rate in records per second"),
+        &["topic", "partition"]
+    ).expect("metric can be created");
+
+    /// Per-partition write rate in bytes/sec
+    pub static ref PARTITION_BYTES_RATE: IntGaugeVec = IntGaugeVec::new(
+        Opts::new("streamhouse_partition_bytes_rate", "Partition write rate in bytes per second"),
+        &["topic", "partition"]
+    ).expect("metric can be created");
+
+    /// Partition imbalance ratio (stdev/mean of write rates across partitions for a topic)
+    pub static ref PARTITION_IMBALANCE_RATIO: IntGaugeVec = IntGaugeVec::new(
+        Opts::new("streamhouse_partition_imbalance_ratio", "Partition write rate imbalance ratio (stdev/mean * 1000)"),
+        &["topic"]
+    ).expect("metric can be created");
+
+    // ============================================================================
+    // Backpressure Visibility Metrics (Phase 10.9: Credit-Based Backpressure)
+    // ============================================================================
+
+    /// Total backpressure throttle events per producer
+    pub static ref BACKPRESSURE_THROTTLE_TOTAL: IntCounterVec = IntCounterVec::new(
+        Opts::new("streamhouse_backpressure_throttle_total", "Total backpressure throttle events"),
+        &["producer_id"]
+    ).expect("metric can be created");
+
+    /// Available credits per producer
+    pub static ref BACKPRESSURE_CREDITS_AVAILABLE: IntGaugeVec = IntGaugeVec::new(
+        Opts::new("streamhouse_backpressure_credits_available", "Available backpressure credits per producer"),
+        &["producer_id"]
+    ).expect("metric can be created");
+
+    /// Backpressure wait time distribution in seconds
+    pub static ref BACKPRESSURE_WAIT_TIME: HistogramVec = HistogramVec::new(
+        HistogramOpts::new("streamhouse_backpressure_wait_time_seconds", "Backpressure wait time in seconds")
+            .buckets(vec![0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0]),
+        &["producer_id"]
+    ).expect("metric can be created");
+
+    // ============================================================================
+    // E2E Latency Breakdown Metrics (Phase 10.10: Enhanced Ops)
+    // ============================================================================
+
+    /// End-to-end produce latency (from request arrival to ack)
+    pub static ref E2E_PRODUCE_LATENCY: HistogramVec = HistogramVec::new(
+        HistogramOpts::new("streamhouse_e2e_produce_latency_seconds", "End-to-end produce latency in seconds")
+            .buckets(vec![0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0]),
+        &["topic"]
+    ).expect("metric can be created");
+
+    /// WAL append latency (time to write to the write-ahead log)
+    pub static ref WAL_APPEND_LATENCY: HistogramVec = HistogramVec::new(
+        HistogramOpts::new("streamhouse_wal_append_latency_seconds", "WAL append latency in seconds")
+            .buckets(vec![0.0001, 0.0005, 0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25]),
+        &["topic", "partition"]
+    ).expect("metric can be created");
+
+    /// S3 flush latency (time to upload a segment to S3)
+    pub static ref S3_FLUSH_LATENCY: HistogramVec = HistogramVec::new(
+        HistogramOpts::new("streamhouse_s3_flush_latency_seconds", "S3 flush latency in seconds")
+            .buckets(vec![0.01, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0, 30.0]),
+        &["topic", "partition"]
+    ).expect("metric can be created");
 }
 
 /// Initialize metrics registry
@@ -542,6 +634,50 @@ pub fn init() {
         REGISTRY
             .register(Box::new(SUBJECTS_TOTAL.clone()))
             .expect("subjects_total can be registered");
+
+        // Per-Producer Debugging metrics (Phase 10.7)
+        REGISTRY
+            .register(Box::new(PRODUCER_DEDUP_TOTAL.clone()))
+            .expect("producer_dedup_total can be registered");
+        REGISTRY
+            .register(Box::new(PRODUCER_SEQUENCE_CURRENT.clone()))
+            .expect("producer_sequence_current can be registered");
+        REGISTRY
+            .register(Box::new(PRODUCER_FENCE_TOTAL.clone()))
+            .expect("producer_fence_total can be registered");
+
+        // Partition Imbalance metrics (Phase 10.8)
+        REGISTRY
+            .register(Box::new(PARTITION_WRITE_RATE.clone()))
+            .expect("partition_write_rate can be registered");
+        REGISTRY
+            .register(Box::new(PARTITION_BYTES_RATE.clone()))
+            .expect("partition_bytes_rate can be registered");
+        REGISTRY
+            .register(Box::new(PARTITION_IMBALANCE_RATIO.clone()))
+            .expect("partition_imbalance_ratio can be registered");
+
+        // Backpressure Visibility metrics (Phase 10.9)
+        REGISTRY
+            .register(Box::new(BACKPRESSURE_THROTTLE_TOTAL.clone()))
+            .expect("backpressure_throttle_total can be registered");
+        REGISTRY
+            .register(Box::new(BACKPRESSURE_CREDITS_AVAILABLE.clone()))
+            .expect("backpressure_credits_available can be registered");
+        REGISTRY
+            .register(Box::new(BACKPRESSURE_WAIT_TIME.clone()))
+            .expect("backpressure_wait_time can be registered");
+
+        // E2E Latency Breakdown metrics (Phase 10.10)
+        REGISTRY
+            .register(Box::new(E2E_PRODUCE_LATENCY.clone()))
+            .expect("e2e_produce_latency can be registered");
+        REGISTRY
+            .register(Box::new(WAL_APPEND_LATENCY.clone()))
+            .expect("wal_append_latency can be registered");
+        REGISTRY
+            .register(Box::new(S3_FLUSH_LATENCY.clone()))
+            .expect("s3_flush_latency can be registered");
     });
 }
 

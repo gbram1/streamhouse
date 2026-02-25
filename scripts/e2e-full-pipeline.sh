@@ -106,8 +106,8 @@ export STREAMHOUSE_ADDR=0.0.0.0:50051
 export RUST_LOG=info
 
 # Start server in background
-cargo build --release --bin streamhouse-server >/dev/null 2>&1
-nohup cargo run --release --bin streamhouse-server > ./data/server.log 2>&1 &
+cargo build --release --bin unified-server >/dev/null 2>&1
+nohup cargo run --release --bin unified-server > ./data/server.log 2>&1 &
 SERVER_PID=$!
 
 echo "  Server PID: $SERVER_PID"

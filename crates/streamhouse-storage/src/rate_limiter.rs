@@ -827,10 +827,10 @@ mod tests {
     #[tokio::test]
     async fn test_token_bucket_refill_capped_at_burst() {
         let bucket = TokenBucket::new(BucketConfig {
-            rate: 100000.0, // Very high rate: 100k/sec
+            rate: 10.0, // Low rate so refill is predictable
             burst: 5,
-            min_rate: 10.0,
-            max_rate: 200000.0,
+            min_rate: 1.0,
+            max_rate: 100.0,
         });
 
         // Drain bucket

@@ -181,4 +181,91 @@ mod tests {
         // Should not panic
         formatter.print_list(items).unwrap();
     }
+
+    #[test]
+    fn test_yaml_format() {
+        let formatter = Formatter::new(OutputFormat::Yaml, false);
+        let items = vec![TestItem {
+            name: "yaml-test".to_string(),
+            count: 99,
+        }];
+        formatter.print_list(items).unwrap();
+    }
+
+    #[test]
+    fn test_text_format() {
+        let formatter = Formatter::new(OutputFormat::Text, false);
+        let items = vec![TestItem {
+            name: "text-test".to_string(),
+            count: 7,
+        }];
+        formatter.print_list(items).unwrap();
+    }
+
+    #[test]
+    fn test_empty_list_table() {
+        let formatter = Formatter::new(OutputFormat::Table, false);
+        let items: Vec<TestItem> = vec![];
+        formatter.print_list(items).unwrap();
+    }
+
+    #[test]
+    fn test_empty_list_text() {
+        let formatter = Formatter::new(OutputFormat::Text, false);
+        let items: Vec<TestItem> = vec![];
+        formatter.print_list(items).unwrap();
+    }
+
+    #[test]
+    fn test_print_single_json() {
+        let formatter = Formatter::new(OutputFormat::Json, false);
+        let item = TestItem {
+            name: "single".to_string(),
+            count: 1,
+        };
+        formatter.print_single(item).unwrap();
+    }
+
+    #[test]
+    fn test_print_single_table() {
+        let formatter = Formatter::new(OutputFormat::Table, false);
+        let item = TestItem {
+            name: "single".to_string(),
+            count: 1,
+        };
+        formatter.print_single(item).unwrap();
+    }
+
+    #[test]
+    fn test_formatter_colored_messages() {
+        let formatter = Formatter::new(OutputFormat::Table, true);
+        formatter.print_success("Operation succeeded");
+        formatter.print_error("Something failed");
+        formatter.print_info("Informational message");
+    }
+
+    #[test]
+    fn test_formatter_uncolored_messages() {
+        let formatter = Formatter::new(OutputFormat::Table, false);
+        formatter.print_success("Operation succeeded");
+        formatter.print_error("Something failed");
+        formatter.print_info("Informational message");
+    }
+
+    #[test]
+    fn test_print_key_value_colored() {
+        let pairs = vec![
+            ("key1".to_string(), "value1".to_string()),
+            ("key2".to_string(), "value2".to_string()),
+        ];
+        print_key_value(pairs, true);
+    }
+
+    #[test]
+    fn test_print_key_value_uncolored() {
+        let pairs = vec![
+            ("key1".to_string(), "value1".to_string()),
+        ];
+        print_key_value(pairs, false);
+    }
 }

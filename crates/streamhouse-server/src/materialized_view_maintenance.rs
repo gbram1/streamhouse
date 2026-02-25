@@ -682,4 +682,217 @@ mod tests {
             "total_amount"
         );
     }
+
+    // ---------------------------------------------------------------
+    // MaintenanceConfig tests
+    // ---------------------------------------------------------------
+
+    #[test]
+    fn test_maintenance_config_default() {
+        let config = MaintenanceConfig::default();
+        assert_eq!(config.tick_interval, Duration::from_secs(5));
+        assert_eq!(config.max_records_per_tick, 10_000);
+        assert_eq!(config.view_timeout, Duration::from_secs(60));
+    }
+
+    #[test]
+    fn test_maintenance_config_custom() {
+        let config = MaintenanceConfig {
+            tick_interval: Duration::from_secs(1),
+            max_records_per_tick: 500,
+            view_timeout: Duration::from_secs(30),
+        };
+        assert_eq!(config.tick_interval, Duration::from_secs(1));
+        assert_eq!(config.max_records_per_tick, 500);
+        assert_eq!(config.view_timeout, Duration::from_secs(30));
+    }
+
+    #[test]
+    fn test_maintenance_config_clone() {
+        let config = MaintenanceConfig {
+            tick_interval: Duration::from_millis(200),
+            max_records_per_tick: 42,
+            view_timeout: Duration::from_secs(10),
+        };
+        let cloned = config.clone();
+        assert_eq!(cloned.tick_interval, config.tick_interval);
+        assert_eq!(cloned.max_records_per_tick, config.max_records_per_tick);
+        assert_eq!(cloned.view_timeout, config.view_timeout);
+    }
+
+    // ---------------------------------------------------------------
+    // MaintenanceError display tests
+    // ---------------------------------------------------------------
+
+    #[test]
+    fn test_maintenance_error_topic_not_found_display() {
+        let err = MaintenanceError::TopicNotFound("my-topic".to_string());
+        assert_eq!(err.to_string(), "Topic not found: my-topic");
+    }
+
+    #[test]
+    fn test_maintenance_error_unsupported_query_display() {
+        let err = MaintenanceError::UnsupportedQuery;
+        assert_eq!(
+            err.to_string(),
+            "Unsupported query type for materialized view"
+        );
+    }
+
+    #[test]
+    fn test_maintenance_error_no_window_display() {
+        let err = MaintenanceError::NoWindow;
+        assert_eq!(err.to_string(), "View has no window specification");
+    }
+
+    // ---------------------------------------------------------------
+    // extract_json_path: additional edge cases
+    // ---------------------------------------------------------------
+
+    #[test]
+    fn test_extract_json_path_no_dollar_prefix() {
+        let json: serde_json::Value =
+            serde_json::from_str(r#"{"a": {"b": 42}}"#).unwrap();
+        // Path without "$." prefix should still work
+        assert_eq!(
+            extract_json_path(&json, "a.b"),
+            serde_json::Value::Number(42.into())
+        );
+    }
+
+    #[test]
+    fn test_extract_json_path_array_index() {
+        let json: serde_json::Value =
+            serde_json::from_str(r#"{"items": [10, 20, 30]}"#).unwrap();
+        assert_eq!(
+            extract_json_path(&json, "$.items.1"),
+            serde_json::Value::Number(20.into())
+        );
+    }
+
+    #[test]
+    fn test_extract_json_path_deeply_nested() {
+        let json: serde_json::Value =
+            serde_json::from_str(r#"{"a": {"b": {"c": {"d": "deep"}}}}"#).unwrap();
+        assert_eq!(
+            extract_json_path(&json, "$.a.b.c.d"),
+            serde_json::Value::String("deep".to_string())
+        );
+    }
+
+    #[test]
+    fn test_extract_json_path_from_scalar_returns_null() {
+        let json = serde_json::Value::Number(42.into());
+        assert_eq!(
+            extract_json_path(&json, "$.field"),
+            serde_json::Value::Null
+        );
+    }
+
+    // ---------------------------------------------------------------
+    // compare_json_values tests
+    // ---------------------------------------------------------------
+
+    #[test]
+    fn test_compare_json_values_numbers() {
+        let a = serde_json::json!(10);
+        let b = serde_json::json!(20);
+        assert_eq!(
+            compare_json_values(&a, &b),
+            Some(std::cmp::Ordering::Less)
+        );
+        assert_eq!(
+            compare_json_values(&b, &a),
+            Some(std::cmp::Ordering::Greater)
+        );
+        assert_eq!(
+            compare_json_values(&a, &a),
+            Some(std::cmp::Ordering::Equal)
+        );
+    }
+
+    #[test]
+    fn test_compare_json_values_strings() {
+        let a = serde_json::json!("alpha");
+        let b = serde_json::json!("beta");
+        assert_eq!(
+            compare_json_values(&a, &b),
+            Some(std::cmp::Ordering::Less)
+        );
+    }
+
+    #[test]
+    fn test_compare_json_values_mixed_types_returns_none() {
+        let num = serde_json::json!(42);
+        let string = serde_json::json!("hello");
+        assert_eq!(compare_json_values(&num, &string), None);
+    }
+
+    // ---------------------------------------------------------------
+    // get_aggregation_name: all variants without alias
+    // ---------------------------------------------------------------
+
+    #[test]
+    fn test_get_aggregation_name_all_variants_default() {
+        assert_eq!(
+            get_aggregation_name(
+                &WindowAggregation::Avg {
+                    path: "$.x".to_string(),
+                    alias: None,
+                },
+                3
+            ),
+            "avg_3"
+        );
+        assert_eq!(
+            get_aggregation_name(
+                &WindowAggregation::Min {
+                    path: "$.x".to_string(),
+                    alias: None,
+                },
+                0
+            ),
+            "min_0"
+        );
+        assert_eq!(
+            get_aggregation_name(
+                &WindowAggregation::Max {
+                    path: "$.x".to_string(),
+                    alias: None,
+                },
+                1
+            ),
+            "max_1"
+        );
+        assert_eq!(
+            get_aggregation_name(
+                &WindowAggregation::First {
+                    path: "$.x".to_string(),
+                    alias: None,
+                },
+                2
+            ),
+            "first_2"
+        );
+        assert_eq!(
+            get_aggregation_name(
+                &WindowAggregation::Last {
+                    path: "$.x".to_string(),
+                    alias: None,
+                },
+                5
+            ),
+            "last_5"
+        );
+        assert_eq!(
+            get_aggregation_name(
+                &WindowAggregation::CountDistinct {
+                    column: "$.x".to_string(),
+                    alias: None,
+                },
+                7
+            ),
+            "count_distinct_7"
+        );
+    }
 }

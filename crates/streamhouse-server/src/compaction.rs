@@ -1403,4 +1403,127 @@ mod tests {
         let compacted_path = object_store::path::Path::from("topic/0/seg_1_compacted.bin");
         assert!(store.get(&compacted_path).await.is_ok());
     }
+
+    // ---------------------------------------------------------------
+    // CompactionConfig: defaults and custom values
+    // ---------------------------------------------------------------
+
+    #[test]
+    fn test_compaction_config_default_values_detailed() {
+        let config = CompactionConfig::default();
+        assert_eq!(config.check_interval, Duration::from_secs(300));
+        assert_eq!(config.max_records_per_run, 1_000_000);
+        assert_eq!(config.min_segment_age, Duration::from_secs(3600));
+        assert_eq!(config.tombstone_retention, Duration::from_secs(86400));
+    }
+
+    #[test]
+    fn test_compaction_config_custom_values() {
+        let config = CompactionConfig {
+            check_interval: Duration::from_secs(60),
+            max_records_per_run: 500,
+            min_segment_age: Duration::from_secs(120),
+            tombstone_retention: Duration::from_secs(3600),
+        };
+        assert_eq!(config.check_interval, Duration::from_secs(60));
+        assert_eq!(config.max_records_per_run, 500);
+        assert_eq!(config.min_segment_age, Duration::from_secs(120));
+        assert_eq!(config.tombstone_retention, Duration::from_secs(3600));
+    }
+
+    #[test]
+    fn test_compaction_config_clone() {
+        let config = CompactionConfig {
+            check_interval: Duration::from_millis(100),
+            max_records_per_run: 42,
+            min_segment_age: Duration::from_secs(10),
+            tombstone_retention: Duration::from_secs(20),
+        };
+        let cloned = config.clone();
+        assert_eq!(cloned.check_interval, config.check_interval);
+        assert_eq!(cloned.max_records_per_run, config.max_records_per_run);
+        assert_eq!(cloned.min_segment_age, config.min_segment_age);
+        assert_eq!(cloned.tombstone_retention, config.tombstone_retention);
+    }
+
+    // ---------------------------------------------------------------
+    // CompactionStats: defaults and tracking
+    // ---------------------------------------------------------------
+
+    #[test]
+    fn test_compaction_stats_default() {
+        let stats = CompactionStats::default();
+        assert_eq!(stats.runs_completed, 0);
+        assert_eq!(stats.records_processed, 0);
+        assert_eq!(stats.keys_removed, 0);
+        assert_eq!(stats.segments_compacted, 0);
+        assert_eq!(stats.bytes_saved, 0);
+    }
+
+    #[test]
+    fn test_compaction_stats_clone() {
+        let mut stats = CompactionStats::default();
+        stats.runs_completed = 5;
+        stats.records_processed = 1000;
+        stats.keys_removed = 200;
+        stats.segments_compacted = 10;
+        stats.bytes_saved = 50_000;
+
+        let cloned = stats.clone();
+        assert_eq!(cloned.runs_completed, 5);
+        assert_eq!(cloned.records_processed, 1000);
+        assert_eq!(cloned.keys_removed, 200);
+        assert_eq!(cloned.segments_compacted, 10);
+        assert_eq!(cloned.bytes_saved, 50_000);
+    }
+
+    // ---------------------------------------------------------------
+    // CompactionError: Display and variant tests
+    // ---------------------------------------------------------------
+
+    #[test]
+    fn test_compaction_error_metadata_display() {
+        let err = CompactionError::Metadata("connection lost".to_string());
+        assert_eq!(err.to_string(), "Metadata error: connection lost");
+    }
+
+    #[test]
+    fn test_compaction_error_storage_display() {
+        let err = CompactionError::Storage("disk full".to_string());
+        assert_eq!(err.to_string(), "Storage error: disk full");
+    }
+
+    #[test]
+    fn test_compaction_error_segment_read_display() {
+        let err = CompactionError::SegmentRead("corrupt header".to_string());
+        assert_eq!(err.to_string(), "Segment read error: corrupt header");
+    }
+
+    // ---------------------------------------------------------------
+    // CompactionResult: default values
+    // ---------------------------------------------------------------
+
+    #[test]
+    fn test_compaction_result_default() {
+        let result = CompactionResult::default();
+        assert_eq!(result.records_processed, 0);
+        assert_eq!(result.keys_removed, 0);
+        assert_eq!(result.segments_compacted, 0);
+        assert_eq!(result.bytes_saved, 0);
+    }
+
+    // ---------------------------------------------------------------
+    // CompactionTask: stats accessor
+    // ---------------------------------------------------------------
+
+    #[test]
+    fn test_compaction_task_stats_accessor() {
+        let metadata: Arc<dyn MetadataStore> = Arc::new(MockMetadataStore::new());
+        let store: Arc<dyn ObjectStore> = Arc::new(InMemory::new());
+        let task = make_task(metadata, store);
+
+        let stats = task.stats();
+        assert_eq!(stats.runs_completed, 0);
+        assert_eq!(stats.records_processed, 0);
+    }
 }

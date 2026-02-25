@@ -145,3 +145,199 @@ impl Consumer {
         self.current_offset
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::cache::SegmentCache;
+    use crate::reader::PartitionReader;
+    use object_store::memory::InMemory;
+    use object_store::ObjectStore;
+    use streamhouse_metadata::{SqliteMetadataStore, TopicConfig};
+
+    async fn create_test_metadata(topic: &str, partitions: u32) -> Arc<dyn MetadataStore> {
+        let store = SqliteMetadataStore::new_in_memory().await.unwrap();
+        store
+            .create_topic(TopicConfig {
+                name: topic.to_string(),
+                partition_count: partitions,
+                retention_ms: Some(86400000),
+                config: Default::default(),
+                cleanup_policy: Default::default(),
+            })
+            .await
+            .unwrap();
+        Arc::new(store)
+    }
+
+    fn create_test_reader(
+        topic: &str,
+        partition_id: u32,
+        metadata: Arc<dyn MetadataStore>,
+        cache: Arc<SegmentCache>,
+    ) -> Arc<PartitionReader> {
+        let object_store: Arc<dyn ObjectStore> = Arc::new(InMemory::new());
+        Arc::new(PartitionReader::new(
+            topic.to_string(),
+            partition_id,
+            metadata.clone(),
+            object_store,
+            cache,
+        ))
+    }
+
+    #[tokio::test]
+    async fn test_consumer_starts_at_offset_zero_without_group() {
+        let metadata = create_test_metadata("orders", 1).await;
+        let temp_dir = tempfile::tempdir().unwrap();
+        let cache = Arc::new(SegmentCache::new(temp_dir.path().join("cache"), 1024 * 1024).unwrap());
+        let reader = create_test_reader("orders", 0, metadata.clone(), cache);
+
+        let consumer = Consumer::new("orders".to_string(), 0, None, reader, metadata)
+            .await
+            .unwrap();
+
+        assert_eq!(consumer.position(), 0);
+    }
+
+    #[tokio::test]
+    async fn test_consumer_with_group_starts_at_zero_when_no_committed_offset() {
+        let metadata = create_test_metadata("orders", 1).await;
+        let temp_dir = tempfile::tempdir().unwrap();
+        let cache = Arc::new(SegmentCache::new(temp_dir.path().join("cache"), 1024 * 1024).unwrap());
+        let reader = create_test_reader("orders", 0, metadata.clone(), cache);
+
+        let consumer = Consumer::new(
+            "orders".to_string(),
+            0,
+            Some("my-group".to_string()),
+            reader,
+            metadata,
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(consumer.position(), 0);
+    }
+
+    #[tokio::test]
+    async fn test_consumer_with_group_resumes_from_committed_offset() {
+        let metadata = create_test_metadata("orders", 1).await;
+
+        // Commit an offset first
+        metadata
+            .commit_offset("my-group", "orders", 0, 42, None)
+            .await
+            .unwrap();
+
+        let temp_dir = tempfile::tempdir().unwrap();
+        let cache = Arc::new(SegmentCache::new(temp_dir.path().join("cache"), 1024 * 1024).unwrap());
+        let reader = create_test_reader("orders", 0, metadata.clone(), cache);
+
+        let consumer = Consumer::new(
+            "orders".to_string(),
+            0,
+            Some("my-group".to_string()),
+            reader,
+            metadata,
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(consumer.position(), 42);
+    }
+
+    #[tokio::test]
+    async fn test_consumer_seek() {
+        let metadata = create_test_metadata("orders", 1).await;
+        let temp_dir = tempfile::tempdir().unwrap();
+        let cache = Arc::new(SegmentCache::new(temp_dir.path().join("cache"), 1024 * 1024).unwrap());
+        let reader = create_test_reader("orders", 0, metadata.clone(), cache);
+
+        let mut consumer = Consumer::new("orders".to_string(), 0, None, reader, metadata)
+            .await
+            .unwrap();
+
+        assert_eq!(consumer.position(), 0);
+
+        consumer.seek(100);
+        assert_eq!(consumer.position(), 100);
+
+        consumer.seek(0);
+        assert_eq!(consumer.position(), 0);
+
+        consumer.seek(u64::MAX);
+        assert_eq!(consumer.position(), u64::MAX);
+    }
+
+    #[tokio::test]
+    async fn test_consumer_commit_without_group_is_noop() {
+        let metadata = create_test_metadata("orders", 1).await;
+        let temp_dir = tempfile::tempdir().unwrap();
+        let cache = Arc::new(SegmentCache::new(temp_dir.path().join("cache"), 1024 * 1024).unwrap());
+        let reader = create_test_reader("orders", 0, metadata.clone(), cache);
+
+        let consumer = Consumer::new("orders".to_string(), 0, None, reader, metadata.clone())
+            .await
+            .unwrap();
+
+        // commit without group should be a no-op (not an error)
+        consumer.commit().await.unwrap();
+
+        // No offset should have been committed
+        let offset = metadata
+            .get_committed_offset("no-group", "orders", 0)
+            .await
+            .unwrap();
+        assert!(offset.is_none());
+    }
+
+    #[tokio::test]
+    async fn test_consumer_commit_with_group_persists_offset() {
+        let metadata = create_test_metadata("orders", 1).await;
+        let temp_dir = tempfile::tempdir().unwrap();
+        let cache = Arc::new(SegmentCache::new(temp_dir.path().join("cache"), 1024 * 1024).unwrap());
+        let reader = create_test_reader("orders", 0, metadata.clone(), cache);
+
+        let mut consumer = Consumer::new(
+            "orders".to_string(),
+            0,
+            Some("test-group".to_string()),
+            reader,
+            metadata.clone(),
+        )
+        .await
+        .unwrap();
+
+        // Move the position forward (simulating poll)
+        consumer.seek(50);
+
+        // Commit
+        consumer.commit().await.unwrap();
+
+        // Verify offset was persisted
+        let offset = metadata
+            .get_committed_offset("test-group", "orders", 0)
+            .await
+            .unwrap();
+        assert_eq!(offset, Some(50));
+    }
+
+    #[tokio::test]
+    async fn test_consumer_position_after_seek() {
+        let metadata = create_test_metadata("events", 1).await;
+        let temp_dir = tempfile::tempdir().unwrap();
+        let cache = Arc::new(SegmentCache::new(temp_dir.path().join("cache"), 1024 * 1024).unwrap());
+        let reader = create_test_reader("events", 0, metadata.clone(), cache);
+
+        let mut consumer = Consumer::new("events".to_string(), 0, None, reader, metadata)
+            .await
+            .unwrap();
+
+        // Multiple seeks should always reflect the latest position
+        for target in [10, 20, 5, 1000, 0] {
+            consumer.seek(target);
+            assert_eq!(consumer.position(), target);
+        }
+    }
+}

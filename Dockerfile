@@ -8,6 +8,8 @@ RUN apt-get update && apt-get install -y \
     libssl-dev \
     pkg-config \
     mold \
+    clang \
+    libclang-dev \
     && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 
@@ -58,11 +60,11 @@ USER streamhouse
 
 ENV RUST_LOG=info
 ENV HTTP_PORT=8080
-ENV GRPC_PORT=9090
+ENV GRPC_PORT=50051
 ENV WAL_DIR=/data/wal
 ENV STREAMHOUSE_CACHE=/data/cache
 
-EXPOSE 8080 9090
+EXPOSE 8080 50051
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
     CMD curl -f http://localhost:8080/health || exit 1

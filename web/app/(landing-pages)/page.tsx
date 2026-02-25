@@ -1,7 +1,6 @@
 "use client";
 
 import Link from "next/link";
-import { SignInButton, Waitlist } from "@clerk/nextjs";
 import { Button } from "@/components/ui/button";
 import {
   ArrowRight,
@@ -16,7 +15,6 @@ import {
   X,
 } from "lucide-react";
 import { useEffect, useState } from "react";
-import WaitlistPage from "./waitlist/[[...waitlist]]/page";
 
 function GithubIcon({ className }: { className?: string }) {
   return (
@@ -119,14 +117,11 @@ export default function Home() {
                 <GithubIcon className="h-5 w-5" />
               </Link>
 
-              {/* <Link href="/dashboard">
-                <SignInButton />
-              </Link> */}
-              {/* <Link href="/console">
+              <Link href="/console">
                 <Button className="bg-slate-900 text-sm font-medium text-white hover:bg-slate-800">
                   Get Started
                 </Button>
-              </Link> */}
+              </Link>
             </div>
           </div>
         </div>
@@ -171,17 +166,15 @@ export default function Home() {
 
             {/* CTAs */}
             <div className="mt-10 flex flex-col items-center justify-center gap-4 sm:flex-row">
-              <WaitlistPage />
-              {/* <Link href="/console">
+              <Link href="/console">
                 <Button
                   size="lg"
                   className="group h-12 bg-slate-900 px-8 text-base font-medium text-white hover:bg-slate-800"
                 >
-                  
-                  {/* Start building free
-                  <ArrowRight className="ml-2 h-4 w-4 transition-transform group-hover:translate-x-0.5" /> */}
-              {/* </Button>
-              </Link>  */}
+                  Get Started
+                  <ArrowRight className="ml-2 h-4 w-4 transition-transform group-hover:translate-x-0.5" />
+                </Button>
+              </Link>
               <Link href="/docs">
                 <Button
                   size="lg"
@@ -644,11 +637,10 @@ export default function Home() {
               <Link href="/console">
                 <Button
                   size="lg"
-                  className="h-12 bg-slate-900 px-8 text-base font-medium text-white hover:bg-slate-800"
+                  className="group h-12 bg-slate-900 px-8 text-base font-medium text-white hover:bg-slate-800"
                 >
-                  {/* Get started free
-                  <ArrowRight className="ml-2 h-4 w-4" /> */}
-                  <Waitlist afterJoinWaitlistUrl="/how-it-works" />
+                  Get started free
+                  <ArrowRight className="ml-2 h-4 w-4 transition-transform group-hover:translate-x-0.5" />
                 </Button>
               </Link>
               <Link href="/docs">

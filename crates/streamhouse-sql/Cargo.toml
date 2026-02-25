@@ -17,18 +17,34 @@ tokio = { workspace = true }
 # Serialization
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
+bincode = { workspace = true }
 
 # Error handling
 anyhow = { workspace = true }
 thiserror = { workspace = true }
 
+# Async
+async-trait = { workspace = true }
+
 # Time handling
 chrono = "0.4"
+
+# Identifiers
+uuid = { workspace = true }
+
+# Byte buffers
+bytes = { workspace = true }
 
 # Apache Arrow & DataFusion for high-performance query execution
 arrow = { workspace = true }
 datafusion = { workspace = true }
 parquet = { workspace = true }
+
+# Embedded state store
+rocksdb = { workspace = true }
+
+# Logging
+tracing = { workspace = true }
 
 # StreamHouse dependencies
 streamhouse-metadata = { path = "../streamhouse-metadata" }
@@ -37,3 +53,4 @@ object_store = { workspace = true }
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
+tempfile = { workspace = true }

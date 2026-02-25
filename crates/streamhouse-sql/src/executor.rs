@@ -1030,48 +1030,70 @@ impl SqlExecutor {
             bytes
         };
 
-        // Parse segment data into messages
-        // For now, use a simple line-based format (one JSON message per line)
-        // In production, this would use the actual segment format
+        // Parse segment data using the binary segment reader
         let mut messages = Vec::new();
 
-        // Try to parse as NDJSON (newline-delimited JSON)
-        let text = String::from_utf8_lossy(&data);
-        for (idx, line) in text.lines().enumerate() {
-            if line.trim().is_empty() {
-                continue;
+        match streamhouse_storage::SegmentReader::new(data.clone()) {
+            Ok(reader) => {
+                match reader.read_all() {
+                    Ok(records) => {
+                        for record in records {
+                            let key = record
+                                .key
+                                .as_ref()
+                                .map(|k| String::from_utf8_lossy(k).to_string());
+                            let value = String::from_utf8_lossy(&record.value).to_string();
+                            messages.push(MessageRow {
+                                topic: segment.topic.clone(),
+                                partition: segment.partition_id,
+                                offset: record.offset,
+                                key,
+                                value,
+                                timestamp: record.timestamp as i64,
+                            });
+                        }
+                    }
+                    Err(e) => {
+                        tracing::warn!("Failed to read segment records: {}", e);
+                    }
+                }
             }
-
-            // Try to parse as a message record
-            if let Ok(record) = serde_json::from_str::<serde_json::Value>(line) {
-                let msg = MessageRow {
-                    topic: segment.topic.clone(),
-                    partition: segment.partition_id,
-                    offset: segment.base_offset + idx as u64,
-                    key: record
-                        .get("key")
-                        .and_then(|v| v.as_str())
-                        .map(|s| s.to_string()),
-                    value: record
-                        .get("value")
-                        .map(|v| v.to_string())
-                        .unwrap_or_else(|| line.to_string()),
-                    timestamp: record
-                        .get("timestamp")
-                        .and_then(|v| v.as_i64())
-                        .unwrap_or(segment.created_at),
-                };
-                messages.push(msg);
-            } else {
-                // If not JSON, treat the whole line as value
-                messages.push(MessageRow {
-                    topic: segment.topic.clone(),
-                    partition: segment.partition_id,
-                    offset: segment.base_offset + idx as u64,
-                    key: None,
-                    value: line.to_string(),
-                    timestamp: segment.created_at,
-                });
+            Err(_) => {
+                // Fallback: try NDJSON format for backward compatibility
+                let text = String::from_utf8_lossy(&data);
+                for (idx, line) in text.lines().enumerate() {
+                    if line.trim().is_empty() {
+                        continue;
+                    }
+                    if let Ok(record) = serde_json::from_str::<serde_json::Value>(line) {
+                        messages.push(MessageRow {
+                            topic: segment.topic.clone(),
+                            partition: segment.partition_id,
+                            offset: segment.base_offset + idx as u64,
+                            key: record
+                                .get("key")
+                                .and_then(|v| v.as_str())
+                                .map(|s| s.to_string()),
+                            value: record
+                                .get("value")
+                                .map(|v| v.to_string())
+                                .unwrap_or_else(|| line.to_string()),
+                            timestamp: record
+                                .get("timestamp")
+                                .and_then(|v| v.as_i64())
+                                .unwrap_or(segment.created_at),
+                        });
+                    } else {
+                        messages.push(MessageRow {
+                            topic: segment.topic.clone(),
+                            partition: segment.partition_id,
+                            offset: segment.base_offset + idx as u64,
+                            key: None,
+                            value: line.to_string(),
+                            timestamp: segment.created_at,
+                        });
+                    }
+                }
             }
         }
 

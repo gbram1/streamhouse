@@ -66,7 +66,7 @@ echo "Starting StreamHouse server..."
     # Build and start server
     echo "  Building and starting server (this may take 1-2 minutes)..."
     mkdir -p ./data
-    nohup cargo run --release --bin streamhouse-server > ./data/demo-server.log 2>&1 &
+    nohup cargo run --release --bin unified-server > ./data/demo-server.log 2>&1 &
     SERVER_PID=$!
 
     echo "  Server PID: $SERVER_PID"

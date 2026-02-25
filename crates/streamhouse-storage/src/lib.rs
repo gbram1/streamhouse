@@ -150,9 +150,11 @@
 //! 4. **gRPC API** - Expose Kafka-compatible API
 //! 5. **CLI tool** - Admin and testing interface
 
+pub mod backpressure;
 pub mod bloom;
 pub mod cache;
 pub mod circuit_breaker;
+pub mod compaction;
 pub mod config;
 pub mod consumer;
 pub mod error;
@@ -163,13 +165,16 @@ pub mod segment;
 pub mod segment_index;
 pub mod tenant;
 pub mod throttle;
+pub mod tiering;
 pub mod wal;
 pub mod writer;
 pub mod writer_pool;
 
+pub use backpressure::{BackpressureConfig, BackpressureController, ProducerCredits};
 pub use bloom::{BloomFilterConfig, BloomFilterStats, SegmentBloomFilter};
 pub use cache::{CacheStats, SegmentCache};
 pub use circuit_breaker::{CircuitBreaker, CircuitBreakerConfig, CircuitState};
+pub use compaction::{CompactionConfig, CompactionResult, CompactionScheduler, CompactionState};
 pub use config::WriteConfig;
 pub use consumer::Consumer;
 pub use error::{Error, Result};
@@ -180,6 +185,9 @@ pub use segment::{SegmentReader, SegmentWriter};
 pub use segment_index::{SegmentIndex, SegmentIndexConfig};
 pub use tenant::TenantObjectStore;
 pub use throttle::{ThrottleConfig, ThrottleCoordinator, ThrottleDecision};
+pub use tiering::{
+    SegmentTier, StorageCostEstimate, StorageTier, StorageTiering, TieringConfig, TieringStats,
+};
 pub use wal::{SyncPolicy, WALConfig, WALRecord, WAL};
 pub use writer::{PartitionWriter, TopicWriter};
 pub use writer_pool::WriterPool;

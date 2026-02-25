@@ -1,3 +1,4 @@
+#![recursion_limit = "512"]
 //! StreamHouse Observability
 //!
 //! Provides metrics, logging, and monitoring for StreamHouse.
@@ -34,4 +35,33 @@ pub fn init() {
 
     // Initialize tracing (when implemented in 7.2)
     // tracing::init();
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_init_does_not_panic() {
+        init();
+    }
+
+    #[test]
+    fn test_init_metrics_alias() {
+        init_metrics();
+    }
+
+    #[test]
+    fn test_registry_accessible() {
+        // Ensure REGISTRY is accessible after init
+        init();
+        let _registry = &*REGISTRY;
+    }
+
+    #[test]
+    fn test_double_init_is_safe() {
+        // Calling init twice should not panic
+        init();
+        init();
+    }
 }

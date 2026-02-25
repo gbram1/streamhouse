@@ -14,7 +14,8 @@ BLUE='\033[0;34m'
 RED='\033[0;31m'
 NC='\033[0m'
 
-API_URL="http://localhost:3001"
+API_PORT="${API_PORT:-8080}"
+API_URL="http://localhost:${API_PORT}"
 
 echo -e "${BLUE}Testing REST API endpoints...${NC}"
 echo

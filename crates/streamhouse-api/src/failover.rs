@@ -541,7 +541,7 @@ impl FailoverManager {
     }
 
     /// Run health checks on all nodes
-    async fn run_health_checks(&self) -> Result<()> {
+    pub async fn run_health_checks(&self) -> Result<()> {
         let nodes: Vec<NodeInfo> = self.nodes.read().await.values().cloned().collect();
 
         for node in nodes {
