@@ -813,6 +813,13 @@ impl MetadataStore for PostgresMetadataStore {
     async fn register_agent(&self, agent: AgentInfo) -> Result<()> {
         let metadata_json = serde_json::to_value(&agent.metadata)?;
 
+        // Remove any stale agent with the same address (e.g. previous instance with different PID)
+        sqlx::query("DELETE FROM agents WHERE address = $1 AND agent_id != $2")
+            .bind(&agent.address)
+            .bind(&agent.agent_id)
+            .execute(&self.pool)
+            .await?;
+
         sqlx::query(
             "INSERT INTO agents (agent_id, address, availability_zone, agent_group,
                                  last_heartbeat, started_at, metadata)
