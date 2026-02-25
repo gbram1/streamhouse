@@ -73,7 +73,8 @@ use object_store::ObjectStore;
 use std::sync::Arc;
 use streamhouse_core::{record::Record, segment::Compression};
 use streamhouse_metadata::{MetadataStore, SegmentInfo};
-use tokio::sync::Mutex;
+use tokio::sync::{mpsc, oneshot, Mutex};
+use tokio::task::JoinHandle;
 
 /// Get current timestamp in milliseconds
 fn now_ms() -> i64 {
@@ -869,6 +870,158 @@ impl PartitionWriter {
         } else {
             Ok(None)
         }
+    }
+}
+
+// ============================================================================
+// Batched Durable Flush (ACK_DURABLE optimization)
+// ============================================================================
+//
+// Mirrors the WAL group commit pattern (wal.rs WalWriter::run):
+//   Callers ─→ [mpsc channel] ─→ DurableFlushTask ─→ roll_segment ─→ S3
+//
+// Instead of each ACK_DURABLE produce call doing its own S3 upload,
+// writes are batched over a time window (~200ms) and flushed together.
+
+/// Commands sent to the durable flush background task
+enum DurableFlushCmd {
+    /// A produce call wants to wait for the next S3 flush
+    WaitForFlush(oneshot::Sender<std::result::Result<(), String>>),
+    /// Shutdown the flush task
+    Shutdown,
+}
+
+/// Handle to a running DurableFlushTask for one partition
+pub struct DurableFlushHandle {
+    cmd_tx: mpsc::Sender<DurableFlushCmd>,
+    task: JoinHandle<()>,
+}
+
+impl DurableFlushHandle {
+    /// Spawn a new durable flush task for a partition writer
+    pub fn spawn(
+        writer: Arc<Mutex<PartitionWriter>>,
+        max_age_ms: u64,
+    ) -> Self {
+        let (cmd_tx, cmd_rx) = mpsc::channel(16_384);
+
+        let task = tokio::spawn(async move {
+            let mut runner = DurableFlushTask {
+                writer,
+                cmd_rx,
+                max_age_ms,
+            };
+            runner.run().await;
+        });
+
+        Self { cmd_tx, task }
+    }
+
+    /// Request a durable flush and wait for S3 confirmation
+    pub async fn request_flush(&self) -> Result<()> {
+        let (tx, rx) = oneshot::channel();
+        self.cmd_tx
+            .send(DurableFlushCmd::WaitForFlush(tx))
+            .await
+            .map_err(|_| Error::SegmentError("Durable flush task closed".to_string()))?;
+        rx.await
+            .map_err(|_| Error::SegmentError("Durable flush task dropped".to_string()))?
+            .map_err(|e| Error::SegmentError(format!("Durable flush failed: {}", e)))
+    }
+
+    /// Shutdown the flush task
+    pub async fn shutdown(self) {
+        let _ = self.cmd_tx.send(DurableFlushCmd::Shutdown).await;
+        let _ = self.task.await;
+    }
+}
+
+/// Background task that batches ACK_DURABLE writes and flushes to S3
+struct DurableFlushTask {
+    writer: Arc<Mutex<PartitionWriter>>,
+    cmd_rx: mpsc::Receiver<DurableFlushCmd>,
+    max_age_ms: u64,
+}
+
+impl DurableFlushTask {
+    /// Main event loop — mirrors WalWriter::run() pattern from wal.rs
+    async fn run(&mut self) {
+        let batch_timeout = std::time::Duration::from_millis(self.max_age_ms);
+
+        loop {
+            // Step 1: Wait for first waiter (block indefinitely if no one waiting)
+            let first = match self.cmd_rx.recv().await {
+                Some(cmd) => cmd,
+                None => break, // channel closed
+            };
+
+            let mut waiters: Vec<oneshot::Sender<std::result::Result<(), String>>> = Vec::new();
+
+            match first {
+                DurableFlushCmd::WaitForFlush(tx) => waiters.push(tx),
+                DurableFlushCmd::Shutdown => break,
+            }
+
+            // Step 2: Wait for batch window, collecting more waiters
+            let deadline = tokio::time::Instant::now() + batch_timeout;
+            loop {
+                match tokio::time::timeout_at(deadline, self.cmd_rx.recv()).await {
+                    Ok(Some(DurableFlushCmd::WaitForFlush(tx))) => waiters.push(tx),
+                    Ok(Some(DurableFlushCmd::Shutdown)) => {
+                        // Flush remaining waiters before shutdown
+                        self.do_flush(&mut waiters).await;
+                        return;
+                    }
+                    Ok(None) => {
+                        // Channel closed
+                        self.do_flush(&mut waiters).await;
+                        return;
+                    }
+                    Err(_) => break, // Timeout — time to flush
+                }
+            }
+
+            // Step 3: Drain any remaining commands (non-blocking)
+            while let Ok(cmd) = self.cmd_rx.try_recv() {
+                match cmd {
+                    DurableFlushCmd::WaitForFlush(tx) => waiters.push(tx),
+                    DurableFlushCmd::Shutdown => {
+                        self.do_flush(&mut waiters).await;
+                        return;
+                    }
+                }
+            }
+
+            // Step 4: Flush to S3 and notify all waiters
+            self.do_flush(&mut waiters).await;
+        }
+    }
+
+    /// Acquire writer lock, call flush_durable(), resolve all waiters
+    async fn do_flush(&self, waiters: &mut Vec<oneshot::Sender<std::result::Result<(), String>>>) {
+        if waiters.is_empty() {
+            return;
+        }
+
+        let result = {
+            let mut writer_guard = self.writer.lock().await;
+            writer_guard.flush_durable().await
+        };
+
+        let response = match result {
+            Ok(_) => Ok(()),
+            Err(e) => Err(e.to_string()),
+        };
+
+        let waiter_count = waiters.len();
+        for waiter in waiters.drain(..) {
+            let _ = waiter.send(response.clone());
+        }
+
+        tracing::debug!(
+            waiter_count,
+            "Batched durable flush completed"
+        );
     }
 }
 

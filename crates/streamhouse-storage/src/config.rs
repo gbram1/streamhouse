@@ -90,6 +90,20 @@ pub struct WriteConfig {
     /// Maximum concurrent upload parts (default: 4)
     #[serde(default = "default_parallel_upload_parts")]
     pub parallel_upload_parts: usize,
+
+    // === Batched Durable Flush (ACK_DURABLE optimization) ===
+
+    /// Maximum time (ms) to batch durable writes before flushing to S3 (default: 200ms)
+    #[serde(default = "default_durable_batch_max_age_ms")]
+    pub durable_batch_max_age_ms: u64,
+
+    /// Maximum records to batch before forcing a durable flush (default: 10,000)
+    #[serde(default = "default_durable_batch_max_records")]
+    pub durable_batch_max_records: usize,
+
+    /// Maximum bytes to batch before forcing a durable flush (default: 16MB)
+    #[serde(default = "default_durable_batch_max_bytes")]
+    pub durable_batch_max_bytes: usize,
 }
 
 impl Default for WriteConfig {
@@ -102,11 +116,14 @@ impl Default for WriteConfig {
             s3_endpoint: None,
             block_size_target: default_block_size(),
             s3_upload_retries: default_retries(),
-            wal_config: None,      // WAL disabled by default
-            throttle_config: None, // Throttling disabled by default
+            wal_config: Some(WALConfig::default()), // WAL enabled by default
+            throttle_config: None,                   // Throttling disabled by default
             multipart_threshold: default_multipart_threshold(),
             multipart_part_size: default_multipart_part_size(),
             parallel_upload_parts: default_parallel_upload_parts(),
+            durable_batch_max_age_ms: default_durable_batch_max_age_ms(),
+            durable_batch_max_records: default_durable_batch_max_records(),
+            durable_batch_max_bytes: default_durable_batch_max_bytes(),
         }
     }
 }
@@ -137,6 +154,18 @@ fn default_multipart_part_size() -> usize {
 
 fn default_parallel_upload_parts() -> usize {
     4 // Upload 4 parts concurrently
+}
+
+fn default_durable_batch_max_age_ms() -> u64 {
+    200 // 200ms batch window
+}
+
+fn default_durable_batch_max_records() -> usize {
+    10_000
+}
+
+fn default_durable_batch_max_bytes() -> usize {
+    16 * 1024 * 1024 // 16MB
 }
 
 #[cfg(test)]
@@ -176,9 +205,9 @@ mod tests {
     }
 
     #[test]
-    fn test_default_wal_disabled() {
+    fn test_default_wal_enabled() {
         let config = WriteConfig::default();
-        assert!(config.wal_config.is_none());
+        assert!(config.wal_config.is_some());
     }
 
     #[test]

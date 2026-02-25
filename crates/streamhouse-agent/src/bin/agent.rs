@@ -229,6 +229,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         multipart_threshold: 8 * 1024 * 1024,
         multipart_part_size: 8 * 1024 * 1024,
         parallel_upload_parts: 4,
+        ..Default::default()
     };
 
     let writer_pool = Arc::new(WriterPool::new(

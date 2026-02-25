@@ -688,46 +688,29 @@ impl ProducerService for ProducerServiceImpl {
 
         // Handle ACK_DURABLE mode - wait for S3 persistence before acknowledging
         // AckMode: 0 = ACK_BUFFERED (default), 1 = ACK_DURABLE, 2 = ACK_NONE
+        // Uses batched durable flush: writes are collected over a ~200ms window
+        // and flushed to S3 in a single upload, then all waiters are notified.
         if req.ack_mode == 1 {
             debug!(
                 topic = %req.topic,
                 partition = req.partition,
-                "ACK_DURABLE mode - flushing to S3 before acknowledgment"
+                "ACK_DURABLE mode - queuing for batched S3 flush"
             );
 
-            let writer = match self.writer_pool.get_writer(&req.topic, req.partition).await {
-                Ok(w) => w,
-                Err(e) => {
-                    error!(
-                        topic = %req.topic,
-                        partition = req.partition,
-                        error = %e,
-                        "Failed to get writer for durable flush"
-                    );
-                    return Err(Status::internal(format!(
-                        "Failed to get writer for durable flush: {}",
-                        e
-                    )));
-                }
-            };
-
-            {
-                let mut writer_guard = writer.lock().await;
-                if let Err(e) = writer_guard.flush_durable().await {
-                    error!(
-                        topic = %req.topic,
-                        partition = req.partition,
-                        error = %e,
-                        "Failed to flush durable - S3 upload failed"
-                    );
-                    return Err(Status::internal(format!("Failed to flush durable: {}", e)));
-                }
+            if let Err(e) = self.writer_pool.request_durable_flush(&req.topic, req.partition).await {
+                error!(
+                    topic = %req.topic,
+                    partition = req.partition,
+                    error = %e,
+                    "Failed batched durable flush - S3 upload failed"
+                );
+                return Err(Status::internal(format!("Failed durable flush: {}", e)));
             }
 
             debug!(
                 topic = %req.topic,
                 partition = req.partition,
-                "ACK_DURABLE flush completed - data persisted to S3"
+                "ACK_DURABLE batched flush completed - data persisted to S3"
             );
         }
 

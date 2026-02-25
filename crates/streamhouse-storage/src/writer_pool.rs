@@ -64,7 +64,7 @@ use streamhouse_metadata::MetadataStore;
 
 use crate::config::WriteConfig;
 use crate::error::Result;
-use crate::writer::PartitionWriter;
+use crate::writer::{DurableFlushHandle, PartitionWriter};
 
 /// Type alias for the writer map to reduce type complexity
 type WriterMap = Arc<RwLock<HashMap<(String, u32), Arc<Mutex<PartitionWriter>>>>>;
@@ -79,6 +79,9 @@ pub struct WriterPool {
     /// Using RwLock for the map since reads (get_writer) are common,
     /// writes (creating new writer) are rare.
     writers: WriterMap,
+
+    /// Map of (topic, partition) -> DurableFlushHandle for batched ACK_DURABLE
+    durable_flush_handles: Arc<RwLock<HashMap<(String, u32), DurableFlushHandle>>>,
 
     /// Metadata store for segment tracking
     metadata_store: Arc<dyn MetadataStore>,
@@ -109,6 +112,7 @@ impl WriterPool {
     ) -> Self {
         Self {
             writers: Arc::new(RwLock::new(HashMap::new())),
+            durable_flush_handles: Arc::new(RwLock::new(HashMap::new())),
             metadata_store,
             object_store,
             config,
@@ -179,6 +183,40 @@ impl WriterPool {
         writers.insert(key, Arc::clone(&writer));
 
         Ok(writer)
+    }
+
+    /// Request a batched durable flush for a partition.
+    ///
+    /// Instead of flushing to S3 immediately, this queues the caller to wait
+    /// for the next batch flush (~200ms window). All callers in the same window
+    /// share a single S3 upload.
+    pub async fn request_durable_flush(&self, topic: &str, partition: u32) -> Result<()> {
+        let key = (topic.to_string(), partition);
+
+        // Fast path: check if handle exists
+        {
+            let handles = self.durable_flush_handles.read().await;
+            if let Some(handle) = handles.get(&key) {
+                return handle.request_flush().await;
+            }
+        }
+
+        // Slow path: create handle (need writer first)
+        let writer = self.get_writer(topic, partition).await?;
+        let mut handles = self.durable_flush_handles.write().await;
+
+        // Double-check
+        if let Some(handle) = handles.get(&key) {
+            return handle.request_flush().await;
+        }
+
+        let handle = DurableFlushHandle::spawn(
+            writer,
+            self.config.durable_batch_max_age_ms,
+        );
+        let result = handle.request_flush().await;
+        handles.insert(key, handle);
+        result
     }
 
     /// Flush all active writers to storage

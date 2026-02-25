@@ -117,7 +117,7 @@ pub struct WALConfig {
 }
 
 fn default_batch_enabled() -> bool {
-    true
+    false
 }
 
 fn default_batch_max_records() -> usize {
