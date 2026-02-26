@@ -120,8 +120,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let metadata_path =
         std::env::var("STREAMHOUSE_METADATA").unwrap_or_else(|_| "./data/metadata.db".to_string());
 
+    // Ensure data directories exist
+    if let Some(parent) = std::path::Path::new(&metadata_path).parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+
     let cache_dir =
         std::env::var("STREAMHOUSE_CACHE").unwrap_or_else(|_| "./data/cache".to_string());
+    std::fs::create_dir_all(&cache_dir)?;
 
     let cache_size: u64 = std::env::var("STREAMHOUSE_CACHE_SIZE")
         .unwrap_or_else(|_| "1073741824".to_string()) // 1GB default
@@ -159,6 +165,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         // Use local filesystem for development
         let local_path =
             std::env::var("LOCAL_STORAGE_PATH").unwrap_or_else(|_| "./data/storage".to_string());
+        std::fs::create_dir_all(&local_path)?;
         tracing::info!("   Using local storage at {}", local_path);
         Arc::new(object_store::local::LocalFileSystem::new_with_prefix(
             local_path,

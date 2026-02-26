@@ -16,6 +16,7 @@ Thumbs.db
 
 # Local development
 /data
+/docs
 *.db
 *.db-shm
 *.db-wal
