@@ -18,6 +18,7 @@ Thumbs.db
 /data
 /docs
 /.docker-build
+/.claude
 *.db
 *.db-shm
 *.db-wal
