@@ -6,12 +6,21 @@ StreamHouse is an Apache Kafka alternative that stores events directly in S3. No
 
 ## Quick Start
 
-**Prerequisites:** Rust toolchain (`cargo`)
+**Prerequisites:** Rust toolchain (`cargo`), Python 3
 
 ```bash
 git clone https://github.com/gbram1/streamhouse
 cd streamhouse
+./quickstart.sh
+```
 
+This single script builds the server, starts it with local storage, creates a `demo` topic, produces sample messages, and consumes them. Press **Ctrl+C** to stop the server when you're done.
+
+### Manual setup
+
+If you prefer to run each step yourself:
+
+```bash
 # Build
 cargo build --release -p streamhouse-server --bin unified-server
 
