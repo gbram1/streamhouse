@@ -17,6 +17,7 @@ Thumbs.db
 # Local development
 /data
 /docs
+/.docker-build
 *.db
 *.db-shm
 *.db-wal
