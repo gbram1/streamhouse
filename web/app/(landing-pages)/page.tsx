@@ -111,7 +111,7 @@ export default function Home() {
 
             <div className="flex items-center gap-3">
               <Link
-                href="https://github.com/streamhouse/streamhouse"
+                href="https://github.com/gbram1/streamhouse"
                 className="text-slate-500 transition-colors hover:text-slate-900"
               >
                 <GithubIcon className="h-5 w-5" />
