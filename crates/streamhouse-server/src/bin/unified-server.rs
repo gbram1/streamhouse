@@ -321,13 +321,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     });
     tracing::info!("   Kafka server started on {}", kafka_addr_display);
 
-    // Create gRPC service
+    // Create gRPC service (unified: admin + producer + consumer + lifecycle)
     let grpc_service = StreamHouseService::new(
         metadata.clone(),
         object_store.clone(),
         cache.clone(),
         writer_pool.clone(),
         config.clone(),
+        agent_id.clone(),
     );
 
     // Register unified server as an agent
@@ -386,14 +387,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     // Start partition assignment
-    // This allows the agent to acquire leases for partitions and manage them
+    // This allows the agent to acquire leases for partitions and manage them.
+    // The assigner wakes up immediately when topics are created/deleted via
+    // the topic_changed Notify, so there's no 60-second delay for new topics.
     {
         let metadata_for_assigner = metadata.clone();
         let agent_id_for_assigner = agent_id.clone();
+        let topic_notify = grpc_service.topic_change_notify();
 
         tokio::spawn(async move {
             // Wait a bit for server to fully start and topics to be created
-            tokio::time::sleep(std::time::Duration::from_secs(10)).await;
+            tokio::time::sleep(std::time::Duration::from_secs(5)).await;
 
             loop {
                 // Get current list of topics
@@ -401,14 +405,20 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     Ok(t) => t,
                     Err(e) => {
                         tracing::warn!("Failed to list topics for partition assignment: {}", e);
-                        tokio::time::sleep(std::time::Duration::from_secs(30)).await;
+                        tokio::time::sleep(std::time::Duration::from_secs(10)).await;
                         continue;
                     }
                 };
 
                 if topics.is_empty() {
-                    tracing::debug!("No topics to manage, waiting...");
-                    tokio::time::sleep(std::time::Duration::from_secs(30)).await;
+                    tracing::debug!("No topics to manage, waiting for topic creation...");
+                    // Wait for either a topic change notification or a fallback timeout
+                    tokio::select! {
+                        _ = topic_notify.notified() => {
+                            tracing::info!("Topic change detected, checking for new topics");
+                        }
+                        _ = tokio::time::sleep(std::time::Duration::from_secs(30)) => {}
+                    }
                     continue;
                 }
 
@@ -451,26 +461,33 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                         "✅ Partition assigner started for {} topics",
                         managed_topics.len()
                     );
-                    // Keep running - the assigner has its own internal loop
-                    // Just check periodically if new topics were added
+                    // Wait for topic changes (instant) or poll as fallback (60s)
                     loop {
-                        tokio::time::sleep(std::time::Duration::from_secs(60)).await;
+                        tokio::select! {
+                            _ = topic_notify.notified() => {
+                                tracing::info!("Topic change detected, restarting partition assigner");
+                            }
+                            _ = tokio::time::sleep(std::time::Duration::from_secs(60)) => {
+                                // Fallback: check periodically in case we missed a notification
+                                let current_topics = match metadata_for_assigner.list_topics().await {
+                                    Ok(t) => t,
+                                    Err(_) => continue,
+                                };
 
-                        // Check if there are new topics
-                        let current_topics = match metadata_for_assigner.list_topics().await {
-                            Ok(t) => t,
-                            Err(_) => continue,
-                        };
+                                let current_topic_names: Vec<String> =
+                                    current_topics.iter().map(|t| t.name.clone()).collect();
 
-                        let current_topic_names: Vec<String> =
-                            current_topics.iter().map(|t| t.name.clone()).collect();
+                                if current_topic_names == managed_topics {
+                                    continue; // No change, keep looping
+                                }
 
-                        // If topic list changed, restart assigner with new topics
-                        if current_topic_names != managed_topics {
-                            tracing::info!("Topic list changed, restarting partition assigner");
-                            let _ = assigner.stop().await;
-                            break;
+                                tracing::info!("Topic list changed on periodic check");
+                            }
                         }
+
+                        // Topic list changed — restart assigner with new topics
+                        let _ = assigner.stop().await;
+                        break;
                     }
                 }
             }
@@ -516,6 +533,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             enabled: auth_enabled,
             ..Default::default()
         },
+        topic_changed: Some(grpc_service.topic_change_notify()),
     };
 
     // Create REST API router

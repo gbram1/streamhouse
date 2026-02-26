@@ -2,10 +2,13 @@ syntax = "proto3";
 
 package streamhouse;
 
-// StreamHouse gRPC API
+// StreamHouse Unified gRPC API
 //
-// This defines the core API for producing and consuming records,
-// as well as managing topics and partitions.
+// Single service for the full StreamHouse product:
+// - Admin: topic management
+// - Producer: batch produce with ack modes, idempotent dedup, transactions
+// - Consumer: consume, offset management
+// - Producer lifecycle: init, transactions, heartbeat
 
 service StreamHouse {
   // Admin Operations
@@ -22,6 +25,31 @@ service StreamHouse {
   rpc Consume(ConsumeRequest) returns (ConsumeResponse);
   rpc CommitOffset(CommitOffsetRequest) returns (CommitOffsetResponse);
   rpc GetOffset(GetOffsetRequest) returns (GetOffsetResponse);
+
+  // Producer Lifecycle
+  rpc InitProducer(InitProducerRequest) returns (InitProducerResponse);
+  rpc BeginTransaction(BeginTransactionRequest) returns (BeginTransactionResponse);
+  rpc CommitTransaction(CommitTransactionRequest) returns (CommitTransactionResponse);
+  rpc AbortTransaction(AbortTransactionRequest) returns (AbortTransactionResponse);
+  rpc Heartbeat(HeartbeatRequest) returns (HeartbeatResponse);
+}
+
+// ============================================================================
+// Ack Mode
+// ============================================================================
+
+// Acknowledgment mode for durability vs latency trade-off.
+enum AckMode {
+  // Ack after record is buffered in memory.
+  // Fast (~1ms) but data at risk until S3 flush (~30s window).
+  ACK_BUFFERED = 0;
+
+  // Ack after record is persisted to S3.
+  // Slower (~200ms) but zero data loss. Uses batched group commit.
+  ACK_DURABLE = 1;
+
+  // Fire and forget - don't wait for any confirmation.
+  ACK_NONE = 2;
 }
 
 // ============================================================================
@@ -93,18 +121,31 @@ message ProduceBatchRequest {
   string topic = 1;
   uint32 partition = 2;
   repeated Record records = 3;
+
+  // Idempotent producer fields
+  optional string producer_id = 4;
+  optional uint32 producer_epoch = 5;
+  optional int64 base_sequence = 6;
+
+  // Transaction fields
+  optional string transaction_id = 7;
+
+  // Ack mode (default: ACK_BUFFERED)
+  AckMode ack_mode = 8;
 }
 
 message ProduceBatchResponse {
   uint64 first_offset = 1;
   uint64 last_offset = 2;
   uint32 count = 3;
+  bool duplicates_filtered = 4;
 }
 
 message Record {
   bytes key = 1;
   bytes value = 2;
   map<string, string> headers = 3;
+  uint64 timestamp = 4;
 }
 
 // ============================================================================
@@ -154,4 +195,62 @@ message GetOffsetRequest {
 message GetOffsetResponse {
   uint64 offset = 1;
   optional string metadata = 2;
+}
+
+// ============================================================================
+// Producer Lifecycle Messages
+// ============================================================================
+
+message InitProducerRequest {
+  optional string transactional_id = 1;
+  optional string organization_id = 2;
+  uint32 timeout_ms = 3;
+  map<string, string> metadata = 4;
+}
+
+message InitProducerResponse {
+  string producer_id = 1;
+  uint32 epoch = 2;
+}
+
+message BeginTransactionRequest {
+  string producer_id = 1;
+  uint32 producer_epoch = 2;
+  uint32 timeout_ms = 3;
+}
+
+message BeginTransactionResponse {
+  string transaction_id = 1;
+}
+
+message CommitTransactionRequest {
+  string producer_id = 1;
+  uint32 producer_epoch = 2;
+  string transaction_id = 3;
+}
+
+message CommitTransactionResponse {
+  bool success = 1;
+  uint64 commit_timestamp = 2;
+}
+
+message AbortTransactionRequest {
+  string producer_id = 1;
+  uint32 producer_epoch = 2;
+  string transaction_id = 3;
+}
+
+message AbortTransactionResponse {
+  bool success = 1;
+}
+
+message HeartbeatRequest {
+  string producer_id = 1;
+  uint32 producer_epoch = 2;
+  optional string transaction_id = 3;
+}
+
+message HeartbeatResponse {
+  bool valid = 1;
+  optional string error = 2;
 }

@@ -8,6 +8,7 @@ use axum::{
 };
 use std::sync::Arc;
 use streamhouse_client::Producer;
+use tokio::sync::Notify;
 use streamhouse_metadata::MetadataStore;
 use tower_http::cors::CorsLayer;
 use utoipa::OpenApi;
@@ -127,6 +128,9 @@ pub struct AppState {
     pub prometheus: Option<Arc<PrometheusClient>>,
     /// Authentication configuration
     pub auth_config: AuthConfig,
+    /// Notified when topics are created or deleted so the partition assigner
+    /// can immediately discover them.
+    pub topic_changed: Option<Arc<Notify>>,
 }
 
 /// Create the API router with all endpoints

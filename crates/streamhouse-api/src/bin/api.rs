@@ -135,6 +135,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             enabled: auth_enabled,
             ..Default::default()
         },
+        topic_changed: None,
     };
 
     // Create router

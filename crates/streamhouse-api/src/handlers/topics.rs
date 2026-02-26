@@ -229,6 +229,11 @@ pub async fn create_topic(
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
+    // Wake partition assigner immediately so leases are acquired without polling delay
+    if let Some(ref notify) = state.topic_changed {
+        notify.notify_waiters();
+    }
+
     let topic = Topic {
         name: req.name,
         partitions: req.partitions,
@@ -323,6 +328,11 @@ pub async fn delete_topic(
         .delete_topic_for_org(&org_id, &name)
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    // Wake partition assigner so it stops managing the deleted topic
+    if let Some(ref notify) = state.topic_changed {
+        notify.notify_waiters();
+    }
 
     Ok(StatusCode::NO_CONTENT)
 }

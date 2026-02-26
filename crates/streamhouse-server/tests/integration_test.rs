@@ -3,10 +3,12 @@
 //! Tests the full write and read flow through the gRPC API
 
 use std::sync::Arc;
-use streamhouse_metadata::SqliteMetadataStore;
+use streamhouse_metadata::{AgentInfo, SqliteMetadataStore};
 use streamhouse_server::{pb::stream_house_server::StreamHouse, pb::*, StreamHouseService};
 use streamhouse_storage::{SegmentCache, WriteConfig, WriterPool};
 use tonic::Request;
+
+const TEST_AGENT_ID: &str = "test-agent";
 
 async fn setup_test_service() -> (StreamHouseService, tempfile::TempDir) {
     // Create temp directory for test data (return it to keep it alive)
@@ -56,8 +58,114 @@ async fn setup_test_service() -> (StreamHouseService, tempfile::TempDir) {
         config.clone(),
     ));
 
-    let service = StreamHouseService::new(metadata, object_store, cache, writer_pool, config);
+    let service = StreamHouseService::new(
+        metadata,
+        object_store,
+        cache,
+        writer_pool,
+        config,
+        TEST_AGENT_ID.to_string(),
+    );
     (service, temp_dir)
+}
+
+/// Helper: create a topic and acquire partition leases for the test agent.
+async fn create_topic_with_leases(
+    service: &StreamHouseService,
+    metadata: &Arc<dyn streamhouse_metadata::MetadataStore>,
+    name: &str,
+    partitions: u32,
+) {
+    // Create topic
+    let create_req = Request::new(CreateTopicRequest {
+        name: name.to_string(),
+        partition_count: partitions,
+        retention_ms: None,
+        config: std::collections::HashMap::new(),
+    });
+    service.create_topic(create_req).await.unwrap();
+
+    // Register agent and acquire leases for all partitions
+    let now_ms = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_millis() as i64;
+
+    let agent_info = AgentInfo {
+        agent_id: TEST_AGENT_ID.to_string(),
+        address: "127.0.0.1:50051".to_string(),
+        availability_zone: "test".to_string(),
+        agent_group: "default".to_string(),
+        last_heartbeat: now_ms,
+        started_at: now_ms,
+        metadata: std::collections::HashMap::new(),
+    };
+    metadata.register_agent(agent_info).await.unwrap();
+
+    for p in 0..partitions {
+        metadata
+            .acquire_partition_lease(name, p, TEST_AGENT_ID, 60_000)
+            .await
+            .unwrap();
+    }
+}
+
+/// Get the metadata store from the service (for test setup).
+/// We re-create it since the service doesn't expose it.
+async fn setup_test_service_with_metadata() -> (
+    StreamHouseService,
+    Arc<dyn streamhouse_metadata::MetadataStore>,
+    tempfile::TempDir,
+) {
+    let temp_dir = tempfile::tempdir().unwrap();
+    let data_dir = temp_dir.path();
+
+    let metadata_path = data_dir.join("metadata.db");
+    let storage_dir = data_dir.join("storage");
+    let cache_dir = data_dir.join("cache");
+
+    std::fs::create_dir_all(data_dir).unwrap();
+    std::fs::create_dir_all(&storage_dir).unwrap();
+    std::fs::create_dir_all(&cache_dir).unwrap();
+
+    let metadata: Arc<dyn streamhouse_metadata::MetadataStore> = Arc::new(
+        SqliteMetadataStore::new(metadata_path.to_str().unwrap())
+            .await
+            .unwrap(),
+    );
+
+    let object_store =
+        Arc::new(object_store::local::LocalFileSystem::new_with_prefix(&storage_dir).unwrap());
+
+    let cache = Arc::new(SegmentCache::new(&cache_dir, 10 * 1024 * 1024).unwrap());
+
+    let config = WriteConfig {
+        segment_max_size: 100,
+        segment_max_age_ms: 60 * 1000,
+        s3_bucket: "test-bucket".to_string(),
+        s3_region: "us-east-1".to_string(),
+        s3_endpoint: None,
+        block_size_target: 100,
+        s3_upload_retries: 3,
+        wal_config: None,
+        ..Default::default()
+    };
+
+    let writer_pool = Arc::new(WriterPool::new(
+        metadata.clone(),
+        object_store.clone(),
+        config.clone(),
+    ));
+
+    let service = StreamHouseService::new(
+        metadata.clone(),
+        object_store,
+        cache,
+        writer_pool,
+        config,
+        TEST_AGENT_ID.to_string(),
+    );
+    (service, metadata, temp_dir)
 }
 
 #[tokio::test]
@@ -114,18 +222,11 @@ async fn test_list_topics() {
 
 #[tokio::test]
 async fn test_produce_and_consume() {
-    let (service, _temp) = setup_test_service().await;
+    let (service, metadata, _temp) = setup_test_service_with_metadata().await;
 
-    // Create topic
-    let create_req = Request::new(CreateTopicRequest {
-        name: "events".to_string(),
-        partition_count: 1,
-        retention_ms: None,
-        config: std::collections::HashMap::new(),
-    });
-    service.create_topic(create_req).await.unwrap();
+    create_topic_with_leases(&service, &metadata, "events", 1).await;
 
-    // Produce records using batch (so they use same writer)
+    // Produce records using batch
     let batch_req = Request::new(ProduceBatchRequest {
         topic: "events".to_string(),
         partition: 0,
@@ -134,13 +235,20 @@ async fn test_produce_and_consume() {
                 key: b"user-123".to_vec(),
                 value: b"{\"action\":\"click\"}".to_vec(),
                 headers: std::collections::HashMap::new(),
+                timestamp: 0,
             },
             Record {
                 key: b"user-456".to_vec(),
                 value: b"{\"action\":\"purchase\"}".to_vec(),
                 headers: std::collections::HashMap::new(),
+                timestamp: 0,
             },
         ],
+        producer_id: None,
+        producer_epoch: None,
+        base_sequence: None,
+        transaction_id: None,
+        ack_mode: AckMode::AckBuffered as i32,
     });
 
     let batch_resp = service.produce_batch(batch_req).await.unwrap();
@@ -148,24 +256,14 @@ async fn test_produce_and_consume() {
     assert_eq!(batch_data.first_offset, 0);
     assert_eq!(batch_data.last_offset, 1);
     assert_eq!(batch_data.count, 2);
-
-    // Note: Reading back requires the segment to be flushed to storage.
-    // In a real system, the service would maintain writers and flush them periodically.
-    // For this test, we've verified the produce API works correctly.
+    assert!(!batch_data.duplicates_filtered);
 }
 
 #[tokio::test]
 async fn test_produce_batch() {
-    let (service, _temp) = setup_test_service().await;
+    let (service, metadata, _temp) = setup_test_service_with_metadata().await;
 
-    // Create topic
-    let create_req = Request::new(CreateTopicRequest {
-        name: "logs".to_string(),
-        partition_count: 1,
-        retention_ms: None,
-        config: std::collections::HashMap::new(),
-    });
-    service.create_topic(create_req).await.unwrap();
+    create_topic_with_leases(&service, &metadata, "logs", 1).await;
 
     // Produce batch
     let records = vec![
@@ -173,16 +271,19 @@ async fn test_produce_batch() {
             key: b"key1".to_vec(),
             value: b"value1".to_vec(),
             headers: std::collections::HashMap::new(),
+            timestamp: 0,
         },
         Record {
             key: b"key2".to_vec(),
             value: b"value2".to_vec(),
             headers: std::collections::HashMap::new(),
+            timestamp: 0,
         },
         Record {
             key: b"key3".to_vec(),
             value: b"value3".to_vec(),
             headers: std::collections::HashMap::new(),
+            timestamp: 0,
         },
     ];
 
@@ -190,6 +291,11 @@ async fn test_produce_batch() {
         topic: "logs".to_string(),
         partition: 0,
         records,
+        producer_id: None,
+        producer_epoch: None,
+        base_sequence: None,
+        transaction_id: None,
+        ack_mode: AckMode::AckBuffered as i32,
     });
 
     let batch_resp = service.produce_batch(batch_req).await.unwrap();

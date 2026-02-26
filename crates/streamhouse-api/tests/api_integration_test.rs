@@ -41,6 +41,7 @@ async fn test_app() -> axum::Router {
             enabled: false,
             ..Default::default()
         },
+        topic_changed: None,
     };
 
     create_router(state)
