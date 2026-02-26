@@ -1,49 +1,53 @@
 # StreamHouse
 
-**A high-performance, S3-native streaming platform**
+**S3-native event streaming. One binary, zero ops.**
 
-[![Build Status](https://img.shields.io/badge/build-passing-brightgreen)](.)
-[![Tests](https://img.shields.io/badge/tests-223%20passing-brightgreen)](.)
-[![License](https://img.shields.io/badge/license-Apache--2.0-blue)](LICENSE)
+StreamHouse is an Apache Kafka alternative that stores events directly in S3. No broker fleet, no disk management, no replication — just S3's 99.999999999% durability out of the box.
 
-StreamHouse is an Apache Kafka alternative that stores events directly in S3, providing infinite scalability, 99.999999999% durability, and 10x cost reduction. Includes complete Producer and Consumer APIs with Kafka-compatible interfaces.
+## Quick Start
 
-## Features
-
-- **High Performance**: 62K writes/sec, 30K+ reads/sec, < 10ms P99 metadata queries
-- **Cost Effective**: $0.023/GB/month (10x cheaper than Kafka)
-- **Infinite Scale**: Stateless agents, S3 storage, horizontal scaling
-- **Reliable**: 99.999999999% S3 durability, ACID metadata
-- **Kafka-Compatible API**: Complete Producer and Consumer with batching, compression, consumer groups
-
-## Quick Start (Docker Compose)
-
-Get StreamHouse running in under 5 minutes:
+**Prerequisites:** Rust toolchain (`cargo`)
 
 ```bash
-# Clone and start
 git clone https://github.com/gbram1/streamhouse
 cd streamhouse
-docker compose up -d
 
-# Verify it's running
-curl http://localhost:8080/health
+# Build
+cargo build --release -p streamhouse-server --bin unified-server
 
+# Run (SQLite + local filesystem — no cloud services needed)
+USE_LOCAL_STORAGE=1 ./target/release/unified-server
+```
+
+The server starts three listeners:
+- **REST API** — `http://localhost:8080`
+- **gRPC** — `localhost:50051`
+- **Kafka protocol** — `localhost:9092`
+
+### Create a topic and produce
+
+```bash
 # Create a topic
 curl -X POST http://localhost:8080/api/v1/topics \
   -H "Content-Type: application/json" \
-  -d '{"name": "events", "partitions": 3}'
+  -d '{"name": "events", "partitions": 4}'
 
-# Send a message
+# Produce a message
 curl -X POST http://localhost:8080/api/v1/produce \
   -H "Content-Type: application/json" \
   -d '{"topic": "events", "key": "user-1", "value": "{\"event\": \"signup\"}"}'
 
-# Open the Web UI
-open http://localhost:3000
+# Consume
+curl "http://localhost:8080/api/v1/consume?topic=events&partition=0&offset=0"
 ```
 
-**Services available after startup:**
+### Docker Compose (full stack)
+
+```bash
+docker compose up -d
+```
+
+This starts PostgreSQL, MinIO (S3-compatible), the StreamHouse server, Web UI, Prometheus, and Grafana.
 
 | Service | URL |
 |---------|-----|
@@ -52,180 +56,177 @@ open http://localhost:3000
 | Grafana | http://localhost:3001 (admin/admin) |
 | MinIO Console | http://localhost:9001 (minioadmin/minioadmin) |
 
-For detailed instructions, see **[docs/QUICKSTART.md](docs/QUICKSTART.md)**.
+---
+
+## CLI
+
+```bash
+cargo build --release -p streamhouse-cli
+
+# Interactive REPL
+./target/release/streamctl --server http://localhost:50051
+
+# Or direct commands
+./target/release/streamctl --server http://localhost:50051 topic create orders --partitions 4
+./target/release/streamctl --server http://localhost:50051 produce orders --value '{"event": "signup"}'
+./target/release/streamctl --server http://localhost:50051 consume orders --partition 0 --limit 10
+```
 
 ---
 
-## Storage Configuration
+## REST API
 
-StreamHouse stores segment data using an S3-compatible object store. The storage backend is configured entirely via environment variables — no code changes needed.
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/health` | GET | Health check |
+| `/api/v1/topics` | GET, POST | List / create topics |
+| `/api/v1/topics/{name}` | GET, DELETE | Get / delete topic |
+| `/api/v1/produce` | POST | Produce a message |
+| `/api/v1/produce/batch` | POST | Produce a batch |
+| `/api/v1/consume?topic=X&partition=0&offset=0` | GET | Consume messages |
+| `/api/v1/consumer-groups` | GET, POST | Consumer group management |
+| `/api/v1/sql` | POST | SQL queries over streams |
 
-| Mode | Use Case | Key Env Vars |
-|------|----------|--------------|
-| Local filesystem | Development & testing | `USE_LOCAL_STORAGE=1` |
-| MinIO | Docker-based dev | `S3_ENDPOINT=http://localhost:9000` + AWS creds |
+---
+
+## gRPC API
+
+The unified gRPC service (`streamhouse.StreamHouse` on port 50051) supports:
+
+- **Topics**: `CreateTopic`, `GetTopic`, `ListTopics`, `DeleteTopic`
+- **Produce**: `Produce`, `ProduceBatch` (with `AckMode`: BUFFERED, DURABLE, NONE)
+- **Consume**: `Consume`, `CommitOffset`, `GetOffset`
+- **Producer Lifecycle**: `InitProducer`, `BeginTransaction`, `CommitTransaction`, `AbortTransaction`, `Heartbeat`
+
+`ProduceBatch` with `ack_mode: ACK_DURABLE` waits for the S3 flush before responding — your data is on S3 when the RPC returns.
+
+---
+
+## Storage Backends
+
+| Backend | Use Case | Config |
+|---------|----------|--------|
+| Local filesystem | Development | `USE_LOCAL_STORAGE=1` |
+| MinIO | Docker dev | `S3_ENDPOINT=http://localhost:9000` + AWS creds |
 | AWS S3 | Production | `AWS_ACCESS_KEY_ID` + `AWS_SECRET_ACCESS_KEY` + `AWS_REGION` |
 
-### Local Development
+## Metadata Backends
 
-```bash
-USE_LOCAL_STORAGE=1 cargo run --release --bin unified-server
-# Segments written to ./data/storage/ (override with LOCAL_STORAGE_PATH)
-```
-
-### MinIO (Docker)
-
-```bash
-S3_ENDPOINT=http://localhost:9000 \
-AWS_ACCESS_KEY_ID=minioadmin \
-AWS_SECRET_ACCESS_KEY=minioadmin \
-STREAMHOUSE_BUCKET=streamhouse \
-cargo run --release --bin unified-server
-```
-
-### Production (AWS S3)
-
-```bash
-AWS_ACCESS_KEY_ID=AKIA...
-AWS_SECRET_ACCESS_KEY=your-secret-key
-AWS_REGION=us-east-1
-STREAMHOUSE_BUCKET=your-bucket-name   # defaults to "streamhouse"
-cargo run --release --bin unified-server
-```
-
-The S3 bucket must already exist in your AWS account. No `S3_ENDPOINT` is needed — the server connects to real AWS S3 by default when `USE_LOCAL_STORAGE` is not set.
+| Backend | Use Case | Config |
+|---------|----------|--------|
+| SQLite | Development (default) | Automatic — stores at `./data/metadata.db` |
+| PostgreSQL | Production | Build with `--features postgres`, set `DATABASE_URL` |
 
 ---
 
-## Rust Client Examples
+## Configuration
 
-### Producer API Example
+All configuration is via environment variables. Values are logged at startup.
 
-```rust
-use streamhouse_client::Producer;
-use std::sync::Arc;
+### Server
 
-// Create producer
-let producer = Producer::builder()
-    .metadata_store(metadata_store)
-    .agent_group("default")
-    .batch_size(1000)
-    .compression_enabled(true)
-    .build()
-    .await?;
+| Env Var | Default | Description |
+|---------|---------|-------------|
+| `GRPC_ADDR` | `0.0.0.0:50051` | gRPC bind address |
+| `HTTP_ADDR` | `0.0.0.0:8080` | REST API bind address |
+| `KAFKA_ADDR` | `0.0.0.0:9092` | Kafka protocol bind address |
 
-// Send records (non-blocking)
-let mut result = producer.send("orders", Some(b"user123"), b"order data", None).await?;
+### Storage
 
-// Optional: wait for committed offset
-let offset = result.wait_offset().await?;
-println!("Record written at offset: {}", offset);
+| Env Var | Default | Description |
+|---------|---------|-------------|
+| `USE_LOCAL_STORAGE` | unset | Set to any value to use local filesystem instead of S3 |
+| `LOCAL_STORAGE_PATH` | `./data/storage` | Path for local storage |
+| `STREAMHOUSE_BUCKET` | `streamhouse` | S3 bucket name |
+| `AWS_REGION` | `us-east-1` | S3 region |
+| `S3_ENDPOINT` | _(AWS S3)_ | Custom S3 endpoint (for MinIO) |
 
-// Flush and close
-producer.flush().await?;
-producer.close().await?;
-```
+### Performance Tuning
 
-### Consumer API Example
+**Segment flushing:**
 
-```rust
-use streamhouse_client::{Consumer, OffsetReset};
-use std::time::Duration;
+| Env Var | Default | Description |
+|---------|---------|-------------|
+| `FLUSH_INTERVAL_SECS` | `5` | Background flush interval (ACK_BUFFERED path) |
+| `SEGMENT_MAX_SIZE` | `1048576` (1MB) | Segment roll size in bytes |
+| `SEGMENT_MAX_AGE_MS` | `10000` | Segment roll time in ms |
 
-// Create consumer
-let mut consumer = Consumer::builder()
-    .group_id("analytics")
-    .topics(vec!["orders".to_string()])
-    .metadata_store(metadata_store)
-    .object_store(object_store)
-    .offset_reset(OffsetReset::Earliest)
-    .auto_commit(true)
-    .build()
-    .await?;
+**ACK_DURABLE batching** — controls the group-commit window for durable writes:
 
-// Poll for records
-loop {
-    let records = consumer.poll(Duration::from_secs(1)).await?;
-    for record in records {
-        println!("Offset: {}, Value: {:?}", record.offset, record.value);
-    }
-    consumer.commit().await?;
-}
-```
+| Env Var | Default | Description |
+|---------|---------|-------------|
+| `DURABLE_BATCH_MAX_AGE_MS` | `200` | Batch window in ms. Lower = lower latency, more S3 PUTs. Higher = more batching, better throughput. |
+| `DURABLE_BATCH_MAX_RECORDS` | `10000` | Force flush after N records |
+| `DURABLE_BATCH_MAX_BYTES` | `16777216` (16MB) | Force flush after N bytes |
 
-### Local Development with CLI
+**S3 upload:**
 
-```bash
-# 1. Start the server (no Docker required — uses SQLite + local filesystem)
-mkdir -p ./data/storage
-USE_LOCAL_STORAGE=1 cargo run --release --bin unified-server &
+| Env Var | Default | Description |
+|---------|---------|-------------|
+| `S3_UPLOAD_RETRIES` | `3` | Retry count for S3 uploads |
+| `MULTIPART_THRESHOLD` | `8388608` (8MB) | Switch to multipart upload above this size |
+| `MULTIPART_PART_SIZE` | `8388608` (8MB) | Size of each multipart chunk |
+| `PARALLEL_UPLOAD_PARTS` | `4` | Concurrent upload threads per segment |
+| `THROTTLE_ENABLED` | `true` | S3 rate limiting circuit breaker |
 
-# 2. Use the CLI
-STREAMHOUSE_ADDR=http://localhost:50051 cargo run --bin streamctl -- topic create orders --partitions 10
-STREAMHOUSE_ADDR=http://localhost:50051 cargo run --bin streamctl -- produce orders --value '{"event": "signup"}'
-STREAMHOUSE_ADDR=http://localhost:50051 cargo run --bin streamctl -- consume orders --partition 0 --limit 10
+**gRPC server:**
 
-# Or use the REST API
-curl -X POST http://localhost:8080/api/v1/produce \
-  -H "Content-Type: application/json" \
-  -d '{"topic": "orders", "key": "user-1", "value": "{\"event\": \"signup\"}"}'
-```
+| Env Var | Default | Description |
+|---------|---------|-------------|
+| `GRPC_MAX_CONCURRENT_STREAMS` | unlimited | Max concurrent RPCs per connection |
+| `GRPC_KEEPALIVE_INTERVAL_SECS` | _(none)_ | HTTP/2 keepalive ping interval |
+| `GRPC_KEEPALIVE_TIMEOUT_SECS` | _(none)_ | Keepalive ping timeout |
+| `GRPC_INITIAL_STREAM_WINDOW_SIZE` | `65535` | HTTP/2 flow control per stream in bytes |
+| `GRPC_INITIAL_CONNECTION_WINDOW_SIZE` | `65535` | HTTP/2 flow control per connection in bytes |
+
+**Write-ahead log:**
+
+| Env Var | Default | Description |
+|---------|---------|-------------|
+| `WAL_ENABLED` | `false` | Enable WAL for crash recovery |
+| `WAL_DIR` | `./data/wal` | WAL directory |
+| `WAL_SYNC_INTERVAL_MS` | `100` | WAL fsync interval |
+| `WAL_MAX_SIZE` | `1073741824` (1GB) | WAL rotation size |
+
+**Cache:**
+
+| Env Var | Default | Description |
+|---------|---------|-------------|
+| `STREAMHOUSE_CACHE` | `./data/cache` | Segment cache directory |
+| `STREAMHOUSE_CACHE_SIZE` | `1073741824` (1GB) | Max cache size in bytes |
+
+---
 
 ## Architecture
 
 ```
-Producer API (batching, compression)
-    ↓
-StreamHouse Server (gRPC, REST, Kafka protocol)
-    ↓
-S3 Storage (segments) + PostgreSQL/SQLite Metadata (topics, offsets, consumer groups)
-    ↓
-Consumer API (multi-partition, offset management)
+Clients (REST, gRPC, Kafka protocol)
+    |
+StreamHouse Unified Server
+    |
+    +-- Partition Writers (one per partition, concurrent)
+    |       |
+    |       +-- WAL (optional, crash recovery)
+    |       +-- Segment Builder (batching, compression)
+    |       +-- S3 Upload (group-commit for ACK_DURABLE)
+    |
+    +-- Metadata Store (SQLite or PostgreSQL)
+    |       Topics, partitions, offsets, consumer groups, leases
+    |
+    +-- Segment Cache (local disk, LRU)
 ```
 
-## Performance
-
-| Benchmark | Result |
-|-----------|--------|
-| Producer throughput | 62,325 records/sec |
-| Consumer throughput | 30,819 records/sec |
-| Sequential reads | 3.10M records/sec |
-| Producer latency (async) | < 1ms |
-| Metadata queries (cached) | < 100µs |
-| LZ4 compression | 30-50% size reduction |
-| Segment cache hit rate | 80% |
-| S3 durability | 99.999999999% |
-
-```bash
-# Run benchmarks yourself
-cargo test --release -p streamhouse-client test_producer_throughput -- --nocapture
-cargo test --release -p streamhouse-client test_consumer_throughput -- --nocapture
-```
-
-## Documentation
-
-- **[Architecture Overview](docs/ARCHITECTURE_OVERVIEW.md)** — System design
-- **[Production Guide](docs/PRODUCTION_GUIDE.md)** — Deployment and operations
-- **[PostgreSQL Backend](docs/POSTGRES_BACKEND.md)** — Production metadata store
-- **[CLI Quickstart](docs/CLI-QUICKSTART.md)** — Command-line usage
+---
 
 ## Testing
 
 ```bash
-# Run all tests
 cargo test --workspace
 
-# Run with PostgreSQL tests (requires running PostgreSQL)
-DATABASE_URL=postgres://... cargo test --features postgres --workspace
-
-# Run web UI tests
-cd web && npm test
+# With PostgreSQL
+DATABASE_URL=postgres://user:pass@localhost/streamhouse cargo test --features postgres --workspace
 ```
-
-## Contributing
-
-See [CONTRIBUTING.md](CONTRIBUTING.md) for build instructions, code style, and how to submit changes.
 
 ## License
 
-Licensed under the [Apache License, Version 2.0](LICENSE).
+[Apache License, Version 2.0](LICENSE)

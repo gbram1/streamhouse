@@ -49,9 +49,11 @@ services:
       exit 0;
       "
 
-  # StreamHouse Server (unified API + gRPC)
+  # StreamHouse Server
   streamhouse:
-    image: streamhouse/agent:0.1.0
+    build:
+      context: .
+      dockerfile: Dockerfile
     container_name: streamhouse-server
     depends_on:
       postgres:
@@ -63,21 +65,19 @@ services:
     environment:
       DATABASE_URL: postgres://streamhouse:streamhouse@postgres:5432/streamhouse
       S3_ENDPOINT: http://minio:9000
-      S3_BUCKET: streamhouse
-      S3_REGION: us-east-1
-      S3_PATH_STYLE: "true"
+      STREAMHOUSE_BUCKET: streamhouse
+      AWS_REGION: us-east-1
       AWS_ACCESS_KEY_ID: minioadmin
       AWS_SECRET_ACCESS_KEY: minioadmin
-      HTTP_PORT: "8080"
-      GRPC_PORT: "9090"
+      GRPC_ADDR: "0.0.0.0:50051"
+      HTTP_ADDR: "0.0.0.0:8080"
       RUST_LOG: info
       WAL_ENABLED: "true"
       WAL_DIR: /data/wal
       STREAMHOUSE_CACHE: /data/cache
-      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
     ports:
       - "8080:8080"
-      - "9090:9090"
+      - "50051:50051"
     volumes:
       - wal_data:/data/wal
       - cache_data:/data/cache
@@ -92,15 +92,12 @@ services:
     build:
       context: ./web
       dockerfile: Dockerfile
-    image: streamhouse/ui:0.1.0
     container_name: streamhouse-ui
     depends_on:
       streamhouse:
         condition: service_healthy
     environment:
-      # Server-side: use Docker network name (for Next.js rewrites)
       INTERNAL_API_URL: http://streamhouse:8080
-      # Client-side: use localhost (browser runs on host)
       NEXT_PUBLIC_API_URL: http://localhost:8080
       NEXT_PUBLIC_WS_URL: ws://localhost:8080
     ports:
@@ -129,7 +126,7 @@ services:
       timeout: 5s
       retries: 3
 
-  # Grafana - dashboards and visualization
+  # Grafana - dashboards
   grafana:
     image: grafana/grafana:latest
     container_name: streamhouse-grafana
@@ -153,7 +150,7 @@ services:
       timeout: 5s
       retries: 3
 
-  # pgAdmin (Optional - PostgreSQL web UI)
+  # pgAdmin (optional)
   # Run with: docker compose --profile admin up
   pgadmin:
     image: dpage/pgadmin4:latest
