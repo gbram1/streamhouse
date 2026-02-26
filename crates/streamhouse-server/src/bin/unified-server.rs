@@ -255,6 +255,38 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         None
     };
 
+    // Durable flush batching (ACK_DURABLE optimization)
+    let durable_batch_max_age_ms = std::env::var("DURABLE_BATCH_MAX_AGE_MS")
+        .ok()
+        .and_then(|s| s.parse::<u64>().ok())
+        .unwrap_or(200);
+    let durable_batch_max_records = std::env::var("DURABLE_BATCH_MAX_RECORDS")
+        .ok()
+        .and_then(|s| s.parse::<usize>().ok())
+        .unwrap_or(10_000);
+    let durable_batch_max_bytes = std::env::var("DURABLE_BATCH_MAX_BYTES")
+        .ok()
+        .and_then(|s| s.parse::<usize>().ok())
+        .unwrap_or(16 * 1024 * 1024);
+
+    // S3 upload tuning
+    let s3_upload_retries = std::env::var("S3_UPLOAD_RETRIES")
+        .ok()
+        .and_then(|s| s.parse::<u32>().ok())
+        .unwrap_or(3);
+    let multipart_threshold = std::env::var("MULTIPART_THRESHOLD")
+        .ok()
+        .and_then(|s| s.parse::<usize>().ok())
+        .unwrap_or(8 * 1024 * 1024);
+    let multipart_part_size = std::env::var("MULTIPART_PART_SIZE")
+        .ok()
+        .and_then(|s| s.parse::<usize>().ok())
+        .unwrap_or(8 * 1024 * 1024);
+    let parallel_upload_parts = std::env::var("PARALLEL_UPLOAD_PARTS")
+        .ok()
+        .and_then(|s| s.parse::<usize>().ok())
+        .unwrap_or(4);
+
     let config = WriteConfig {
         segment_max_size,
         segment_max_age_ms,
@@ -262,11 +294,28 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         s3_region: std::env::var("AWS_REGION").unwrap_or_else(|_| "us-east-1".to_string()),
         s3_endpoint: std::env::var("S3_ENDPOINT").ok(),
         block_size_target: 1024 * 1024, // 1MB
-        s3_upload_retries: 3,
+        s3_upload_retries,
+        multipart_threshold,
+        multipart_part_size,
+        parallel_upload_parts,
+        durable_batch_max_age_ms,
+        durable_batch_max_records,
+        durable_batch_max_bytes,
         wal_config,
         throttle_config,
-        ..Default::default()
     };
+
+    // Log all performance-related configuration
+    tracing::info!("⚙️  Write configuration:");
+    tracing::info!("  Segment max size: {}MB", segment_max_size / (1024 * 1024));
+    tracing::info!("  Segment max age: {}ms", segment_max_age_ms);
+    tracing::info!("  S3 upload retries: {}", s3_upload_retries);
+    tracing::info!("  Multipart threshold: {}MB", multipart_threshold / (1024 * 1024));
+    tracing::info!("  Multipart part size: {}MB", multipart_part_size / (1024 * 1024));
+    tracing::info!("  Parallel upload parts: {}", parallel_upload_parts);
+    tracing::info!("  Durable batch max age: {}ms", durable_batch_max_age_ms);
+    tracing::info!("  Durable batch max records: {}", durable_batch_max_records);
+    tracing::info!("  Durable batch max bytes: {}MB", durable_batch_max_bytes / (1024 * 1024));
 
     // Create writer pool
     tracing::info!("✍️  Initializing writer pool");
@@ -662,8 +711,48 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             .expect("HTTP server error");
     });
 
+    // gRPC server tuning
+    let grpc_max_concurrent_streams = std::env::var("GRPC_MAX_CONCURRENT_STREAMS")
+        .ok()
+        .and_then(|s| s.parse::<u32>().ok());
+    let grpc_keepalive_interval_secs = std::env::var("GRPC_KEEPALIVE_INTERVAL_SECS")
+        .ok()
+        .and_then(|s| s.parse::<u64>().ok());
+    let grpc_keepalive_timeout_secs = std::env::var("GRPC_KEEPALIVE_TIMEOUT_SECS")
+        .ok()
+        .and_then(|s| s.parse::<u64>().ok());
+    let grpc_initial_stream_window = std::env::var("GRPC_INITIAL_STREAM_WINDOW_SIZE")
+        .ok()
+        .and_then(|s| s.parse::<u32>().ok());
+    let grpc_initial_connection_window = std::env::var("GRPC_INITIAL_CONNECTION_WINDOW_SIZE")
+        .ok()
+        .and_then(|s| s.parse::<u32>().ok());
+
     // Start gRPC server (blocks until shutdown)
-    let grpc_result = GrpcServer::builder()
+    let mut grpc_builder = GrpcServer::builder();
+
+    if let Some(max_streams) = grpc_max_concurrent_streams {
+        tracing::info!("  gRPC max concurrent streams: {}", max_streams);
+        grpc_builder = grpc_builder.concurrency_limit_per_connection(max_streams as usize);
+    }
+    if let Some(interval) = grpc_keepalive_interval_secs {
+        tracing::info!("  gRPC keepalive interval: {}s", interval);
+        grpc_builder = grpc_builder.http2_keepalive_interval(Some(Duration::from_secs(interval)));
+    }
+    if let Some(timeout) = grpc_keepalive_timeout_secs {
+        tracing::info!("  gRPC keepalive timeout: {}s", timeout);
+        grpc_builder = grpc_builder.http2_keepalive_timeout(Some(Duration::from_secs(timeout)));
+    }
+    if let Some(window) = grpc_initial_stream_window {
+        tracing::info!("  gRPC initial stream window: {} bytes", window);
+        grpc_builder = grpc_builder.initial_stream_window_size(Some(window));
+    }
+    if let Some(window) = grpc_initial_connection_window {
+        tracing::info!("  gRPC initial connection window: {} bytes", window);
+        grpc_builder = grpc_builder.initial_connection_window_size(Some(window));
+    }
+
+    let grpc_result = grpc_builder
         .add_service(StreamHouseServer::new(grpc_service))
         .add_service(reflection_service)
         .serve_with_shutdown(grpc_addr, async {
