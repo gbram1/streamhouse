@@ -139,21 +139,7 @@ export default function BlogPage() {
                     {featuredPost.excerpt}
                   </p>
 
-                  <div className="mt-6 flex items-center justify-between">
-                    <div className="flex items-center gap-3">
-                      <div className="flex h-10 w-10 items-center justify-center rounded-full bg-gradient-to-br from-teal-500 to-cyan-500 text-sm font-medium text-white">
-                        {featuredPost.author.avatar}
-                      </div>
-                      <div>
-                        <p className="text-sm font-medium text-slate-900">
-                          {featuredPost.author.name}
-                        </p>
-                        <p className="text-xs text-slate-500">
-                          {featuredPost.author.role}
-                        </p>
-                      </div>
-                    </div>
-
+                  <div className="mt-6 flex items-center justify-end">
                     <span className="flex items-center gap-2 text-sm font-medium text-teal-600 transition-colors group-hover:text-teal-700">
                       Read more
                       <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-1" />
@@ -210,14 +196,6 @@ export default function BlogPage() {
                       {post.excerpt}
                     </p>
 
-                    <div className="mt-4 flex items-center gap-2">
-                      <div className="flex h-7 w-7 items-center justify-center rounded-full bg-gradient-to-br from-teal-500 to-cyan-500 text-xs font-medium text-white">
-                        {post.author.avatar}
-                      </div>
-                      <span className="text-sm text-slate-600">
-                        {post.author.name}
-                      </span>
-                    </div>
                   </article>
                 </Link>
               ))}

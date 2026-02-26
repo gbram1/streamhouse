@@ -157,20 +157,8 @@ export default async function BlogPostPage({ params }: BlogPostPageProps) {
               {post.excerpt}
             </p>
 
-            {/* Author & share */}
-            <div className="mt-8 flex items-center justify-between">
-              <div className="flex items-center gap-3.5">
-                <div className="flex h-11 w-11 items-center justify-center rounded-full bg-gradient-to-br from-teal-500 to-cyan-500 text-sm font-semibold text-white">
-                  {post.author.avatar}
-                </div>
-                <div>
-                  <p className="text-sm font-medium text-slate-900">
-                    {post.author.name}
-                  </p>
-                  <p className="text-xs text-slate-500">{post.author.role}</p>
-                </div>
-              </div>
-
+            {/* Share */}
+            <div className="mt-8 flex items-center justify-end">
               <div className="flex items-center gap-2">
                 <button className="flex h-8 w-8 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-400 transition-colors hover:border-slate-300 hover:text-slate-600">
                   <Twitter className="h-3.5 w-3.5" />
@@ -249,14 +237,6 @@ export default async function BlogPostPage({ params }: BlogPostPageProps) {
                       <p className="mt-2 line-clamp-2 text-sm text-slate-600">
                         {related.excerpt}
                       </p>
-                      <div className="mt-4 flex items-center gap-2">
-                        <div className="flex h-6 w-6 items-center justify-center rounded-full bg-gradient-to-br from-teal-500 to-cyan-500 text-[10px] font-medium text-white">
-                          {related.author.avatar}
-                        </div>
-                        <span className="text-xs text-slate-500">
-                          {related.author.name}
-                        </span>
-                      </div>
                     </article>
                   </Link>
                 ))}
