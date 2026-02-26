@@ -117,7 +117,7 @@ export default function Home() {
                 <GithubIcon className="h-5 w-5" />
               </Link>
 
-              <Link href="/console">
+              <Link href="/dashboard">
                 <Button className="bg-slate-900 text-sm font-medium text-white hover:bg-slate-800">
                   Get Started
                 </Button>
@@ -166,7 +166,7 @@ export default function Home() {
 
             {/* CTAs */}
             <div className="mt-10 flex flex-col items-center justify-center gap-4 sm:flex-row">
-              <Link href="/console">
+              <Link href="/dashboard">
                 <Button
                   size="lg"
                   className="group h-12 bg-slate-900 px-8 text-base font-medium text-white hover:bg-slate-800"
@@ -634,7 +634,7 @@ export default function Home() {
               operational complexity.
             </p>
             <div className="mt-10 flex flex-col items-center justify-center gap-4 sm:flex-row">
-              <Link href="/console">
+              <Link href="/dashboard">
                 <Button
                   size="lg"
                   className="group h-12 bg-slate-900 px-8 text-base font-medium text-white hover:bg-slate-800"
