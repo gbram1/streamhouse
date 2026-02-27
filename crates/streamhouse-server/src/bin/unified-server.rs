@@ -120,9 +120,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let metadata_path =
         std::env::var("STREAMHOUSE_METADATA").unwrap_or_else(|_| "./data/metadata.db".to_string());
 
-    // Ensure data directories exist
-    if let Some(parent) = std::path::Path::new(&metadata_path).parent() {
-        std::fs::create_dir_all(parent)?;
+    // Ensure SQLite data directory exists (skip when using PostgreSQL)
+    if std::env::var("DATABASE_URL").is_err() {
+        if let Some(parent) = std::path::Path::new(&metadata_path).parent() {
+            std::fs::create_dir_all(parent)?;
+        }
     }
 
     let cache_dir =
