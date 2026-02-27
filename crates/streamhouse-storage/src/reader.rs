@@ -141,40 +141,69 @@ impl PartitionReader {
 
     /// Read records starting from offset
     ///
-    /// Returns up to `max_records` records, or fewer if end of segment reached.
-    /// Automatically caches segments and prefetches next segment for sequential reads.
+    /// Returns up to `max_records` records, reading across multiple segments
+    /// if needed. Automatically caches segments and prefetches next segment
+    /// for sequential reads.
     pub async fn read(&self, start_offset: u64, max_records: usize) -> Result<ReadResult> {
-        // Find segment containing start_offset using in-memory index
-        let segment_info = self
-            .segment_index
-            .find_segment_for_offset(start_offset)
-            .await
-            .map_err(Error::MetadataError)?
-            .ok_or_else(|| Error::OffsetNotFound(start_offset))?;
+        let mut records: Vec<Record> = Vec::new();
+        let mut current_offset = start_offset;
+        let mut last_segment_info = None;
 
-        // Get segment data (from cache or S3)
-        let segment_data = self.get_segment(&segment_info).await?;
+        while records.len() < max_records {
+            // Find segment containing current_offset
+            let segment_info = match self
+                .segment_index
+                .find_segment_for_offset(current_offset)
+                .await
+                .map_err(Error::MetadataError)?
+            {
+                Some(info) => info,
+                None => {
+                    // No segment found for this offset — if we have no records at all,
+                    // that's an error; otherwise we've read everything available
+                    if records.is_empty() {
+                        return Err(Error::OffsetNotFound(start_offset));
+                    }
+                    break;
+                }
+            };
 
-        // Open segment reader
-        let reader =
-            SegmentReader::new(segment_data).map_err(|e| Error::SegmentError(e.to_string()))?;
+            // Get segment data (from cache or S3)
+            let segment_data = self.get_segment(&segment_info).await?;
 
-        // Read records from offset
-        let mut records = reader
-            .read_from_offset(start_offset)
-            .map_err(|e| Error::SegmentError(e.to_string()))?;
+            // Open segment reader
+            let reader = SegmentReader::new(segment_data)
+                .map_err(|e| Error::SegmentError(e.to_string()))?;
 
-        // Limit to max_records
-        if records.len() > max_records {
-            records.truncate(max_records);
+            // Read records from offset within this segment
+            let segment_records = reader
+                .read_from_offset(current_offset)
+                .map_err(|e| Error::SegmentError(e.to_string()))?;
+
+            if segment_records.is_empty() {
+                break;
+            }
+
+            // Take only what we need to reach max_records
+            let needed = max_records - records.len();
+            if segment_records.len() <= needed {
+                // Update current_offset past the end of this segment
+                current_offset = segment_info.end_offset + 1;
+                records.extend(segment_records);
+            } else {
+                records.extend(segment_records.into_iter().take(needed));
+                break;
+            }
+
+            last_segment_info = Some(segment_info);
         }
 
-        // Phase 8.3c: Enhanced prefetching - trigger on >= 80% of batch (not just 100%)
-        // This more aggressively prefetches for sequential reads
-        let prefetch_threshold = (max_records as f64 * 0.8) as usize;
-        if records.len() >= prefetch_threshold {
-            // Prefetch next 2 segments in parallel for better sequential read performance
-            self.prefetch_next_segments(&segment_info, 2).await;
+        // Phase 8.3c: Enhanced prefetching - trigger on >= 80% of batch
+        if let Some(ref seg_info) = last_segment_info {
+            let prefetch_threshold = (max_records as f64 * 0.8) as usize;
+            if records.len() >= prefetch_threshold {
+                self.prefetch_next_segments(seg_info, 2).await;
+            }
         }
 
         // Get high watermark from metadata

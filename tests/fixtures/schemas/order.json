@@ -1,0 +1,21 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Order",
+  "type": "object",
+  "required": ["order_id", "amount", "currency"],
+  "properties": {
+    "order_id": {"type": "string"},
+    "amount": {"type": "number", "minimum": 0},
+    "currency": {"type": "string", "enum": ["USD", "EUR", "GBP"]},
+    "items": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "sku": {"type": "string"},
+          "quantity": {"type": "integer", "minimum": 1}
+        }
+      }
+    }
+  }
+}

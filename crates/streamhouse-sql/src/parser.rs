@@ -47,6 +47,7 @@ pub fn parse_query(sql: &str) -> Result<SqlQuery> {
             .nth(1)
             .ok_or_else(|| SqlError::ParseError("DESCRIBE requires a topic name".to_string()))?
             .trim_matches(';')
+            .trim_matches('"')
             .to_string();
         return Ok(SqlQuery::DescribeTopic(topic));
     }
@@ -638,8 +639,16 @@ fn try_parse_window_query(
                     window_type = Some(parse_session_window(func)?);
                 }
                 _ => {
-                    // Regular GROUP BY expression
-                    other_group_by.push(func.name.to_string());
+                    // Regular GROUP BY expression — extract JSON path if json_extract
+                    if func_name == "JSON_EXTRACT" {
+                        if let Ok(path) = extract_path_from_json_extract(func) {
+                            other_group_by.push(path);
+                        } else {
+                            other_group_by.push(func.name.to_string());
+                        }
+                    } else {
+                        other_group_by.push(func.name.to_string());
+                    }
                 }
             }
         } else if let Expr::Identifier(ident) = group_expr {
@@ -649,7 +658,18 @@ fn try_parse_window_query(
 
     let window = match window_type {
         Some(w) => w,
-        None => return Ok(None), // No window function found
+        None => {
+            // No window function in GROUP BY — check if SELECT contains aggregate functions.
+            // If so, treat this as a non-windowed GROUP BY with a single all-encompassing window.
+            let aggs = parse_window_aggregations(select)?;
+            if aggs.is_empty() {
+                return Ok(None); // No aggregates, not a GROUP BY aggregate query
+            }
+            // Use a very large tumble window (100 years) to put all records in one window
+            WindowType::Tumble {
+                size_ms: 100 * 365 * 24 * 60 * 60 * 1000,
+            }
+        }
     };
 
     // Parse the rest of the query
@@ -1126,7 +1146,15 @@ fn parse_from_clause(select: &Select) -> Result<String> {
 
     let table = &select.from[0];
     match &table.relation {
-        TableFactor::Table { name, .. } => Ok(name.to_string()),
+        TableFactor::Table { name, .. } => {
+            // Use the unquoted identifier value directly to avoid
+            // sqlparser's Display impl preserving quotes (e.g. "my-topic" → my-topic)
+            if name.0.len() == 1 {
+                Ok(name.0[0].value.clone())
+            } else {
+                Ok(name.to_string())
+            }
+        }
         _ => Err(SqlError::UnsupportedOperation(
             "Only simple table references are supported".to_string(),
         )),

@@ -109,8 +109,8 @@ use crate::{
     CreateOrganization, InitProducerConfig, LeaderChangeReason, LeaseTransfer, MaterializedView,
     MaterializedViewData, MaterializedViewOffset, MaterializedViewStatus, MetadataStore,
     Organization, OrganizationPlan, OrganizationQuota, OrganizationStatus, OrganizationUsage,
-    Partition, PartitionLease, Producer, Result, SegmentInfo, Topic, TopicConfig, Transaction,
-    TransactionMarker, TransactionPartition,
+    Partition, PartitionLease, Producer, Result, SegmentInfo, Topic, TopicConfig,
+    TopicStorageStats, Transaction, TransactionMarker, TransactionPartition,
 };
 use async_trait::async_trait;
 use lru::LruCache;
@@ -550,6 +550,10 @@ impl<S: MetadataStore + 'static> MetadataStore for CachedMetadataStore<S> {
         self.inner
             .delete_segments_before(topic, partition_id, before_offset)
             .await
+    }
+
+    async fn get_segment_storage_stats(&self) -> Result<Vec<TopicStorageStats>> {
+        self.inner.get_segment_storage_stats().await
     }
 
     // ========================================================================

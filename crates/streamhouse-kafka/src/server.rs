@@ -303,9 +303,17 @@ async fn handle_request(
         }
     };
 
-    // Build full response with header
+    // Build full response with header.
+    // ApiVersions always uses response header v0 (just correlation_id).
+    // Other flexible-version APIs use response header v1 (correlation_id + tagged fields).
     let mut response = BytesMut::new();
-    ResponseHeader::new(header.correlation_id).encode(&mut response);
+    let resp_header = ResponseHeader::new(header.correlation_id);
+    let flexible = crate::types::is_flexible_version(header.api_key, header.api_version);
+    if flexible && header.api_key != ApiKey::ApiVersions.as_i16() {
+        resp_header.encode_flexible(&mut response);
+    } else {
+        resp_header.encode(&mut response);
+    }
     response.extend_from_slice(&response_body);
 
     Ok(response)

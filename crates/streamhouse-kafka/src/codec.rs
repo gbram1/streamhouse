@@ -114,7 +114,11 @@ pub struct RequestHeader {
 }
 
 impl RequestHeader {
-    /// Parse request header from bytes
+    /// Parse request header from bytes.
+    ///
+    /// For flexible versions (v2 header), the client_id is a compact nullable
+    /// string (varint length) and tagged fields follow. For legacy versions
+    /// (v0/v1 header), client_id is a regular nullable string (int16 length).
     pub fn parse(buf: &mut BytesMut) -> KafkaResult<Self> {
         if buf.len() < 8 {
             return Err(KafkaError::Protocol("Request header too short".to_string()));
@@ -124,8 +128,18 @@ impl RequestHeader {
         let api_version = buf.get_i16();
         let correlation_id = buf.get_i32();
 
-        // Parse client_id (nullable string)
-        let client_id = parse_nullable_string(buf)?;
+        let flexible = crate::types::is_flexible_version(api_key, api_version);
+
+        let client_id = if flexible {
+            parse_compact_nullable_string(buf)?
+        } else {
+            parse_nullable_string(buf)?
+        };
+
+        // Flexible headers (v2) have tagged fields after client_id
+        if flexible {
+            skip_tagged_fields(buf)?;
+        }
 
         Ok(RequestHeader {
             api_key,
@@ -147,9 +161,17 @@ impl ResponseHeader {
         Self { correlation_id }
     }
 
-    /// Encode response header to bytes
+    /// Encode response header v0 (just correlation_id).
+    /// Used for non-flexible responses and ApiVersions (which always uses v0).
     pub fn encode(&self, buf: &mut BytesMut) {
         buf.put_i32(self.correlation_id);
+    }
+
+    /// Encode response header v1 (correlation_id + tagged fields).
+    /// Used for flexible version responses (except ApiVersions).
+    pub fn encode_flexible(&self, buf: &mut BytesMut) {
+        buf.put_i32(self.correlation_id);
+        encode_empty_tagged_fields(buf);
     }
 }
 

@@ -319,6 +319,14 @@ pub struct SegmentInfo {
     pub created_at: i64,
 }
 
+/// Aggregated storage statistics per topic from the segments table.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TopicStorageStats {
+    pub topic: String,
+    pub segment_count: u64,
+    pub total_size_bytes: u64,
+}
+
 /// Consumer group offset tracking.
 ///
 /// Tracks where a consumer group left off for a specific topic partition.

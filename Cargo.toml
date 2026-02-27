@@ -108,3 +108,10 @@ opt-level = 3
 lto = true
 codegen-units = 1
 strip = true
+
+# Fast release build for testing (no LTO, more codegen units)
+[profile.test-release]
+inherits = "release"
+lto = false
+codegen-units = 16
+strip = false

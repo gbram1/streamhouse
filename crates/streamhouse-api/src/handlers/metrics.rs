@@ -136,33 +136,21 @@ pub async fn readiness_check(
 pub async fn get_storage_metrics(
     State(state): State<AppState>,
 ) -> Result<Json<StorageMetricsResponse>, StatusCode> {
-    // Get total storage from all segments
-    let topics = state
+    // Query segments table directly for accurate storage stats
+    let stats = state
         .metadata
-        .list_topics()
+        .get_segment_storage_stats()
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
     let mut total_size = 0u64;
-    let mut storage_by_topic = HashMap::new();
     let mut segment_count = 0u64;
+    let mut storage_by_topic = HashMap::new();
 
-    for topic in topics {
-        let mut topic_size = 0u64;
-        for partition_id in 0..topic.partition_count {
-            let segments = state
-                .metadata
-                .get_segments(&topic.name, partition_id)
-                .await
-                .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-
-            for segment in segments {
-                total_size += segment.size_bytes;
-                topic_size += segment.size_bytes;
-                segment_count += 1;
-            }
-        }
-        storage_by_topic.insert(topic.name, topic_size);
+    for stat in stats {
+        total_size += stat.total_size_bytes;
+        segment_count += stat.segment_count;
+        storage_by_topic.insert(stat.topic, stat.total_size_bytes);
     }
 
     // Get cache stats

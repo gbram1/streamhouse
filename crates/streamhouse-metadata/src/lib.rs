@@ -580,6 +580,12 @@ pub trait MetadataStore: Send + Sync {
         before_offset: u64,
     ) -> Result<u64>;
 
+    /// Get aggregated storage statistics from all segments, grouped by topic.
+    ///
+    /// This queries the segments table directly (not via topics → partitions iteration)
+    /// to provide accurate storage stats regardless of topic lifecycle.
+    async fn get_segment_storage_stats(&self) -> Result<Vec<TopicStorageStats>>;
+
     // ============================================================
     // CONSUMER GROUP OPERATIONS
     // ============================================================

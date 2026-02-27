@@ -60,6 +60,37 @@ impl ApiKey {
     }
 }
 
+/// Returns true if the given (api_key, api_version) uses flexible protocol
+/// (compact strings + tagged fields in request/response headers).
+/// Per Kafka protocol spec, each API has a "flexible versions" threshold.
+pub fn is_flexible_version(api_key: i16, api_version: i16) -> bool {
+    let flex_start = match api_key {
+        0 => 9,   // Produce
+        1 => 12,  // Fetch
+        2 => 6,   // ListOffsets
+        3 => 9,   // Metadata
+        8 => 8,   // OffsetCommit
+        9 => 6,   // OffsetFetch
+        10 => 3,  // FindCoordinator
+        11 => 6,  // JoinGroup
+        12 => 4,  // Heartbeat
+        13 => 4,  // LeaveGroup
+        14 => 4,  // SyncGroup
+        15 => 5,  // DescribeGroups
+        16 => 3,  // ListGroups
+        18 => 3,  // ApiVersions
+        19 => 5,  // CreateTopics
+        20 => 4,  // DeleteTopics
+        22 => 2,  // InitProducerId
+        24 => 3,  // AddPartitionsToTxn
+        25 => 3,  // AddOffsetsToTxn
+        26 => 3,  // EndTxn
+        28 => 3,  // TxnOffsetCommit
+        _ => return false,
+    };
+    api_version >= flex_start
+}
+
 /// Supported API versions for each API key
 pub struct ApiVersionRange {
     pub api_key: i16,

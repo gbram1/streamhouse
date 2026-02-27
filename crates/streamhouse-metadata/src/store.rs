@@ -100,7 +100,8 @@ impl SqliteMetadataStore {
     pub async fn new<P: AsRef<Path>>(path: P) -> Result<Self> {
         let options =
             SqliteConnectOptions::from_str(&format!("sqlite://{}", path.as_ref().display()))?
-                .create_if_missing(true);
+                .create_if_missing(true)
+                .foreign_keys(true);
 
         let pool = SqlitePoolOptions::new()
             .max_connections(10)
@@ -115,9 +116,12 @@ impl SqliteMetadataStore {
 
     /// Create in-memory database (for testing)
     pub async fn new_in_memory() -> Result<Self> {
+        let options = SqliteConnectOptions::from_str("sqlite::memory:")?
+            .foreign_keys(true);
+
         let pool = SqlitePoolOptions::new()
             .max_connections(10)
-            .connect("sqlite::memory:")
+            .connect_with(options)
             .await?;
 
         sqlx::migrate!("./migrations").run(&pool).await?;
@@ -694,6 +698,25 @@ impl MetadataStore for SqliteMetadataStore {
         .await?;
 
         Ok(result.rows_affected())
+    }
+
+    async fn get_segment_storage_stats(&self) -> Result<Vec<TopicStorageStats>> {
+        let rows = sqlx::query(
+            "SELECT topic, COUNT(*) as segment_count, COALESCE(SUM(size_bytes), 0) as total_size_bytes
+             FROM segments GROUP BY topic",
+        )
+        .fetch_all(&self.pool)
+        .await?;
+
+        use sqlx::Row;
+        Ok(rows
+            .iter()
+            .map(|r| TopicStorageStats {
+                topic: r.get::<String, _>("topic"),
+                segment_count: r.get::<i64, _>("segment_count") as u64,
+                total_size_bytes: r.get::<i64, _>("total_size_bytes") as u64,
+            })
+            .collect())
     }
 
     async fn ensure_consumer_group(&self, group_id: &str) -> Result<()> {

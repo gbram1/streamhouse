@@ -587,6 +587,19 @@ mod tests {
             segments.retain(|s| !(s.topic == topic && s.partition_id == partition_id && s.end_offset < before_offset));
             Ok((before_count - segments.len()) as u64)
         }
+        async fn get_segment_storage_stats(&self) -> Result<Vec<TopicStorageStats>> {
+            use std::collections::HashMap;
+            let segments = self.segments.lock().unwrap();
+            let mut stats: HashMap<String, (u64, u64)> = HashMap::new();
+            for s in segments.iter() {
+                let entry = stats.entry(s.topic.clone()).or_default();
+                entry.0 += 1;
+                entry.1 += s.size_bytes;
+            }
+            Ok(stats.into_iter().map(|(topic, (segment_count, total_size_bytes))| {
+                TopicStorageStats { topic, segment_count, total_size_bytes }
+            }).collect())
+        }
         async fn ensure_consumer_group(&self, _group_id: &str) -> Result<()> {
             unimplemented!()
         }

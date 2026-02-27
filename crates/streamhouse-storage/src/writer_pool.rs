@@ -252,9 +252,11 @@ impl WriterPool {
                 "Flushing partition writer"
             );
 
-            // flush() already checks if there are pending records
-            match writer_guard.flush().await {
-                Ok(()) => {
+            // Use flush_durable() to unconditionally roll segments with data.
+            // flush() only rolls when size >= 64MB or age >= 10min, which means
+            // small amounts of data stay in memory and are never consumable.
+            match writer_guard.flush_durable().await {
+                Ok(_) => {
                     flush_count += 1;
                 }
                 Err(e) => {
