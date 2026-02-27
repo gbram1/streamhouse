@@ -32,12 +32,7 @@ Thumbs.db
 /tmp
 cache/
 
-# Next.js / Web Console
-web/node_modules/
-web/.next/
-web/out/
-web/.env.local
-web/.vercel
+web/
 examples/production-demo/target/
 
 /scripts/data-failover
