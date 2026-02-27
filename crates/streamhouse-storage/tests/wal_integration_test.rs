@@ -167,7 +167,7 @@ async fn test_crash_recovery_no_data_loss() {
         }
 
         // Simulate crash: drop writer WITHOUT calling flush()
-        // In production, this would be an actual process kill
+        // NOTE, this would be an actual process kill
         drop(writer);
         offsets
     };

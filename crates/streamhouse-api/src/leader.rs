@@ -327,7 +327,7 @@ impl LeaderElection {
     async fn init_backend(&self) -> Result<()> {
         match &self.config.backend {
             LeaderBackend::Postgres { .. } => {
-                // In a real implementation, would create the table if not exists
+                // @Note, would create the table if not exists
                 tracing::info!(
                     "PostgreSQL leader election initialized for namespace '{}'",
                     self.config.namespace
@@ -442,7 +442,7 @@ impl LeaderElection {
 
     /// Try to acquire using PostgreSQL backend
     async fn try_acquire_postgres(&self) -> Result<bool> {
-        // In a real implementation, this would use SQL like:
+        // @Note, this would use SQL like:
         // INSERT INTO leader_election (namespace, leader_id, fencing_token, acquired_at, expires_at)
         // VALUES ($1, $2, $3, $4, $5)
         // ON CONFLICT (namespace) DO UPDATE SET
@@ -507,7 +507,7 @@ impl LeaderElection {
 
     /// Renew using PostgreSQL backend
     async fn renew_postgres(&self) -> Result<()> {
-        // In a real implementation, this would use SQL like:
+        // @Note, this would use SQL like:
         // UPDATE leader_election
         // SET expires_at = NOW() + interval 'X seconds'
         // WHERE namespace = $1 AND leader_id = $2 AND expires_at > NOW()

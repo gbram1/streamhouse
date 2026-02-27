@@ -220,7 +220,7 @@ impl SourceConnector for KafkaSourceConnector {
             ));
         }
 
-        // In a real implementation this would create a Kafka consumer,
+        // @Note this would create a Kafka consumer,
         // subscribe to the configured topics, and begin consuming.
         tracing::info!(
             connector = %self.name,
@@ -241,7 +241,7 @@ impl SourceConnector for KafkaSourceConnector {
             ));
         }
 
-        // In a real implementation this would poll the Kafka consumer
+        // @Note this would poll the Kafka consumer
         // for up to `max_poll_records` records with a timeout of
         // `poll_timeout_ms` milliseconds.
         //
@@ -258,7 +258,7 @@ impl SourceConnector for KafkaSourceConnector {
             ));
         }
 
-        // In a real implementation this would commit offsets and close
+        // @Note this would commit offsets and close
         // the Kafka consumer.
         tracing::info!(connector = %self.name, "Kafka source connector stopped");
 

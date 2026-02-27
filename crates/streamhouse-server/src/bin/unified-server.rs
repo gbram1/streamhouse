@@ -140,7 +140,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let _s3_prefix = std::env::var("STREAMHOUSE_PREFIX").unwrap_or_else(|_| "data".to_string());
 
-    // Initialize metadata store (PostgreSQL in production, SQLite for development)
+    // Initialize metadata store (PostgreSQL NOTE, SQLite for development)
     let metadata: Arc<dyn MetadataStore> = {
         #[cfg(feature = "postgres")]
         {

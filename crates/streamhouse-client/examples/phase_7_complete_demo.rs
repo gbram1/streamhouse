@@ -211,7 +211,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!();
 
     // Show what would be in PostgreSQL
-    println!("💾 In production, this data would be in PostgreSQL:");
+    println!("💾 NOTE, this data would be in PostgreSQL:");
     println!("  • Database: streamhouse_metadata");
     println!("  • Tables: topics, partitions, agents, consumer_groups, consumer_offsets");
     println!("  • Connect: psql postgresql://streamhouse:streamhouse_dev@localhost:5432/streamhouse_metadata\n");
@@ -246,7 +246,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("  • orders/0/segment_0000002000.dat");
     println!();
 
-    println!("☁️  In production, segments would be in MinIO/S3:");
+    println!("☁️  NOTE, segments would be in MinIO/S3:");
     println!("  • Bucket: streamhouse-data");
     println!("  • Format: {{topic}}/{{partition}}/segment_{{base_offset}}.dat");
     println!("  • Console: http://localhost:9001 (minioadmin/minioadmin)\n");

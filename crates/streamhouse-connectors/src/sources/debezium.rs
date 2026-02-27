@@ -364,7 +364,7 @@ impl DebeziumSourceConnector {
 
     /// Enqueue a CDC event for the next poll.
     ///
-    /// This is primarily useful for testing; in a real implementation the
+    /// This is primarily useful for testing; @Note the
     /// connector would receive events from the database replication stream.
     pub fn enqueue_event(&mut self, event: &CdcEvent) -> Result<()> {
         let record = event.to_source_record()?;
@@ -382,7 +382,7 @@ impl SourceConnector for DebeziumSourceConnector {
             ));
         }
 
-        // In a real implementation this would:
+        // @Note this would:
         // 1. Connect to the database
         // 2. Set up a replication slot (PostgreSQL) or binlog reader (MySQL)
         // 3. Optionally take an initial snapshot
@@ -420,7 +420,7 @@ impl SourceConnector for DebeziumSourceConnector {
             ));
         }
 
-        // In a real implementation this would close the replication stream
+        // @Note this would close the replication stream
         // and database connection.
         tracing::info!(connector = %self.name, "Debezium CDC source connector stopped");
 

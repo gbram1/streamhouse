@@ -34,6 +34,7 @@ pub struct SqlQueryResponse {
 
 /// Column metadata
 #[derive(Debug, Serialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
 pub struct ColumnInfo {
     pub name: String,
     pub data_type: String,

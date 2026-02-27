@@ -389,7 +389,7 @@ impl MetadataStore for PostgresMetadataStore {
     async fn list_topics_for_org(&self, org_id: &str) -> Result<Vec<Topic>> {
         let rows = sqlx::query(
             "SELECT name, partition_count, retention_ms, created_at, config
-             FROM topics WHERE organization_id = $1 ORDER BY created_at DESC",
+             FROM topics WHERE organization_id = $1::UUID ORDER BY created_at DESC",
         )
         .bind(org_id)
         .fetch_all(&self.pool)
@@ -464,7 +464,7 @@ impl MetadataStore for PostgresMetadataStore {
 
     async fn delete_topic_for_org(&self, org_id: &str, name: &str) -> Result<()> {
         let result = sqlx::query(
-            "DELETE FROM topics WHERE organization_id = $1 AND name = $2",
+            "DELETE FROM topics WHERE organization_id = $1::UUID AND name = $2",
         )
         .bind(org_id)
         .bind(name)
@@ -480,7 +480,7 @@ impl MetadataStore for PostgresMetadataStore {
     async fn get_topic_for_org(&self, org_id: &str, name: &str) -> Result<Option<Topic>> {
         let row = sqlx::query(
             "SELECT name, partition_count, retention_ms, created_at, config
-             FROM topics WHERE organization_id = $1 AND name = $2",
+             FROM topics WHERE organization_id = $1::UUID AND name = $2",
         )
         .bind(org_id)
         .bind(name)
@@ -1457,7 +1457,7 @@ impl MetadataStore for PostgresMetadataStore {
     async fn list_api_keys(&self, organization_id: &str) -> Result<Vec<ApiKey>> {
         let rows = sqlx::query(
             "SELECT id, organization_id, name, key_prefix, permissions, scopes, expires_at, last_used_at, created_at, created_by
-             FROM api_keys WHERE organization_id = $1 ORDER BY created_at DESC"
+             FROM api_keys WHERE organization_id = $1::UUID ORDER BY created_at DESC"
         )
         .bind(organization_id)
         .fetch_all(&self.pool)
@@ -1517,7 +1517,7 @@ impl MetadataStore for PostgresMetadataStore {
             "SELECT organization_id, max_topics, max_partitions_per_topic, max_total_partitions,
                     max_storage_bytes, max_retention_days, max_produce_bytes_per_sec, max_consume_bytes_per_sec,
                     max_requests_per_sec, max_consumer_groups, max_schemas, max_schema_versions_per_subject, max_connections
-             FROM organization_quotas WHERE organization_id = $1"
+             FROM organization_quotas WHERE organization_id = $1::UUID"
         )
         .bind(organization_id)
         .fetch_optional(&self.pool)
@@ -1590,7 +1590,7 @@ impl MetadataStore for PostgresMetadataStore {
     ) -> Result<Vec<OrganizationUsage>> {
         let rows = sqlx::query(
             "SELECT organization_id, metric, value, period_start
-             FROM organization_usage WHERE organization_id = $1 ORDER BY metric",
+             FROM organization_usage WHERE organization_id = $1::UUID ORDER BY metric",
         )
         .bind(organization_id)
         .fetch_all(&self.pool)
@@ -2058,7 +2058,7 @@ impl MetadataStore for PostgresMetadataStore {
         let row = match organization_id {
             Some(org_id) => sqlx::query(
                 "SELECT id, organization_id, transactional_id, epoch, created_at, last_heartbeat, state, metadata, numeric_id \
-                 FROM producers WHERE transactional_id = $1 AND organization_id = $2"
+                 FROM producers WHERE transactional_id = $1 AND organization_id = $2::UUID"
             )
             .bind(transactional_id)
             .bind(org_id)

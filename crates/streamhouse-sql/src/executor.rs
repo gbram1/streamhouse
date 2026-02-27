@@ -98,6 +98,9 @@ impl SqlExecutor {
             SqlQuery::WindowAggregate(q) => {
                 self.execute_window_aggregate(q, start, timeout).await?
             }
+            SqlQuery::GroupByAggregate(q) => {
+                self.execute_group_by_aggregate(q, start, timeout).await?
+            }
             SqlQuery::Join(q) => self.execute_join(q, start, timeout).await?,
             // Materialized View commands
             SqlQuery::CreateMaterializedView(q) => {
@@ -809,6 +812,127 @@ impl SqlExecutor {
 
         // Build column info
         let columns = build_window_column_info(&query.aggregations, !query.group_by.is_empty());
+
+        Ok(QueryResult {
+            columns,
+            row_count: rows.len(),
+            rows,
+            execution_time_ms: start.elapsed().as_millis() as u64,
+            truncated,
+        })
+    }
+
+    /// Execute a batch GROUP BY aggregation query (no window functions)
+    /// Groups by specified columns and computes aggregations without window_start/window_end
+    async fn execute_group_by_aggregate(
+        &self,
+        query: GroupByAggregateQuery,
+        start: Instant,
+        timeout_ms: u64,
+    ) -> Result<QueryResult> {
+        // Use Arrow-accelerated execution when enabled
+        if self.use_arrow {
+            return self
+                .arrow_executor
+                .execute_group_by_aggregate(
+                    &query.topic,
+                    &query.aggregations,
+                    &query.group_by,
+                    &query.filters,
+                    query.limit,
+                    start,
+                    timeout_ms,
+                )
+                .await;
+        }
+
+        // Legacy path: load all messages, group, aggregate
+        let topic = self
+            .metadata
+            .get_topic(&query.topic)
+            .await?
+            .ok_or_else(|| SqlError::TopicNotFound(query.topic.clone()))?;
+
+        let partitions: Vec<u32> = {
+            let partition_filter = query.filters.iter().find_map(|f| {
+                if let Filter::PartitionEquals(p) = f {
+                    Some(*p)
+                } else {
+                    None
+                }
+            });
+            if let Some(p) = partition_filter {
+                vec![p]
+            } else {
+                (0..topic.partition_count).collect()
+            }
+        };
+
+        let mut all_messages: Vec<MessageRow> = Vec::new();
+
+        for partition_id in partitions {
+            if start.elapsed().as_millis() as u64 > timeout_ms {
+                return Err(SqlError::Timeout(timeout_ms));
+            }
+
+            let segments = self
+                .metadata
+                .get_segments(&query.topic, partition_id)
+                .await?;
+
+            for segment in segments {
+                let messages = self.read_segment_messages(&segment).await?;
+                for msg in messages {
+                    if msg.matches_filters(&query.filters) {
+                        all_messages.push(msg);
+                    }
+                }
+            }
+        }
+
+        // Group messages by the GROUP BY columns
+        let mut groups: HashMap<String, Vec<MessageRow>> = HashMap::new();
+        for msg in all_messages {
+            let key = extract_group_key(&msg, &query.group_by)
+                .unwrap_or_default();
+            groups.entry(key).or_default().push(msg);
+        }
+
+        // Compute aggregations per group
+        let mut rows: Vec<Row> = Vec::new();
+        let mut sorted_keys: Vec<_> = groups.keys().cloned().collect();
+        sorted_keys.sort();
+
+        for group_key in &sorted_keys {
+            let group_messages = &groups[group_key];
+            let mut row: Row = Vec::new();
+
+            // Add group-by column values
+            for part in group_key.split('|') {
+                // Try to parse as number for cleaner output
+                if let Ok(n) = part.parse::<i64>() {
+                    row.push(serde_json::Value::Number(n.into()));
+                } else {
+                    row.push(serde_json::Value::String(part.to_string()));
+                }
+            }
+
+            // Add aggregation values
+            for agg in &query.aggregations {
+                let value = compute_aggregation(agg, group_messages);
+                row.push(value);
+            }
+
+            rows.push(row);
+        }
+
+        // Apply limit
+        let limit = query.limit.unwrap_or(MAX_ROWS).min(MAX_ROWS);
+        let truncated = rows.len() > limit;
+        rows.truncate(limit);
+
+        // Build column info (group columns + aggregation columns, no window columns)
+        let columns = build_group_by_column_info(&query.group_by, &query.aggregations);
 
         Ok(QueryResult {
             columns,
@@ -2369,6 +2493,76 @@ fn build_window_column_info(
         });
     }
 
+    for agg in aggregations {
+        let (name, data_type) = match agg {
+            WindowAggregation::Count { alias } => (
+                alias.clone().unwrap_or_else(|| "count".to_string()),
+                "bigint",
+            ),
+            WindowAggregation::CountDistinct { alias, column } => (
+                alias
+                    .clone()
+                    .unwrap_or_else(|| format!("count_distinct_{}", column)),
+                "bigint",
+            ),
+            WindowAggregation::Sum { alias, path } => (
+                alias.clone().unwrap_or_else(|| format!("sum_{}", path)),
+                "float",
+            ),
+            WindowAggregation::Avg { alias, path } => (
+                alias.clone().unwrap_or_else(|| format!("avg_{}", path)),
+                "float",
+            ),
+            WindowAggregation::Min { alias, path } => (
+                alias.clone().unwrap_or_else(|| format!("min_{}", path)),
+                "float",
+            ),
+            WindowAggregation::Max { alias, path } => (
+                alias.clone().unwrap_or_else(|| format!("max_{}", path)),
+                "float",
+            ),
+            WindowAggregation::First { alias, path } => (
+                alias.clone().unwrap_or_else(|| format!("first_{}", path)),
+                "json",
+            ),
+            WindowAggregation::Last { alias, path } => (
+                alias.clone().unwrap_or_else(|| format!("last_{}", path)),
+                "json",
+            ),
+        };
+
+        columns.push(ColumnInfo {
+            name,
+            data_type: data_type.to_string(),
+        });
+    }
+
+    columns
+}
+
+/// Build column info for batch GROUP BY results (no window columns)
+fn build_group_by_column_info(
+    group_by: &[String],
+    aggregations: &[WindowAggregation],
+) -> Vec<ColumnInfo> {
+    let mut columns = Vec::new();
+
+    // Add group-by columns first
+    for col in group_by {
+        let name = col.trim_start_matches("$.").replace('.', "_");
+        let data_type = match col.as_str() {
+            "partition" => "integer",
+            "offset" => "bigint",
+            "timestamp" => "bigint",
+            _ => "string",
+        };
+        columns.push(ColumnInfo {
+            name,
+            data_type: data_type.to_string(),
+        });
+    }
+
+    // Add aggregation columns
     for agg in aggregations {
         let (name, data_type) = match agg {
             WindowAggregation::Count { alias } => (

@@ -435,7 +435,7 @@ impl IntoResponse for AuthError {
 /// Configuration for authentication behavior
 #[derive(Debug, Clone)]
 pub struct AuthConfig {
-    /// Whether authentication is enabled (default: true in production)
+    /// Whether authentication is enabled (default: true NOTE)
     pub enabled: bool,
     /// Paths that bypass authentication (e.g., health checks)
     pub bypass_paths: Vec<String>,

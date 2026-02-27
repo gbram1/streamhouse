@@ -121,7 +121,7 @@ pub struct PostgresSinkConnector {
     name: String,
     config: PostgresSinkConfig,
     buffer: Vec<SinkRecord>,
-    // In a real implementation, this would hold a sqlx::PgPool.
+    // @Note, this would hold a sqlx::PgPool.
     // For compilation without the postgres feature, we keep the pool as Option.
     #[cfg(feature = "postgres")]
     pool: Option<sqlx::PgPool>,

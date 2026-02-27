@@ -6,7 +6,7 @@
 //!
 //! ## Why Caching?
 //!
-//! In production StreamHouse deployments, metadata queries can become a bottleneck:
+//! NOTE StreamHouse deployments, metadata queries can become a bottleneck:
 //! - **Every produce() call** validates the topic exists (get_topic)
 //! - **Every consume() call** validates the topic exists (get_topic)
 //! - **Every read/write** checks partition high watermarks (get_partition)

@@ -104,10 +104,12 @@ impl SchemaStorage for PostgresSchemaStorage {
         let mut tx = self.pool.begin().await?;
 
         // Insert schema into schemas table (or get existing ID if hash matches)
+        // Use default organization for now (multi-tenancy will pass org_id through context)
+        let default_org = "00000000-0000-0000-0000-000000000000";
         let schema_id: i32 = sqlx::query_scalar(
             r#"
-            INSERT INTO schema_registry_schemas (schema_format, schema_definition, schema_hash)
-            VALUES ($1, $2, $3)
+            INSERT INTO schema_registry_schemas (schema_format, schema_definition, schema_hash, organization_id)
+            VALUES ($1, $2, $3, $4::UUID)
             ON CONFLICT (schema_hash) DO UPDATE SET schema_hash = schema_registry_schemas.schema_hash
             RETURNING id
             "#,
@@ -115,19 +117,21 @@ impl SchemaStorage for PostgresSchemaStorage {
         .bind(Self::format_to_string(schema.schema_type))
         .bind(&schema.schema)
         .bind(&schema_hash)
+        .bind(default_org)
         .fetch_one(&mut *tx)
         .await?;
 
         // Insert version mapping
         sqlx::query(
             r#"
-            INSERT INTO schema_registry_versions (subject, version, schema_id)
-            VALUES ($1, $2, $3)
+            INSERT INTO schema_registry_versions (subject, version, schema_id, organization_id)
+            VALUES ($1, $2, $3, $4::UUID)
             "#,
         )
         .bind(&schema.subject)
         .bind(version)
         .bind(schema_id)
+        .bind(default_org)
         .execute(&mut *tx)
         .await?;
 
@@ -373,16 +377,18 @@ impl SchemaStorage for PostgresSchemaStorage {
     }
 
     async fn set_subject_config(&self, config: SubjectConfig) -> Result<()> {
+        let default_org = "00000000-0000-0000-0000-000000000000";
         sqlx::query(
             r#"
-            INSERT INTO schema_registry_subject_config (subject, compatibility, updated_at)
-            VALUES ($1, $2, NOW())
+            INSERT INTO schema_registry_subject_config (subject, compatibility, organization_id, updated_at)
+            VALUES ($1, $2, $3::UUID, NOW())
             ON CONFLICT (subject) DO UPDATE
             SET compatibility = $2, updated_at = NOW()
             "#,
         )
         .bind(&config.subject)
         .bind(Self::compatibility_to_string(config.compatibility))
+        .bind(default_org)
         .execute(&self.pool)
         .await?;
 

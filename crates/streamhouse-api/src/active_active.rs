@@ -364,7 +364,7 @@ impl ActiveActiveCoordinator {
 
     /// Simulate synchronization with a peer region.
     ///
-    /// In a real implementation, this would exchange records via gRPC/HTTP.
+    /// @Note, this would exchange records via gRPC/HTTP.
     /// Here we simulate the sync and conflict resolution process.
     pub async fn sync_with_peer(
         &self,

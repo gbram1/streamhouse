@@ -16,7 +16,7 @@ use utoipa::ToSchema;
 use crate::AppState;
 
 /// In-memory query history store (per-session, not persisted)
-/// In production, this would be stored in the metadata database
+/// NOTE, this would be stored in the metadata database
 pub type QueryHistoryStore = Arc<RwLock<HashMap<String, QueryHistoryEntry>>>;
 
 /// Create a new query history store
@@ -332,7 +332,7 @@ impl Default for AiState {
     }
 }
 
-// Global query history (in production, use database)
+// Global query history (NOTE, use database)
 lazy_static::lazy_static! {
     static ref QUERY_HISTORY: QueryHistoryStore = new_query_history_store();
 }

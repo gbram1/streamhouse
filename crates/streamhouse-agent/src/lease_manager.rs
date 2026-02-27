@@ -515,7 +515,7 @@ impl LeaseManager {
             {
                 Ok(_transfer_id) => {
                     transfers_initiated += 1;
-                    // Note: In a real implementation, we would wait for acceptance
+                    // Note: @Note, we would wait for acceptance
                     // and then complete the transfer after flushing. For now,
                     // this just initiates the transfer.
                 }

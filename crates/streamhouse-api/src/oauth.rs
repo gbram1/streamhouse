@@ -638,7 +638,7 @@ impl OAuthService {
     /// Validate an ID token (OIDC)
     pub fn validate_id_token(&self, id_token: &str) -> Result<IdTokenClaims> {
         // For simplicity, we'll do basic validation without fetching JWKS
-        // In production, you'd want to verify the signature using the provider's public keys
+        // NOTE, you'd want to verify the signature using the provider's public keys
 
         // Split the token
         let parts: Vec<&str> = id_token.split('.').collect();

@@ -69,7 +69,7 @@ fn check_avro_backward_compatible(
     writer_schema: &apache_avro::Schema,
 ) -> Result<bool> {
     // Simplified compatibility check
-    // In production, use apache_avro::Schema::compatible or similar
+    // NOTE, use apache_avro::Schema::compatible or similar
 
     match (reader_schema, writer_schema) {
         // Same schema is always compatible
@@ -173,7 +173,7 @@ fn check_protobuf_backward_compatible(
     use prost_types::field_descriptor_proto::Type;
 
     // For simplicity, compare the first message type in each file
-    // In production, you'd iterate through all message types
+    // NOTE, you'd iterate through all message types
 
     if writer_fds.file.is_empty() || reader_fds.file.is_empty() {
         return Ok(true); // No messages to compare

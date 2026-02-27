@@ -577,6 +577,201 @@ impl ArrowExecutor {
         })
     }
 
+    /// Perform batch GROUP BY aggregation using Arrow (no window functions)
+    /// Groups by specified columns and computes aggregations without window_start/window_end
+    #[allow(clippy::too_many_arguments)]
+    pub async fn execute_group_by_aggregate(
+        &self,
+        topic: &str,
+        aggregations: &[WindowAggregation],
+        group_by: &[String],
+        filters: &[Filter],
+        limit: Option<usize>,
+        start: Instant,
+        timeout_ms: u64,
+    ) -> Result<QueryResult> {
+        let messages = self
+            .load_topic_messages(topic, filters, start, timeout_ms)
+            .await?;
+
+        if messages.is_empty() {
+            let columns = Self::build_group_by_columns(group_by, aggregations);
+            return Ok(QueryResult {
+                columns,
+                rows: vec![],
+                row_count: 0,
+                execution_time_ms: start.elapsed().as_millis() as u64,
+                truncated: false,
+            });
+        }
+
+        let batch = Self::messages_to_record_batch(&messages)?;
+
+        // Extract column arrays for grouping
+        let partition_col = batch
+            .column(1)
+            .as_any()
+            .downcast_ref::<UInt32Array>()
+            .ok_or_else(|| SqlError::ArrowError("Invalid partition column".to_string()))?;
+        let key_col = batch
+            .column(3)
+            .as_any()
+            .downcast_ref::<StringArray>()
+            .ok_or_else(|| SqlError::ArrowError("Invalid key column".to_string()))?;
+        let values_col = batch
+            .column(4)
+            .as_any()
+            .downcast_ref::<StringArray>()
+            .ok_or_else(|| SqlError::ArrowError("Invalid value column".to_string()))?;
+
+        // Group rows by the GROUP BY columns
+        let mut groups: HashMap<Vec<String>, Vec<usize>> = HashMap::new();
+        for idx in 0..batch.num_rows() {
+            let mut group_key_parts: Vec<String> = Vec::new();
+            for col_name in group_by {
+                let val = match col_name.as_str() {
+                    "partition" => partition_col.value(idx).to_string(),
+                    "key" => {
+                        if key_col.is_null(idx) {
+                            "null".to_string()
+                        } else {
+                            key_col.value(idx).to_string()
+                        }
+                    }
+                    path if path.starts_with("$.") => {
+                        let raw = values_col.value(idx);
+                        if let Ok(json) = serde_json::from_str::<serde_json::Value>(raw) {
+                            let json_path = path.trim_start_matches("$.");
+                            extract_json_value(&json, json_path).to_string()
+                        } else {
+                            "null".to_string()
+                        }
+                    }
+                    _ => "".to_string(),
+                };
+                group_key_parts.push(val);
+            }
+            groups.entry(group_key_parts).or_default().push(idx);
+        }
+
+        // Sort groups for deterministic output
+        let mut sorted_keys: Vec<_> = groups.keys().cloned().collect();
+        sorted_keys.sort();
+
+        let mut rows = Vec::new();
+        for group_key_parts in &sorted_keys {
+            let indices = &groups[group_key_parts];
+            let mut row: Vec<serde_json::Value> = Vec::new();
+
+            // Add group-by column values
+            for (i, col_name) in group_by.iter().enumerate() {
+                let val = &group_key_parts[i];
+                match col_name.as_str() {
+                    "partition" | "offset" | "timestamp" => {
+                        if let Ok(n) = val.parse::<i64>() {
+                            row.push(serde_json::Value::Number(n.into()));
+                        } else {
+                            row.push(serde_json::Value::String(val.clone()));
+                        }
+                    }
+                    _ => {
+                        // Strip surrounding quotes from JSON string values
+                        let clean = val.trim_matches('"');
+                        row.push(serde_json::Value::String(clean.to_string()));
+                    }
+                }
+            }
+
+            // Compute aggregations
+            for agg in aggregations {
+                let value = self.compute_arrow_aggregation(agg, values_col, indices)?;
+                row.push(value);
+            }
+
+            rows.push(row);
+        }
+
+        // Apply limit
+        let max_rows = limit.unwrap_or(MAX_ROWS).min(MAX_ROWS);
+        let truncated = rows.len() > max_rows;
+        rows.truncate(max_rows);
+
+        let columns = Self::build_group_by_columns(group_by, aggregations);
+        let row_count = rows.len();
+
+        Ok(QueryResult {
+            columns,
+            rows,
+            row_count,
+            execution_time_ms: start.elapsed().as_millis() as u64,
+            truncated,
+        })
+    }
+
+    /// Build column info for batch GROUP BY results (no window columns)
+    fn build_group_by_columns(
+        group_by: &[String],
+        aggregations: &[WindowAggregation],
+    ) -> Vec<ColumnInfo> {
+        let mut columns = Vec::new();
+
+        for col in group_by {
+            let name = col.trim_start_matches("$.").replace('.', "_");
+            let data_type = match col.as_str() {
+                "partition" => "integer",
+                "offset" => "bigint",
+                "timestamp" => "bigint",
+                _ => "string",
+            };
+            columns.push(ColumnInfo {
+                name,
+                data_type: data_type.to_string(),
+            });
+        }
+
+        for (i, agg) in aggregations.iter().enumerate() {
+            let (name, dtype) = match agg {
+                WindowAggregation::Count { alias } => (
+                    alias.clone().unwrap_or_else(|| format!("count_{}", i)),
+                    "bigint",
+                ),
+                WindowAggregation::Sum { alias, .. }
+                | WindowAggregation::Avg { alias, .. }
+                | WindowAggregation::Min { alias, .. }
+                | WindowAggregation::Max { alias, .. } => {
+                    let default_name = match agg {
+                        WindowAggregation::Sum { .. } => format!("sum_{}", i),
+                        WindowAggregation::Avg { .. } => format!("avg_{}", i),
+                        WindowAggregation::Min { .. } => format!("min_{}", i),
+                        WindowAggregation::Max { .. } => format!("max_{}", i),
+                        _ => format!("agg_{}", i),
+                    };
+                    (alias.clone().unwrap_or(default_name), "double")
+                }
+                WindowAggregation::First { alias, .. } | WindowAggregation::Last { alias, .. } => {
+                    let default_name = match agg {
+                        WindowAggregation::First { .. } => format!("first_{}", i),
+                        WindowAggregation::Last { .. } => format!("last_{}", i),
+                        _ => format!("agg_{}", i),
+                    };
+                    (alias.clone().unwrap_or(default_name), "string")
+                }
+                WindowAggregation::CountDistinct { alias, .. } => (
+                    alias
+                        .clone()
+                        .unwrap_or_else(|| format!("count_distinct_{}", i)),
+                    "bigint",
+                ),
+            };
+            columns.push(ColumnInfo {
+                name,
+                data_type: dtype.to_string(),
+            });
+        }
+
+        columns
+    }
+
     /// Compute an aggregation over Arrow data
     fn compute_arrow_aggregation(
         &self,

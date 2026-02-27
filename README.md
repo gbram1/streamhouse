@@ -56,29 +56,139 @@ curl "http://localhost:8080/api/v1/consume?topic=events&partition=0&offset=0"
 docker compose up -d
 ```
 
-This starts PostgreSQL, MinIO (S3-compatible), the StreamHouse server, Web UI, Prometheus, and Grafana.
+This starts PostgreSQL, MinIO (S3-compatible), the StreamHouse server, Prometheus, and Grafana.
 
-| Service | URL |
-|---------|-----|
-| REST API | http://localhost:8080 |
-| Web UI | http://localhost:3000 |
-| Grafana | http://localhost:3001 (admin/admin) |
-| MinIO Console | http://localhost:9001 (minioadmin/minioadmin) |
+| Service | URL | Credentials |
+|---------|-----|-------------|
+| REST API | http://localhost:8080 | — |
+| gRPC | localhost:50051 | — |
+| Kafka protocol | localhost:9092 | — |
+| Schema Registry | http://localhost:8080/schemas | — |
+| Grafana | http://localhost:3001 | admin / admin |
+| Prometheus | http://localhost:9091 | — |
+| MinIO Console | http://localhost:9001 | minioadmin / minioadmin |
 
 ---
 
-## CLI
+## CLI (`streamctl`)
 
 ```bash
 cargo build --release -p streamhouse-cli
+```
 
+### Local development (server running directly)
+
+```bash
 # Interactive REPL
-./target/release/streamctl --server http://localhost:50051
+./target/release/streamctl
 
 # Or direct commands
-./target/release/streamctl --server http://localhost:50051 topic create orders --partitions 4
-./target/release/streamctl --server http://localhost:50051 produce orders --value '{"event": "signup"}'
-./target/release/streamctl --server http://localhost:50051 consume orders --partition 0 --limit 10
+./target/release/streamctl topic create orders --partitions 4
+./target/release/streamctl produce orders --partition 0 --value '{"event":"signup","user":"alice"}'
+./target/release/streamctl consume orders --partition 0 --offset 0 --limit 10
+```
+
+Default connections: gRPC `http://localhost:9090`, REST `http://localhost:8080`, Schema Registry `http://localhost:8081`.
+
+### Docker Compose
+
+When running via `docker compose up -d`, the ports are different. Set these before using the CLI:
+
+```bash
+export STREAMHOUSE_ADDR=http://localhost:50051
+export STREAMHOUSE_API_URL=http://localhost:8080
+export SCHEMA_REGISTRY_URL=http://localhost:8080/schemas
+```
+
+Then use the CLI normally:
+
+```bash
+# Direct commands
+./target/release/streamctl topic list
+./target/release/streamctl topic create orders --partitions 4
+./target/release/streamctl produce orders --partition 0 --value '{"event":"signup","user":"alice"}'
+./target/release/streamctl consume orders --partition 0 --offset 0 --limit 10
+./target/release/streamctl sql query 'SELECT * FROM orders LIMIT 10'
+
+# Interactive REPL
+./target/release/streamctl
+```
+
+### REPL commands
+
+Launch the REPL with `./target/release/streamctl` (no arguments). Commands inside the REPL drop the `streamctl` prefix:
+
+```
+topic list
+topic create orders --partitions 4
+topic get orders
+topic delete orders
+
+produce orders --partition 0 --value {"event":"signup","user":"alice"}
+produce orders --partition 0 --key user-1 --value {"event":"click"}
+consume orders --partition 0 --offset 0 --limit 10
+
+sql query SELECT * FROM orders LIMIT 10
+
+schema list
+schema register orders-value /path/to/schema.json --schema-type JSON
+schema get orders-value
+schema delete orders-value
+
+consumer list
+consumer get my-group
+consumer lag my-group
+
+offset commit --group my-group --topic orders --partition 0 --offset 5
+offset get --group my-group --topic orders --partition 0
+
+help
+exit
+```
+
+**Note:** The REPL uses whitespace splitting, so avoid spaces inside JSON values. Use `{"key":"value"}` not `{"key": "value"}`.
+
+### Schema Registry
+
+The schema registry stores and manages schemas for topic data. Subject names follow the convention `{topic}-value` (e.g., `orders-value`).
+
+**Register a JSON schema:**
+
+```bash
+# Create a schema file
+cat > /tmp/orders-schema.json << 'EOF'
+{
+  "type": "object",
+  "properties": {
+    "event": { "type": "string" },
+    "user": { "type": "string" },
+    "timestamp": { "type": "number" }
+  },
+  "required": ["event", "user"]
+}
+EOF
+
+# Register it (CLI)
+./target/release/streamctl schema register orders-value /tmp/orders-schema.json --schema-type JSON
+
+# Register it (curl)
+curl -X POST http://localhost:8080/schemas/subjects/orders-value/versions \
+  -H 'Content-Type: application/json' \
+  -d '{"schema": "{\"type\":\"object\",\"properties\":{\"event\":{\"type\":\"string\"},\"user\":{\"type\":\"string\"}},\"required\":[\"event\",\"user\"]}", "schemaType": "JSON"}'
+```
+
+**Query schemas:**
+
+```bash
+# List all subjects
+./target/release/streamctl schema list
+
+# Get latest version for a subject
+./target/release/streamctl schema get orders-value
+
+# curl equivalents
+curl http://localhost:8080/schemas/subjects
+curl http://localhost:8080/schemas/subjects/orders-value/versions/latest
 ```
 
 ---
@@ -95,6 +205,10 @@ cargo build --release -p streamhouse-cli
 | `/api/v1/consume?topic=X&partition=0&offset=0` | GET | Consume messages |
 | `/api/v1/consumer-groups` | GET, POST | Consumer group management |
 | `/api/v1/sql` | POST | SQL queries over streams |
+| `/schemas/subjects` | GET | List schema subjects |
+| `/schemas/subjects/{subject}/versions` | GET, POST | List versions / register schema |
+| `/schemas/subjects/{subject}/versions/latest` | GET | Get latest schema |
+| `/schemas/subjects/{subject}/versions/{version}` | GET | Get specific version |
 
 ---
 

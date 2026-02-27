@@ -41,23 +41,20 @@ pub async fn produce(
     let org_id = extract_org_id(&headers);
 
     // Verify topic belongs to org
-    if state
-        .metadata
-        .get_topic_for_org(&org_id, &req.topic)
-        .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
-        .is_none()
-    {
-        return Err(StatusCode::NOT_FOUND);
+    if let Err(e) = state.metadata.get_topic_for_org(&org_id, &req.topic).await {
+        tracing::error!("get_topic_for_org failed: org={}, topic={}, err={:?}", org_id, req.topic, e);
+        return Err(StatusCode::INTERNAL_SERVER_ERROR);
     }
 
     // Validate topic exists
-    let topic = state
-        .metadata
-        .get_topic(&req.topic)
-        .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
-        .ok_or(StatusCode::NOT_FOUND)?;
+    let topic = match state.metadata.get_topic(&req.topic).await {
+        Ok(Some(t)) => t,
+        Ok(None) => return Err(StatusCode::NOT_FOUND),
+        Err(e) => {
+            tracing::error!("get_topic failed: topic={}, err={:?}", req.topic, e);
+            return Err(StatusCode::INTERNAL_SERVER_ERROR);
+        }
+    };
 
     // If WriterPool is available, write directly (unified server mode)
     if let Some(writer_pool) = &state.writer_pool {
@@ -70,10 +67,13 @@ pub async fn produce(
         }
 
         // Get writer for partition
-        let writer = writer_pool
-            .get_writer(&req.topic, partition)
-            .await
-            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+        let writer = match writer_pool.get_writer(&req.topic, partition).await {
+            Ok(w) => w,
+            Err(e) => {
+                tracing::error!("get_writer failed: topic={}, partition={}, err={:?}", req.topic, partition, e);
+                return Err(StatusCode::INTERNAL_SERVER_ERROR);
+            }
+        };
 
         // Prepare record
         let key = req.key.as_deref().map(|k| Bytes::from(k.to_string()));
@@ -86,10 +86,13 @@ pub async fn produce(
         // Write record
         let offset = {
             let mut writer_guard = writer.lock().await;
-            writer_guard
-                .append(key, value, timestamp)
-                .await
-                .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+            match writer_guard.append(key, value, timestamp).await {
+                Ok(o) => o,
+                Err(e) => {
+                    tracing::error!("append failed: topic={}, partition={}, err={:?}", req.topic, partition, e);
+                    return Err(StatusCode::INTERNAL_SERVER_ERROR);
+                }
+            }
         };
 
         return Ok(Json(ProduceResponse { offset, partition }));

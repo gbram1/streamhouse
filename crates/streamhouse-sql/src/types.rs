@@ -15,6 +15,8 @@ pub enum SqlQuery {
     Count(CountQuery),
     /// Window aggregation query
     WindowAggregate(WindowAggregateQuery),
+    /// Batch GROUP BY aggregation (no window functions)
+    GroupByAggregate(GroupByAggregateQuery),
     /// JOIN query across multiple topics
     Join(JoinQuery),
     /// CREATE MATERIALIZED VIEW command
@@ -230,6 +232,22 @@ pub struct WindowAggregateQuery {
     /// Aggregations to compute (e.g., SUM, COUNT, AVG)
     pub aggregations: Vec<WindowAggregation>,
     /// Group by columns (besides window)
+    pub group_by: Vec<String>,
+    /// WHERE clause filters
+    pub filters: Vec<Filter>,
+    /// LIMIT clause
+    pub limit: Option<usize>,
+}
+
+/// Batch GROUP BY aggregation query (no window functions)
+/// Used for queries like: SELECT partition, COUNT(*) FROM topic GROUP BY partition
+#[derive(Debug, Clone)]
+pub struct GroupByAggregateQuery {
+    /// Topic name (FROM clause)
+    pub topic: String,
+    /// Aggregations to compute (e.g., COUNT, SUM)
+    pub aggregations: Vec<WindowAggregation>,
+    /// Columns to group by (e.g., ["partition", "key", "$.status"])
     pub group_by: Vec<String>,
     /// WHERE clause filters
     pub filters: Vec<Filter>,

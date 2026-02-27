@@ -319,7 +319,7 @@ async fn test_concurrent_partition_updates<S: MetadataStore>(store: &S) {
     store.create_topic(config).await.unwrap();
 
     // Perform multiple watermark updates (sequential for test simplicity)
-    // In production, these would come from different writers
+    // NOTE, these would come from different writers
     for i in 0..10 {
         store
             .update_high_watermark(topic_name, 0, (i + 1) * 100)

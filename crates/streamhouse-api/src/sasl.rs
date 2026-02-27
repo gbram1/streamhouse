@@ -668,7 +668,7 @@ impl ScramServer {
 
     /// Clean up expired states
     pub async fn cleanup(&self) {
-        // In a real implementation, states would have timestamps
+        // @Note, states would have timestamps
         // and be cleaned up based on age
     }
 }

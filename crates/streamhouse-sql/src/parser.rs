@@ -123,6 +123,11 @@ fn parse_select_query(query: &sqlparser::ast::Query, original_sql: &str) -> Resu
         return Ok(SqlQuery::WindowAggregate(window_query));
     }
 
+    // Check for batch GROUP BY aggregate query (no window functions)
+    if let Some(group_by_query) = try_parse_group_by_query(select, query)? {
+        return Ok(SqlQuery::GroupByAggregate(group_by_query));
+    }
+
     // Check for COUNT(*) query
     if is_count_query(select) {
         return parse_count_query(select, query);
@@ -660,19 +665,18 @@ fn try_parse_window_query(
         Some(w) => w,
         None => {
             // No window function in GROUP BY — check if SELECT contains aggregate functions.
-            // If so, treat this as a non-windowed GROUP BY with a single all-encompassing window.
+            // If so, this is a batch GROUP BY (not a windowed aggregate).
             let aggs = parse_window_aggregations(select)?;
             if aggs.is_empty() {
                 return Ok(None); // No aggregates, not a GROUP BY aggregate query
             }
-            // Use a very large tumble window (100 years) to put all records in one window
-            WindowType::Tumble {
-                size_ms: 100 * 365 * 24 * 60 * 60 * 1000,
-            }
+            // Return None to signal this is a batch GROUP BY, not a window query.
+            // The caller (parse_select_query) will check try_parse_group_by_query next.
+            return Ok(None);
         }
     };
 
-    // Parse the rest of the query
+    // Parse the rest of the query (only reached for actual window queries with TUMBLE/HOP/SESSION)
     let topic = parse_from_clause(select)?;
 
     // Parse aggregations from SELECT
@@ -696,6 +700,69 @@ fn try_parse_window_query(
         window,
         aggregations,
         group_by: other_group_by,
+        filters,
+        limit,
+    }))
+}
+
+/// Try to parse as a batch GROUP BY aggregate query (no window functions)
+/// e.g., SELECT partition, COUNT(*) FROM topic GROUP BY partition
+fn try_parse_group_by_query(
+    select: &Select,
+    query: &sqlparser::ast::Query,
+) -> Result<Option<GroupByAggregateQuery>> {
+    // Extract GROUP BY expressions
+    let group_exprs = match &select.group_by {
+        sqlparser::ast::GroupByExpr::All => return Ok(None),
+        sqlparser::ast::GroupByExpr::Expressions(exprs) => exprs,
+    };
+
+    if group_exprs.is_empty() {
+        return Ok(None);
+    }
+
+    // Parse aggregations from SELECT — must have at least one aggregate function
+    let aggregations = parse_window_aggregations(select)?;
+    if aggregations.is_empty() {
+        return Ok(None);
+    }
+
+    // Extract GROUP BY column names
+    let mut group_by: Vec<String> = Vec::new();
+    for group_expr in group_exprs {
+        if let Expr::Identifier(ident) = group_expr {
+            group_by.push(ident.value.clone());
+        } else if let Expr::Function(func) = group_expr {
+            let func_name = func.name.to_string().to_uppercase();
+            if func_name == "JSON_EXTRACT" {
+                if let Ok(path) = extract_path_from_json_extract(func) {
+                    group_by.push(path);
+                } else {
+                    group_by.push(func.name.to_string());
+                }
+            } else {
+                group_by.push(func.name.to_string());
+            }
+        }
+    }
+
+    let topic = parse_from_clause(select)?;
+
+    let filters = if let Some(selection) = &select.selection {
+        parse_where_clause(selection)?
+    } else {
+        vec![]
+    };
+
+    let limit = query
+        .limit
+        .as_ref()
+        .and_then(|e| extract_literal_int(e).map(|n| n as usize));
+
+    Ok(Some(GroupByAggregateQuery {
+        topic,
+        aggregations,
+        group_by,
         filters,
         limit,
     }))
