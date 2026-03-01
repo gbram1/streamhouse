@@ -26,9 +26,9 @@ pub enum SchemaCommands {
         /// Path to schema file
         schema_file: String,
 
-        /// Schema type (AVRO, PROTOBUF, JSON)
-        #[arg(short, long, default_value = "AVRO")]
-        schema_type: String,
+        /// Schema type (AVRO, PROTOBUF, JSON). Auto-detected from file extension if omitted (.json → JSON, .proto → PROTOBUF, .avsc → AVRO)
+        #[arg(short, long)]
+        schema_type: Option<String>,
     },
 
     /// Get schema by subject/version or ID
@@ -63,9 +63,9 @@ pub enum SchemaCommands {
         /// Path to new schema file
         schema_file: String,
 
-        /// Schema type (AVRO, PROTOBUF, JSON)
-        #[arg(short, long, default_value = "AVRO")]
-        schema_type: String,
+        /// Schema type (AVRO, PROTOBUF, JSON). Auto-detected from file extension if omitted
+        #[arg(short, long)]
+        schema_type: Option<String>,
     },
 
     /// Delete schema version or subject
@@ -114,7 +114,10 @@ pub async fn handle_schema_command(command: SchemaCommands, registry_url: &str) 
             subject,
             schema_file,
             schema_type,
-        } => handle_register(&client, &subject, &schema_file, &schema_type).await,
+        } => {
+            let resolved_type = resolve_schema_type(schema_type.as_deref(), &schema_file);
+            handle_register(&client, &subject, &schema_file, &resolved_type).await
+        }
         SchemaCommands::Get {
             subject,
             version,
@@ -128,11 +131,30 @@ pub async fn handle_schema_command(command: SchemaCommands, registry_url: &str) 
             subject,
             schema_file,
             schema_type,
-        } => handle_evolve(&client, &subject, &schema_file, &schema_type).await,
+        } => {
+            let resolved_type = resolve_schema_type(schema_type.as_deref(), &schema_file);
+            handle_evolve(&client, &subject, &schema_file, &resolved_type).await
+        }
         SchemaCommands::Delete { subject, version } => {
             handle_delete(&client, &subject, version).await
         }
         SchemaCommands::Config { command } => handle_config_command(&client, command).await,
+    }
+}
+
+/// Auto-detect schema type from file extension, or use explicit override
+fn resolve_schema_type(explicit: Option<&str>, schema_file: &str) -> String {
+    if let Some(t) = explicit {
+        return t.to_uppercase();
+    }
+    match std::path::Path::new(schema_file)
+        .extension()
+        .and_then(|e| e.to_str())
+    {
+        Some("json") => "JSON".to_string(),
+        Some("proto") => "PROTOBUF".to_string(),
+        Some("avsc") => "AVRO".to_string(),
+        _ => "AVRO".to_string(), // default for unknown extensions
     }
 }
 

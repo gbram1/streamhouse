@@ -311,8 +311,7 @@ impl Repl {
                     println!("Usage: schema register <subject> <schema-file> [--schema-type TYPE]");
                     return Ok(());
                 }
-                let schema_type = Self::parse_flag_string(args, "--schema-type")
-                    .unwrap_or_else(|| "AVRO".to_string());
+                let schema_type = Self::parse_flag_string(args, "--schema-type");
 
                 commands::SchemaCommands::Register {
                     subject: args[1].to_string(),
@@ -351,8 +350,7 @@ impl Repl {
                     println!("Usage: schema evolve <subject> <schema-file> [--schema-type TYPE]");
                     return Ok(());
                 }
-                let schema_type = Self::parse_flag_string(args, "--schema-type")
-                    .unwrap_or_else(|| "AVRO".to_string());
+                let schema_type = Self::parse_flag_string(args, "--schema-type");
 
                 commands::SchemaCommands::Evolve {
                     subject: args[1].to_string(),
