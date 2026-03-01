@@ -830,23 +830,11 @@ impl SqlExecutor {
         start: Instant,
         timeout_ms: u64,
     ) -> Result<QueryResult> {
-        // Use Arrow-accelerated execution when enabled
-        if self.use_arrow {
-            return self
-                .arrow_executor
-                .execute_group_by_aggregate(
-                    &query.topic,
-                    &query.aggregations,
-                    &query.group_by,
-                    &query.filters,
-                    query.limit,
-                    start,
-                    timeout_ms,
-                )
-                .await;
-        }
+        // Note: Arrow path disabled for GROUP BY — the arrow executor's
+        // load_topic_messages has issues reading segments in some environments.
+        // The legacy path below uses the same segment reader as execute_select
+        // which works reliably.
 
-        // Legacy path: load all messages, group, aggregate
         let topic = self
             .metadata
             .get_topic(&query.topic)
