@@ -42,6 +42,7 @@ async fn test_app() -> axum::Router {
             ..Default::default()
         },
         topic_changed: None,
+        schema_registry: None,
     };
 
     create_router(state)

@@ -131,6 +131,8 @@ pub struct AppState {
     /// Notified when topics are created or deleted so the partition assigner
     /// can immediately discover them.
     pub topic_changed: Option<Arc<Notify>>,
+    /// Schema registry for produce-time validation (None = validation disabled)
+    pub schema_registry: Option<Arc<streamhouse_schema_registry::SchemaRegistry>>,
 }
 
 /// Create the API router with all endpoints

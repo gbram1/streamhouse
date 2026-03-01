@@ -380,7 +380,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     tracing::info!("   Kafka server started on {}", kafka_addr_display);
 
     // Create gRPC service (unified: admin + producer + consumer + lifecycle)
-    let grpc_service = StreamHouseService::new(
+    let mut grpc_service = StreamHouseService::new(
         metadata.clone(),
         object_store.clone(),
         cache.clone(),
@@ -389,6 +389,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         agent_id.clone(),
     );
 
+    // Embedded agent: register, heartbeat, partition assignment
+    // Set DISABLE_EMBEDDED_AGENT=1 to skip (when running standalone agents separately)
+    let embedded_agent_disabled = std::env::var("DISABLE_EMBEDDED_AGENT")
+        .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
+        .unwrap_or(false);
+
+    if embedded_agent_disabled {
+        tracing::info!("⏭️  Embedded agent disabled (DISABLE_EMBEDDED_AGENT set)");
+    } else {
     // Register unified server as an agent
     tracing::info!("🤖 Registering unified server as agent");
     use streamhouse_metadata::AgentInfo;
@@ -552,6 +561,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         });
     }
     tracing::info!("🔄 Partition assignment background task started");
+    } // end embedded agent block
 
     // Start materialized view maintenance task
     // Keep shutdown_tx alive for the server lifetime to prevent immediate shutdown
@@ -575,29 +585,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         std::sync::Arc::new(streamhouse_api::PrometheusClient::new(&url))
     });
 
-    // Create REST API state (use WriterPool directly in unified server)
-    // Auth is disabled by default in development; enable with --enable-auth flag
-    let auth_enabled = std::env::var("STREAMHOUSE_AUTH_ENABLED")
-        .map(|v| v == "true" || v == "1")
-        .unwrap_or(false);
-    let api_state = streamhouse_api::AppState {
-        metadata: metadata.clone(),
-        producer: None,
-        writer_pool: Some(writer_pool.clone()),
-        object_store: object_store.clone(),
-        segment_cache: cache.clone(),
-        prometheus: prometheus_client,
-        auth_config: streamhouse_api::AuthConfig {
-            enabled: auth_enabled,
-            ..Default::default()
-        },
-        topic_changed: Some(grpc_service.topic_change_notify()),
-    };
-
-    // Create REST API router
-    let api_router = streamhouse_api::create_router(api_state);
-
-    // Create Schema Registry
+    // Create Schema Registry (before AppState so it can be shared)
     tracing::info!("📋 Initializing Schema Registry");
 
     #[cfg(feature = "postgres")]
@@ -623,6 +611,45 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     };
 
     let schema_registry = Arc::new(SchemaRegistry::new(schema_storage));
+
+    // Schema validation on produce: enabled by default, disable with SCHEMA_VALIDATION=off
+    let schema_validation_enabled = std::env::var("SCHEMA_VALIDATION")
+        .map(|v| !v.eq_ignore_ascii_case("off"))
+        .unwrap_or(true);
+    let schema_registry_for_validation = if schema_validation_enabled {
+        tracing::info!("   Schema validation on produce: enabled");
+        Some(schema_registry.clone())
+    } else {
+        tracing::info!("   Schema validation on produce: disabled (SCHEMA_VALIDATION=off)");
+        None
+    };
+
+    // Set schema registry on gRPC service for produce-time validation
+    grpc_service.set_schema_registry(schema_registry_for_validation.clone());
+
+    // Create REST API state (use WriterPool directly in unified server)
+    // Auth is disabled by default in development; enable with --enable-auth flag
+    let auth_enabled = std::env::var("STREAMHOUSE_AUTH_ENABLED")
+        .map(|v| v == "true" || v == "1")
+        .unwrap_or(false);
+    let api_state = streamhouse_api::AppState {
+        metadata: metadata.clone(),
+        producer: None,
+        writer_pool: Some(writer_pool.clone()),
+        object_store: object_store.clone(),
+        segment_cache: cache.clone(),
+        prometheus: prometheus_client,
+        auth_config: streamhouse_api::AuthConfig {
+            enabled: auth_enabled,
+            ..Default::default()
+        },
+        topic_changed: Some(grpc_service.topic_change_notify()),
+        schema_registry: schema_registry_for_validation.clone(),
+    };
+
+    // Create REST API router
+    let api_router = streamhouse_api::create_router(api_state);
+
     let schema_api = SchemaRegistryApi::new(schema_registry);
     let schema_router = schema_api.router();
 

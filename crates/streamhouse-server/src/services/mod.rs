@@ -25,6 +25,8 @@ pub struct StreamHouseService {
     /// Notified when topics are created or deleted so the partition assigner
     /// can immediately discover them instead of waiting for the next poll.
     topic_changed: Arc<Notify>,
+    /// Schema registry for produce-time validation (None = validation disabled)
+    schema_registry: Option<Arc<streamhouse_schema_registry::SchemaRegistry>>,
 }
 
 impl StreamHouseService {
@@ -45,7 +47,72 @@ impl StreamHouseService {
             agent_id,
             shutting_down: Arc::new(RwLock::new(false)),
             topic_changed: Arc::new(Notify::new()),
+            schema_registry: None,
         }
+    }
+
+    /// Set schema registry for produce-time validation
+    pub fn set_schema_registry(
+        &mut self,
+        registry: Option<Arc<streamhouse_schema_registry::SchemaRegistry>>,
+    ) {
+        self.schema_registry = registry;
+    }
+
+    /// Validate a value against the registered schema for a topic.
+    /// Returns Ok(()) if no schema registry, no schema registered, or validation passes.
+    async fn validate_schema(&self, topic: &str, value: &[u8]) -> Result<(), Status> {
+        let registry = match &self.schema_registry {
+            Some(r) => r,
+            None => return Ok(()),
+        };
+
+        let subject = format!("{}-value", topic);
+        let schema = match registry.get_latest_schema(&subject).await {
+            Ok(s) => s,
+            Err(_) => return Ok(()), // No schema registered → skip
+        };
+
+        let value_str = std::str::from_utf8(value)
+            .map_err(|_| Status::invalid_argument("Value is not valid UTF-8"))?;
+
+        match schema.schema_type {
+            streamhouse_schema_registry::SchemaFormat::Json => {
+                let schema_value: serde_json::Value =
+                    serde_json::from_str(&schema.schema).map_err(|e| {
+                        Status::internal(format!("Invalid schema definition: {}", e))
+                    })?;
+                let instance: serde_json::Value = serde_json::from_str(value_str)
+                    .map_err(|e| Status::invalid_argument(format!("Invalid JSON: {}", e)))?;
+                let validator = jsonschema::validator_for(&schema_value)
+                    .map_err(|e| Status::internal(format!("Schema compile error: {}", e)))?;
+                let errors: Vec<String> =
+                    validator.iter_errors(&instance).map(|e| e.to_string()).collect();
+                if !errors.is_empty() {
+                    return Err(Status::invalid_argument(format!(
+                        "Schema validation failed: {}",
+                        errors.join("; ")
+                    )));
+                }
+            }
+            streamhouse_schema_registry::SchemaFormat::Avro => {
+                let avro_schema =
+                    apache_avro::Schema::parse_str(&schema.schema).map_err(|e| {
+                        Status::internal(format!("Invalid Avro schema: {}", e))
+                    })?;
+                let json_value: serde_json::Value = serde_json::from_str(value_str)
+                    .map_err(|e| Status::invalid_argument(format!("Invalid JSON: {}", e)))?;
+                let avro_value = apache_avro::types::Value::from(json_value);
+                if avro_value.resolve(&avro_schema).is_err() {
+                    return Err(Status::invalid_argument(
+                        "Value does not conform to Avro schema",
+                    ));
+                }
+            }
+            streamhouse_schema_registry::SchemaFormat::Protobuf => {} // Not implemented
+        }
+
+        Ok(())
     }
 
     /// Returns a handle the partition assigner can wait on.
@@ -384,6 +451,9 @@ impl StreamHouse for StreamHouseService {
     ) -> Result<Response<ProduceResponse>, Status> {
         let req = request.into_inner();
 
+        // Validate value against schema
+        self.validate_schema(&req.topic, &req.value).await?;
+
         let writer = self.get_writer(&req.topic, req.partition).await?;
         let mut writer_guard = writer.lock().await;
 
@@ -423,6 +493,11 @@ impl StreamHouse for StreamHouseService {
         }
         if req.records.is_empty() {
             return Err(Status::invalid_argument("At least one record is required"));
+        }
+
+        // Validate all records against schema
+        for record in &req.records {
+            self.validate_schema(&req.topic, &record.value).await?;
         }
 
         // Validate partition lease

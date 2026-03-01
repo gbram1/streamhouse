@@ -706,6 +706,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "bit-set"
+version = "0.8.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "08807e080ed7f9d5433fa9b275196cfc35414f66a0c79d864dc51a0d825231a3"
+dependencies = [
+ "bit-vec 0.8.0",
+]
+
+[[package]]
 name = "bit-vec"
 version = "0.6.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -716,6 +725,12 @@ name = "bit-vec"
 version = "0.7.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d2c54ff287cfc0a34f38a6b832ea1bd8e448a330b3e40a50859e6488bee07f22"
+
+[[package]]
+name = "bit-vec"
+version = "0.8.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5e764a1d40d510daf35e07be9eb06e75770908c27d411ee6c92109c9840eaaf7"
 
 [[package]]
 name = "bitflags"
@@ -774,6 +789,12 @@ dependencies = [
  "getrandom 0.2.17",
  "siphasher",
 ]
+
+[[package]]
+name = "borrow-or-share"
+version = "0.2.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "dc0b364ead1874514c8c2855ab558056ebfeb775653e7ae45ff72f28f8f3166c"
 
 [[package]]
 name = "brotli"
@@ -1809,6 +1830,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "email_address"
+version = "0.2.9"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e079f19b08ca6239f47f8ba8509c11cf3ea30095831f7fed61441475edd8c449"
+dependencies = [
+ "serde",
+]
+
+[[package]]
 name = "encoding_rs"
 version = "0.8.35"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1889,7 +1919,18 @@ version = "0.13.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "531e46835a22af56d1e3b66f04844bed63158bc094a628bec1d321d9b4c44bf2"
 dependencies = [
- "bit-set",
+ "bit-set 0.5.3",
+ "regex-automata",
+ "regex-syntax",
+]
+
+[[package]]
+name = "fancy-regex"
+version = "0.14.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6e24cb5a94bcae1e5408b0effca5cd7172ea3c5755049c5f3af4cd283a165298"
+dependencies = [
+ "bit-set 0.8.0",
  "regex-automata",
  "regex-syntax",
 ]
@@ -1941,6 +1982,17 @@ checksum = "b375d6465b98090a5f25b1c7703f3859783755aa9a80433b36e0379a3ec2f369"
 dependencies = [
  "crc32fast",
  "miniz_oxide",
+]
+
+[[package]]
+name = "fluent-uri"
+version = "0.3.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1918b65d96df47d3591bed19c5cca17e3fa5d0707318e4b5ef2eae01764df7e5"
+dependencies = [
+ "borrow-or-share",
+ "ref-cast",
+ "serde",
 ]
 
 [[package]]
@@ -2821,7 +2873,7 @@ dependencies = [
  "base64 0.22.1",
  "bytecount",
  "clap",
- "fancy-regex",
+ "fancy-regex 0.13.0",
  "fraction",
  "getrandom 0.2.17",
  "iso8601",
@@ -2838,6 +2890,31 @@ dependencies = [
  "time",
  "url",
  "uuid",
+]
+
+[[package]]
+name = "jsonschema"
+version = "0.27.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c9deec35f105267485e0b85b4da7861d444ad498bd476418ec10aeaec3c2ead1"
+dependencies = [
+ "ahash",
+ "base64 0.22.1",
+ "bytecount",
+ "email_address",
+ "fancy-regex 0.14.0",
+ "fraction",
+ "idna",
+ "itoa",
+ "num-cmp",
+ "once_cell",
+ "percent-encoding",
+ "referencing",
+ "regex-syntax",
+ "reqwest 0.12.28",
+ "serde",
+ "serde_json",
+ "uuid-simd",
 ]
 
 [[package]]
@@ -3538,6 +3615,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "outref"
+version = "0.5.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1a80800c0488c3a21695ea981a54918fbb37abf04f4d0720c453632255e2ff0e"
+
+[[package]]
 name = "papergrid"
 version = "0.11.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4199,6 +4282,39 @@ dependencies = [
  "getrandom 0.2.17",
  "libredox",
  "thiserror 1.0.69",
+]
+
+[[package]]
+name = "ref-cast"
+version = "1.0.25"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f354300ae66f76f1c85c5f84693f0ce81d747e2c3f21a45fef496d89c960bf7d"
+dependencies = [
+ "ref-cast-impl",
+]
+
+[[package]]
+name = "ref-cast-impl"
+version = "1.0.25"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b7186006dcb21920990093f30e3dea63b7d6e977bf1256be20c3563a5db070da"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.114",
+]
+
+[[package]]
+name = "referencing"
+version = "0.27.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "040034d1c0deb1c413e44dafaea2f8bd7d273f1b56de531ab8cee5a93acb1741"
+dependencies = [
+ "ahash",
+ "fluent-uri",
+ "once_cell",
+ "percent-encoding",
+ "serde_json",
 ]
 
 [[package]]
@@ -5214,6 +5330,7 @@ dependencies = [
  "hostname 0.4.2",
  "http-body-util",
  "hyper 1.8.1",
+ "jsonschema 0.27.1",
  "jsonwebtoken",
  "lazy_static",
  "object_store 0.9.1",
@@ -5226,6 +5343,7 @@ dependencies = [
  "sha2",
  "streamhouse-client",
  "streamhouse-metadata",
+ "streamhouse-schema-registry",
  "streamhouse-sql",
  "streamhouse-storage",
  "tempfile",
@@ -5247,12 +5365,14 @@ name = "streamhouse-cli"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "apache-avro",
  "base64 0.21.7",
  "bytes",
  "chrono",
  "clap",
  "colored",
  "dirs",
+ "jsonschema 0.27.1",
  "prost 0.12.6",
  "reqwest 0.12.28",
  "rustyline",
@@ -5423,7 +5543,7 @@ dependencies = [
  "async-trait",
  "axum 0.7.9",
  "bytes",
- "jsonschema",
+ "jsonschema 0.18.3",
  "moka",
  "prost 0.13.5",
  "prost-reflect",
@@ -5447,10 +5567,12 @@ name = "streamhouse-server"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "apache-avro",
  "async-trait",
  "axum 0.7.9",
  "bytes",
  "chrono",
+ "jsonschema 0.27.1",
  "object_store 0.9.1",
  "prost 0.12.6",
  "serde",
@@ -6466,6 +6588,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "uuid-simd"
+version = "0.8.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "23b082222b4f6619906941c17eb2297fff4c2fb96cb60164170522942a200bd8"
+dependencies = [
+ "outref",
+ "uuid",
+ "vsimd",
+]
+
+[[package]]
 name = "valuable"
 version = "0.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6482,6 +6615,12 @@ name = "version_check"
 version = "0.9.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0b928f33d975fc6ad9f86c8f283853ad26bdd5b10b7f1542aa2fa15e2289105a"
+
+[[package]]
+name = "vsimd"
+version = "0.8.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5c3082ca00d5a5ef149bb8b555a72ae84c9c59f7250f013ac822ac2e49b19c64"
 
 [[package]]
 name = "walkdir"

@@ -31,13 +31,13 @@ ENV CARGO_PROFILE_RELEASE_CODEGEN_UNITS=8
 
 # Cook dependencies — this layer is cached as long as Cargo.toml/Cargo.lock don't change
 COPY --from=planner /app/recipe.json recipe.json
-RUN cargo chef cook --release --recipe-path recipe.json --features postgres
+RUN cargo chef cook --profile test-release --recipe-path recipe.json --features postgres
 
 # Now copy source and build — only this layer rebuilds on code changes
 COPY Cargo.toml Cargo.lock ./
 COPY crates ./crates
 COPY .sqlx ./.sqlx
-RUN cargo build --release --bin unified-server --features postgres
+RUN cargo build --profile test-release --bin unified-server --features postgres
 
 # Runtime stage
 FROM debian:bookworm-slim
@@ -52,7 +52,7 @@ RUN apt-get update && apt-get install -y \
 
 RUN useradd -m -u 1000 streamhouse
 
-COPY --from=builder /app/target/release/unified-server /app/unified-server
+COPY --from=builder /app/target/test-release/unified-server /app/unified-server
 
 RUN mkdir -p /data/wal /data/cache && chown -R streamhouse:streamhouse /data
 

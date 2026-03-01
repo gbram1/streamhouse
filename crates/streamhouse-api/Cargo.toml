@@ -66,11 +66,15 @@ hostname = "0.4"
 # Lazy initialization
 lazy_static = "1.4"
 
+# Schema validation
+jsonschema = { workspace = true }
+
 # StreamHouse dependencies
 streamhouse-metadata = { path = "../streamhouse-metadata" }
 streamhouse-client = { path = "../streamhouse-client" }
 streamhouse-storage = { path = "../streamhouse-storage" }
 streamhouse-sql = { path = "../streamhouse-sql" }
+streamhouse-schema-registry = { path = "../streamhouse-schema-registry" }
 object_store = { workspace = true }
 
 [features]

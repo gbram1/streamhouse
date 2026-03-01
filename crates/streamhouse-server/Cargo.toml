@@ -46,6 +46,8 @@ thiserror = { workspace = true }
 chrono = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
+jsonschema = { workspace = true }
+apache-avro = { workspace = true }
 
 [dev-dependencies]
 tempfile = { workspace = true }

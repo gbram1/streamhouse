@@ -35,6 +35,8 @@ base64 = "0.21"
 serde_json = "1.0"
 serde = { version = "1.0", features = ["derive"] }
 serde_yaml = "0.9"
+jsonschema = { workspace = true }
+apache-avro = { workspace = true }
 
 # Output formatting
 tabled = "0.15"  # For table output

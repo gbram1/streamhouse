@@ -149,6 +149,9 @@ enum Commands {
         /// Record value (JSON string)
         #[arg(short, long)]
         value: String,
+        /// Skip client-side schema validation
+        #[arg(long, default_value = "false")]
+        skip_validation: bool,
     },
     /// Consume records from a topic
     Consume {
@@ -293,7 +296,15 @@ async fn main() -> Result<()> {
                 partition,
                 key,
                 value,
-            } => handle_produce(&mut client, topic, partition, key, value).await?,
+                skip_validation,
+            } => {
+                let registry_url = if skip_validation {
+                    None
+                } else {
+                    Some(cli.schema_registry_url.as_str())
+                };
+                handle_produce(&mut client, topic, partition, key, value, registry_url).await?
+            }
             Commands::Consume {
                 topic,
                 partition,
@@ -423,7 +434,15 @@ pub async fn handle_produce(
     partition: u32,
     key: Option<String>,
     value: String,
+    schema_registry_url: Option<&str>,
 ) -> Result<()> {
+    // Client-side schema validation (if registry URL provided)
+    if let Some(registry_url) = schema_registry_url {
+        if let Err(msg) = validate_value_client_side(registry_url, &topic, &value).await {
+            anyhow::bail!("Schema validation failed: {}", msg);
+        }
+    }
+
     let key_bytes = key.map(|k| k.into_bytes()).unwrap_or_default();
     let value_bytes = value.into_bytes();
 
@@ -448,6 +467,77 @@ pub async fn handle_produce(
     println!("  Timestamp: {}", data.timestamp);
 
     Ok(())
+}
+
+/// Validate a value against the schema registered for `{topic}-value` via REST API.
+/// Returns Ok(()) if no schema is registered or validation passes.
+async fn validate_value_client_side(
+    registry_url: &str,
+    topic: &str,
+    value: &str,
+) -> Result<(), String> {
+    let subject = format!("{}-value", topic);
+    let url = format!("{}/subjects/{}/versions/latest", registry_url, subject);
+
+    let http_client = reqwest::Client::new();
+    let resp = match http_client.get(&url).send().await {
+        Ok(r) => r,
+        Err(_) => return Ok(()), // Can't reach registry → skip validation
+    };
+
+    if resp.status() == reqwest::StatusCode::NOT_FOUND {
+        return Ok(()); // No schema registered → skip
+    }
+
+    if !resp.status().is_success() {
+        return Ok(()); // Registry error → skip (server-side will catch it)
+    }
+
+    let schema_resp: serde_json::Value = resp.json().await.map_err(|e| e.to_string())?;
+
+    let schema_type = schema_resp
+        .get("schemaType")
+        .and_then(|v| v.as_str())
+        .unwrap_or("AVRO");
+
+    let schema_str = schema_resp
+        .get("schema")
+        .and_then(|v| v.as_str())
+        .ok_or("Missing 'schema' field in response")?;
+
+    match schema_type {
+        "JSON" => validate_json_schema_client(schema_str, value),
+        "AVRO" => validate_avro_schema_client(schema_str, value),
+        _ => Ok(()), // Protobuf etc — not implemented
+    }
+}
+
+fn validate_json_schema_client(schema_str: &str, value: &str) -> Result<(), String> {
+    let schema_value: serde_json::Value =
+        serde_json::from_str(schema_str).map_err(|e| format!("Invalid schema: {}", e))?;
+    let instance: serde_json::Value =
+        serde_json::from_str(value).map_err(|e| format!("Value is not valid JSON: {}", e))?;
+    let validator =
+        jsonschema::validator_for(&schema_value).map_err(|e| format!("Schema error: {}", e))?;
+    let errors: Vec<String> = validator.iter_errors(&instance).map(|e| e.to_string()).collect();
+    if errors.is_empty() {
+        Ok(())
+    } else {
+        Err(format!("{}", errors.join("; ")))
+    }
+}
+
+fn validate_avro_schema_client(schema_str: &str, value: &str) -> Result<(), String> {
+    let schema =
+        apache_avro::Schema::parse_str(schema_str).map_err(|e| format!("Invalid Avro schema: {}", e))?;
+    let json_value: serde_json::Value =
+        serde_json::from_str(value).map_err(|e| format!("Value is not valid JSON: {}", e))?;
+    let avro_value = apache_avro::types::Value::from(json_value);
+    if avro_value.resolve(&schema).is_ok() {
+        Ok(())
+    } else {
+        Err("Value does not conform to Avro schema".to_string())
+    }
 }
 
 /// Consumes records from a topic partition.

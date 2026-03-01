@@ -206,7 +206,13 @@ impl Repl {
         let value = Self::parse_flag_string(args, "--value").context("Missing --value flag")?;
         let key = Self::parse_flag_string(args, "--key");
 
-        handle_produce(&mut self.client, topic, partition, key, value).await
+        let skip_validation = args.iter().any(|&a| a == "--skip-validation");
+        let registry_url = if skip_validation {
+            None
+        } else {
+            Some(self.schema_registry_url.as_str())
+        };
+        handle_produce(&mut self.client, topic, partition, key, value, registry_url).await
     }
 
     /// Handle consume command

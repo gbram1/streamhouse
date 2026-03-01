@@ -136,6 +136,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             ..Default::default()
         },
         topic_changed: None,
+        schema_registry: None,
     };
 
     // Create router

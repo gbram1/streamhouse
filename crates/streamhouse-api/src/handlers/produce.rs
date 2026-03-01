@@ -11,6 +11,89 @@ use std::collections::HashMap;
 use crate::{models::*, AppState};
 use streamhouse_metadata::DEFAULT_ORGANIZATION_ID;
 
+/// Validate a value against the schema registered for `{topic}-value`.
+/// Returns Ok(()) if no schema is registered or validation passes.
+async fn validate_value_against_schema(
+    registry: &streamhouse_schema_registry::SchemaRegistry,
+    topic: &str,
+    value: &str,
+) -> Result<(), (StatusCode, String)> {
+    let subject = format!("{}-value", topic);
+    let schema = match registry.get_latest_schema(&subject).await {
+        Ok(s) => s,
+        Err(_) => return Ok(()), // No schema registered → skip validation
+    };
+
+    match schema.schema_type {
+        streamhouse_schema_registry::SchemaFormat::Json => {
+            validate_json_schema(&schema.schema, value)
+        }
+        streamhouse_schema_registry::SchemaFormat::Avro => {
+            validate_avro_schema(&schema.schema, value)
+        }
+        streamhouse_schema_registry::SchemaFormat::Protobuf => Ok(()), // Not implemented
+    }
+}
+
+fn validate_json_schema(schema_str: &str, value: &str) -> Result<(), (StatusCode, String)> {
+    let schema_value: serde_json::Value = serde_json::from_str(schema_str).map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("Invalid schema definition: {}", e),
+        )
+    })?;
+
+    let instance: serde_json::Value = serde_json::from_str(value).map_err(|e| {
+        (
+            StatusCode::BAD_REQUEST,
+            format!("Value is not valid JSON: {}", e),
+        )
+    })?;
+
+    let validator = jsonschema::validator_for(&schema_value).map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("Failed to compile JSON schema: {}", e),
+        )
+    })?;
+
+    let errors: Vec<String> = validator.iter_errors(&instance).map(|e| e.to_string()).collect();
+    if errors.is_empty() {
+        Ok(())
+    } else {
+        Err((
+            StatusCode::BAD_REQUEST,
+            format!("Schema validation failed: {}", errors.join("; ")),
+        ))
+    }
+}
+
+fn validate_avro_schema(schema_str: &str, value: &str) -> Result<(), (StatusCode, String)> {
+    let schema = apache_avro::Schema::parse_str(schema_str).map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("Invalid Avro schema: {}", e),
+        )
+    })?;
+
+    let json_value: serde_json::Value = serde_json::from_str(value).map_err(|e| {
+        (
+            StatusCode::BAD_REQUEST,
+            format!("Value is not valid JSON: {}", e),
+        )
+    })?;
+
+    let avro_value = apache_avro::types::Value::from(json_value);
+    if avro_value.resolve(&schema).is_ok() {
+        Ok(())
+    } else {
+        Err((
+            StatusCode::BAD_REQUEST,
+            format!("Value does not conform to Avro schema"),
+        ))
+    }
+}
+
 /// Extract organization ID from request headers, defaulting to DEFAULT_ORGANIZATION_ID.
 fn extract_org_id(headers: &HeaderMap) -> String {
     headers
@@ -55,6 +138,16 @@ pub async fn produce(
             return Err(StatusCode::INTERNAL_SERVER_ERROR);
         }
     };
+
+    // Validate value against schema (if schema registry is available)
+    if let Some(registry) = &state.schema_registry {
+        if let Err((status, msg)) =
+            validate_value_against_schema(registry, &req.topic, &req.value).await
+        {
+            tracing::warn!("Schema validation failed: topic={}, err={}", req.topic, msg);
+            return Err(status);
+        }
+    }
 
     // If WriterPool is available, write directly (unified server mode)
     if let Some(writer_pool) = &state.writer_pool {
@@ -169,6 +262,23 @@ pub async fn produce_batch(
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
         .ok_or(StatusCode::NOT_FOUND)?;
+
+    // Validate all record values against schema (if schema registry is available)
+    if let Some(registry) = &state.schema_registry {
+        for (idx, record) in req.records.iter().enumerate() {
+            if let Err((status, msg)) =
+                validate_value_against_schema(registry, &req.topic, &record.value).await
+            {
+                tracing::warn!(
+                    "Schema validation failed: topic={}, record={}, err={}",
+                    req.topic,
+                    idx,
+                    msg
+                );
+                return Err(status);
+            }
+        }
+    }
 
     // If WriterPool is available, write directly (unified server mode)
     if let Some(writer_pool) = &state.writer_pool {
