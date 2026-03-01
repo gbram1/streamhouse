@@ -253,6 +253,32 @@ impl SqlExecutor {
             None
         };
 
+        // Apply ORDER BY sorting before limit/skip
+        if let Some(ref order_by) = query.order_by {
+            let col = order_by.column.to_lowercase();
+            let desc = order_by.descending;
+            all_messages.sort_by(|a, b| {
+                let cmp = match col.as_str() {
+                    "offset" => a.offset.cmp(&b.offset),
+                    "timestamp" => a.timestamp.cmp(&b.timestamp),
+                    "partition" => a.partition.cmp(&b.partition),
+                    "key" => a.key.cmp(&b.key),
+                    "value" => a.value.cmp(&b.value),
+                    "topic" => a.topic.cmp(&b.topic),
+                    // JSON field extraction: try to sort numerically, fall back to string
+                    other => {
+                        let va = extract_json_field(&a.value, other);
+                        let vb = extract_json_field(&b.value, other);
+                        match (va.parse::<f64>(), vb.parse::<f64>()) {
+                            (Ok(fa), Ok(fb)) => fa.partial_cmp(&fb).unwrap_or(std::cmp::Ordering::Equal),
+                            _ => va.cmp(&vb),
+                        }
+                    }
+                };
+                if desc { cmp.reverse() } else { cmp }
+            });
+        }
+
         // Apply statistical filters and build rows
         let limit = query.limit.unwrap_or(MAX_ROWS).min(MAX_ROWS);
         let skip = query.offset.unwrap_or(0);
@@ -1079,6 +1105,21 @@ impl SqlExecutor {
             rows.push(row);
         }
 
+        // Apply ORDER BY sorting for join results
+        if let Some(ref order_by) = query.order_by {
+            let col_name = order_by.column.to_lowercase();
+            let desc = order_by.descending;
+            // Find column index by name
+            if let Some(col_idx) = columns.iter().position(|c| c.name.to_lowercase() == col_name) {
+                rows.sort_by(|a, b| {
+                    let va = a.get(col_idx).unwrap_or(&serde_json::Value::Null);
+                    let vb = b.get(col_idx).unwrap_or(&serde_json::Value::Null);
+                    let cmp = compare_json_values(va, vb);
+                    if desc { cmp.reverse() } else { cmp }
+                });
+            }
+        }
+
         let truncated = rows.len() >= limit;
 
         Ok(QueryResult {
@@ -1726,6 +1767,46 @@ fn extract_json_path_for_stats(json: &serde_json::Value, path: &str) -> serde_js
         };
     }
     current
+}
+
+/// Compare two JSON values for sorting (numbers numerically, strings lexically)
+fn compare_json_values(a: &serde_json::Value, b: &serde_json::Value) -> std::cmp::Ordering {
+    match (a, b) {
+        (serde_json::Value::Number(na), serde_json::Value::Number(nb)) => {
+            let fa = na.as_f64().unwrap_or(0.0);
+            let fb = nb.as_f64().unwrap_or(0.0);
+            fa.partial_cmp(&fb).unwrap_or(std::cmp::Ordering::Equal)
+        }
+        _ => {
+            let sa = match a {
+                serde_json::Value::String(s) => s.clone(),
+                serde_json::Value::Null => String::new(),
+                other => other.to_string(),
+            };
+            let sb = match b {
+                serde_json::Value::String(s) => s.clone(),
+                serde_json::Value::Null => String::new(),
+                other => other.to_string(),
+            };
+            sa.cmp(&sb)
+        }
+    }
+}
+
+/// Extract a top-level JSON field value as a string (for ORDER BY sorting)
+fn extract_json_field(json_str: &str, field: &str) -> String {
+    if let Ok(serde_json::Value::Object(map)) = serde_json::from_str::<serde_json::Value>(json_str)
+    {
+        match map.get(field) {
+            Some(serde_json::Value::String(s)) => s.clone(),
+            Some(serde_json::Value::Number(n)) => n.to_string(),
+            Some(serde_json::Value::Bool(b)) => b.to_string(),
+            Some(v) => v.to_string(),
+            None => String::new(),
+        }
+    } else {
+        String::new()
+    }
 }
 
 // Window grouping types - exported for use by materialized view maintenance
