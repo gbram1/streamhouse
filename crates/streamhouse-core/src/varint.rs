@@ -28,6 +28,8 @@
 
 use bytes::{Buf, BufMut};
 
+use crate::{Error, Result};
+
 /// Encode a signed integer as a varint (ZigZag encoding)
 pub fn encode_varint(buf: &mut impl BufMut, value: i64) {
     // ZigZag encoding: maps signed integers to unsigned
@@ -56,24 +58,27 @@ pub fn encode_varint_u64(buf: &mut impl BufMut, mut value: u64) {
 }
 
 /// Decode a varint to a signed integer
-pub fn decode_varint(buf: &mut impl Buf) -> i64 {
-    let unsigned = decode_varint_u64(buf);
+pub fn decode_varint(buf: &mut impl Buf) -> Result<i64> {
+    let unsigned = decode_varint_u64(buf)?;
 
     // ZigZag decoding
     let value = (unsigned >> 1) as i64;
     if (unsigned & 1) != 0 {
-        !value
+        Ok(!value)
     } else {
-        value
+        Ok(value)
     }
 }
 
 /// Decode a varint to an unsigned integer
-pub fn decode_varint_u64(buf: &mut impl Buf) -> u64 {
+pub fn decode_varint_u64(buf: &mut impl Buf) -> Result<u64> {
     let mut value: u64 = 0;
     let mut shift = 0;
 
     loop {
+        if !buf.has_remaining() {
+            return Err(Error::InvalidSegment("Truncated varint".to_string()));
+        }
         let byte = buf.get_u8();
         value |= ((byte & 0x7F) as u64) << shift;
 
@@ -84,11 +89,11 @@ pub fn decode_varint_u64(buf: &mut impl Buf) -> u64 {
         shift += 7;
 
         if shift >= 64 {
-            panic!("Varint too large");
+            return Err(Error::InvalidSegment("Varint too large".to_string()));
         }
     }
 
-    value
+    Ok(value)
 }
 
 #[cfg(test)]
@@ -102,7 +107,7 @@ mod tests {
         encode_varint(&mut buf, 5);
 
         let mut cursor = buf.as_ref();
-        let decoded = decode_varint(&mut cursor);
+        let decoded = decode_varint(&mut cursor).unwrap();
         assert_eq!(decoded, 5);
     }
 
@@ -112,7 +117,7 @@ mod tests {
         encode_varint(&mut buf, -5);
 
         let mut cursor = buf.as_ref();
-        let decoded = decode_varint(&mut cursor);
+        let decoded = decode_varint(&mut cursor).unwrap();
         assert_eq!(decoded, -5);
     }
 
@@ -122,7 +127,7 @@ mod tests {
         encode_varint(&mut buf, 0);
 
         let mut cursor = buf.as_ref();
-        let decoded = decode_varint(&mut cursor);
+        let decoded = decode_varint(&mut cursor).unwrap();
         assert_eq!(decoded, 0);
     }
 
@@ -132,7 +137,7 @@ mod tests {
         encode_varint(&mut buf, 1_000_000);
 
         let mut cursor = buf.as_ref();
-        let decoded = decode_varint(&mut cursor);
+        let decoded = decode_varint(&mut cursor).unwrap();
         assert_eq!(decoded, 1_000_000);
     }
 
@@ -142,7 +147,7 @@ mod tests {
         encode_varint(&mut buf, -1_000_000);
 
         let mut cursor = buf.as_ref();
-        let decoded = decode_varint(&mut cursor);
+        let decoded = decode_varint(&mut cursor).unwrap();
         assert_eq!(decoded, -1_000_000);
     }
 
@@ -152,7 +157,7 @@ mod tests {
         encode_varint_u64(&mut buf, 12345);
 
         let mut cursor = buf.as_ref();
-        let decoded = decode_varint_u64(&mut cursor);
+        let decoded = decode_varint_u64(&mut cursor).unwrap();
         assert_eq!(decoded, 12345);
     }
 
@@ -185,7 +190,7 @@ mod tests {
         let mut buf = BytesMut::new();
         encode_varint(&mut buf, i64::MAX);
         let mut cursor = buf.as_ref();
-        let decoded = decode_varint(&mut cursor);
+        let decoded = decode_varint(&mut cursor).unwrap();
         assert_eq!(decoded, i64::MAX);
     }
 
@@ -194,7 +199,7 @@ mod tests {
         let mut buf = BytesMut::new();
         encode_varint(&mut buf, i64::MIN);
         let mut cursor = buf.as_ref();
-        let decoded = decode_varint(&mut cursor);
+        let decoded = decode_varint(&mut cursor).unwrap();
         assert_eq!(decoded, i64::MIN);
     }
 
@@ -205,7 +210,7 @@ mod tests {
         // ZigZag: -1 -> 1, which fits in 1 byte
         assert_eq!(buf.len(), 1);
         let mut cursor = buf.as_ref();
-        let decoded = decode_varint(&mut cursor);
+        let decoded = decode_varint(&mut cursor).unwrap();
         assert_eq!(decoded, -1);
     }
 
@@ -214,7 +219,7 @@ mod tests {
         let mut buf = BytesMut::new();
         encode_varint(&mut buf, 1);
         let mut cursor = buf.as_ref();
-        let decoded = decode_varint(&mut cursor);
+        let decoded = decode_varint(&mut cursor).unwrap();
         assert_eq!(decoded, 1);
     }
 
@@ -224,7 +229,7 @@ mod tests {
         let mut buf = BytesMut::new();
         encode_varint(&mut buf, val);
         let mut cursor = buf.as_ref();
-        let decoded = decode_varint(&mut cursor);
+        let decoded = decode_varint(&mut cursor).unwrap();
         assert_eq!(decoded, val);
     }
 
@@ -234,7 +239,7 @@ mod tests {
         let mut buf = BytesMut::new();
         encode_varint(&mut buf, val);
         let mut cursor = buf.as_ref();
-        let decoded = decode_varint(&mut cursor);
+        let decoded = decode_varint(&mut cursor).unwrap();
         assert_eq!(decoded, val);
     }
 
@@ -248,7 +253,7 @@ mod tests {
         encode_varint_u64(&mut buf, 0);
         assert_eq!(buf.len(), 1);
         let mut cursor = buf.as_ref();
-        let decoded = decode_varint_u64(&mut cursor);
+        let decoded = decode_varint_u64(&mut cursor).unwrap();
         assert_eq!(decoded, 0);
     }
 
@@ -258,7 +263,7 @@ mod tests {
         encode_varint_u64(&mut buf, 1);
         assert_eq!(buf.len(), 1);
         let mut cursor = buf.as_ref();
-        let decoded = decode_varint_u64(&mut cursor);
+        let decoded = decode_varint_u64(&mut cursor).unwrap();
         assert_eq!(decoded, 1);
     }
 
@@ -267,7 +272,7 @@ mod tests {
         let mut buf = BytesMut::new();
         encode_varint_u64(&mut buf, u64::MAX);
         let mut cursor = buf.as_ref();
-        let decoded = decode_varint_u64(&mut cursor);
+        let decoded = decode_varint_u64(&mut cursor).unwrap();
         assert_eq!(decoded, u64::MAX);
     }
 
@@ -278,7 +283,7 @@ mod tests {
         encode_varint_u64(&mut buf, 127);
         assert_eq!(buf.len(), 1);
         let mut cursor = buf.as_ref();
-        let decoded = decode_varint_u64(&mut cursor);
+        let decoded = decode_varint_u64(&mut cursor).unwrap();
         assert_eq!(decoded, 127);
     }
 
@@ -289,7 +294,7 @@ mod tests {
         encode_varint_u64(&mut buf, 128);
         assert_eq!(buf.len(), 2);
         let mut cursor = buf.as_ref();
-        let decoded = decode_varint_u64(&mut cursor);
+        let decoded = decode_varint_u64(&mut cursor).unwrap();
         assert_eq!(decoded, 128);
     }
 
@@ -319,7 +324,7 @@ mod tests {
                 buf.len()
             );
             let mut cursor = buf.as_ref();
-            let decoded = decode_varint_u64(&mut cursor);
+            let decoded = decode_varint_u64(&mut cursor).unwrap();
             assert_eq!(decoded, value);
         }
     }
@@ -337,7 +342,7 @@ mod tests {
         }
         let mut cursor = buf.as_ref();
         for &expected in &values {
-            let decoded = decode_varint(&mut cursor);
+            let decoded = decode_varint(&mut cursor).unwrap();
             assert_eq!(decoded, expected);
         }
         // All bytes should have been consumed
@@ -353,7 +358,7 @@ mod tests {
         }
         let mut cursor = buf.as_ref();
         for &expected in &values {
-            let decoded = decode_varint_u64(&mut cursor);
+            let decoded = decode_varint_u64(&mut cursor).unwrap();
             assert_eq!(decoded, expected);
         }
         assert_eq!(cursor.len(), 0, "Buffer should be fully consumed");
@@ -367,7 +372,7 @@ mod tests {
         }
         let mut cursor = buf.as_ref();
         for i in 0i64..1000 {
-            let decoded = decode_varint(&mut cursor);
+            let decoded = decode_varint(&mut cursor).unwrap();
             assert_eq!(decoded, i);
         }
         assert_eq!(cursor.len(), 0);
@@ -382,10 +387,10 @@ mod tests {
         encode_varint_u64(&mut buf, 400);
 
         let mut cursor = buf.as_ref();
-        assert_eq!(decode_varint(&mut cursor), -100);
-        assert_eq!(decode_varint_u64(&mut cursor), 200);
-        assert_eq!(decode_varint(&mut cursor), -300);
-        assert_eq!(decode_varint_u64(&mut cursor), 400);
+        assert_eq!(decode_varint(&mut cursor).unwrap(), -100);
+        assert_eq!(decode_varint_u64(&mut cursor).unwrap(), 200);
+        assert_eq!(decode_varint(&mut cursor).unwrap(), -300);
+        assert_eq!(decode_varint_u64(&mut cursor).unwrap(), 400);
         assert_eq!(cursor.len(), 0);
     }
 
@@ -493,7 +498,7 @@ mod tests {
             let mut buf = BytesMut::new();
             encode_varint(&mut buf, val);
             let mut cursor = buf.as_ref();
-            let decoded = decode_varint(&mut cursor);
+            let decoded = decode_varint(&mut cursor).unwrap();
             assert_eq!(decoded, val, "Failed roundtrip for signed value {}", val);
         }
     }
@@ -519,7 +524,7 @@ mod tests {
             let mut buf = BytesMut::new();
             encode_varint_u64(&mut buf, val);
             let mut cursor = buf.as_ref();
-            let decoded = decode_varint_u64(&mut cursor);
+            let decoded = decode_varint_u64(&mut cursor).unwrap();
             assert_eq!(decoded, val, "Failed roundtrip for unsigned value {}", val);
         }
     }
@@ -548,7 +553,7 @@ mod tests {
         // First delta is 1000 (larger), rest are 1
         let mut cursor = buf.as_ref();
         for &expected in &deltas {
-            let decoded = decode_varint(&mut cursor);
+            let decoded = decode_varint(&mut cursor).unwrap();
             assert_eq!(decoded, expected);
         }
         assert_eq!(cursor.len(), 0);
@@ -564,7 +569,7 @@ mod tests {
         }
         let mut cursor = buf.as_ref();
         for &expected in &deltas {
-            let decoded = decode_varint(&mut cursor);
+            let decoded = decode_varint(&mut cursor).unwrap();
             assert_eq!(decoded, expected);
         }
         assert_eq!(cursor.len(), 0);

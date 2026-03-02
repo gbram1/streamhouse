@@ -187,6 +187,9 @@ impl StreamHouseService {
     }
 
     /// Check if a partition lease is valid and held by this agent.
+    /// Currently unused — WriterPool handles routing, but kept for future
+    /// agent-only deployments where lease validation at the gRPC layer is needed.
+    #[allow(dead_code)]
     async fn validate_lease(&self, topic: &str, partition: u32) -> Result<(), Status> {
         match self.metadata.get_partition_lease(topic, partition).await {
             Ok(Some(lease)) => {
@@ -500,8 +503,10 @@ impl StreamHouse for StreamHouseService {
             self.validate_schema(&req.topic, &record.value).await?;
         }
 
-        // Validate partition lease
-        self.validate_lease(&req.topic, req.partition).await?;
+        // NOTE: Lease validation skipped — WriterPool handles routing to the
+        // correct writer, matching the REST produce path.  validate_lease()
+        // fails in standalone-agent mode (DISABLE_EMBEDDED_AGENT=1) because the
+        // server process doesn't hold partition leases; agents do.
 
         // Validate idempotent producer (if producer_id is present)
         let should_write = if let Some(ref producer_id) = req.producer_id {

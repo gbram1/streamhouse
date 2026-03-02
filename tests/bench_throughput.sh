@@ -205,9 +205,8 @@ run_rest_produce() {
 
     for (( p=0; p<PARTITIONS; p++ )); do
         (
-            local errs=0
+            errs=0
             for (( b=0; b<total_batches_per_partition; b++ )); do
-                local status
                 status=$(curl -s -o /dev/null -w "%{http_code}" \
                     -X POST "$API_URL/api/v1/produce/batch" \
                     -H "Content-Type: application/json" \
@@ -287,9 +286,8 @@ pids=()
 
 for (( p=0; p<PARTITIONS; p++ )); do
     (
-        local count=0
-        local errs=0
-        local deadline
+        count=0
+        errs=0
         deadline=$(python3 -c "import time; print(time.time() + $SUSTAINED_DURATION)")
 
         while python3 -c "import time,sys; sys.exit(0 if time.time() < $deadline else 1)"; do
@@ -375,15 +373,13 @@ run_consume_benchmark() {
     local p
     for (( p=0; p<PARTITIONS; p++ )); do
         (
-            local total_consumed=0
-            local offset=0
+            total_consumed=0
+            offset=0
             while true; do
-                local response
                 response=$(curl -sf \
                     "$API_URL/api/v1/consume?topic=$TOPIC&partition=$p&offset=$offset&maxRecords=$max_records_per_fetch" \
                     2>/dev/null) || break
 
-                local count
                 count=$(echo "$response" | python3 -c "
 import sys, json
 try:

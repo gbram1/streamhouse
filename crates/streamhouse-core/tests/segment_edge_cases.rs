@@ -12,7 +12,7 @@ use streamhouse_core::Record;
 fn varint_roundtrip_zero() {
     let mut buf = Vec::new();
     encode_varint(&mut buf, 0);
-    let decoded = decode_varint(&mut &buf[..]);
+    let decoded = decode_varint(&mut &buf[..]).unwrap();
     assert_eq!(decoded, 0);
 }
 
@@ -21,7 +21,7 @@ fn varint_roundtrip_positive_small() {
     for val in 1..=127i64 {
         let mut buf = Vec::new();
         encode_varint(&mut buf, val);
-        let decoded = decode_varint(&mut &buf[..]);
+        let decoded = decode_varint(&mut &buf[..]).unwrap();
         assert_eq!(decoded, val, "failed for value {val}");
     }
 }
@@ -31,7 +31,7 @@ fn varint_roundtrip_negative() {
     for val in [-1i64, -2, -128, -256, -1000, -i64::MAX] {
         let mut buf = Vec::new();
         encode_varint(&mut buf, val);
-        let decoded = decode_varint(&mut &buf[..]);
+        let decoded = decode_varint(&mut &buf[..]).unwrap();
         assert_eq!(decoded, val, "failed for value {val}");
     }
 }
@@ -52,7 +52,7 @@ fn varint_roundtrip_large_values() {
     for val in values {
         let mut buf = Vec::new();
         encode_varint(&mut buf, val);
-        let decoded = decode_varint(&mut &buf[..]);
+        let decoded = decode_varint(&mut &buf[..]).unwrap();
         assert_eq!(decoded, val, "failed for value {val}");
     }
 }
@@ -63,7 +63,7 @@ fn varint_u64_roundtrip() {
     for val in values {
         let mut buf = Vec::new();
         encode_varint_u64(&mut buf, val);
-        let decoded = decode_varint_u64(&mut &buf[..]);
+        let decoded = decode_varint_u64(&mut &buf[..]).unwrap();
         assert_eq!(decoded, val, "failed for value {val}");
     }
 }
@@ -215,7 +215,7 @@ fn varint_sequential_deltas() {
 
     let mut cursor = &buf[..];
     for _ in 0..1000 {
-        let delta = decode_varint(&mut cursor);
+        let delta = decode_varint(&mut cursor).unwrap();
         assert_eq!(delta, 1);
     }
     assert!(cursor.is_empty());
@@ -232,7 +232,7 @@ fn varint_mixed_positive_negative_deltas() {
 
     let mut cursor = &buf[..];
     for &expected in &deltas {
-        let decoded = decode_varint(&mut cursor);
+        let decoded = decode_varint(&mut cursor).unwrap();
         assert_eq!(decoded, expected);
     }
 }
@@ -241,7 +241,7 @@ fn varint_mixed_positive_negative_deltas() {
 fn varint_u64_max_value_roundtrip() {
     let mut buf = Vec::new();
     encode_varint_u64(&mut buf, u64::MAX);
-    let decoded = decode_varint_u64(&mut &buf[..]);
+    let decoded = decode_varint_u64(&mut &buf[..]).unwrap();
     assert_eq!(decoded, u64::MAX);
     assert_eq!(buf.len(), 10); // u64::MAX requires 10 bytes in varint encoding
 }

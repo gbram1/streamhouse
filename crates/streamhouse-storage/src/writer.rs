@@ -911,6 +911,20 @@ impl PartitionWriter {
     }
 }
 
+impl Drop for PartitionWriter {
+    fn drop(&mut self) {
+        let count = self.current_segment.record_count();
+        if count > 0 {
+            tracing::warn!(
+                topic = %self.topic,
+                partition = self.partition_id,
+                unflushed_records = count,
+                "PartitionWriter dropped with unflushed data. Call flush_durable() before dropping."
+            );
+        }
+    }
+}
+
 // ============================================================================
 // Batched Durable Flush (ACK_DURABLE optimization)
 // ============================================================================

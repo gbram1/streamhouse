@@ -315,15 +315,15 @@ impl SegmentReader {
 
         while cursor.has_remaining() {
             // Decode offset delta
-            let offset_delta = varint::decode_varint(&mut cursor);
+            let offset_delta = varint::decode_varint(&mut cursor)?;
             current_offset = current_offset.wrapping_add(offset_delta as u64);
 
             // Decode timestamp delta
-            let timestamp_delta = varint::decode_varint(&mut cursor);
+            let timestamp_delta = varint::decode_varint(&mut cursor)?;
             current_timestamp = current_timestamp.wrapping_add(timestamp_delta as u64);
 
             // Decode key
-            let key_len = varint::decode_varint_u64(&mut cursor) as usize;
+            let key_len = varint::decode_varint_u64(&mut cursor)? as usize;
             let key = if key_len > 0 {
                 if cursor.remaining() < key_len {
                     return Err(Error::InvalidSegment(
@@ -338,7 +338,7 @@ impl SegmentReader {
             };
 
             // Decode value
-            let value_len = varint::decode_varint_u64(&mut cursor) as usize;
+            let value_len = varint::decode_varint_u64(&mut cursor)? as usize;
             if cursor.remaining() < value_len {
                 return Err(Error::InvalidSegment(
                     "Unexpected end of block reading value".to_string(),

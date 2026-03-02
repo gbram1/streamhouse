@@ -5,7 +5,7 @@
 //! - OffsetFetch (API 9): Fetch committed offsets
 
 use bytes::{Buf, BufMut, BytesMut};
-use tracing::debug;
+use tracing::{debug, warn};
 
 use crate::codec::{
     encode_compact_nullable_string, encode_compact_string, encode_empty_tagged_fields,
@@ -209,9 +209,21 @@ async fn get_partition_offset(
             }
         }
         -2 => 0, // Earliest is always 0 for now
-        _ts => {
-            // TODO: Implement timestamp-based lookup
-            partition.high_watermark as i64
+        ts => {
+            match find_offset_by_timestamp(state, topic_name, partition_id, ts as u64).await {
+                Ok(Some(offset)) => offset as i64,
+                Ok(None) => partition.high_watermark as i64,
+                Err(e) => {
+                    warn!(
+                        topic = topic_name,
+                        partition = partition_id,
+                        timestamp = ts,
+                        error = %e,
+                        "Timestamp-based offset lookup failed, falling back to high watermark"
+                    );
+                    partition.high_watermark as i64
+                }
+            }
         }
     };
 
@@ -222,6 +234,68 @@ async fn get_partition_offset(
         offset,
         leader_epoch: 0,
     }
+}
+
+/// Find the first offset in a partition where record.timestamp >= target_timestamp.
+///
+/// Strategy:
+/// 1. Get all segments for the partition from metadata
+/// 2. Use segment `created_at` as a rough filter to avoid downloading all segments
+/// 3. Download candidate segments and scan records
+/// 4. Return the first offset with timestamp >= target
+///
+/// Returns `None` if no matching offset is found (target is beyond all data).
+async fn find_offset_by_timestamp(
+    state: &KafkaServerState,
+    topic: &str,
+    partition_id: u32,
+    target_timestamp: u64,
+) -> Result<Option<u64>, Box<dyn std::error::Error + Send + Sync>> {
+    let segments = state.metadata.get_segments(topic, partition_id).await?;
+
+    if segments.is_empty() {
+        return Ok(None);
+    }
+
+    // Segments are ordered by base_offset. Use created_at as a rough timestamp
+    // proxy to skip segments that are definitely too new. We must be conservative:
+    // scan from the first segment whose created_at could contain our target.
+    // Since created_at is when the segment was *sealed* (not when its first record
+    // arrived), we start from the segment *before* the first one with
+    // created_at >= target_timestamp.
+    let start_idx = segments
+        .iter()
+        .position(|s| s.created_at as u64 >= target_timestamp)
+        .map(|i| i.saturating_sub(1))
+        .unwrap_or(segments.len().saturating_sub(1));
+
+    for segment_info in &segments[start_idx..] {
+        let path = object_store::path::Path::from(segment_info.s3_key.as_str());
+
+        // Try cache first, then S3
+        let cache_key = format!("{}/{}/{}", topic, partition_id, segment_info.id);
+        let data = if let Ok(Some(cached)) = state.segment_cache.get(&cache_key).await {
+            cached
+        } else {
+            let result = state.object_store.get(&path).await?;
+            let data = result.bytes().await?;
+            // Best-effort cache
+            let _ = state.segment_cache.put(&cache_key, data.clone()).await;
+            data
+        };
+
+        let reader = streamhouse_storage::SegmentReader::new(data)?;
+        let records = reader.read_all()?;
+
+        for record in &records {
+            if record.timestamp >= target_timestamp {
+                return Ok(Some(record.offset));
+            }
+        }
+    }
+
+    // Target timestamp is beyond all recorded data
+    Ok(None)
 }
 
 /// Handle OffsetCommit request (API 8)

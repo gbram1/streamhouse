@@ -747,21 +747,21 @@ impl WAL {
     }
 
     /// Get the number of records currently in the batch buffer
-    pub async fn batch_pending_count(&self) -> usize {
+    pub async fn batch_pending_count(&self) -> Result<usize> {
         let (tx, rx) = oneshot::channel();
-        if self.cmd_tx.send(WalCmd::QueryPending(tx)).await.is_err() {
-            return 0;
-        }
-        rx.await.map(|(count, _)| count).unwrap_or(0)
+        self.cmd_tx.send(WalCmd::QueryPending(tx)).await
+            .map_err(|_| wal_closed_error())?;
+        Ok(rx.await.map(|(count, _)| count)
+            .map_err(|_| wal_closed_error())?)
     }
 
     /// Get the size of data currently in the batch buffer
-    pub async fn batch_pending_bytes(&self) -> usize {
+    pub async fn batch_pending_bytes(&self) -> Result<usize> {
         let (tx, rx) = oneshot::channel();
-        if self.cmd_tx.send(WalCmd::QueryPending(tx)).await.is_err() {
-            return 0;
-        }
-        rx.await.map(|(_, bytes)| bytes).unwrap_or(0)
+        self.cmd_tx.send(WalCmd::QueryPending(tx)).await
+            .map_err(|_| wal_closed_error())?;
+        Ok(rx.await.map(|(_, bytes)| bytes)
+            .map_err(|_| wal_closed_error())?)
     }
 
     /// Delete the WAL file
@@ -1085,11 +1085,11 @@ mod tests {
                 .await
                 .unwrap();
         }
-        assert_eq!(wal.batch_pending_count().await, 4);
+        assert_eq!(wal.batch_pending_count().await.unwrap(), 4);
 
         // Append 5th record (should trigger flush)
         wal.append(Some(b"key4"), b"value").await.unwrap();
-        assert_eq!(wal.batch_pending_count().await, 0);
+        assert_eq!(wal.batch_pending_count().await.unwrap(), 0);
 
         // Verify all records persisted
         let records = wal.recover().await.unwrap();
@@ -1115,12 +1115,12 @@ mod tests {
         // Append first record (key1=4 + value=50 + header=~24 = ~78 bytes)
         let value = vec![b'x'; 50];
         wal.append(Some(b"key1"), &value).await.unwrap();
-        let pending_after_first = wal.batch_pending_bytes().await;
+        let pending_after_first = wal.batch_pending_bytes().await.unwrap();
         assert!(pending_after_first > 0, "First record should be in batch");
 
         // Append second record (should still be under 200 bytes threshold)
         wal.append(Some(b"key2"), &value).await.unwrap();
-        let pending_after_second = wal.batch_pending_bytes().await;
+        let pending_after_second = wal.batch_pending_bytes().await.unwrap();
         assert!(
             pending_after_second > pending_after_first,
             "Second record should add to batch"
@@ -1129,7 +1129,7 @@ mod tests {
         // Append third record - this should trigger flush (exceeds 200 bytes)
         wal.append(Some(b"key3"), &value).await.unwrap();
         assert_eq!(
-            wal.batch_pending_count().await,
+            wal.batch_pending_count().await.unwrap(),
             0,
             "Batch should have flushed"
         );
@@ -1158,11 +1158,11 @@ mod tests {
         // Append records (should stay in batch)
         wal.append(Some(b"key1"), b"value1").await.unwrap();
         wal.append(Some(b"key2"), b"value2").await.unwrap();
-        assert_eq!(wal.batch_pending_count().await, 2);
+        assert_eq!(wal.batch_pending_count().await.unwrap(), 2);
 
         // Explicit flush
         wal.flush_batch().await.unwrap();
-        assert_eq!(wal.batch_pending_count().await, 0);
+        assert_eq!(wal.batch_pending_count().await.unwrap(), 0);
 
         // Verify records persisted
         let records = wal.recover().await.unwrap();
@@ -1217,11 +1217,11 @@ mod tests {
         // Append records to batch (not flushed)
         wal.append(Some(b"key1"), b"value1").await.unwrap();
         wal.append(Some(b"key2"), b"value2").await.unwrap();
-        assert_eq!(wal.batch_pending_count().await, 2);
+        assert_eq!(wal.batch_pending_count().await.unwrap(), 2);
 
         // Truncate should clear batch
         wal.truncate().await.unwrap();
-        assert_eq!(wal.batch_pending_count().await, 0);
+        assert_eq!(wal.batch_pending_count().await.unwrap(), 0);
 
         // Verify no records
         let records = wal.recover().await.unwrap();
