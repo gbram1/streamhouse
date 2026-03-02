@@ -71,6 +71,25 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let agent_address =
         std::env::var("AGENT_ADDRESS").unwrap_or_else(|_| "0.0.0.0:9090".to_string());
+
+    // GRPC_BIND_ADDRESS is the local address the gRPC server listens on.
+    // AGENT_ADDRESS can be a hostname (e.g. "agent-1:9090") for service discovery,
+    // but gRPC server needs an IP:port to bind to.
+    let grpc_bind_address = std::env::var("GRPC_BIND_ADDRESS").unwrap_or_else(|_| {
+        // Try to parse AGENT_ADDRESS as a SocketAddr; if it fails (hostname), default to 0.0.0.0:PORT
+        match agent_address.parse::<std::net::SocketAddr>() {
+            Ok(_) => agent_address.clone(),
+            Err(_) => {
+                // Extract port from AGENT_ADDRESS (e.g. "agent-1:9090" → 9090)
+                let port = agent_address
+                    .rsplit(':')
+                    .next()
+                    .and_then(|p| p.parse::<u16>().ok())
+                    .unwrap_or(9090);
+                format!("0.0.0.0:{}", port)
+            }
+        }
+    });
     let availability_zone = std::env::var("AGENT_ZONE").unwrap_or_else(|_| "default".to_string());
     let agent_group = std::env::var("AGENT_GROUP").unwrap_or_else(|_| "default".to_string());
 
@@ -87,7 +106,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     info!("Configuration:");
     info!("  Agent ID: {}", agent_id);
-    info!("  Address: {}", agent_address);
+    info!("  Advertised address: {}", agent_address);
+    info!("  gRPC bind address: {}", grpc_bind_address);
     info!("  Zone: {}", availability_zone);
     info!("  Group: {}", agent_group);
     info!("  Heartbeat interval: {:?}", heartbeat_interval);
@@ -260,8 +280,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     info!("✓ Agent started successfully");
 
     // Start gRPC server
-    info!("Starting gRPC server...");
-    let grpc_addr = agent_address.parse()?;
+    info!("Starting gRPC server on {}...", grpc_bind_address);
+    let grpc_addr = grpc_bind_address.parse()?;
 
     #[cfg(feature = "metrics")]
     let grpc_service = ProducerServiceImpl::new(
@@ -288,7 +308,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     });
 
-    info!("✓ gRPC server started on {}", agent_address);
+    info!("✓ gRPC server started on {}", grpc_bind_address);
 
     // Start metrics server if enabled
     #[cfg(feature = "metrics")]
@@ -327,7 +347,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     info!("");
     info!("Agent {} is now running", agent_id);
-    info!("  gRPC:    {}", agent_address);
+    info!("  gRPC bind: {}", grpc_bind_address);
+    info!("  Advertised: {}", agent_address);
     #[cfg(feature = "metrics")]
     {
         let metrics_port = std::env::var("METRICS_PORT")

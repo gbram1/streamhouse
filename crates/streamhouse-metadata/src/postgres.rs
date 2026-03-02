@@ -432,7 +432,7 @@ impl MetadataStore for PostgresMetadataStore {
 
         sqlx::query(
             "INSERT INTO topics (organization_id, name, partition_count, retention_ms, created_at, updated_at, config)
-             VALUES ($1, $2, $3, $4, $5, $6, $7)",
+             VALUES ($1::uuid, $2, $3, $4, $5, $6, $7)",
         )
         .bind(org_id)
         .bind(&config.name)
@@ -447,7 +447,7 @@ impl MetadataStore for PostgresMetadataStore {
         for partition_id in 0..config.partition_count {
             sqlx::query(
                 "INSERT INTO partitions (organization_id, topic, partition_id, high_watermark, created_at, updated_at)
-                 VALUES ($1, $2, $3, 0, $4, $5)",
+                 VALUES ($1::uuid, $2, $3, 0, $4, $5)",
             )
             .bind(org_id)
             .bind(&config.name)
@@ -513,7 +513,7 @@ impl MetadataStore for PostgresMetadataStore {
         let slug = name.to_lowercase().replace(' ', "-");
         sqlx::query(
             "INSERT INTO organizations (id, name, slug, plan, status, created_at, updated_at)
-             VALUES ($1, $2, $3, 'free', 'active', $4, $5)
+             VALUES ($1::uuid, $2, $3, 'free', 'active', $4, $5)
              ON CONFLICT (id) DO NOTHING",
         )
         .bind(org_id)
@@ -1178,7 +1178,7 @@ impl MetadataStore for PostgresMetadataStore {
 
         sqlx::query(
             "INSERT INTO organizations (id, name, slug, plan, status, created_at, updated_at, settings)
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8)"
+             VALUES ($1::uuid, $2, $3, $4, $5, $6, $7, $8)"
         )
         .bind(&id)
         .bind(&config.name)
