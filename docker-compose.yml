@@ -76,6 +76,8 @@ services:
       WAL_DIR: /data/wal
       STREAMHOUSE_CACHE: /data/cache
       DISABLE_EMBEDDED_AGENT: "1"
+      RECONCILE_INTERVAL: "${RECONCILE_INTERVAL:-3600}"
+      RECONCILE_GRACE: "${RECONCILE_GRACE:-3600}"
     ports:
       - "8080:8080"
       - "50051:50051"
