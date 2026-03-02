@@ -407,15 +407,30 @@ echo ""
 
 bold "=== Step 5: Verify partition assignment ==="
 
-# With DISABLE_EMBEDDED_AGENT=1 and no MANAGED_TOPICS, agents don't acquire
-# partition leases. The server handles produce/consume via WriterPool directly.
-# This is informational only — not a failure.
-ASSIGNED=$(assigned_partition_count e2e-orders)
-if [ "$ASSIGNED" = "6" ]; then
-    pass "All 6 e2e-orders partitions have leaders"
+# Agents now use dynamic topic discovery (no MANAGED_TOPICS needed).
+# They poll list_topics() every 60s and auto-assign partitions.
+# Wait up to 90s for agents to discover topics and acquire leases.
+
+# Verify agents are healthy first
+CURRENT_AGENTS=$(agent_count)
+if [ "$CURRENT_AGENTS" = "3" ]; then
+    pass "All 3 agents healthy"
 else
-    dim "  Info: $ASSIGNED/6 partitions have leaders (server handles produce directly)"
-    dim "  This is expected with DISABLE_EMBEDDED_AGENT=1 and no MANAGED_TOPICS"
+    fail "Expected 3 agents, got $CURRENT_AGENTS"
+fi
+
+# Wait for partition assignment via dynamic discovery (up to 90s)
+if wait_for "all 6 e2e-orders partitions assigned" \
+    "assigned_partition_count e2e-orders" "6" 90; then
+    pass "All 6 e2e-orders partitions have leaders (auto-discovery working)"
+else
+    ASSIGNED=$(assigned_partition_count e2e-orders)
+    if [ "$ASSIGNED" -gt 0 ]; then
+        dim "  $ASSIGNED/6 partitions assigned (partial auto-discovery)"
+    else
+        dim "  No partition leases yet — agents may still be discovering"
+        dim "  (Server handles produce/consume via WriterPool fallback)"
+    fi
 fi
 
 # Check if any agents have partitions
@@ -432,14 +447,6 @@ elif [ "$AGENTS_WITH_PARTS" -ge 1 ]; then
     dim "  $AGENTS_WITH_PARTS agent(s) have partitions"
 else
     dim "  No partition leases (server routing via WriterPool fallback)"
-fi
-
-# Verify agents are healthy regardless of lease state
-CURRENT_AGENTS=$(agent_count)
-if [ "$CURRENT_AGENTS" = "3" ]; then
-    pass "All 3 agents healthy"
-else
-    fail "Expected 3 agents, got $CURRENT_AGENTS"
 fi
 
 echo ""
@@ -517,20 +524,35 @@ echo ""
 
 bold "=== Step 8: Consume messages ==="
 
-# Records sit in the server's SegmentBuffer after produce. They flush to S3
-# after 60s (age threshold) or 1MB (size threshold). The consume handler reads
-# from S3 segments, so we need to wait for the flush.
-dim "  Waiting for segment flush to S3 (up to 75s)..."
+# With buffer reads (Gap 3), records are available immediately from the
+# in-memory buffer — no need to wait for S3 segment flush.
+# Try consuming right away; fall back to polling if needed.
+dim "  Trying immediate consume (buffer reads)..."
 CONSUMED=""
-for attempt in $(seq 1 15); do
-    for p in 0 1 2 3 4 5; do
-        CONSUMED=$($STREAMCTL consume e2e-orders --partition "$p" --offset 0 --limit 5 2>&1) || CONSUMED=""
-        if echo "$CONSUMED" | grep -q "order_id"; then
-            break 2
-        fi
-    done
-    sleep 5
+IMMEDIATE=false
+for p in 0 1 2 3 4 5; do
+    CONSUMED=$($STREAMCTL consume e2e-orders --partition "$p" --offset 0 --limit 5 2>&1) || CONSUMED=""
+    if echo "$CONSUMED" | grep -q "order_id"; then
+        IMMEDIATE=true
+        break
+    fi
 done
+
+if $IMMEDIATE; then
+    pass "Sub-second consume: records available immediately from buffer"
+else
+    # Fall back to waiting for S3 flush (in case buffer reads hit a race)
+    dim "  Buffer miss — waiting for S3 segment flush (up to 75s)..."
+    for attempt in $(seq 1 15); do
+        for p in 0 1 2 3 4 5; do
+            CONSUMED=$($STREAMCTL consume e2e-orders --partition "$p" --offset 0 --limit 5 2>&1) || CONSUMED=""
+            if echo "$CONSUMED" | grep -q "order_id"; then
+                break 2
+            fi
+        done
+        sleep 5
+    done
+fi
 
 if echo "$CONSUMED" | grep -q "order_id"; then
     pass "Consumed records contain 'order_id'"

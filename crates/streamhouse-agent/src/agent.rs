@@ -190,6 +190,12 @@ pub struct Agent {
 
     /// Partition assigner for automatic partition assignment (optional)
     partition_assigner: Arc<RwLock<Option<PartitionAssigner>>>,
+
+    /// Background topic discovery task handle (dynamic mode)
+    discovery_handle: Arc<RwLock<Option<JoinHandle<()>>>>,
+
+    /// Shutdown signal for discovery task
+    discovery_shutdown: tokio::sync::watch::Sender<bool>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -285,8 +291,8 @@ impl Agent {
         // Start lease renewal task
         self.lease_manager.start_renewal_task().await?;
 
-        // Start partition assigner if topics configured
         if !self.config.managed_topics.is_empty() {
+            // Static mode: use configured topics
             let assigner = PartitionAssigner::new(
                 self.config.agent_id.clone(),
                 self.config.agent_group.clone(),
@@ -296,13 +302,99 @@ impl Agent {
             );
 
             assigner.start().await?;
-
             *self.partition_assigner.write().await = Some(assigner);
 
             info!(
                 agent_id = %self.config.agent_id,
                 topics = ?self.config.managed_topics,
-                "Partition assigner started"
+                "Partition assigner started (static mode)"
+            );
+        } else {
+            // Dynamic mode: discover topics via metadata store polling
+            let agent_id = self.config.agent_id.clone();
+            let agent_group = self.config.agent_group.clone();
+            let metadata = Arc::clone(&self.metadata_store);
+            let lease_mgr = Arc::clone(&self.lease_manager);
+            let assigner_ref = Arc::clone(&self.partition_assigner);
+            let mut shutdown_rx = self.discovery_shutdown.subscribe();
+
+            let handle = tokio::spawn(async move {
+                let mut current_topics: Vec<String> = Vec::new();
+
+                loop {
+                    // Poll for topics
+                    let discovered = match metadata.list_topics().await {
+                        Ok(topics) => topics.into_iter().map(|t| t.name).collect::<Vec<_>>(),
+                        Err(e) => {
+                            warn!(agent_id = %agent_id, error = %e, "Failed to list topics for discovery");
+                            tokio::select! {
+                                _ = tokio::time::sleep(std::time::Duration::from_secs(10)) => {}
+                                _ = shutdown_rx.changed() => return,
+                            }
+                            continue;
+                        }
+                    };
+
+                    if discovered.is_empty() {
+                        tracing::debug!(agent_id = %agent_id, "No topics discovered, waiting...");
+                        tokio::select! {
+                            _ = tokio::time::sleep(std::time::Duration::from_secs(30)) => {}
+                            _ = shutdown_rx.changed() => return,
+                        }
+                        continue;
+                    }
+
+                    // Check if topic list changed
+                    let mut sorted_discovered = discovered.clone();
+                    sorted_discovered.sort();
+                    let mut sorted_current = current_topics.clone();
+                    sorted_current.sort();
+
+                    if sorted_discovered != sorted_current {
+                        // Stop existing assigner if any
+                        if let Some(old_assigner) = assigner_ref.write().await.take() {
+                            if let Err(e) = old_assigner.stop().await {
+                                warn!(agent_id = %agent_id, error = %e, "Failed to stop old assigner");
+                            }
+                        }
+
+                        // Start new assigner with discovered topics
+                        let assigner = PartitionAssigner::new(
+                            agent_id.clone(),
+                            agent_group.clone(),
+                            Arc::clone(&metadata),
+                            Arc::clone(&lease_mgr),
+                            discovered.clone(),
+                        );
+
+                        match assigner.start().await {
+                            Ok(()) => {
+                                info!(
+                                    agent_id = %agent_id,
+                                    topics = ?discovered,
+                                    "Partition assigner started (dynamic discovery)"
+                                );
+                                *assigner_ref.write().await = Some(assigner);
+                                current_topics = discovered;
+                            }
+                            Err(e) => {
+                                warn!(agent_id = %agent_id, error = %e, "Failed to start assigner");
+                            }
+                        }
+                    }
+
+                    // Wait before next poll
+                    tokio::select! {
+                        _ = tokio::time::sleep(std::time::Duration::from_secs(60)) => {}
+                        _ = shutdown_rx.changed() => return,
+                    }
+                }
+            });
+
+            *self.discovery_handle.write().await = Some(handle);
+            info!(
+                agent_id = %self.config.agent_id,
+                "Topic discovery started (dynamic mode, 60s poll interval)"
             );
         }
 
@@ -332,6 +424,13 @@ impl Agent {
             agent_id = %self.config.agent_id,
             "Stopping agent gracefully"
         );
+
+        // Stop discovery task if running (dynamic mode)
+        let _ = self.discovery_shutdown.send(true);
+        if let Some(handle) = self.discovery_handle.write().await.take() {
+            handle.abort();
+            let _ = handle.await;
+        }
 
         // Stop partition assigner (releases leases automatically)
         if let Some(assigner) = self.partition_assigner.write().await.take() {
@@ -597,6 +696,8 @@ impl AgentBuilder {
             Arc::clone(&metadata_store),
         ));
 
+        let (discovery_shutdown, _) = tokio::sync::watch::channel(false);
+
         Ok(Agent {
             config: self.config,
             metadata_store,
@@ -605,6 +706,8 @@ impl AgentBuilder {
             heartbeat_handle: Arc::new(RwLock::new(None)),
             lease_manager,
             partition_assigner: Arc::new(RwLock::new(None)),
+            discovery_handle: Arc::new(RwLock::new(None)),
+            discovery_shutdown,
         })
     }
 }

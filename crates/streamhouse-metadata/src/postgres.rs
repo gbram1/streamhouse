@@ -613,6 +613,54 @@ impl MetadataStore for PostgresMetadataStore {
         Ok(())
     }
 
+    async fn add_segment_and_update_watermark(
+        &self,
+        segment: SegmentInfo,
+        high_watermark: u64,
+    ) -> Result<()> {
+        let default_org_id =
+            uuid::Uuid::parse_str("00000000-0000-0000-0000-000000000000").unwrap();
+        let now_ms = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_millis() as i64;
+
+        let mut tx = self.pool.begin().await?;
+
+        sqlx::query(
+            "INSERT INTO segments (id, organization_id, topic, partition_id, base_offset, end_offset,
+                                   record_count, size_bytes, s3_bucket, s3_key, created_at)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)",
+        )
+        .bind(&segment.id)
+        .bind(default_org_id)
+        .bind(&segment.topic)
+        .bind(segment.partition_id as i32)
+        .bind(segment.base_offset as i64)
+        .bind(segment.end_offset as i64)
+        .bind(segment.record_count as i32)
+        .bind(segment.size_bytes as i64)
+        .bind(&segment.s3_bucket)
+        .bind(&segment.s3_key)
+        .bind(segment.created_at)
+        .execute(&mut *tx)
+        .await?;
+
+        sqlx::query(
+            "UPDATE partitions SET high_watermark = $3, updated_at = $4
+             WHERE topic = $1 AND partition_id = $2",
+        )
+        .bind(&segment.topic)
+        .bind(segment.partition_id as i32)
+        .bind(high_watermark as i64)
+        .bind(now_ms)
+        .execute(&mut *tx)
+        .await?;
+
+        tx.commit().await?;
+        Ok(())
+    }
+
     async fn get_segments(&self, topic: &str, partition_id: u32) -> Result<Vec<SegmentInfo>> {
         let rows = sqlx::query(
             "SELECT id, topic, partition_id, base_offset, end_offset, record_count,

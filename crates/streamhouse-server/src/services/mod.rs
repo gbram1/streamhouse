@@ -696,15 +696,37 @@ impl StreamHouse for StreamHouseService {
         request: Request<ConsumeRequest>,
     ) -> Result<Response<ConsumeResponse>, Status> {
         let req = request.into_inner();
+        let max_records = req.max_records as usize;
 
         let reader = self.get_reader(&req.topic, req.partition).await?;
 
-        let result = reader
-            .read(req.offset, req.max_records as usize)
-            .await
-            .map_err(|e| Status::internal(format!("Read failed: {}", e)))?;
+        // First try reading from S3 segments
+        let result = match reader.read(req.offset, max_records).await {
+            Ok(r) => r,
+            Err(streamhouse_storage::Error::OffsetNotFound(_)) => {
+                // Offset not in any S3 segment yet — try the in-memory buffer directly
+                let buffered = self
+                    .writer_pool
+                    .read_buffered(&req.topic, req.partition, req.offset, max_records)
+                    .await;
 
-        let records = result
+                let partition = self
+                    .metadata
+                    .get_partition(&req.topic, req.partition)
+                    .await
+                    .map_err(|e| Status::internal(format!("Metadata error: {}", e)))?
+                    .ok_or_else(|| Status::not_found("Partition not found"))?;
+
+                streamhouse_storage::ReadResult {
+                    records: buffered,
+                    high_watermark: partition.high_watermark,
+                }
+            }
+            Err(e) => return Err(Status::internal(format!("Read failed: {}", e))),
+        };
+
+        let high_watermark = result.high_watermark;
+        let mut records: Vec<ConsumedRecord> = result
             .records
             .into_iter()
             .map(|r| ConsumedRecord {
@@ -714,14 +736,36 @@ impl StreamHouse for StreamHouseService {
                 value: r.value.to_vec(),
                 headers: HashMap::new(),
             })
-            .collect::<Vec<_>>();
+            .collect();
+
+        // If S3 returned fewer than max_records, fill remaining from in-memory buffer
+        if records.len() < max_records {
+            let next_offset = if let Some(last) = records.last() {
+                last.offset + 1
+            } else {
+                req.offset
+            };
+            let remaining = max_records - records.len();
+            let buffered = self
+                .writer_pool
+                .read_buffered(&req.topic, req.partition, next_offset, remaining)
+                .await;
+
+            records.extend(buffered.into_iter().map(|r| ConsumedRecord {
+                offset: r.offset,
+                timestamp: r.timestamp,
+                key: r.key.map(|k| k.to_vec()).unwrap_or_default(),
+                value: r.value.to_vec(),
+                headers: HashMap::new(),
+            }));
+        }
 
         let has_more =
-            !records.is_empty() && records.last().unwrap().offset + 1 < result.high_watermark;
+            !records.is_empty() && records.last().unwrap().offset + 1 < high_watermark;
 
         Ok(Response::new(ConsumeResponse {
             records,
-            high_watermark: result.high_watermark,
+            high_watermark,
             has_more,
         }))
     }

@@ -526,6 +526,21 @@ impl<S: MetadataStore + 'static> MetadataStore for CachedMetadataStore<S> {
         self.inner.add_segment(segment).await
     }
 
+    async fn add_segment_and_update_watermark(
+        &self,
+        segment: SegmentInfo,
+        high_watermark: u64,
+    ) -> Result<()> {
+        let topic = segment.topic.clone();
+        let partition_id = segment.partition_id;
+        self.inner
+            .add_segment_and_update_watermark(segment, high_watermark)
+            .await?;
+        // Invalidate partition cache since watermark changed
+        self.invalidate_partition(&topic, partition_id).await;
+        Ok(())
+    }
+
     async fn get_segments(&self, topic: &str, partition_id: u32) -> Result<Vec<SegmentInfo>> {
         self.inner.get_segments(topic, partition_id).await
     }

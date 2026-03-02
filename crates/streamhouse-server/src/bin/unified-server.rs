@@ -347,6 +347,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .clone()
         .start_background_flush(Duration::from_secs(flush_interval_secs));
 
+    // Start S3 orphan reconciler (1h interval, 1h grace period)
+    let reconciler = Arc::new(streamhouse_storage::S3Reconciler::new(
+        object_store.clone(),
+        metadata.clone(),
+        Duration::from_secs(3600),
+    ));
+    let _reconciler_handle = reconciler.start_background(Duration::from_secs(3600));
+    tracing::info!("🧹 S3 orphan reconciler started (1h interval, 1h grace)");
+
     // Start Kafka protocol server
     tracing::info!("📡 Initializing Kafka protocol server");
     let kafka_config = KafkaServerConfig {

@@ -185,6 +185,27 @@ impl WriterPool {
         Ok(writer)
     }
 
+    /// Read records from the in-memory buffer of a partition writer.
+    ///
+    /// Returns records that have been appended but not yet flushed to S3,
+    /// enabling sub-second consume latency.
+    pub async fn read_buffered(
+        &self,
+        topic: &str,
+        partition: u32,
+        start_offset: u64,
+        max_records: usize,
+    ) -> Vec<streamhouse_core::record::Record> {
+        let key = (topic.to_string(), partition);
+        let readers = self.writers.read().await;
+        if let Some(writer) = readers.get(&key) {
+            let guard = writer.lock().await;
+            guard.read_buffered(start_offset, max_records)
+        } else {
+            Vec::new()
+        }
+    }
+
     /// Request a batched durable flush for a partition.
     ///
     /// Instead of flushing to S3 immediately, this queues the caller to wait

@@ -155,6 +155,9 @@ pub struct PartitionWriter {
     // Stale WAL files from other agents to clean up after first S3 flush (Phase 12.4.5)
     stale_wal_files: Vec<std::path::PathBuf>,
 
+    // In-memory buffer of records not yet flushed to S3 (for sub-second consume)
+    buffered_records: Vec<Record>,
+
     // Configuration
     config: WriteConfig,
 }
@@ -213,6 +216,9 @@ impl PartitionWriter {
 
         let mut current_segment = SegmentWriter::new(Compression::Lz4);
 
+        // Initialize record buffer for sub-second consume reads
+        let mut buffered_records: Vec<Record> = Vec::new();
+
         // Initialize WAL if configured
         let mut stale_wal_files = Vec::new();
         let wal = if let Some(ref wal_config) = config.wal_config {
@@ -270,7 +276,7 @@ impl PartitionWriter {
                     "Recovering unflushed records from WAL"
                 );
 
-                // Replay records into current segment
+                // Replay records into current segment and buffer
                 for wal_record in all_recovered {
                     let record = Record::new(
                         current_offset,
@@ -279,6 +285,7 @@ impl PartitionWriter {
                         wal_record.value,
                     );
                     current_offset += 1;
+                    buffered_records.push(record.clone());
                     current_segment
                         .append(&record)
                         .map_err(|e| Error::SegmentError(e.to_string()))?;
@@ -314,6 +321,7 @@ impl PartitionWriter {
             wal,
             throttle,
             stale_wal_files,
+            buffered_records,
             config,
         })
     }
@@ -384,6 +392,9 @@ impl PartitionWriter {
         // Estimate size
         self.segment_size_estimate += record.estimated_size();
 
+        // Buffer for sub-second consume reads
+        self.buffered_records.push(record.clone());
+
         // Append to current segment
         self.current_segment
             .append(&record)
@@ -426,10 +437,11 @@ impl PartitionWriter {
             wal.append_batch(&wal_records).await?;
         }
 
-        // Append each record to the segment (maintains offset/index semantics)
+        // Append each record to the segment and buffer (maintains offset/index semantics)
         for (i, (key, value, timestamp)) in records.iter().enumerate() {
             let record = Record::new(offsets[i], *timestamp, key.clone(), value.clone());
             self.segment_size_estimate += record.estimated_size();
+            self.buffered_records.push(record.clone());
             self.current_segment
                 .append(&record)
                 .map_err(|e| Error::SegmentError(e.to_string()))?;
@@ -441,6 +453,32 @@ impl PartitionWriter {
         }
 
         Ok(offsets)
+    }
+
+    /// Read records from the in-memory buffer that haven't been flushed to S3 yet.
+    ///
+    /// Returns up to `max_records` starting from `start_offset`. Records are
+    /// available here immediately after `append()`, enabling sub-second consume
+    /// latency without waiting for the segment to flush to S3.
+    pub fn read_buffered(&self, start_offset: u64, max_records: usize) -> Vec<Record> {
+        if self.buffered_records.is_empty() {
+            return Vec::new();
+        }
+
+        // Binary search for the starting position
+        let start_idx = match self
+            .buffered_records
+            .binary_search_by_key(&start_offset, |r| r.offset)
+        {
+            Ok(idx) => idx,
+            Err(idx) => idx, // insertion point = first record >= start_offset
+        };
+
+        self.buffered_records[start_idx..]
+            .iter()
+            .take(max_records)
+            .cloned()
+            .collect()
     }
 
     /// Check if we should create a new segment
@@ -515,12 +553,12 @@ impl PartitionWriter {
             created_at: now_ms(),
         };
 
-        self.metadata.add_segment(segment_info).await?;
-
-        // Update high watermark
         self.metadata
-            .update_high_watermark(&self.topic, self.partition_id, end_offset + 1)
+            .add_segment_and_update_watermark(segment_info, end_offset + 1)
             .await?;
+
+        // Clear buffered records — they are now persisted in S3 and discoverable via metadata
+        self.buffered_records.clear();
 
         // Truncate WAL now that data is safely in S3
         if let Some(ref wal) = self.wal {

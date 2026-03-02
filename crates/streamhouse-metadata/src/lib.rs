@@ -486,6 +486,27 @@ pub trait MetadataStore: Send + Sync {
     /// ```
     async fn add_segment(&self, segment: SegmentInfo) -> Result<()>;
 
+    /// Atomically register a segment and update the partition high watermark.
+    ///
+    /// This wraps `add_segment()` and `update_high_watermark()` in a single
+    /// database transaction to prevent a crash window where a segment is
+    /// registered but the watermark is stale.
+    ///
+    /// The default implementation falls back to two separate calls for
+    /// backward compatibility. Backends with transaction support should
+    /// override this.
+    async fn add_segment_and_update_watermark(
+        &self,
+        segment: SegmentInfo,
+        high_watermark: u64,
+    ) -> Result<()> {
+        let topic = segment.topic.clone();
+        let partition_id = segment.partition_id;
+        self.add_segment(segment).await?;
+        self.update_high_watermark(&topic, partition_id, high_watermark)
+            .await
+    }
+
     /// Get all segments for a partition, ordered by base_offset.
     ///
     /// # Arguments

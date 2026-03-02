@@ -588,6 +588,56 @@ impl MetadataStore for SqliteMetadataStore {
         Ok(())
     }
 
+    async fn add_segment_and_update_watermark(
+        &self,
+        segment: SegmentInfo,
+        high_watermark: u64,
+    ) -> Result<()> {
+        let mut tx = self.pool.begin().await?;
+
+        let base_offset_i64 = segment.base_offset as i64;
+        let end_offset_i64 = segment.end_offset as i64;
+        let size_bytes_i64 = segment.size_bytes as i64;
+        let watermark_i64 = high_watermark as i64;
+        let now = Self::now_ms();
+
+        sqlx::query!(
+            r#"
+            INSERT INTO segments (id, topic, partition_id, base_offset, end_offset, record_count, size_bytes, s3_bucket, s3_key, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            "#,
+            segment.id,
+            segment.topic,
+            segment.partition_id,
+            base_offset_i64,
+            end_offset_i64,
+            segment.record_count,
+            size_bytes_i64,
+            segment.s3_bucket,
+            segment.s3_key,
+            segment.created_at,
+        )
+        .execute(&mut *tx)
+        .await?;
+
+        sqlx::query!(
+            r#"
+            UPDATE partitions
+            SET high_watermark = ?, updated_at = ?
+            WHERE topic = ? AND partition_id = ?
+            "#,
+            watermark_i64,
+            now,
+            segment.topic,
+            segment.partition_id,
+        )
+        .execute(&mut *tx)
+        .await?;
+
+        tx.commit().await?;
+        Ok(())
+    }
+
     async fn get_segments(&self, topic: &str, partition_id: u32) -> Result<Vec<SegmentInfo>> {
         let rows = sqlx::query!(
             r#"
