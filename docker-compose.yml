@@ -75,6 +75,7 @@ services:
       WAL_ENABLED: "true"
       WAL_DIR: /data/wal
       STREAMHOUSE_CACHE: /data/cache
+      DISABLE_EMBEDDED_AGENT: "1"
     ports:
       - "8080:8080"
       - "50051:50051"
@@ -86,6 +87,105 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+
+  # Standalone Agent 1
+  agent-1:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: streamhouse-agent-1
+    entrypoint: ["/app/agent"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+      streamhouse:
+        condition: service_healthy
+    environment:
+      AGENT_ID: agent-1
+      AGENT_ADDRESS: "agent-1:9090"
+      AGENT_ZONE: us-east-1a
+      AGENT_GROUP: default
+      METADATA_STORE: postgres://streamhouse:streamhouse@postgres:5432/streamhouse
+      HEARTBEAT_INTERVAL: "10"
+      S3_ENDPOINT: http://minio:9000
+      STREAMHOUSE_BUCKET: streamhouse
+      AWS_REGION: us-east-1
+      AWS_ACCESS_KEY_ID: minioadmin
+      AWS_SECRET_ACCESS_KEY: minioadmin
+      AWS_ENDPOINT_URL: http://minio:9000
+      WAL_ENABLED: "true"
+      WAL_DIR: /data/wal/agent-1
+      RUST_LOG: info
+    volumes:
+      - agent1_wal:/data/wal/agent-1
+
+  # Standalone Agent 2
+  agent-2:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: streamhouse-agent-2
+    entrypoint: ["/app/agent"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+      streamhouse:
+        condition: service_healthy
+    environment:
+      AGENT_ID: agent-2
+      AGENT_ADDRESS: "agent-2:9090"
+      AGENT_ZONE: us-east-1b
+      AGENT_GROUP: default
+      METADATA_STORE: postgres://streamhouse:streamhouse@postgres:5432/streamhouse
+      HEARTBEAT_INTERVAL: "10"
+      S3_ENDPOINT: http://minio:9000
+      STREAMHOUSE_BUCKET: streamhouse
+      AWS_REGION: us-east-1
+      AWS_ACCESS_KEY_ID: minioadmin
+      AWS_SECRET_ACCESS_KEY: minioadmin
+      AWS_ENDPOINT_URL: http://minio:9000
+      WAL_ENABLED: "true"
+      WAL_DIR: /data/wal/agent-2
+      RUST_LOG: info
+    volumes:
+      - agent2_wal:/data/wal/agent-2
+
+  # Standalone Agent 3
+  agent-3:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: streamhouse-agent-3
+    entrypoint: ["/app/agent"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+      streamhouse:
+        condition: service_healthy
+    environment:
+      AGENT_ID: agent-3
+      AGENT_ADDRESS: "agent-3:9090"
+      AGENT_ZONE: us-east-1a
+      AGENT_GROUP: default
+      METADATA_STORE: postgres://streamhouse:streamhouse@postgres:5432/streamhouse
+      HEARTBEAT_INTERVAL: "10"
+      S3_ENDPOINT: http://minio:9000
+      STREAMHOUSE_BUCKET: streamhouse
+      AWS_REGION: us-east-1
+      AWS_ACCESS_KEY_ID: minioadmin
+      AWS_SECRET_ACCESS_KEY: minioadmin
+      AWS_ENDPOINT_URL: http://minio:9000
+      WAL_ENABLED: "true"
+      WAL_DIR: /data/wal/agent-3
+      RUST_LOG: info
+    volumes:
+      - agent3_wal:/data/wal/agent-3
 
   # Prometheus - metrics collection
   prometheus:
@@ -154,5 +254,8 @@ volumes:
   minio_data:
   wal_data:
   cache_data:
+  agent1_wal:
+  agent2_wal:
+  agent3_wal:
   prometheus_data:
   grafana_data:

@@ -37,7 +37,7 @@ RUN cargo chef cook --profile test-release --recipe-path recipe.json --features 
 COPY Cargo.toml Cargo.lock ./
 COPY crates ./crates
 COPY .sqlx ./.sqlx
-RUN cargo build --profile test-release --bin unified-server --features postgres
+RUN cargo build --profile test-release --bin unified-server --bin agent --features postgres
 
 # Runtime stage
 FROM debian:bookworm-slim
@@ -53,6 +53,7 @@ RUN apt-get update && apt-get install -y \
 RUN useradd -m -u 1000 streamhouse
 
 COPY --from=builder /app/target/test-release/unified-server /app/unified-server
+COPY --from=builder /app/target/test-release/agent /app/agent
 
 RUN mkdir -p /data/wal /data/cache && chown -R streamhouse:streamhouse /data
 

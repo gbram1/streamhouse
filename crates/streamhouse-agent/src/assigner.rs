@@ -52,7 +52,6 @@
 use crate::error::{AgentError, Result};
 use crate::lease_manager::LeaseManager;
 use std::collections::{HashMap, HashSet};
-use std::hash::{Hash, Hasher};
 use std::sync::Arc;
 use std::time::Duration;
 use streamhouse_metadata::MetadataStore;
@@ -439,9 +438,16 @@ impl RebalanceTask {
     }
 }
 
-/// Assign a partition using consistent hashing
+/// Number of virtual nodes per agent on the hash ring.
+/// More vnodes = more even distribution but slightly more computation per rebalance.
+/// 150 vnodes gives <10% standard deviation with 3+ agents.
+const VNODES_PER_AGENT: u32 = 150;
+
+/// Assign a partition using consistent hashing with virtual nodes.
 ///
-/// Maps both partition and agents onto a ring, assigns partition to nearest agent clockwise.
+/// Each agent gets `VNODES_PER_AGENT` points on the ring. The partition is assigned
+/// to the agent whose virtual node is nearest clockwise. This produces much more
+/// even distribution than a single point per agent.
 fn assign_partition_consistent_hash(
     topic: &str,
     partition_id: u32,
@@ -451,35 +457,60 @@ fn assign_partition_consistent_hash(
     let partition_key = format!("{}:{}", topic, partition_id);
     let partition_hash = hash_string(&partition_key);
 
-    // Find nearest agent clockwise on the ring
+    // Find nearest agent (via any of its vnodes) clockwise on the ring
     let mut best_agent = &agent_ids[0];
     let mut best_distance = u64::MAX;
 
     for agent_id in agent_ids {
-        let agent_hash = hash_string(agent_id);
+        for vnode in 0..VNODES_PER_AGENT {
+            let vnode_key = format!("{}:vn{}", agent_id, vnode);
+            let vnode_hash = hash_string(&vnode_key);
 
-        // Calculate clockwise distance on the ring
-        let distance = if agent_hash >= partition_hash {
-            agent_hash - partition_hash
-        } else {
-            // Wrap around
-            (u64::MAX - partition_hash) + agent_hash
-        };
+            // Calculate clockwise distance on the ring
+            let distance = if vnode_hash >= partition_hash {
+                vnode_hash - partition_hash
+            } else {
+                // Wrap around
+                (u64::MAX - partition_hash) + vnode_hash
+            };
 
-        if distance < best_distance {
-            best_distance = distance;
-            best_agent = agent_id;
+            if distance < best_distance {
+                best_distance = distance;
+                best_agent = agent_id;
+            }
         }
     }
 
     best_agent.clone()
 }
 
-/// Hash a string to u64 using FNV-1a
+/// Hash a string to u64 using FNV-1a with a Murmur3 finalizer.
+///
+/// Uses a deterministic hash (not DefaultHasher/SipHash which is randomly seeded
+/// per process). This is critical: all agents must compute the same hash for the
+/// same input so they agree on partition assignments.
+///
+/// The Murmur3 finalizer ensures good avalanche properties — small input changes
+/// produce widely different outputs, which is essential for even distribution of
+/// virtual nodes on the consistent hash ring.
 fn hash_string(s: &str) -> u64 {
-    let mut hasher = std::collections::hash_map::DefaultHasher::new();
-    s.hash(&mut hasher);
-    hasher.finish()
+    // FNV-1a 64-bit
+    const FNV_OFFSET_BASIS: u64 = 0xcbf29ce484222325;
+    const FNV_PRIME: u64 = 0x100000001b3;
+
+    let mut hash = FNV_OFFSET_BASIS;
+    for byte in s.as_bytes() {
+        hash ^= *byte as u64;
+        hash = hash.wrapping_mul(FNV_PRIME);
+    }
+
+    // Murmur3 64-bit finalizer — ensures good avalanche for similar inputs
+    hash ^= hash >> 33;
+    hash = hash.wrapping_mul(0xff51afd7ed558ccd);
+    hash ^= hash >> 33;
+    hash = hash.wrapping_mul(0xc4ceb9fe1a85ec53);
+    hash ^= hash >> 33;
+    hash
 }
 
 /// Get current timestamp in milliseconds since epoch
