@@ -744,7 +744,7 @@ impl MetadataStore for PostgresMetadataStore {
 
     async fn get_segment_storage_stats(&self) -> Result<Vec<TopicStorageStats>> {
         let rows = sqlx::query(
-            "SELECT topic, COUNT(*) as segment_count, COALESCE(SUM(size_bytes), 0) as total_size_bytes
+            "SELECT topic, COUNT(*)::BIGINT as segment_count, COALESCE(SUM(size_bytes), 0)::BIGINT as total_size_bytes
              FROM segments GROUP BY topic",
         )
         .fetch_all(&self.pool)

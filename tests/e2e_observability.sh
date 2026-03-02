@@ -4,16 +4,17 @@ set -euo pipefail
 # =============================================================================
 # Observability & Benchmark Demo: Full StreamHouse Internals
 #
-# Unlike e2e_full.sh (pass/fail assertions), this script is VISUAL.
-# It prints postgres query results, S3 file listings, latency measurements,
-# and SQL benchmark timings — meant to be read by a human.
+# Uses the REAL production path throughout:
+#   - streamctl CLI (gRPC) for topic mgmt, produce, consume, offsets, SQL
+#   - REST batch endpoint only for throughput benchmarking (labeled clearly)
+#   - Real postgres, real S3, real agents, real reconciler
 #
 # Services are LEFT RUNNING at the end so you can explore Grafana, MinIO,
 # Prometheus, and Swagger UI interactively.
 #
 # Usage:
 #   ./tests/e2e_observability.sh              # full run (build + demo)
-#   ./tests/e2e_observability.sh --no-build   # skip docker build
+#   ./tests/e2e_observability.sh --no-build   # skip docker/cargo build
 #   ./tests/e2e_observability.sh --cleanup    # tear down services
 # =============================================================================
 
@@ -22,8 +23,15 @@ PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 cd "$PROJECT_DIR"
 
 API_URL="http://localhost:8080"
+GRPC_URL="http://localhost:50051"
+STREAMCTL="./target/release/streamctl"
 TOPIC="obs-bench"
 PARTITIONS=6
+
+# Configure streamctl to use gRPC
+export STREAMHOUSE_ADDR="$GRPC_URL"
+export SCHEMA_REGISTRY_URL="$API_URL/schemas"
+export STREAMHOUSE_API_URL="$API_URL"
 
 # -- Formatting ---------------------------------------------------------------
 
@@ -44,50 +52,53 @@ header() {
 # -- Helpers ------------------------------------------------------------------
 
 pg() {
-    docker compose exec -T postgres psql -U streamhouse -d streamhouse --pset border=2 -c "SET app.current_organization_id = '00000000-0000-0000-0000-000000000000'; $1" 2>/dev/null | grep -v "^SET$"
+    docker compose exec -T postgres psql -U streamhouse -d streamhouse --pset border=2 \
+        -c "SET app.current_organization_id = '00000000-0000-0000-0000-000000000000'; $1" 2>/dev/null \
+        | grep -v "^SET$"
 }
 
-# For scalar queries — returns just the number
 pg_scalar() {
-    docker compose exec -T postgres psql -U streamhouse -d streamhouse -t -A -c "SET app.current_organization_id = '00000000-0000-0000-0000-000000000000'; $1" 2>/dev/null | grep -v "^SET$" | head -1 | tr -d ' '
+    docker compose exec -T postgres psql -U streamhouse -d streamhouse -t -A \
+        -c "SET app.current_organization_id = '00000000-0000-0000-0000-000000000000'; $1" 2>/dev/null \
+        | grep -v "^SET$" | head -1 | tr -d ' '
 }
 
-# MinIO mc wrapper — sets alias each call since minio-init is ephemeral
 minio_mc() {
-    docker compose exec -T minio sh -c "mc alias set myminio http://localhost:9000 minioadmin minioadmin >/dev/null 2>&1; mc $1" 2>/dev/null
+    docker compose exec -T minio sh -c \
+        "mc alias set myminio http://localhost:9000 minioadmin minioadmin >/dev/null 2>&1; mc $1" 2>/dev/null
 }
 
-sql_query() {
-    local query="$1"
-    curl -sf "$API_URL/api/v1/sql" \
+# REST batch produce — used ONLY for throughput benchmark (not the real client path)
+rest_batch_produce() {
+    local topic="$1" count="$2" partition="${3:-}" key_prefix="${4:-msg}"
+    local payload
+    payload=$(python3 -c "
+import json, sys
+topic, count, part, prefix = sys.argv[1], int(sys.argv[2]), sys.argv[3], sys.argv[4]
+records = []
+for i in range(1, count + 1):
+    r = {'key': f'{prefix}-{i}', 'value': json.dumps({'seq': i, 'data': f'payload-{i}'})}
+    if part:
+        r['partition'] = int(part)
+    records.append(r)
+print(json.dumps({'topic': topic, 'records': records}))
+" "$topic" "$count" "$partition" "$key_prefix")
+    curl -sf "$API_URL/api/v1/produce/batch" \
         -H "Content-Type: application/json" \
-        -d "{\"query\": \"$query\"}" 2>/dev/null
+        -d "$payload" 2>/dev/null
 }
 
 sql_timing() {
     local query="$1"
     local result
-    result=$(sql_query "$query")
+    result=$(curl -sf "$API_URL/api/v1/sql" \
+        -H "Content-Type: application/json" \
+        -d "{\"query\": \"$query\"}" 2>/dev/null)
     local rows time_ms
     rows=$(echo "$result" | python3 -c "import sys,json; print(json.load(sys.stdin)['rowCount'])" 2>/dev/null || echo "?")
     time_ms=$(echo "$result" | python3 -c "import sys,json; print(json.load(sys.stdin)['executionTimeMs'])" 2>/dev/null || echo "?")
     printf "  %-55s | %5s rows | %s ms\n" "$query" "$rows" "$time_ms" >&2
     echo "$time_ms"
-}
-
-produce_message() {
-    local topic="$1" partition="$2" key="$3" value="$4"
-    # Escape inner double quotes for safe JSON embedding
-    local escaped_value="${value//\"/\\\"}"
-    curl -sf "$API_URL/api/v1/produce" \
-        -H "Content-Type: application/json" \
-        -d "{\"topic\":\"$topic\",\"partition\":$partition,\"key\":\"$key\",\"value\":\"$escaped_value\"}" \
-        >/dev/null 2>&1
-}
-
-consume_messages() {
-    local topic="$1" partition="$2" offset="${3:-0}" max="${4:-100}"
-    curl -sf "$API_URL/api/v1/consume?topic=$topic&partition=$partition&offset=$offset&maxRecords=$max" 2>/dev/null
 }
 
 ms_now() {
@@ -113,9 +124,17 @@ header "Section 0: Start Full Stack (infra + monitoring)"
 if [ "${1:-}" != "--no-build" ]; then
     echo "  Building docker images..."
     docker compose build streamhouse agent-1 agent-2 agent-3
+    echo "  Building streamctl CLI..."
+    cargo build --release -p streamhouse-cli
     echo ""
 else
     dim "  (build skipped with --no-build)"
+fi
+
+# Verify streamctl exists
+if [ ! -x "$STREAMCTL" ]; then
+    red "ERROR: $STREAMCTL not found. Run without --no-build first."
+    exit 1
 fi
 
 echo "  Cleaning previous state..."
@@ -156,7 +175,8 @@ echo "  Starting 3 agents..."
 docker compose up -d agent-1 agent-2 agent-3
 echo "  Waiting for agent registration..."
 for i in $(seq 1 30); do
-    count=$(curl -sf "$API_URL/api/v1/agents" 2>/dev/null | python3 -c "import sys,json; print(len(json.load(sys.stdin)))" 2>/dev/null || echo 0)
+    count=$(curl -sf "$API_URL/api/v1/agents" 2>/dev/null \
+        | python3 -c "import sys,json; print(len(json.load(sys.stdin)))" 2>/dev/null || echo 0)
     if [ "$count" -ge 3 ]; then break; fi
     sleep 1
 done
@@ -179,6 +199,7 @@ green "  grafana ready"
 echo ""
 cyan "  Access URLs:"
 echo "    REST API:       $API_URL"
+echo "    gRPC:           $GRPC_URL"
 echo "    Swagger UI:     $API_URL/swagger-ui/"
 echo "    Grafana:        http://localhost:3001  (admin/admin)"
 echo "    Prometheus:     http://localhost:9091"
@@ -189,31 +210,33 @@ echo "    MinIO Console:  http://localhost:9001  (minioadmin/minioadmin)"
 set +e
 
 # =============================================================================
-# Section 1: Postgres Internals — Metadata State
+# Section 1: Create Topic & Inspect Postgres (via streamctl)
 # =============================================================================
 
 header "Section 1: Postgres Internals — Initial State"
 
 echo ""
-echo "  Creating topic '$TOPIC' with $PARTITIONS partitions..."
-if curl -sf "$API_URL/api/v1/topics" \
-    -H "Content-Type: application/json" \
-    -d "{\"name\":\"$TOPIC\",\"partitions\":$PARTITIONS}" >/dev/null 2>&1; then
-    green "  topic created"
-else
-    red "  FAILED to create topic (may already exist)"
-fi
+echo "  Creating topic via streamctl (gRPC)..."
+$STREAMCTL topic create "$TOPIC" --partitions "$PARTITIONS" 2>&1 | sed 's/^/    /'
 
 echo ""
-yellow "  >>> topics table:"
+echo "  Listing topics via streamctl (gRPC)..."
+$STREAMCTL topic list 2>&1 | sed 's/^/    /'
+
+echo ""
+echo "  Getting topic info via streamctl (gRPC)..."
+$STREAMCTL topic get "$TOPIC" 2>&1 | sed 's/^/    /'
+
+echo ""
+yellow "  >>> topics table (postgres):"
 pg "SELECT name, partition_count, cleanup_policy, to_timestamp(created_at/1000) as created FROM topics;"
 
 echo ""
-yellow "  >>> partitions with watermarks:"
+yellow "  >>> partitions with watermarks (postgres):"
 pg "SELECT topic, partition_id, high_watermark FROM partitions WHERE topic = '$TOPIC' ORDER BY partition_id;"
 
 echo ""
-yellow "  >>> registered agents:"
+yellow "  >>> registered agents (postgres):"
 pg "SELECT agent_id, availability_zone, agent_group, to_timestamp(last_heartbeat/1000) as last_heartbeat FROM agents ORDER BY agent_id;"
 
 # =============================================================================
@@ -239,7 +262,7 @@ done
 green "  all $PARTITIONS partitions assigned"
 
 echo ""
-yellow "  >>> partition leases:"
+yellow "  >>> partition leases (postgres):"
 pg "SELECT topic, partition_id, leader_agent_id, to_timestamp(lease_expires_at/1000) as expires, epoch FROM partition_leases WHERE topic = '$TOPIC' ORDER BY partition_id;"
 
 echo ""
@@ -254,25 +277,58 @@ for agent, count in sorted(Counter(leaders).items()):
 "
 
 # =============================================================================
-# Section 3: Produce & Buffer Reads — Latency Comparison
+# Section 3: Produce & Consume via streamctl (real gRPC path)
 # =============================================================================
 
-header "Section 3: Produce & Buffer Reads — Latency Comparison"
+header "Section 3: Produce & Consume via streamctl (gRPC)"
 
 echo ""
-echo "  Producing 100 messages to partition 0..."
-for i in $(seq 1 100); do
-    produce_message "$TOPIC" 0 "key-$i" "{\"order_id\":$i,\"amount\":$((RANDOM % 1000)),\"item\":\"widget-$i\"}"
+echo "  Producing 20 messages via streamctl (gRPC, one-at-a-time)..."
+T_START=$(ms_now)
+for i in $(seq 1 20); do
+    $STREAMCTL produce "$TOPIC" --partition 0 --key "order-$i" \
+        --value "{\"order_id\":$i,\"amount\":$((RANDOM % 1000)),\"item\":\"widget-$i\"}" \
+        --skip-validation >/dev/null 2>&1
 done
-green "  100 messages produced"
+T_END=$(ms_now)
+GRPC_PRODUCE_MS=$((T_END - T_START))
+GRPC_PER_MSG=$((GRPC_PRODUCE_MS / 20))
+green "  20 messages produced in ${GRPC_PRODUCE_MS}ms (~${GRPC_PER_MSG}ms per message)"
+dim "    (each call = new gRPC connection + produce + close)"
+
+echo ""
+echo "  Consuming via streamctl (gRPC)..."
+$STREAMCTL consume "$TOPIC" --partition 0 --offset 0 --limit 5 2>&1 | sed 's/^/    /'
+
+echo ""
+echo "  Committing consumer offset via streamctl (gRPC)..."
+$STREAMCTL offset commit --group obs-group --topic "$TOPIC" --partition 0 --offset 20 2>&1 | sed 's/^/    /'
+
+echo ""
+echo "  Reading committed offset via streamctl (gRPC)..."
+$STREAMCTL offset get --group obs-group --topic "$TOPIC" --partition 0 2>&1 | sed 's/^/    /'
+
+# =============================================================================
+# Section 4: Buffer Read vs S3 Read — Latency Comparison
+# =============================================================================
+
+header "Section 4: Buffer Read vs S3 Read — Latency"
+
+echo ""
+echo "  Producing 80 more messages to reach 100 on partition 0..."
+for i in $(seq 21 100); do
+    $STREAMCTL produce "$TOPIC" --partition 0 --key "buf-$i" \
+        --value "{\"seq\":$i}" --skip-validation >/dev/null 2>&1
+done
+green "  100 total messages on partition 0"
 
 echo ""
 echo "  Buffer read (immediate, before S3 flush)..."
 T_START=$(ms_now)
-BUFFER_RESULT=$(consume_messages "$TOPIC" 0 0 100)
+BUFFER_OUT=$($STREAMCTL consume "$TOPIC" --partition 0 --offset 0 --limit 100 2>&1)
 T_END=$(ms_now)
 BUFFER_MS=$((T_END - T_START))
-BUFFER_COUNT=$(echo "$BUFFER_RESULT" | python3 -c "import sys,json; print(len(json.load(sys.stdin)['records']))" 2>/dev/null || echo "?")
+BUFFER_COUNT=$(echo "$BUFFER_OUT" | grep -c "^Record " || echo "?")
 green "  Buffer read: $BUFFER_COUNT records in ${BUFFER_MS}ms"
 
 echo ""
@@ -281,10 +337,10 @@ sleep 8
 
 echo "  S3 read (from offset 0, post-flush)..."
 T_START=$(ms_now)
-S3_RESULT=$(consume_messages "$TOPIC" 0 0 100)
+S3_OUT=$($STREAMCTL consume "$TOPIC" --partition 0 --offset 0 --limit 100 2>&1)
 T_END=$(ms_now)
 S3_MS=$((T_END - T_START))
-S3_COUNT=$(echo "$S3_RESULT" | python3 -c "import sys,json; print(len(json.load(sys.stdin)['records']))" 2>/dev/null || echo "?")
+S3_COUNT=$(echo "$S3_OUT" | grep -c "^Record " || echo "?")
 green "  S3 read: $S3_COUNT records in ${S3_MS}ms"
 
 echo ""
@@ -293,10 +349,10 @@ printf "    Buffer read (RAM):   %4d ms  (%s records)\n" "$BUFFER_MS" "$BUFFER_C
 printf "    S3 read (disk/net):  %4d ms  (%s records)\n" "$S3_MS" "$S3_COUNT"
 
 # =============================================================================
-# Section 4: S3 State — Segment Files
+# Section 5: S3 State — Segment Files
 # =============================================================================
 
-header "Section 4: S3 State — Segment Files"
+header "Section 5: S3 State — Segment Files"
 
 echo ""
 yellow "  >>> S3 objects in minio:"
@@ -313,14 +369,17 @@ echo "  S3 objects: $S3_COUNT_OBJ"
 echo "  Postgres segments: $PG_COUNT_SEG"
 
 # =============================================================================
-# Section 5: S3 Orphan Reconciliation Demo (Live)
+# Section 6: S3 Orphan Reconciliation Demo (Live)
 # =============================================================================
 
-header "Section 5: S3 Orphan Reconciliation Demo (Live)"
+header "Section 6: S3 Orphan Reconciliation Demo (Live)"
 
 echo ""
 echo "  Uploading fake orphan segment to S3..."
-docker compose exec -T minio sh -c "mc alias set myminio http://localhost:9000 minioadmin minioadmin >/dev/null 2>&1; echo 'fake-orphan-data-for-reconciler-test' | mc pipe myminio/streamhouse/data/$TOPIC/0/99999999999999999999.seg" 2>/dev/null
+docker compose exec -T minio sh -c \
+    "mc alias set myminio http://localhost:9000 minioadmin minioadmin >/dev/null 2>&1; \
+     echo 'fake-orphan-data-for-reconciler-test' | mc pipe myminio/streamhouse/data/$TOPIC/0/99999999999999999999.seg" \
+    2>/dev/null
 green "  orphan uploaded: data/$TOPIC/0/99999999999999999999.seg"
 
 echo ""
@@ -357,12 +416,20 @@ yellow "  >>> S3 listing after reconciliation:"
 minio_mc "ls myminio/streamhouse/data/$TOPIC/0/" || echo "    (empty)"
 
 # =============================================================================
-# Section 6: SQL Benchmarks
+# Section 7: SQL Benchmarks (via streamctl + REST timing)
 # =============================================================================
 
-header "Section 6: SQL Benchmarks"
+header "Section 7: SQL Benchmarks"
 
 echo ""
+echo "  Running SQL via streamctl (gRPC → REST)..."
+echo ""
+$STREAMCTL sql query "SHOW TOPICS" 2>&1 | sed 's/^/    /'
+echo ""
+$STREAMCTL sql query "SELECT * FROM \"$TOPIC\" LIMIT 5" 2>&1 | sed 's/^/    /'
+
+echo ""
+bold "  Server-side execution times (from REST /api/v1/sql):"
 bold "  Query                                                   |  Rows | Time"
 echo "  --------------------------------------------------------|-------|------"
 
@@ -374,45 +441,64 @@ SQL_GROUP_TIME=$(sql_timing "SELECT partition, COUNT(*) FROM \\\"$TOPIC\\\" GROU
 SQL_JSON_TIME=$(sql_timing "SELECT json_extract(value, '$.order_id') FROM \\\"$TOPIC\\\" LIMIT 10")
 
 # =============================================================================
-# Section 7: Sustained Load Test & Throughput
+# Section 8: Batch Throughput Benchmark (REST)
 # =============================================================================
 
-header "Section 7: Sustained Load Test & Throughput"
+header "Section 8: Batch Throughput Benchmark"
+
+BATCH_SIZE=1000
+BATCHES_PER_PARTITION=2
+LOAD_TOTAL=$((BATCH_SIZE * BATCHES_PER_PARTITION * PARTITIONS))
 
 echo ""
-echo "  Producing 1000 messages across $PARTITIONS partitions (round-robin)..."
+dim "  NOTE: This uses the REST batch endpoint (/api/v1/produce/batch) to measure"
+dim "  server-side ingest throughput without per-call gRPC connection overhead."
+dim "  Real production clients keep persistent gRPC connections."
+echo ""
+echo "  Producing $LOAD_TOTAL messages across $PARTITIONS partitions..."
+echo "  (${BATCH_SIZE}-record batches, $BATCHES_PER_PARTITION batches per partition)"
+BATCH_ERRORS=0
 T_START=$(ms_now)
-for i in $(seq 1 1000); do
-    p=$(( (i - 1) % PARTITIONS ))
-    produce_message "$TOPIC" "$p" "load-$i" "{\"seq\":$i,\"partition\":$p,\"ts\":$(date +%s),\"data\":\"load-test-payload-$i\"}"
+for p in $(seq 0 $((PARTITIONS - 1))); do
+    for batch in $(seq 1 $BATCHES_PER_PARTITION); do
+        if ! rest_batch_produce "$TOPIC" "$BATCH_SIZE" "$p" "load-p${p}-b${batch}" >/dev/null; then
+            BATCH_ERRORS=$((BATCH_ERRORS + 1))
+        fi
+    done
 done
 T_END=$(ms_now)
 LOAD_MS=$((T_END - T_START))
 if [ "$LOAD_MS" -gt 0 ]; then
-    THROUGHPUT=$(( 1000 * 1000 / LOAD_MS ))
+    THROUGHPUT=$(( LOAD_TOTAL * 1000 / LOAD_MS ))
 else
     THROUGHPUT="inf"
 fi
-green "  1000 messages produced in ${LOAD_MS}ms (~${THROUGHPUT} msg/s)"
+green "  $LOAD_TOTAL messages produced in ${LOAD_MS}ms (~${THROUGHPUT} msg/s via REST batch)"
+if [ "$BATCH_ERRORS" -gt 0 ]; then
+    yellow "  WARNING: $BATCH_ERRORS batch(es) failed (HTTP error)"
+fi
 
 echo ""
-echo "  Cluster metrics snapshot:"
+echo "  Waiting for segment flushes and high watermark sync..."
+sleep 10
+
+echo "  Cluster metrics snapshot (post-flush):"
 METRICS=$(curl -sf "$API_URL/api/v1/metrics" 2>/dev/null || echo "{}")
 echo "$METRICS" | python3 -c "
 import sys, json
 m = json.load(sys.stdin)
-print(f'    Topics:       {m.get(\"topicsCount\", \"?\")}')
-print(f'    Agents:       {m.get(\"agentsCount\", \"?\")}')
-print(f'    Partitions:   {m.get(\"partitionsCount\", \"?\")}')
-print(f'    Total msgs:   {m.get(\"totalMessages\", \"?\")}')
+print(f'    Topics:       {m.get(\"topics_count\", \"?\")}')
+print(f'    Agents:       {m.get(\"agents_count\", \"?\")}')
+print(f'    Partitions:   {m.get(\"partitions_count\", \"?\")}')
+print(f'    Total msgs:   {m.get(\"total_messages\", \"?\")}')
 " 2>/dev/null || echo "    (metrics unavailable)"
 
 STORAGE=$(curl -sf "$API_URL/api/v1/metrics/storage" 2>/dev/null || echo "{}")
 echo "$STORAGE" | python3 -c "
 import sys, json
 m = json.load(sys.stdin)
-total = m.get('totalStorageBytes', 0)
-segs = m.get('totalSegments', '?')
+total = m.get('totalSizeBytes', 0)
+segs = m.get('segmentCount', '?')
 if isinstance(total, (int, float)):
     if total > 1024*1024:
         print(f'    Storage:      {total/1024/1024:.2f} MB ({segs} segments)')
@@ -425,21 +511,24 @@ else:
 " 2>/dev/null || echo "    (storage metrics unavailable)"
 
 echo ""
-echo "  Verifying all messages queryable via SQL..."
-sleep 2  # brief settle
-TOTAL_RESULT=$(sql_query "SELECT COUNT(*) FROM \"$TOPIC\"")
+echo "  Verifying messages queryable via SQL..."
+TOTAL_RESULT=$(curl -sf "$API_URL/api/v1/sql" \
+    -H "Content-Type: application/json" \
+    -d "{\"query\": \"SELECT COUNT(*) FROM \\\"$TOPIC\\\"\"}" 2>/dev/null)
 TOTAL_COUNT=$(echo "$TOTAL_RESULT" | python3 -c "
 import sys, json
 r = json.load(sys.stdin)
 print(r['rows'][0][0])
 " 2>/dev/null || echo "?")
-echo "  SQL COUNT(*): $TOTAL_COUNT messages (expected: 1100 = 100 initial + 1000 load)"
+EXPECTED_TOTAL=$((100 + LOAD_TOTAL))
+echo "  SQL COUNT(*): $TOTAL_COUNT messages (expected: $EXPECTED_TOTAL = 100 gRPC + $LOAD_TOTAL REST batch)"
+dim "  (COUNT uses high_watermark fast path — REST batch writes may need flush to sync)"
 
 # =============================================================================
-# Section 8: Prometheus Metrics Dump
+# Section 9: Prometheus Metrics Dump
 # =============================================================================
 
-header "Section 8: Prometheus Metrics Dump"
+header "Section 9: Prometheus Metrics Dump"
 
 echo ""
 yellow "  >>> Key Prometheus counters from /metrics:"
@@ -468,29 +557,29 @@ except:
 " 2>/dev/null
 
 # =============================================================================
-# Section 9: Summary & Dashboard Links
+# Section 10: Summary & Dashboard Links
 # =============================================================================
 
-header "Section 9: Summary"
+header "Section 10: Summary"
 
-# Collect final segment counts
 FINAL_S3=$(minio_mc "ls --recursive myminio/streamhouse/data/" | wc -l | tr -d ' ')
 FINAL_PG_SEG=$(pg_scalar "SELECT COUNT(*) FROM segments;" || echo "?")
-FINAL_AGENTS=$(curl -sf "$API_URL/api/v1/agents" 2>/dev/null | python3 -c "import sys,json; print(len(json.load(sys.stdin)))" 2>/dev/null || echo "?")
+FINAL_AGENTS=$(curl -sf "$API_URL/api/v1/agents" 2>/dev/null \
+    | python3 -c "import sys,json; print(len(json.load(sys.stdin)))" 2>/dev/null || echo "?")
 
 echo ""
 bold "  === Observability Test Summary ==="
 echo ""
-printf "    Buffer read latency:    %s ms\n" "$BUFFER_MS"
-printf "    S3 read latency:        %s ms\n" "$S3_MS"
-printf "    Produce throughput:     %s msg/s\n" "$THROUGHPUT"
-printf "    SQL SELECT latency:     %s ms\n" "${SQL_SELECT_TIME:-?}"
-printf "    SQL COUNT(*) latency:   %s ms\n" "${SQL_COUNT_TIME:-?}"
-printf "    Segments in S3:         %s\n" "$FINAL_S3"
-printf "    Segments in Postgres:   %s\n" "$FINAL_PG_SEG"
-printf "    Agents active:          %s\n" "$FINAL_AGENTS"
-printf "    Partitions assigned:    %s/%s\n" "$PARTITIONS" "$PARTITIONS"
-printf "    Load test:              1000 msgs in %s ms\n" "$LOAD_MS"
+printf "    gRPC produce (per msg):  %s ms  (streamctl, new conn each call)\n" "$GRPC_PER_MSG"
+printf "    Buffer read latency:     %s ms  (streamctl consume, from RAM)\n" "$BUFFER_MS"
+printf "    S3 read latency:         %s ms  (streamctl consume, from S3)\n" "$S3_MS"
+printf "    REST batch throughput:   %s msg/s  (%s msgs in %s ms)\n" "$THROUGHPUT" "$LOAD_TOTAL" "$LOAD_MS"
+printf "    SQL SELECT latency:      %s ms  (server-side)\n" "${SQL_SELECT_TIME:-?}"
+printf "    SQL COUNT(*) latency:    %s ms  (server-side)\n" "${SQL_COUNT_TIME:-?}"
+printf "    Segments in S3:          %s\n" "$FINAL_S3"
+printf "    Segments in Postgres:    %s\n" "$FINAL_PG_SEG"
+printf "    Agents active:           %s\n" "$FINAL_AGENTS"
+printf "    Partitions assigned:     %s/%s\n" "$PARTITIONS" "$PARTITIONS"
 echo ""
 
 bold "  === Explore Dashboards ==="
