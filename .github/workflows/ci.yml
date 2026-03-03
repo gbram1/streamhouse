@@ -61,14 +61,33 @@ jobs:
       - name: Install system dependencies
         run: sudo apt-get update && sudo apt-get install -y mold protobuf-compiler
 
-      # sccache for cross-step compilation cache
+      # sccache for cross-step compilation cache (optional - graceful fallback)
       - name: Setup sccache
         uses: mozilla-actions/sccache-action@v0.0.5
+        continue-on-error: true
+        id: sccache
+
+      - name: Test sccache connectivity
+        if: steps.sccache.outcome == 'success'
+        id: sccache-test
+        continue-on-error: true
+        run: |
+          # Test if sccache can actually connect to GitHub cache
+          sccache --show-stats || exit 1
+          echo "Connectivity test passed"
 
       - name: Configure sccache
+        if: steps.sccache.outcome == 'success' && steps.sccache-test.outcome == 'success'
         run: |
+          echo "✅ sccache enabled (GitHub cache accessible)"
           echo "SCCACHE_GHA_ENABLED=true" >> $GITHUB_ENV
           echo "RUSTC_WRAPPER=sccache" >> $GITHUB_ENV
+
+      - name: Fallback message
+        if: steps.sccache.outcome != 'success' || steps.sccache-test.outcome != 'success'
+        run: |
+          echo "⚠️  sccache disabled (GitHub cache unavailable - using rust-cache only)"
+          echo "Build will be slower but will complete successfully"
 
       - name: Cache Cargo registry
         uses: actions/cache@v4
@@ -122,8 +141,9 @@ jobs:
           retention-days: 3
           compression-level: 9
 
-      # Show sccache stats
+      # Show sccache stats (if enabled)
       - name: sccache stats
+        if: steps.sccache.outcome == 'success'
         run: sccache --show-stats
 
   # Coverage only on main or PRs to main
@@ -145,8 +165,17 @@ jobs:
 
       - name: Setup sccache
         uses: mozilla-actions/sccache-action@v0.0.5
+        continue-on-error: true
+        id: sccache-coverage
+
+      - name: Test sccache connectivity
+        if: steps.sccache-coverage.outcome == 'success'
+        id: sccache-coverage-test
+        continue-on-error: true
+        run: sccache --show-stats || exit 1
 
       - name: Configure sccache
+        if: steps.sccache-coverage.outcome == 'success' && steps.sccache-coverage-test.outcome == 'success'
         run: |
           echo "SCCACHE_GHA_ENABLED=true" >> $GITHUB_ENV
           echo "RUSTC_WRAPPER=sccache" >> $GITHUB_ENV
@@ -215,8 +244,17 @@ jobs:
 
       - name: Setup sccache
         uses: mozilla-actions/sccache-action@v0.0.5
+        continue-on-error: true
+        id: sccache-bench
+
+      - name: Test sccache connectivity
+        if: steps.sccache-bench.outcome == 'success'
+        id: sccache-bench-test
+        continue-on-error: true
+        run: sccache --show-stats || exit 1
 
       - name: Configure sccache
+        if: steps.sccache-bench.outcome == 'success' && steps.sccache-bench-test.outcome == 'success'
         run: |
           echo "SCCACHE_GHA_ENABLED=true" >> $GITHUB_ENV
           echo "RUSTC_WRAPPER=sccache" >> $GITHUB_ENV
