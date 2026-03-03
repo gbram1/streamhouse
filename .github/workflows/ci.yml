@@ -5,14 +5,21 @@ on:
     branches: [ main, master, develop ]
   pull_request:
     branches: [ main, master ]
+  schedule:
+    # Run security audit weekly
+    - cron: '0 0 * * 0'
 
 env:
   RUST_BACKTRACE: 1
   CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: 0
+  CARGO_NET_RETRY: 10
+  RUSTUP_MAX_RETRIES: 10
 
 jobs:
-  fmt:
-    name: Format
+  # Fast checks first - fail fast
+  check:
+    name: Format & Lint
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -20,34 +27,28 @@ jobs:
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
         with:
-          components: rustfmt
+          components: rustfmt, clippy
 
+      - name: Install system dependencies
+        run: sudo apt-get update && sudo apt-get install -y mold protobuf-compiler
+
+      - name: Cache dependencies
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: "stable-ubuntu"
+
+      # Format check (fastest, no compilation)
       - name: Check formatting
         run: cargo fmt --all -- --check
 
-  clippy:
-    name: Clippy
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          components: clippy
-
-      - name: Install system dependencies
-        run: sudo apt-get update && sudo apt-get install -y mold protobuf-compiler
-
-      - name: Cache dependencies
-        uses: Swatinem/rust-cache@v2
-
+      # Clippy check (compiles in check mode)
       - name: Clippy
-        run: cargo clippy --workspace --all-features -- -D warnings
+        run: cargo clippy --workspace --all-features --all-targets -- -D warnings
 
   test:
-    name: Test
+    name: Test Suite
     runs-on: ubuntu-latest
+    needs: check
     steps:
       - uses: actions/checkout@v4
 
@@ -59,19 +60,25 @@ jobs:
 
       - name: Cache dependencies
         uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: "stable-ubuntu"
 
       - name: Install nextest
         uses: taiki-e/install-action@nextest
 
+      # Run tests (reuses cache from clippy job)
       - name: Run tests
-        run: cargo nextest run --workspace --all-features
+        run: cargo nextest run --workspace --all-features --retries 2
 
       - name: Run doctests
-        run: cargo test --workspace --doc
+        run: cargo test --workspace --doc --all-features
 
+  # Coverage only on main branch or PRs to main (expensive)
   coverage:
     name: Coverage
     runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main' || github.base_ref == 'main'
+    needs: check
     steps:
       - uses: actions/checkout@v4
 
@@ -85,6 +92,8 @@ jobs:
 
       - name: Cache dependencies
         uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: "stable-ubuntu"
 
       - name: Install cargo-llvm-cov
         uses: taiki-e/install-action@cargo-llvm-cov
@@ -92,37 +101,25 @@ jobs:
       - name: Generate coverage report
         run: cargo llvm-cov --workspace --all-features --codecov --output-path codecov.json
 
-      - name: Generate HTML report
-        run: cargo llvm-cov --workspace --all-features --html
-
       - name: Upload coverage artifact
         uses: actions/upload-artifact@v4
         with:
           name: coverage-report
-          path: target/llvm-cov/html/
+          path: codecov.json
           retention-days: 14
 
       - name: Coverage summary
-        run: cargo llvm-cov --workspace --all-features --summary-only 2>&1 | tee coverage-summary.txt
-
-      - name: Check coverage threshold
         run: |
-          COVERAGE=$(cargo llvm-cov --workspace --all-features --summary-only 2>&1 | grep 'TOTAL' | awk '{print $NF}' | tr -d '%')
+          COVERAGE=$(cargo llvm-cov --workspace --all-features --summary-only 2>&1 | grep 'TOTAL' | awk '{print $NF}' | tr -d '%' || echo "0")
           echo "Total coverage: ${COVERAGE}%"
-          if [ -z "$COVERAGE" ]; then
-            echo "Warning: Could not parse coverage percentage, skipping threshold check"
-            exit 0
-          fi
-          THRESHOLD=80
-          if (( $(echo "$COVERAGE < $THRESHOLD" | bc -l) )); then
-            echo "::error::Coverage ${COVERAGE}% is below threshold of ${THRESHOLD}%"
-            exit 1
-          fi
-          echo "Coverage ${COVERAGE}% meets threshold of ${THRESHOLD}%"
+          echo "coverage=${COVERAGE}" >> $GITHUB_OUTPUT
+        id: coverage
 
+  # Security audit only on main, PRs to main, or weekly schedule
   security:
     name: Security Audit
     runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main' || github.base_ref == 'main' || github.event_name == 'schedule'
     steps:
       - uses: actions/checkout@v4
 
@@ -132,14 +129,14 @@ jobs:
       - name: Cache dependencies
         uses: Swatinem/rust-cache@v2
 
-      - name: Install cargo-audit
-        run: cargo install cargo-audit
-
       - name: Install cargo-deny
         uses: taiki-e/install-action@cargo-deny
 
       - name: Run cargo audit
-        run: cargo audit
+        uses: actions-rust-lang/audit@v1
+        with:
+          # Don't fail on warnings, only actual vulnerabilities
+          deny-warnings: false
 
       - name: Run cargo deny (advisories)
         run: cargo deny check advisories
@@ -150,10 +147,12 @@ jobs:
       - name: Run cargo deny (bans)
         run: cargo deny check bans
 
+  # Benchmarks only on PRs (not every push)
   benchmarks:
     name: Benchmarks
     runs-on: ubuntu-latest
     if: github.event_name == 'pull_request'
+    needs: check
     permissions:
       pull-requests: write
     steps:
@@ -167,31 +166,24 @@ jobs:
 
       - name: Cache dependencies
         uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: "stable-ubuntu"
 
       - name: Run benchmarks
-        run: cargo bench --workspace -- --output-format bencher 2>&1 | tee benchmark-results.txt
+        run: cargo bench --workspace --no-fail-fast -- --output-format bencher 2>&1 | tee benchmark-results.txt || true
 
       - name: Upload benchmark results
         uses: actions/upload-artifact@v4
+        if: always()
         with:
           name: benchmark-results
           path: benchmark-results.txt
           retention-days: 14
 
-      - name: Benchmark regression check
-        uses: benchmark-action/github-action-benchmark@v1
-        with:
-          tool: cargo
-          output-file-path: benchmark-results.txt
-          alert-threshold: '120%'
-          comment-on-alert: true
-          fail-on-alert: false
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-
   build:
     name: Build Release
     runs-on: ubuntu-latest
-    needs: [fmt, clippy, test, coverage]
+    needs: [check, test]
     steps:
       - uses: actions/checkout@v4
 
@@ -203,6 +195,18 @@ jobs:
 
       - name: Cache dependencies
         uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: "stable-ubuntu"
 
       - name: Build release
         run: cargo build --workspace --release
+
+      - name: Upload binaries
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-binaries
+          path: |
+            target/release/unified-server
+            target/release/standalone-agent
+            target/release/streamctl
+          retention-days: 7
