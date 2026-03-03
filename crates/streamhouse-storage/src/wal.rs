@@ -490,7 +490,7 @@ impl WAL {
             .map_err(|_| wal_closed_error())?;
         rx.await
             .map_err(|_| wal_closed_error())?
-            .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
+            .map_err(std::io::Error::other)?;
         Ok(())
     }
 
@@ -730,7 +730,7 @@ impl WAL {
             .map_err(|_| wal_closed_error())?;
         rx.await
             .map_err(|_| wal_closed_error())?
-            .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
+            .map_err(std::io::Error::other)?;
         Ok(())
     }
 

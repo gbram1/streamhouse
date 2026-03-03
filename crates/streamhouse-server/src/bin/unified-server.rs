@@ -101,6 +101,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Initialize observability (metrics)
     streamhouse_observability::init();
 
+    // Record start time for uptime metric
+    let start_time = std::time::Instant::now();
+
     tracing::info!("🚀 Starting StreamHouse Unified Server");
 
     // Configuration
@@ -700,6 +703,27 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         // Serve web console static files
         .fallback_service(ServeDir::new(&web_console_path))
         .layer(TraceLayer::new_for_http());
+
+    // Spawn background metrics updater (updates Prometheus gauges every 15s)
+    {
+        let metadata = metadata.clone();
+        tokio::spawn(async move {
+            let mut interval = tokio::time::interval(Duration::from_secs(15));
+            loop {
+                interval.tick().await;
+                streamhouse_observability::metrics::UPTIME_SECONDS
+                    .set(start_time.elapsed().as_secs() as i64);
+                if let Ok(topics) = metadata.list_topics().await {
+                    streamhouse_observability::metrics::TOPICS_TOTAL
+                        .set(topics.len() as i64);
+                }
+                if let Ok(agents) = metadata.list_agents(None, None).await {
+                    streamhouse_observability::metrics::AGENTS_ACTIVE
+                        .set(agents.len() as i64);
+                }
+            }
+        });
+    }
 
     // Set up gRPC reflection service
     let descriptor_bytes = include_bytes!("../../proto/streamhouse_descriptor.bin");

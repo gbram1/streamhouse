@@ -1,22 +1,22 @@
 //! Partition Assigner - Automatic Partition Distribution
 //!
 //! The PartitionAssigner automatically distributes partitions across available agents
-//! using consistent hashing. It watches for topology changes (agents joining/leaving)
+//! using deterministic round-robin. It watches for topology changes (agents joining/leaving)
 //! and triggers rebalancing when needed.
 //!
 //! ## How It Works
 //!
 //! 1. **Watch Agent Membership**: Monitor `agents` table for changes
-//! 2. **Calculate Assignment**: Use consistent hashing to distribute partitions
+//! 2. **Calculate Assignment**: Use deterministic round-robin to distribute partitions
 //! 3. **Acquire Leases**: For assigned partitions, acquire leases via LeaseManager
 //! 4. **Release Leases**: For unassigned partitions, release leases
 //!
 //! ## Assignment Algorithm
 //!
-//! Uses **consistent hashing** to minimize partition movement:
-//! - Hash both agent IDs and partition IDs onto a ring [0, 2^64)
-//! - Each partition assigned to nearest agent clockwise on the ring
-//! - When agent joins/leaves, only nearby partitions reassign
+//! Uses **deterministic round-robin** for perfectly even distribution:
+//! - All agents sort partition and agent lists identically
+//! - Partition `i` is assigned to `sorted_agents[i % num_agents]`
+//! - Guarantees even distribution (e.g., 6 partitions / 3 agents = 2 each)
 //!
 //! ## Example
 //!
@@ -290,9 +290,12 @@ impl RebalanceTask {
         // 2. Check if topology changed
         let topology_changed = {
             let state = self.state.read().await;
-            let current_topology: HashMap<String, u64> = agent_ids
+            let mut sorted_ids = agent_ids.clone();
+            sorted_ids.sort();
+            let current_topology: HashMap<String, u64> = sorted_ids
                 .iter()
-                .map(|id| (id.clone(), hash_string(id)))
+                .enumerate()
+                .map(|(i, id)| (id.clone(), i as u64))
                 .collect();
 
             current_topology != state.agent_topology
@@ -314,11 +317,13 @@ impl RebalanceTask {
             "Topology changed, performing rebalance"
         );
 
-        // 3. Calculate new assignment using consistent hashing
+        // 3. Calculate new assignment using deterministic round-robin
+        //    All agents sort partition and agent lists identically, so they agree.
         let mut new_assignment = HashSet::new();
 
+        // Collect all (topic, partition_id) tuples
+        let mut all_partitions: Vec<(String, u32)> = Vec::new();
         for topic_name in &self.topics {
-            // Get topic info
             let topic = match self.metadata_store.get_topic(topic_name).await? {
                 Some(t) => t,
                 None => {
@@ -330,14 +335,23 @@ impl RebalanceTask {
                 }
             };
 
-            // Assign each partition
             for partition_id in 0..topic.partition_count {
-                let assigned_agent =
-                    assign_partition_consistent_hash(topic_name, partition_id, &agent_ids);
+                all_partitions.push((topic_name.clone(), partition_id));
+            }
+        }
 
-                if assigned_agent == self.agent_id {
-                    new_assignment.insert((topic_name.clone(), partition_id));
-                }
+        // Sort partitions deterministically
+        all_partitions.sort();
+
+        // Sort agents alphabetically
+        let mut sorted_agents = agent_ids.clone();
+        sorted_agents.sort();
+
+        // Round-robin: partition i → sorted_agents[i % num_agents]
+        let num_agents = sorted_agents.len();
+        for (i, (topic, partition_id)) in all_partitions.iter().enumerate() {
+            if sorted_agents[i % num_agents] == self.agent_id {
+                new_assignment.insert((topic.clone(), *partition_id));
             }
         }
 
@@ -416,9 +430,12 @@ impl RebalanceTask {
         {
             let mut state = self.state.write().await;
             state.assigned_partitions = new_assignment;
-            state.agent_topology = agent_ids
+            let mut sorted_ids = agent_ids.clone();
+            sorted_ids.sort();
+            state.agent_topology = sorted_ids
                 .iter()
-                .map(|id| (id.clone(), hash_string(id)))
+                .enumerate()
+                .map(|(i, id)| (id.clone(), i as u64))
                 .collect();
             state.stats.rebalance_count += 1;
             state.stats.assignments_gained += to_acquire.len() as u64;
@@ -438,79 +455,25 @@ impl RebalanceTask {
     }
 }
 
-/// Number of virtual nodes per agent on the hash ring.
-/// More vnodes = more even distribution but slightly more computation per rebalance.
-/// 150 vnodes gives <10% standard deviation with 3+ agents.
-const VNODES_PER_AGENT: u32 = 150;
-
-/// Assign a partition using consistent hashing with virtual nodes.
+/// Assign a partition using deterministic round-robin.
 ///
-/// Each agent gets `VNODES_PER_AGENT` points on the ring. The partition is assigned
-/// to the agent whose virtual node is nearest clockwise. This produces much more
-/// even distribution than a single point per agent.
-fn assign_partition_consistent_hash(
-    topic: &str,
-    partition_id: u32,
-    agent_ids: &[String],
-) -> String {
-    // Hash the partition
-    let partition_key = format!("{}:{}", topic, partition_id);
-    let partition_hash = hash_string(&partition_key);
-
-    // Find nearest agent (via any of its vnodes) clockwise on the ring
-    let mut best_agent = &agent_ids[0];
-    let mut best_distance = u64::MAX;
-
-    for agent_id in agent_ids {
-        for vnode in 0..VNODES_PER_AGENT {
-            let vnode_key = format!("{}:vn{}", agent_id, vnode);
-            let vnode_hash = hash_string(&vnode_key);
-
-            // Calculate clockwise distance on the ring
-            let distance = if vnode_hash >= partition_hash {
-                vnode_hash - partition_hash
-            } else {
-                // Wrap around
-                (u64::MAX - partition_hash) + vnode_hash
-            };
-
-            if distance < best_distance {
-                best_distance = distance;
-                best_agent = agent_id;
-            }
-        }
+/// Both agent and partition lists are sorted identically on all agents,
+/// so every agent agrees on the assignment. Partition `i` goes to
+/// `sorted_agents[i % num_agents]`, giving perfect even distribution.
+#[cfg(test)]
+fn assign_partition_round_robin(
+    sorted_partitions: &[(String, u32)],
+    sorted_agents: &[String],
+) -> HashMap<String, HashSet<(String, u32)>> {
+    let mut assignments: HashMap<String, HashSet<(String, u32)>> = HashMap::new();
+    let num_agents = sorted_agents.len();
+    for (i, partition) in sorted_partitions.iter().enumerate() {
+        assignments
+            .entry(sorted_agents[i % num_agents].clone())
+            .or_default()
+            .insert(partition.clone());
     }
-
-    best_agent.clone()
-}
-
-/// Hash a string to u64 using FNV-1a with a Murmur3 finalizer.
-///
-/// Uses a deterministic hash (not DefaultHasher/SipHash which is randomly seeded
-/// per process). This is critical: all agents must compute the same hash for the
-/// same input so they agree on partition assignments.
-///
-/// The Murmur3 finalizer ensures good avalanche properties — small input changes
-/// produce widely different outputs, which is essential for even distribution of
-/// virtual nodes on the consistent hash ring.
-fn hash_string(s: &str) -> u64 {
-    // FNV-1a 64-bit
-    const FNV_OFFSET_BASIS: u64 = 0xcbf29ce484222325;
-    const FNV_PRIME: u64 = 0x100000001b3;
-
-    let mut hash = FNV_OFFSET_BASIS;
-    for byte in s.as_bytes() {
-        hash ^= *byte as u64;
-        hash = hash.wrapping_mul(FNV_PRIME);
-    }
-
-    // Murmur3 64-bit finalizer — ensures good avalanche for similar inputs
-    hash ^= hash >> 33;
-    hash = hash.wrapping_mul(0xff51afd7ed558ccd);
-    hash ^= hash >> 33;
-    hash = hash.wrapping_mul(0xc4ceb9fe1a85ec53);
-    hash ^= hash >> 33;
-    hash
+    assignments
 }
 
 /// Get current timestamp in milliseconds since epoch
@@ -526,76 +489,132 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_consistent_hash_assignment() {
+    fn test_round_robin_even_distribution() {
         let agents = vec![
             "agent-1".to_string(),
             "agent-2".to_string(),
             "agent-3".to_string(),
         ];
 
-        // Assign all partitions
-        let mut assignments: HashMap<String, Vec<u32>> = HashMap::new();
-        for partition_id in 0..9 {
-            let assigned = assign_partition_consistent_hash("orders", partition_id, &agents);
-            assignments.entry(assigned).or_default().push(partition_id);
+        // 6 partitions across 3 agents → exactly 2 each
+        let mut partitions: Vec<(String, u32)> = Vec::new();
+        for p in 0..6 {
+            partitions.push(("orders".to_string(), p));
+        }
+        partitions.sort();
+
+        let mut sorted_agents = agents.clone();
+        sorted_agents.sort();
+
+        let assignments = assign_partition_round_robin(&partitions, &sorted_agents);
+
+        // Every agent gets exactly 2
+        for agent in &sorted_agents {
+            let count = assignments.get(agent).map(|s| s.len()).unwrap_or(0);
+            assert_eq!(count, 2, "Agent {} should have 2 partitions, got {}", agent, count);
         }
 
-        // At least some agents should get assignments (consistent hashing may not use all)
+        // Total should be 6
+        let total: usize = assignments.values().map(|s| s.len()).sum();
+        assert_eq!(total, 6, "All partitions should be assigned");
+    }
+
+    #[test]
+    fn test_round_robin_9_partitions() {
+        let agents = vec![
+            "agent-1".to_string(),
+            "agent-2".to_string(),
+            "agent-3".to_string(),
+        ];
+
+        let mut partitions: Vec<(String, u32)> = Vec::new();
+        for p in 0..9 {
+            partitions.push(("orders".to_string(), p));
+        }
+        partitions.sort();
+
+        let mut sorted_agents = agents.clone();
+        sorted_agents.sort();
+
+        let assignments = assign_partition_round_robin(&partitions, &sorted_agents);
+
+        // 9 / 3 = 3 each
+        for agent in &sorted_agents {
+            let count = assignments.get(agent).map(|s| s.len()).unwrap_or(0);
+            assert_eq!(count, 3, "Agent {} should have 3 partitions, got {}", agent, count);
+        }
+    }
+
+    #[test]
+    fn test_round_robin_deterministic() {
+        let agents = vec![
+            "agent-3".to_string(),
+            "agent-1".to_string(),
+            "agent-2".to_string(),
+        ];
+
+        let mut partitions: Vec<(String, u32)> = Vec::new();
+        for p in 0..6 {
+            partitions.push(("orders".to_string(), p));
+        }
+        partitions.sort();
+
+        let mut sorted_agents = agents.clone();
+        sorted_agents.sort();
+
+        // Run twice — must produce identical results
+        let a1 = assign_partition_round_robin(&partitions, &sorted_agents);
+        let a2 = assign_partition_round_robin(&partitions, &sorted_agents);
+        assert_eq!(a1, a2, "Round-robin must be deterministic");
+    }
+
+    #[test]
+    fn test_round_robin_agent_removal() {
+        // With 3 agents and 6 partitions
+        let agents_3 = vec![
+            "agent-1".to_string(),
+            "agent-2".to_string(),
+            "agent-3".to_string(),
+        ];
+
+        let mut partitions: Vec<(String, u32)> = Vec::new();
+        for p in 0..6 {
+            partitions.push(("orders".to_string(), p));
+        }
+        partitions.sort();
+
+        let mut sorted_3 = agents_3.clone();
+        sorted_3.sort();
+
+        let assignments_3 = assign_partition_round_robin(&partitions, &sorted_3);
+
+        // Remove agent-2
+        let agents_2 = vec!["agent-1".to_string(), "agent-3".to_string()];
+        let mut sorted_2 = agents_2.clone();
+        sorted_2.sort();
+
+        let assignments_2 = assign_partition_round_robin(&partitions, &sorted_2);
+
+        // All 6 partitions still assigned, 3 each
+        for agent in &sorted_2 {
+            let count = assignments_2.get(agent).map(|s| s.len()).unwrap_or(0);
+            assert_eq!(count, 3, "Agent {} should have 3 partitions after removal", agent);
+        }
+
+        // agent-2 should have no partitions
         assert!(
-            !assignments.is_empty(),
-            "At least one agent should have assignments"
+            !assignments_2.contains_key("agent-2"),
+            "Removed agent should have no partitions"
         );
 
-        // Total should be 9
-        let total: usize = assignments.values().map(|v| v.len()).sum();
-        assert_eq!(total, 9, "All partitions should be assigned");
-    }
+        // Total still 6
+        let total: usize = assignments_2.values().map(|s| s.len()).sum();
+        assert_eq!(total, 6);
 
-    #[test]
-    fn test_consistent_hash_stability() {
-        let agents = vec![
-            "agent-1".to_string(),
-            "agent-2".to_string(),
-            "agent-3".to_string(),
-        ];
-
-        // Initial assignment
-        let mut initial: HashMap<u32, String> = HashMap::new();
-        for partition_id in 0..9 {
-            let assigned = assign_partition_consistent_hash("orders", partition_id, &agents);
-            initial.insert(partition_id, assigned);
+        // Verify 3-agent assignment was 2 each
+        for agent in &sorted_3 {
+            let count = assignments_3.get(agent).map(|s| s.len()).unwrap_or(0);
+            assert_eq!(count, 2);
         }
-
-        // Remove one agent
-        let agents_minus_one = vec!["agent-1".to_string(), "agent-3".to_string()];
-
-        let mut moved = 0;
-        for partition_id in 0..9 {
-            let new_assigned =
-                assign_partition_consistent_hash("orders", partition_id, &agents_minus_one);
-
-            if initial[&partition_id] == "agent-2" {
-                // Partitions from removed agent must move
-                assert_ne!(new_assigned, "agent-2");
-            } else if new_assigned != initial[&partition_id] {
-                // Count how many other partitions moved
-                moved += 1;
-            }
-        }
-
-        // Most partitions should stay in place
-        assert!(moved <= 3, "Too many partitions moved: {}", moved);
-    }
-
-    #[test]
-    fn test_hash_string_consistency() {
-        // Same string should always hash to same value
-        let hash1 = hash_string("agent-1");
-        let hash2 = hash_string("agent-1");
-        assert_eq!(hash1, hash2);
-
-        // Different strings should (probably) hash to different values
-        let hash3 = hash_string("agent-2");
-        assert_ne!(hash1, hash3);
     }
 }

@@ -338,9 +338,10 @@ impl CompactionScheduler {
     /// Get compaction statistics across all tracked partitions.
     pub async fn get_compaction_stats(&self) -> CompactionStats {
         let state = self.state.read().await;
-        let mut stats = CompactionStats::default();
-
-        stats.tracked_partitions = state.len();
+        let mut stats = CompactionStats {
+            tracked_partitions: state.len(),
+            ..Default::default()
+        };
         let mut total_dirty_ratio = 0.0;
 
         for cs in state.values() {
