@@ -156,21 +156,6 @@ From recent benchmarks:
 
 Tune with environment variables — see **[Configuration docs →](docs/configuration.md)**.
 
-## Development Status
-
-StreamHouse is in active development. Core features are stable:
-- ✅ Produce/consume (REST, gRPC, Kafka protocol)
-- ✅ Multi-agent coordination
-- ✅ Schema registry (JSON Schema)
-- ✅ SQL queries
-- ✅ Consumer groups
-
-Planned:
-- 🚧 Authentication (SASL, API keys)
-- 🚧 Avro schema support (partial)
-- 🚧 Transactions (in progress)
-- 🚧 Compacted topics
-
 ## Contributing
 
 Issues and PRs welcome at https://github.com/gbram1/streamhouse
