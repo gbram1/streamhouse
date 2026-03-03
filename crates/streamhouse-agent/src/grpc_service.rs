@@ -726,7 +726,7 @@ impl ProducerService for ProducerServiceImpl {
 
         // Track transaction partition if this is a transactional write
         if let Some(ref transaction_id) = req.transaction_id {
-            let last_offset = base_offset + record_count as u64 - 1;
+            let last_offset = base_offset + record_count - 1;
 
             // Add partition to transaction (first time we write to this partition)
             if let Err(e) = self
