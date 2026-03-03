@@ -92,7 +92,6 @@ pub struct WriteConfig {
     pub parallel_upload_parts: usize,
 
     // === Batched Durable Flush (ACK_DURABLE optimization) ===
-
     /// Maximum time (ms) to batch durable writes before flushing to S3 (default: 200ms)
     #[serde(default = "default_durable_batch_max_age_ms")]
     pub durable_batch_max_age_ms: u64,
@@ -117,7 +116,7 @@ impl Default for WriteConfig {
             block_size_target: default_block_size(),
             s3_upload_retries: default_retries(),
             wal_config: Some(WALConfig::default()), // WAL enabled by default
-            throttle_config: None,                   // Throttling disabled by default
+            throttle_config: None,                  // Throttling disabled by default
             multipart_threshold: default_multipart_threshold(),
             multipart_part_size: default_multipart_part_size(),
             parallel_upload_parts: default_parallel_upload_parts(),
@@ -272,6 +271,6 @@ mod tests {
         let config: WriteConfig = serde_json::from_str(json).unwrap();
         assert_eq!(config.s3_bucket, "test");
         assert_eq!(config.segment_max_size, 64 * 1024 * 1024); // default applied
-        assert_eq!(config.block_size_target, 1024 * 1024);       // default applied
+        assert_eq!(config.block_size_target, 1024 * 1024); // default applied
     }
 }

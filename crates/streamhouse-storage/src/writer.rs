@@ -225,13 +225,8 @@ impl PartitionWriter {
             // Phase 12.4.5: Shared WAL recovery
             // If agent_id is configured, scan for WAL files from other agents
             let other_agent_records = if let Some(ref agent_id) = wal_config.agent_id {
-                match WAL::recover_partition(
-                    &wal_config.directory,
-                    &topic,
-                    partition_id,
-                    agent_id,
-                )
-                .await
+                match WAL::recover_partition(&wal_config.directory, &topic, partition_id, agent_id)
+                    .await
                 {
                     Ok((records, stale_paths)) => {
                         stale_wal_files = stale_paths;
@@ -260,10 +255,8 @@ impl PartitionWriter {
             // Merge: other agents' records first, then own records
             let total_other = other_agent_records.len();
             let total_own = own_records.len();
-            let all_recovered: Vec<_> = other_agent_records
-                .into_iter()
-                .chain(own_records)
-                .collect();
+            let all_recovered: Vec<_> =
+                other_agent_records.into_iter().chain(own_records).collect();
 
             if !all_recovered.is_empty() {
                 tracing::info!(
@@ -423,9 +416,7 @@ impl PartitionWriter {
 
         // Assign offsets upfront
         let base_offset = self.current_offset;
-        let offsets: Vec<u64> = (0..records.len() as u64)
-            .map(|i| base_offset + i)
-            .collect();
+        let offsets: Vec<u64> = (0..records.len() as u64).map(|i| base_offset + i).collect();
         self.current_offset += records.len() as u64;
 
         // Single WAL write for the entire batch
@@ -955,10 +946,7 @@ pub struct DurableFlushHandle {
 
 impl DurableFlushHandle {
     /// Spawn a new durable flush task for a partition writer
-    pub fn spawn(
-        writer: Arc<Mutex<PartitionWriter>>,
-        max_age_ms: u64,
-    ) -> Self {
+    pub fn spawn(writer: Arc<Mutex<PartitionWriter>>, max_age_ms: u64) -> Self {
         let (cmd_tx, cmd_rx) = mpsc::channel(16_384);
 
         let task = tokio::spawn(async move {
@@ -1074,10 +1062,7 @@ impl DurableFlushTask {
             let _ = waiter.send(response.clone());
         }
 
-        tracing::debug!(
-            waiter_count,
-            "Batched durable flush completed"
-        );
+        tracing::debug!(waiter_count, "Batched durable flush completed");
     }
 }
 

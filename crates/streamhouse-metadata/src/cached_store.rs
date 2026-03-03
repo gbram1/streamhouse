@@ -1156,12 +1156,25 @@ impl<S: MetadataStore + 'static> MetadataStore for CachedMetadataStore<S> {
         self.inner.delete_connector(name).await
     }
 
-    async fn update_connector_state(&self, name: &str, state: &str, error_message: Option<&str>) -> Result<()> {
-        self.inner.update_connector_state(name, state, error_message).await
+    async fn update_connector_state(
+        &self,
+        name: &str,
+        state: &str,
+        error_message: Option<&str>,
+    ) -> Result<()> {
+        self.inner
+            .update_connector_state(name, state, error_message)
+            .await
     }
 
-    async fn update_connector_records_processed(&self, name: &str, records_processed: i64) -> Result<()> {
-        self.inner.update_connector_records_processed(name, records_processed).await
+    async fn update_connector_records_processed(
+        &self,
+        name: &str,
+        records_processed: i64,
+    ) -> Result<()> {
+        self.inner
+            .update_connector_records_processed(name, records_processed)
+            .await
     }
 }
 

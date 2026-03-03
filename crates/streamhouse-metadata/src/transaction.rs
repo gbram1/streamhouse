@@ -199,11 +199,9 @@ impl TransactionCoordinator {
     ) -> Result<()> {
         let mut txns = self.transactions.write().await;
 
-        let record = txns
-            .get_mut(transaction_id)
-            .ok_or_else(|| {
-                TransactionCoordinatorError::TransactionNotFound(transaction_id.to_string())
-            })?;
+        let record = txns.get_mut(transaction_id).ok_or_else(|| {
+            TransactionCoordinatorError::TransactionNotFound(transaction_id.to_string())
+        })?;
 
         if record.state != CoordinatorTransactionState::Ongoing {
             return Err(TransactionCoordinatorError::InvalidStateTransition(
@@ -248,11 +246,9 @@ impl TransactionCoordinator {
     pub async fn prepare(&self, transaction_id: &str) -> Result<()> {
         let mut txns = self.transactions.write().await;
 
-        let record = txns
-            .get_mut(transaction_id)
-            .ok_or_else(|| {
-                TransactionCoordinatorError::TransactionNotFound(transaction_id.to_string())
-            })?;
+        let record = txns.get_mut(transaction_id).ok_or_else(|| {
+            TransactionCoordinatorError::TransactionNotFound(transaction_id.to_string())
+        })?;
 
         if record.state != CoordinatorTransactionState::Ongoing {
             return Err(TransactionCoordinatorError::InvalidStateTransition(
@@ -284,17 +280,12 @@ impl TransactionCoordinator {
     ///
     /// Transitions from Preparing to Committed. Returns the list of
     /// partitions that participated in the transaction.
-    pub async fn commit(
-        &self,
-        transaction_id: &str,
-    ) -> Result<Vec<TransactionPartition>> {
+    pub async fn commit(&self, transaction_id: &str) -> Result<Vec<TransactionPartition>> {
         let mut txns = self.transactions.write().await;
 
-        let record = txns
-            .get_mut(transaction_id)
-            .ok_or_else(|| {
-                TransactionCoordinatorError::TransactionNotFound(transaction_id.to_string())
-            })?;
+        let record = txns.get_mut(transaction_id).ok_or_else(|| {
+            TransactionCoordinatorError::TransactionNotFound(transaction_id.to_string())
+        })?;
 
         if record.state != CoordinatorTransactionState::Preparing {
             return Err(TransactionCoordinatorError::InvalidStateTransition(
@@ -324,17 +315,12 @@ impl TransactionCoordinator {
     ///
     /// Can be called from Ongoing or Preparing states. Returns the list
     /// of partitions that need abort markers written.
-    pub async fn abort(
-        &self,
-        transaction_id: &str,
-    ) -> Result<Vec<TransactionPartition>> {
+    pub async fn abort(&self, transaction_id: &str) -> Result<Vec<TransactionPartition>> {
         let mut txns = self.transactions.write().await;
 
-        let record = txns
-            .get_mut(transaction_id)
-            .ok_or_else(|| {
-                TransactionCoordinatorError::TransactionNotFound(transaction_id.to_string())
-            })?;
+        let record = txns.get_mut(transaction_id).ok_or_else(|| {
+            TransactionCoordinatorError::TransactionNotFound(transaction_id.to_string())
+        })?;
 
         match record.state {
             CoordinatorTransactionState::Ongoing | CoordinatorTransactionState::Preparing => {
@@ -402,11 +388,9 @@ impl TransactionCoordinator {
     /// Get the current state of a transaction.
     pub async fn get_transaction(&self, transaction_id: &str) -> Result<TransactionRecord> {
         let txns = self.transactions.read().await;
-        txns.get(transaction_id)
-            .cloned()
-            .ok_or_else(|| {
-                TransactionCoordinatorError::TransactionNotFound(transaction_id.to_string())
-            })
+        txns.get(transaction_id).cloned().ok_or_else(|| {
+            TransactionCoordinatorError::TransactionNotFound(transaction_id.to_string())
+        })
     }
 
     /// Get aggregate statistics about all transactions.

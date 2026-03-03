@@ -313,10 +313,7 @@ impl PartitionRebalancer {
             let key = format!("{}:{}", topic, partition_id);
             let hash = hash_string(&key);
             let idx = (hash as usize) % nodes.len();
-            assignment.insert(
-                (topic.clone(), *partition_id),
-                nodes[idx].clone(),
-            );
+            assignment.insert((topic.clone(), *partition_id), nodes[idx].clone());
         }
 
         assignment

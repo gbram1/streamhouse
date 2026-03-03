@@ -62,9 +62,7 @@ impl KafkaSourceConfig {
         let bootstrap_servers = config
             .get("bootstrap.servers")
             .ok_or_else(|| {
-                ConnectorError::ConfigError(
-                    "missing required 'bootstrap.servers'".to_string(),
-                )
+                ConnectorError::ConfigError("missing required 'bootstrap.servers'".to_string())
             })?
             .clone();
 
@@ -76,9 +74,7 @@ impl KafkaSourceConfig {
 
         let topics_raw = config
             .get("topics")
-            .ok_or_else(|| {
-                ConnectorError::ConfigError("missing required 'topics'".to_string())
-            })?
+            .ok_or_else(|| ConnectorError::ConfigError("missing required 'topics'".to_string()))?
             .clone();
 
         let topics: Vec<String> = topics_raw
@@ -95,9 +91,7 @@ impl KafkaSourceConfig {
 
         let group_id = config
             .get("group.id")
-            .ok_or_else(|| {
-                ConnectorError::ConfigError("missing required 'group.id'".to_string())
-            })?
+            .ok_or_else(|| ConnectorError::ConfigError("missing required 'group.id'".to_string()))?
             .clone();
 
         if group_id.trim().is_empty() {

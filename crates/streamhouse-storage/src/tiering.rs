@@ -397,7 +397,8 @@ impl StorageTiering {
         }
 
         stats.total_segments = segments.len();
-        stats.total_bytes = stats.hot_bytes + stats.warm_bytes + stats.cold_bytes + stats.frozen_bytes;
+        stats.total_bytes =
+            stats.hot_bytes + stats.warm_bytes + stats.cold_bytes + stats.frozen_bytes;
         stats.estimated_monthly_cost_usd = self.calculate_monthly_cost(&stats);
 
         stats
@@ -411,7 +412,8 @@ impl StorageTiering {
         let hot_cost = (stats.hot_bytes as f64 / gb) * StorageTier::Hot.cost_per_gb_month();
         let warm_cost = (stats.warm_bytes as f64 / gb) * StorageTier::Warm.cost_per_gb_month();
         let cold_cost = (stats.cold_bytes as f64 / gb) * StorageTier::Cold.cost_per_gb_month();
-        let frozen_cost = (stats.frozen_bytes as f64 / gb) * StorageTier::Frozen.cost_per_gb_month();
+        let frozen_cost =
+            (stats.frozen_bytes as f64 / gb) * StorageTier::Frozen.cost_per_gb_month();
 
         StorageCostEstimate {
             hot_cost,
@@ -484,7 +486,13 @@ mod tests {
         let now = 1700000000000_i64;
 
         tiering
-            .register_segment("seg-1".to_string(), "topic-a".to_string(), 0, 64_000_000, now)
+            .register_segment(
+                "seg-1".to_string(),
+                "topic-a".to_string(),
+                0,
+                64_000_000,
+                now,
+            )
             .await
             .unwrap();
 
@@ -499,7 +507,13 @@ mod tests {
         let now = 1700000000000_i64;
 
         tiering
-            .register_segment("seg-2".to_string(), "topic-a".to_string(), 0, 64_000_000, now)
+            .register_segment(
+                "seg-2".to_string(),
+                "topic-a".to_string(),
+                0,
+                64_000_000,
+                now,
+            )
             .await
             .unwrap();
 
@@ -523,7 +537,13 @@ mod tests {
         let now = 1700000000000_i64;
 
         tiering
-            .register_segment("seg-3".to_string(), "topic-a".to_string(), 0, 64_000_000, now)
+            .register_segment(
+                "seg-3".to_string(),
+                "topic-a".to_string(),
+                0,
+                64_000_000,
+                now,
+            )
             .await
             .unwrap();
 
@@ -545,7 +565,13 @@ mod tests {
         let now = 1700000000000_i64;
 
         tiering
-            .register_segment("seg-4".to_string(), "topic-a".to_string(), 0, 64_000_000, now)
+            .register_segment(
+                "seg-4".to_string(),
+                "topic-a".to_string(),
+                0,
+                64_000_000,
+                now,
+            )
             .await
             .unwrap();
 
@@ -567,7 +593,13 @@ mod tests {
         let now = 1700000000000_i64;
 
         tiering
-            .register_segment("seg-5".to_string(), "topic-a".to_string(), 0, 64_000_000, now)
+            .register_segment(
+                "seg-5".to_string(),
+                "topic-a".to_string(),
+                0,
+                64_000_000,
+                now,
+            )
             .await
             .unwrap();
 
@@ -594,7 +626,13 @@ mod tests {
         let now = 1700000000000_i64;
 
         tiering
-            .register_segment("seg-6".to_string(), "topic-a".to_string(), 0, 64_000_000, now)
+            .register_segment(
+                "seg-6".to_string(),
+                "topic-a".to_string(),
+                0,
+                64_000_000,
+                now,
+            )
             .await
             .unwrap();
 
@@ -684,7 +722,9 @@ mod tests {
         let result = tiering.get_tier("nonexistent").await;
         assert!(result.is_err());
 
-        let result = tiering.promote_segment("nonexistent", StorageTier::Hot, 0).await;
+        let result = tiering
+            .promote_segment("nonexistent", StorageTier::Hot, 0)
+            .await;
         assert!(result.is_err());
     }
 
@@ -703,7 +743,9 @@ mod tests {
             .await
             .unwrap();
 
-        let result = tiering.check_tier_transitions(now + ms_from_days(100)).await;
+        let result = tiering
+            .check_tier_transitions(now + ms_from_days(100))
+            .await;
         assert!(result.is_err());
         match result.unwrap_err() {
             TieringError::TieringDisabled => {}

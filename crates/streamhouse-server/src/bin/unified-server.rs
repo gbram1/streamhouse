@@ -319,12 +319,21 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     tracing::info!("  Segment max size: {}MB", segment_max_size / (1024 * 1024));
     tracing::info!("  Segment max age: {}ms", segment_max_age_ms);
     tracing::info!("  S3 upload retries: {}", s3_upload_retries);
-    tracing::info!("  Multipart threshold: {}MB", multipart_threshold / (1024 * 1024));
-    tracing::info!("  Multipart part size: {}MB", multipart_part_size / (1024 * 1024));
+    tracing::info!(
+        "  Multipart threshold: {}MB",
+        multipart_threshold / (1024 * 1024)
+    );
+    tracing::info!(
+        "  Multipart part size: {}MB",
+        multipart_part_size / (1024 * 1024)
+    );
     tracing::info!("  Parallel upload parts: {}", parallel_upload_parts);
     tracing::info!("  Durable batch max age: {}ms", durable_batch_max_age_ms);
     tracing::info!("  Durable batch max records: {}", durable_batch_max_records);
-    tracing::info!("  Durable batch max bytes: {}MB", durable_batch_max_bytes / (1024 * 1024));
+    tracing::info!(
+        "  Durable batch max bytes: {}MB",
+        durable_batch_max_bytes / (1024 * 1024)
+    );
 
     // Create writer pool
     tracing::info!("✍️  Initializing writer pool");
@@ -421,169 +430,170 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     if embedded_agent_disabled {
         tracing::info!("⏭️  Embedded agent disabled (DISABLE_EMBEDDED_AGENT set)");
     } else {
-    // Register unified server as an agent
-    tracing::info!("🤖 Registering unified server as agent");
-    use streamhouse_metadata::AgentInfo;
-    let now_ms = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap()
-        .as_millis() as i64;
+        // Register unified server as an agent
+        tracing::info!("🤖 Registering unified server as agent");
+        use streamhouse_metadata::AgentInfo;
+        let now_ms = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_millis() as i64;
 
-    let agent_info = AgentInfo {
-        agent_id: agent_id.clone(),
-        address: format!("{}:{}", grpc_addr.ip(), grpc_addr.port()),
-        availability_zone: std::env::var("AVAILABILITY_ZONE")
-            .unwrap_or_else(|_| "default".to_string()),
-        agent_group: "default".to_string(),
-        last_heartbeat: now_ms,
-        started_at: now_ms,
-        metadata: std::collections::HashMap::new(),
-    };
-    metadata.register_agent(agent_info).await?;
-    tracing::info!("   Registered as agent: {}", agent_id);
+        let agent_info = AgentInfo {
+            agent_id: agent_id.clone(),
+            address: format!("{}:{}", grpc_addr.ip(), grpc_addr.port()),
+            availability_zone: std::env::var("AVAILABILITY_ZONE")
+                .unwrap_or_else(|_| "default".to_string()),
+            agent_group: "default".to_string(),
+            last_heartbeat: now_ms,
+            started_at: now_ms,
+            metadata: std::collections::HashMap::new(),
+        };
+        metadata.register_agent(agent_info).await?;
+        tracing::info!("   Registered as agent: {}", agent_id);
 
-    // Spawn heartbeat task to keep agent alive
-    {
-        let metadata = metadata.clone();
-        let agent_id = agent_id.clone();
-        let address = format!("{}:{}", grpc_addr.ip(), grpc_addr.port());
-        let availability_zone =
-            std::env::var("AVAILABILITY_ZONE").unwrap_or_else(|_| "default".to_string());
+        // Spawn heartbeat task to keep agent alive
+        {
+            let metadata = metadata.clone();
+            let agent_id = agent_id.clone();
+            let address = format!("{}:{}", grpc_addr.ip(), grpc_addr.port());
+            let availability_zone =
+                std::env::var("AVAILABILITY_ZONE").unwrap_or_else(|_| "default".to_string());
 
-        tokio::spawn(async move {
-            let mut interval = tokio::time::interval(std::time::Duration::from_secs(30));
-            loop {
-                interval.tick().await;
-                let now_ms = std::time::SystemTime::now()
-                    .duration_since(std::time::UNIX_EPOCH)
-                    .unwrap()
-                    .as_millis() as i64;
+            tokio::spawn(async move {
+                let mut interval = tokio::time::interval(std::time::Duration::from_secs(30));
+                loop {
+                    interval.tick().await;
+                    let now_ms = std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .unwrap()
+                        .as_millis() as i64;
 
-                let agent_info = AgentInfo {
-                    agent_id: agent_id.clone(),
-                    address: address.clone(),
-                    availability_zone: availability_zone.clone(),
-                    agent_group: "default".to_string(),
-                    last_heartbeat: now_ms,
-                    started_at: now_ms, // Will be ignored by update
-                    metadata: std::collections::HashMap::new(),
-                };
+                    let agent_info = AgentInfo {
+                        agent_id: agent_id.clone(),
+                        address: address.clone(),
+                        availability_zone: availability_zone.clone(),
+                        agent_group: "default".to_string(),
+                        last_heartbeat: now_ms,
+                        started_at: now_ms, // Will be ignored by update
+                        metadata: std::collections::HashMap::new(),
+                    };
 
-                if let Err(e) = metadata.register_agent(agent_info).await {
-                    tracing::warn!("Failed to update agent heartbeat: {}", e);
-                }
-            }
-        });
-    }
-
-    // Start partition assignment
-    // This allows the agent to acquire leases for partitions and manage them.
-    // The assigner wakes up immediately when topics are created/deleted via
-    // the topic_changed Notify, so there's no 60-second delay for new topics.
-    {
-        let metadata_for_assigner = metadata.clone();
-        let agent_id_for_assigner = agent_id.clone();
-        let topic_notify = grpc_service.topic_change_notify();
-
-        tokio::spawn(async move {
-            // Wait a bit for server to fully start and topics to be created
-            tokio::time::sleep(std::time::Duration::from_secs(5)).await;
-
-            loop {
-                // Get current list of topics
-                let topics = match metadata_for_assigner.list_topics().await {
-                    Ok(t) => t,
-                    Err(e) => {
-                        tracing::warn!("Failed to list topics for partition assignment: {}", e);
-                        tokio::time::sleep(std::time::Duration::from_secs(10)).await;
-                        continue;
+                    if let Err(e) = metadata.register_agent(agent_info).await {
+                        tracing::warn!("Failed to update agent heartbeat: {}", e);
                     }
-                };
+                }
+            });
+        }
 
-                if topics.is_empty() {
-                    tracing::debug!("No topics to manage, waiting for topic creation...");
-                    // Wait for either a topic change notification or a fallback timeout
-                    tokio::select! {
-                        _ = topic_notify.notified() => {
-                            tracing::info!("Topic change detected, checking for new topics");
+        // Start partition assignment
+        // This allows the agent to acquire leases for partitions and manage them.
+        // The assigner wakes up immediately when topics are created/deleted via
+        // the topic_changed Notify, so there's no 60-second delay for new topics.
+        {
+            let metadata_for_assigner = metadata.clone();
+            let agent_id_for_assigner = agent_id.clone();
+            let topic_notify = grpc_service.topic_change_notify();
+
+            tokio::spawn(async move {
+                // Wait a bit for server to fully start and topics to be created
+                tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+
+                loop {
+                    // Get current list of topics
+                    let topics = match metadata_for_assigner.list_topics().await {
+                        Ok(t) => t,
+                        Err(e) => {
+                            tracing::warn!("Failed to list topics for partition assignment: {}", e);
+                            tokio::time::sleep(std::time::Duration::from_secs(10)).await;
+                            continue;
                         }
-                        _ = tokio::time::sleep(std::time::Duration::from_secs(30)) => {}
-                    }
-                    continue;
-                }
+                    };
 
-                let managed_topics: Vec<String> = topics.iter().map(|t| t.name.clone()).collect();
-                tracing::info!(
-                    "📋 Managing {} topics for partition assignment: {:?}",
-                    managed_topics.len(),
-                    managed_topics
-                );
-
-                // Create lease manager for this agent (agent_id first, then metadata_store)
-                let lease_manager = std::sync::Arc::new(streamhouse_agent::LeaseManager::new(
-                    agent_id_for_assigner.clone(),
-                    metadata_for_assigner.clone(),
-                ));
-
-                // Start lease renewal in background (spawns its own task)
-                let lease_manager_for_renewal = lease_manager.clone();
-                tokio::spawn(async move {
-                    if let Err(e) = lease_manager_for_renewal.start_renewal_task().await {
-                        tracing::warn!("Lease renewal task ended with error: {}", e);
-                    }
-                });
-
-                // Create partition assigner with all 5 parameters:
-                // (agent_id, agent_group, metadata_store, lease_manager, topics)
-                let assigner = streamhouse_agent::PartitionAssigner::new(
-                    agent_id_for_assigner.clone(),
-                    "default".to_string(), // agent_group
-                    metadata_for_assigner.clone(),
-                    lease_manager.clone(),
-                    managed_topics.clone(),
-                );
-
-                // Start the partition assigner background task
-                if let Err(e) = assigner.start().await {
-                    tracing::warn!("Failed to start partition assigner: {}", e);
-                } else {
-                    tracing::info!(
-                        "✅ Partition assigner started for {} topics",
-                        managed_topics.len()
-                    );
-                    // Wait for topic changes (instant) or poll as fallback (60s)
-                    loop {
+                    if topics.is_empty() {
+                        tracing::debug!("No topics to manage, waiting for topic creation...");
+                        // Wait for either a topic change notification or a fallback timeout
                         tokio::select! {
                             _ = topic_notify.notified() => {
-                                tracing::info!("Topic change detected, restarting partition assigner");
+                                tracing::info!("Topic change detected, checking for new topics");
                             }
-                            _ = tokio::time::sleep(std::time::Duration::from_secs(60)) => {
-                                // Fallback: check periodically in case we missed a notification
-                                let current_topics = match metadata_for_assigner.list_topics().await {
-                                    Ok(t) => t,
-                                    Err(_) => continue,
-                                };
-
-                                let current_topic_names: Vec<String> =
-                                    current_topics.iter().map(|t| t.name.clone()).collect();
-
-                                if current_topic_names == managed_topics {
-                                    continue; // No change, keep looping
-                                }
-
-                                tracing::info!("Topic list changed on periodic check");
-                            }
+                            _ = tokio::time::sleep(std::time::Duration::from_secs(30)) => {}
                         }
+                        continue;
+                    }
 
-                        // Topic list changed — restart assigner with new topics
-                        let _ = assigner.stop().await;
-                        break;
+                    let managed_topics: Vec<String> =
+                        topics.iter().map(|t| t.name.clone()).collect();
+                    tracing::info!(
+                        "📋 Managing {} topics for partition assignment: {:?}",
+                        managed_topics.len(),
+                        managed_topics
+                    );
+
+                    // Create lease manager for this agent (agent_id first, then metadata_store)
+                    let lease_manager = std::sync::Arc::new(streamhouse_agent::LeaseManager::new(
+                        agent_id_for_assigner.clone(),
+                        metadata_for_assigner.clone(),
+                    ));
+
+                    // Start lease renewal in background (spawns its own task)
+                    let lease_manager_for_renewal = lease_manager.clone();
+                    tokio::spawn(async move {
+                        if let Err(e) = lease_manager_for_renewal.start_renewal_task().await {
+                            tracing::warn!("Lease renewal task ended with error: {}", e);
+                        }
+                    });
+
+                    // Create partition assigner with all 5 parameters:
+                    // (agent_id, agent_group, metadata_store, lease_manager, topics)
+                    let assigner = streamhouse_agent::PartitionAssigner::new(
+                        agent_id_for_assigner.clone(),
+                        "default".to_string(), // agent_group
+                        metadata_for_assigner.clone(),
+                        lease_manager.clone(),
+                        managed_topics.clone(),
+                    );
+
+                    // Start the partition assigner background task
+                    if let Err(e) = assigner.start().await {
+                        tracing::warn!("Failed to start partition assigner: {}", e);
+                    } else {
+                        tracing::info!(
+                            "✅ Partition assigner started for {} topics",
+                            managed_topics.len()
+                        );
+                        // Wait for topic changes (instant) or poll as fallback (60s)
+                        loop {
+                            tokio::select! {
+                                _ = topic_notify.notified() => {
+                                    tracing::info!("Topic change detected, restarting partition assigner");
+                                }
+                                _ = tokio::time::sleep(std::time::Duration::from_secs(60)) => {
+                                    // Fallback: check periodically in case we missed a notification
+                                    let current_topics = match metadata_for_assigner.list_topics().await {
+                                        Ok(t) => t,
+                                        Err(_) => continue,
+                                    };
+
+                                    let current_topic_names: Vec<String> =
+                                        current_topics.iter().map(|t| t.name.clone()).collect();
+
+                                    if current_topic_names == managed_topics {
+                                        continue; // No change, keep looping
+                                    }
+
+                                    tracing::info!("Topic list changed on periodic check");
+                                }
+                            }
+
+                            // Topic list changed — restart assigner with new topics
+                            let _ = assigner.stop().await;
+                            break;
+                        }
                     }
                 }
-            }
-        });
-    }
-    tracing::info!("🔄 Partition assignment background task started");
+            });
+        }
+        tracing::info!("🔄 Partition assignment background task started");
     } // end embedded agent block
 
     // Start materialized view maintenance task

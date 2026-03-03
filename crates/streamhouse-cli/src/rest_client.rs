@@ -353,10 +353,7 @@ mod tests {
     fn test_client_creation_from_string_type() {
         let url = String::from("https://schema-registry.example.com:443");
         let client = RestClient::new(url);
-        assert_eq!(
-            client.base_url,
-            "https://schema-registry.example.com:443"
-        );
+        assert_eq!(client.base_url, "https://schema-registry.example.com:443");
     }
 
     #[test]
@@ -394,10 +391,7 @@ mod tests {
     fn test_schema_registry_client_from_string() {
         let url = String::from("https://registry.prod.example.com");
         let client = SchemaRegistryClient::new(url);
-        assert_eq!(
-            client.client.base_url,
-            "https://registry.prod.example.com"
-        );
+        assert_eq!(client.client.base_url, "https://registry.prod.example.com");
     }
 
     #[test]
@@ -512,10 +506,7 @@ mod tests {
         };
         let json = serde_json::to_string(&config).unwrap();
         let deserialized: CompatibilityConfig = serde_json::from_str(&json).unwrap();
-        assert_eq!(
-            deserialized.compatibility_level,
-            "FULL_TRANSITIVE"
-        );
+        assert_eq!(deserialized.compatibility_level, "FULL_TRANSITIVE");
         // Verify the rename is applied
         assert!(json.contains("compatibilityLevel"));
         assert!(!json.contains("compatibility_level"));
@@ -548,8 +539,7 @@ mod tests {
                 compatibility_level: level.to_string(),
             };
             let json = serde_json::to_string(&config).unwrap();
-            let deserialized: CompatibilityConfig =
-                serde_json::from_str(&json).unwrap();
+            let deserialized: CompatibilityConfig = serde_json::from_str(&json).unwrap();
             assert_eq!(deserialized.compatibility_level, level);
         }
     }

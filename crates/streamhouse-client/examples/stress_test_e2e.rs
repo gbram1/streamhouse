@@ -142,9 +142,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         let channel = channel.clone();
         let stats = stats.clone();
         let running = running.clone();
-        handles.push(tokio::spawn(
-            producer_task(task_id, channel, stats, running),
-        ));
+        handles.push(tokio::spawn(producer_task(
+            task_id, channel, stats, running,
+        )));
     }
 
     // Spawn reporter task
@@ -216,7 +216,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("  Total batches:   {}", format_number(total_batches));
     println!("  Total errors:    {}", total_errors);
     println!("  Duration:        {:.1}s", total_secs);
-    println!("  Throughput:      {} msg/s", format_number(throughput as u64));
+    println!(
+        "  Throughput:      {} msg/s",
+        format_number(throughput as u64)
+    );
     println!(
         "  Data rate:       {:.1} MB/s",
         total_records as f64 * VALUE_SIZE as f64 / total_secs / (1024.0 * 1024.0)
@@ -246,15 +249,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         println!();
         println!("  Tuning suggestions:");
         if p99 > 50.0 {
-            println!("    - High p99 latency ({:.0}ms). Server may be overloaded.", p99);
-        }
-        if total_errors > 0 {
             println!(
-                "    - {} errors detected. Check server logs.",
-                total_errors
+                "    - High p99 latency ({:.0}ms). Server may be overloaded.",
+                p99
             );
         }
-        println!("    - Try increasing PRODUCER_TASKS (currently {})", PRODUCER_TASKS);
+        if total_errors > 0 {
+            println!("    - {} errors detected. Check server logs.", total_errors);
+        }
+        println!(
+            "    - Try increasing PRODUCER_TASKS (currently {})",
+            PRODUCER_TASKS
+        );
         println!("    - Try increasing BATCH_SIZE (currently {})", BATCH_SIZE);
         println!("    - Try increasing PARTITIONS (currently {})", PARTITIONS);
         println!("    - Ensure running with: --release");
@@ -345,8 +351,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     // Report per-partition breakdown
-    println!("  {:>5}  {:>12}  {:>12}  {:>12}  {:>8}", "Part", "Produced", "Consumed", "HW", "Loss");
-    println!("  {:->5}  {:->12}  {:->12}  {:->12}  {:->8}", "", "", "", "", "");
+    println!(
+        "  {:>5}  {:>12}  {:>12}  {:>12}  {:>8}",
+        "Part", "Produced", "Consumed", "HW", "Loss"
+    );
+    println!(
+        "  {:->5}  {:->12}  {:->12}  {:->12}  {:->8}",
+        "", "", "", "", ""
+    );
 
     for (pid, produced, consumed, hw) in &partition_results {
         // produced doesn't include warmup, but HW/consumed does — compare consumed vs hw
@@ -362,14 +374,21 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     let total_hw: u64 = partition_results.iter().map(|(_, _, _, hw)| hw).sum();
-    println!("  {:->5}  {:->12}  {:->12}  {:->12}  {:->8}", "", "", "", "", "");
+    println!(
+        "  {:->5}  {:->12}  {:->12}  {:->12}  {:->8}",
+        "", "", "", "", ""
+    );
     println!(
         "  {:>5}  {:>12}  {:>12}  {:>12}  {:>8}",
         "TOTAL",
         format_number(total_produced_check),
         format_number(total_consumed),
         format_number(total_hw),
-        if total_consumed < total_hw { total_hw - total_consumed } else { 0 }
+        if total_consumed < total_hw {
+            total_hw - total_consumed
+        } else {
+            0
+        }
     );
 
     println!();
@@ -377,10 +396,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Note: produced count excludes warmup records, but HW includes them
     let warmup_records = (WARMUP_BATCHES * BATCH_SIZE) as u64;
     let expected_total = total_produced_check + warmup_records;
-    let loss = if total_hw > total_consumed { total_hw - total_consumed } else { 0 };
+    let loss = if total_hw > total_consumed {
+        total_hw - total_consumed
+    } else {
+        0
+    };
 
     if loss == 0 && total_consumed > 0 {
-        println!("  ZERO MESSAGE LOSS - all {} consumed records accounted for", format_number(total_consumed));
+        println!(
+            "  ZERO MESSAGE LOSS - all {} consumed records accounted for",
+            format_number(total_consumed)
+        );
     } else if loss > 0 {
         println!(
             "  WARNING: {} records lost ({:.4}% loss rate)",
@@ -390,23 +416,31 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     if total_consumed >= expected_total {
-        println!("  Produced (stress): {}  Warmup: {}  HW total: {}  Consumed: {}",
+        println!(
+            "  Produced (stress): {}  Warmup: {}  HW total: {}  Consumed: {}",
             format_number(total_produced_check),
             format_number(warmup_records),
             format_number(total_hw),
             format_number(total_consumed),
         );
     } else {
-        let unflushed = if expected_total > total_hw { expected_total - total_hw } else { 0 };
-        println!("  Produced (stress): {}  Warmup: {}  HW total: {}  Consumed: {}",
+        let unflushed = if expected_total > total_hw {
+            expected_total - total_hw
+        } else {
+            0
+        };
+        println!(
+            "  Produced (stress): {}  Warmup: {}  HW total: {}  Consumed: {}",
             format_number(total_produced_check),
             format_number(warmup_records),
             format_number(total_hw),
             format_number(total_consumed),
         );
         if unflushed > 0 {
-            println!("  Note: {} records not yet flushed to S3 (in WAL/segment buffer)",
-                format_number(unflushed));
+            println!(
+                "  Note: {} records not yet flushed to S3 (in WAL/segment buffer)",
+                format_number(unflushed)
+            );
         }
     }
 
@@ -500,8 +534,7 @@ async fn producer_task(
 
                 stats.records_sent.fetch_add(count, Ordering::Relaxed);
                 stats.batches_sent.fetch_add(1, Ordering::Relaxed);
-                stats.per_partition_sent[partition as usize]
-                    .fetch_add(count, Ordering::Relaxed);
+                stats.per_partition_sent[partition as usize].fetch_add(count, Ordering::Relaxed);
                 stats.batch_latencies.lock().await.push(latency_ms);
             }
             Err(_) => {

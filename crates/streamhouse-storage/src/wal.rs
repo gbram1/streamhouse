@@ -749,18 +749,26 @@ impl WAL {
     /// Get the number of records currently in the batch buffer
     pub async fn batch_pending_count(&self) -> Result<usize> {
         let (tx, rx) = oneshot::channel();
-        self.cmd_tx.send(WalCmd::QueryPending(tx)).await
+        self.cmd_tx
+            .send(WalCmd::QueryPending(tx))
+            .await
             .map_err(|_| wal_closed_error())?;
-        Ok(rx.await.map(|(count, _)| count)
+        Ok(rx
+            .await
+            .map(|(count, _)| count)
             .map_err(|_| wal_closed_error())?)
     }
 
     /// Get the size of data currently in the batch buffer
     pub async fn batch_pending_bytes(&self) -> Result<usize> {
         let (tx, rx) = oneshot::channel();
-        self.cmd_tx.send(WalCmd::QueryPending(tx)).await
+        self.cmd_tx
+            .send(WalCmd::QueryPending(tx))
+            .await
             .map_err(|_| wal_closed_error())?;
-        Ok(rx.await.map(|(_, bytes)| bytes)
+        Ok(rx
+            .await
+            .map(|(_, bytes)| bytes)
             .map_err(|_| wal_closed_error())?)
     }
 
@@ -781,10 +789,7 @@ impl WAL {
 
 /// Helper: create an IO error for WAL channel closed
 fn wal_closed_error() -> std::io::Error {
-    std::io::Error::new(
-        std::io::ErrorKind::BrokenPipe,
-        "WAL writer task closed",
-    )
+    std::io::Error::new(std::io::ErrorKind::BrokenPipe, "WAL writer task closed")
 }
 
 // ============================================================================
@@ -844,7 +849,12 @@ impl WalWriter {
             let mut truncate_waiter: Option<oneshot::Sender<std::result::Result<(), String>>> =
                 None;
 
-            self.process_cmd(first, &mut flush_waiters, &mut queries, &mut truncate_waiter);
+            self.process_cmd(
+                first,
+                &mut flush_waiters,
+                &mut queries,
+                &mut truncate_waiter,
+            );
 
             while let Ok(cmd) = rx.try_recv() {
                 self.process_cmd(cmd, &mut flush_waiters, &mut queries, &mut truncate_waiter);
@@ -1457,10 +1467,14 @@ mod tests {
 
     #[tokio::test]
     async fn test_recover_partition_nonexistent_dir() {
-        let (records, stale_files) =
-            WAL::recover_partition(Path::new("/tmp/nonexistent-wal-dir-12345"), "orders", 0, "agent-a")
-                .await
-                .unwrap();
+        let (records, stale_files) = WAL::recover_partition(
+            Path::new("/tmp/nonexistent-wal-dir-12345"),
+            "orders",
+            0,
+            "agent-a",
+        )
+        .await
+        .unwrap();
 
         assert_eq!(records.len(), 0);
         assert_eq!(stale_files.len(), 0);

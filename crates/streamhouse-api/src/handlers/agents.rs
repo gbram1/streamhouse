@@ -24,17 +24,11 @@ pub async fn list_agents(State(state): State<AppState>) -> Result<Json<Vec<Agent
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
     // Get all leases (non-fatal — agents can exist without leases)
-    let lease_counts = match state
-        .metadata
-        .list_partition_leases(None, None)
-        .await
-    {
+    let lease_counts = match state.metadata.list_partition_leases(None, None).await {
         Ok(all_leases) => {
             let mut counts = std::collections::HashMap::new();
             for lease in all_leases {
-                *counts
-                    .entry(lease.leader_agent_id.clone())
-                    .or_insert(0u32) += 1;
+                *counts.entry(lease.leader_agent_id.clone()).or_insert(0u32) += 1;
             }
             counts
         }

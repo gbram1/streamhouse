@@ -62,11 +62,7 @@ pub async fn handle_end_txn(
 
     // Find the active transaction for this producer.
     // We get the transaction by beginning one (which returns existing if ongoing).
-    let transaction = match state
-        .metadata
-        .begin_transaction(&producer.id, 60000)
-        .await
-    {
+    let transaction = match state.metadata.begin_transaction(&producer.id, 60000).await {
         Ok(txn) => txn,
         Err(e) => {
             warn!("Failed to get transaction for producer: {}", e);
@@ -299,8 +295,7 @@ mod tests {
             client_id: Some("test-client".to_string()),
         };
 
-        let response =
-            build_response(&header, ErrorCode::InvalidProducerIdMapping).unwrap();
+        let response = build_response(&header, ErrorCode::InvalidProducerIdMapping).unwrap();
         let mut buf = response;
         assert_eq!(buf.get_i32(), 0);
         assert_eq!(buf.get_i16(), ErrorCode::InvalidProducerIdMapping.as_i16());

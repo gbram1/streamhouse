@@ -354,12 +354,19 @@ mod tests {
         // After 50ms (less than one interval of 80ms), no heartbeat yet
         tokio::time::sleep(Duration::from_millis(50)).await;
         let agents = store.list_agents(None, None).await.unwrap();
-        assert!(agents.is_empty(), "heartbeat should not fire before interval elapses");
+        assert!(
+            agents.is_empty(),
+            "heartbeat should not fire before interval elapses"
+        );
 
         // After another 60ms (total ~110ms > 80ms), first heartbeat should have fired
         tokio::time::sleep(Duration::from_millis(60)).await;
         let agents = store.list_agents(None, None).await.unwrap();
-        assert_eq!(agents.len(), 1, "first heartbeat should have registered the agent");
+        assert_eq!(
+            agents.len(),
+            1,
+            "first heartbeat should have registered the agent"
+        );
 
         handle.abort();
         let _ = handle.await;
@@ -470,8 +477,14 @@ mod tests {
         assert_eq!(agent.availability_zone, "eu-west-1a");
         assert_eq!(agent.agent_group, "production");
         assert_eq!(agent.started_at, 12345678);
-        assert_eq!(agent.metadata.get("version").map(|s| s.as_str()), Some("2.1"));
-        assert_eq!(agent.metadata.get("build").map(|s| s.as_str()), Some("abc123"));
+        assert_eq!(
+            agent.metadata.get("version").map(|s| s.as_str()),
+            Some("2.1")
+        );
+        assert_eq!(
+            agent.metadata.get("build").map(|s| s.as_str()),
+            Some("abc123")
+        );
 
         handle.abort();
         let _ = handle.await;

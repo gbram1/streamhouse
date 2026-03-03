@@ -406,41 +406,39 @@ impl ArrowExecutor {
 
         // Use binary SegmentReader (same as legacy executor), fallback to NDJSON
         match streamhouse_storage::SegmentReader::new(data.clone()) {
-            Ok(reader) => {
-                match reader.read_all() {
-                    Ok(records) => {
-                        for record in records {
-                            let timestamp = record.timestamp as i64;
-                            if let Some(ts) = ts_start {
-                                if timestamp < ts {
-                                    continue;
-                                }
+            Ok(reader) => match reader.read_all() {
+                Ok(records) => {
+                    for record in records {
+                        let timestamp = record.timestamp as i64;
+                        if let Some(ts) = ts_start {
+                            if timestamp < ts {
+                                continue;
                             }
-                            if let Some(ts) = ts_end {
-                                if timestamp >= ts {
-                                    continue;
-                                }
-                            }
-                            let key = record
-                                .key
-                                .as_ref()
-                                .map(|k| String::from_utf8_lossy(k).to_string());
-                            let value = String::from_utf8_lossy(&record.value).to_string();
-                            messages.push(MessageRow {
-                                topic: segment.topic.clone(),
-                                partition: segment.partition_id,
-                                offset: record.offset,
-                                key,
-                                value,
-                                timestamp,
-                            });
                         }
-                    }
-                    Err(e) => {
-                        tracing::warn!("Failed to read segment records: {}", e);
+                        if let Some(ts) = ts_end {
+                            if timestamp >= ts {
+                                continue;
+                            }
+                        }
+                        let key = record
+                            .key
+                            .as_ref()
+                            .map(|k| String::from_utf8_lossy(k).to_string());
+                        let value = String::from_utf8_lossy(&record.value).to_string();
+                        messages.push(MessageRow {
+                            topic: segment.topic.clone(),
+                            partition: segment.partition_id,
+                            offset: record.offset,
+                            key,
+                            value,
+                            timestamp,
+                        });
                     }
                 }
-            }
+                Err(e) => {
+                    tracing::warn!("Failed to read segment records: {}", e);
+                }
+            },
             Err(_) => {
                 // Fallback: NDJSON for backward compatibility
                 let text = String::from_utf8_lossy(&data);

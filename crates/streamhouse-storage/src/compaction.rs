@@ -191,10 +191,12 @@ impl CompactionScheduler {
         let state = self.state.read().await;
         let key = (topic.to_string(), partition);
 
-        let cs = state.get(&key).ok_or_else(|| CompactionError::PartitionNotFound {
-            topic: topic.to_string(),
-            partition,
-        })?;
+        let cs = state
+            .get(&key)
+            .ok_or_else(|| CompactionError::PartitionNotFound {
+                topic: topic.to_string(),
+                partition,
+            })?;
 
         // Check minimum interval
         if let Some(last) = cs.last_compaction_at {
@@ -268,10 +270,12 @@ impl CompactionScheduler {
         // Update compaction state
         let mut state = self.state.write().await;
         let key = (topic.to_string(), partition);
-        let cs = state.get_mut(&key).ok_or_else(|| CompactionError::PartitionNotFound {
-            topic: topic.to_string(),
-            partition,
-        })?;
+        let cs = state
+            .get_mut(&key)
+            .ok_or_else(|| CompactionError::PartitionNotFound {
+                topic: topic.to_string(),
+                partition,
+            })?;
 
         let max_offset = records.iter().map(|r| r.offset).max().unwrap_or(0);
         cs.last_compacted_offset = max_offset;
@@ -326,10 +330,7 @@ impl CompactionScheduler {
             cs.tombstones_pending = cs.tombstones_pending.saturating_sub(expired);
         }
 
-        debug!(
-            "Expired {} tombstones for {}/{}",
-            expired, topic, partition
-        );
+        debug!("Expired {} tombstones for {}/{}", expired, topic, partition);
 
         Ok(expired)
     }
@@ -396,10 +397,12 @@ impl CompactionScheduler {
         let mut state = self.state.write().await;
         let key = (topic.to_string(), partition);
 
-        let cs = state.get_mut(&key).ok_or_else(|| CompactionError::PartitionNotFound {
-            topic: topic.to_string(),
-            partition,
-        })?;
+        let cs = state
+            .get_mut(&key)
+            .ok_or_else(|| CompactionError::PartitionNotFound {
+                topic: topic.to_string(),
+                partition,
+            })?;
 
         cs.dirty_ratio = dirty_ratio;
         Ok(())
@@ -638,10 +641,7 @@ mod tests {
         assert!(!scheduler.should_compact("topic", 0).await.unwrap());
 
         // Update dirty ratio above threshold
-        scheduler
-            .update_dirty_ratio("topic", 0, 0.7)
-            .await
-            .unwrap();
+        scheduler.update_dirty_ratio("topic", 0, 0.7).await.unwrap();
 
         assert!(scheduler.should_compact("topic", 0).await.unwrap());
     }
@@ -679,8 +679,8 @@ mod tests {
         let records = make_records(&[
             (b"k1", None, 0, now_ms - 100_000_000), // very old tombstone
             (b"k2", None, 1, now_ms - 100_000_000), // very old tombstone
-            (b"k3", None, 2, now_ms),                // recent tombstone
-            (b"k4", Some(b"val"), 3, now_ms),        // not a tombstone
+            (b"k3", None, 2, now_ms),               // recent tombstone
+            (b"k4", Some(b"val"), 3, now_ms),       // not a tombstone
         ]);
 
         let expired = scheduler
@@ -718,10 +718,7 @@ mod tests {
             .unwrap();
 
         // Update dirty ratio back to high
-        scheduler
-            .update_dirty_ratio("topic", 0, 0.9)
-            .await
-            .unwrap();
+        scheduler.update_dirty_ratio("topic", 0, 0.9).await.unwrap();
 
         // Should not compact because minimum interval hasn't passed
         assert!(!scheduler.should_compact("topic", 0).await.unwrap());

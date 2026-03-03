@@ -57,9 +57,11 @@ struct TtlEntry {
 
 impl TtlEntry {
     fn new(value: Vec<u8>, ttl_ms: Option<i64>) -> Self {
-        let expires_at_ms =
-            ttl_ms.map(|ttl| chrono::Utc::now().timestamp_millis() + ttl);
-        Self { value, expires_at_ms }
+        let expires_at_ms = ttl_ms.map(|ttl| chrono::Utc::now().timestamp_millis() + ttl);
+        Self {
+            value,
+            expires_at_ms,
+        }
     }
 
     fn is_expired(&self) -> bool {
@@ -164,17 +166,13 @@ impl RocksDbStateStore {
             SqlError::StateStoreError(format!("failed to serialize TTL entry: {e}"))
         })?;
         let db = self.db.write().await;
-        db.put(&prefixed, &encoded).map_err(|e| {
-            SqlError::StateStoreError(format!("RocksDB put error: {e}"))
-        })
+        db.put(&prefixed, &encoded)
+            .map_err(|e| SqlError::StateStoreError(format!("RocksDB put error: {e}")))
     }
 
     /// Collect all entries that belong to a given namespace.
     #[allow(dead_code)]
-    async fn collect_namespace(
-        &self,
-        namespace: &str,
-    ) -> Result<Vec<(Vec<u8>, Vec<u8>)>> {
+    async fn collect_namespace(&self, namespace: &str) -> Result<Vec<(Vec<u8>, Vec<u8>)>> {
         let prefix = {
             let mut p = Vec::with_capacity(namespace.len() + 1);
             p.extend_from_slice(namespace.as_bytes());
@@ -185,9 +183,8 @@ impl RocksDbStateStore {
         let iter = db.prefix_iterator(&prefix);
         let mut results = Vec::new();
         for item in iter {
-            let (raw_key, raw_val) = item.map_err(|e| {
-                SqlError::StateStoreError(format!("RocksDB iterator error: {e}"))
-            })?;
+            let (raw_key, raw_val) = item
+                .map_err(|e| SqlError::StateStoreError(format!("RocksDB iterator error: {e}")))?;
             if !raw_key.starts_with(&prefix) {
                 break;
             }
@@ -231,16 +228,11 @@ impl StateStore for RocksDbStateStore {
     async fn delete(&self, namespace: &str, key: &[u8]) -> Result<()> {
         let prefixed = make_prefixed_key(namespace, key);
         let db = self.db.write().await;
-        db.delete(&prefixed).map_err(|e| {
-            SqlError::StateStoreError(format!("RocksDB delete error: {e}"))
-        })
+        db.delete(&prefixed)
+            .map_err(|e| SqlError::StateStoreError(format!("RocksDB delete error: {e}")))
     }
 
-    async fn scan_prefix(
-        &self,
-        namespace: &str,
-        prefix: &[u8],
-    ) -> Result<Vec<(Vec<u8>, Vec<u8>)>> {
+    async fn scan_prefix(&self, namespace: &str, prefix: &[u8]) -> Result<Vec<(Vec<u8>, Vec<u8>)>> {
         let full_prefix = make_prefixed_key(namespace, prefix);
         let ns_prefix = {
             let mut p = Vec::with_capacity(namespace.len() + 1);
@@ -252,9 +244,8 @@ impl StateStore for RocksDbStateStore {
         let iter = db.prefix_iterator(&full_prefix);
         let mut results = Vec::new();
         for item in iter {
-            let (raw_key, raw_val) = item.map_err(|e| {
-                SqlError::StateStoreError(format!("RocksDB iterator error: {e}"))
-            })?;
+            let (raw_key, raw_val) = item
+                .map_err(|e| SqlError::StateStoreError(format!("RocksDB iterator error: {e}")))?;
             if !raw_key.starts_with(&full_prefix) {
                 break;
             }
@@ -274,9 +265,8 @@ impl StateStore for RocksDbStateStore {
         let iter = db.iterator(rocksdb::IteratorMode::Start);
         let mut entries = Vec::new();
         for item in iter {
-            let (raw_key, raw_val) = item.map_err(|e| {
-                SqlError::StateStoreError(format!("RocksDB iterator error: {e}"))
-            })?;
+            let (raw_key, raw_val) = item
+                .map_err(|e| SqlError::StateStoreError(format!("RocksDB iterator error: {e}")))?;
             // Decode the namespace from the key
             let raw_key_vec = raw_key.to_vec();
             if let Some(sep_pos) = raw_key_vec.iter().position(|&b| b == 0x00) {
@@ -538,7 +528,10 @@ mod tests {
     #[tokio::test]
     async fn test_put_without_ttl_persists() {
         let (store, _dir) = open_temp_store();
-        store.put_with_ttl("ns", b"key", b"val", None).await.unwrap();
+        store
+            .put_with_ttl("ns", b"key", b"val", None)
+            .await
+            .unwrap();
         let val = store.get("ns", b"key").await.unwrap();
         assert_eq!(val, Some(b"val".to_vec()));
     }

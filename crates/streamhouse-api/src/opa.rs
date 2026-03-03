@@ -218,22 +218,20 @@ impl OpaClient {
 
     /// Evaluate a policy against the OPA server
     pub async fn evaluate(&self, input: &OpaInput) -> Result<OpaDecision, OpaError> {
-        let url = format!("{}/{}", self.config.url.trim_end_matches('/'), self.config.policy_path);
+        let url = format!(
+            "{}/{}",
+            self.config.url.trim_end_matches('/'),
+            self.config.policy_path
+        );
         let body = OpaRequest { input };
 
-        let response = self
-            .http
-            .post(&url)
-            .json(&body)
-            .send()
-            .await
-            .map_err(|e| {
-                if e.is_timeout() {
-                    OpaError::Timeout
-                } else {
-                    OpaError::RequestFailed(e.to_string())
-                }
-            })?;
+        let response = self.http.post(&url).json(&body).send().await.map_err(|e| {
+            if e.is_timeout() {
+                OpaError::Timeout
+            } else {
+                OpaError::RequestFailed(e.to_string())
+            }
+        })?;
 
         let status = response.status().as_u16();
         if status < 200 || status >= 300 {
@@ -300,10 +298,7 @@ impl OpaRbacManager {
     ///
     /// If `opa` is `None`, all authorization decisions will be made by RBAC alone.
     pub fn new(rbac: Arc<RbacManager>, opa: Option<OpaClient>) -> Self {
-        let config = opa
-            .as_ref()
-            .map(|c| c.config.clone())
-            .unwrap_or_default();
+        let config = opa.as_ref().map(|c| c.config.clone()).unwrap_or_default();
         let transport: Option<Box<dyn OpaTransport>> =
             opa.map(|c| Box::new(c) as Box<dyn OpaTransport>);
         Self {
@@ -447,10 +442,7 @@ impl OpaLayer {
 }
 
 /// Default resource extractor for OPA layer (same logic as RBAC)
-fn default_opa_resource_extractor(
-    method: &str,
-    path: &str,
-) -> Option<(AclResource, AclAction)> {
+fn default_opa_resource_extractor(method: &str, path: &str) -> Option<(AclResource, AclAction)> {
     let parts: Vec<&str> = path.split('/').filter(|s| !s.is_empty()).collect();
 
     match parts.as_slice() {
@@ -774,11 +766,8 @@ mod tests {
             ..Default::default()
         };
 
-        let manager = OpaRbacManager::with_transport(
-            rbac,
-            Box::new(MockOpaTransport::allow()),
-            config,
-        );
+        let manager =
+            OpaRbacManager::with_transport(rbac, Box::new(MockOpaTransport::allow()), config);
 
         let decision = manager
             .is_allowed(
@@ -801,11 +790,8 @@ mod tests {
             ..Default::default()
         };
 
-        let manager = OpaRbacManager::with_transport(
-            rbac,
-            Box::new(MockOpaTransport::deny()),
-            config,
-        );
+        let manager =
+            OpaRbacManager::with_transport(rbac, Box::new(MockOpaTransport::deny()), config);
 
         let decision = manager
             .is_allowed(
@@ -818,10 +804,7 @@ mod tests {
 
         assert!(!decision.allowed);
         assert_eq!(decision.source, OpaDecisionSource::Opa);
-        assert_eq!(
-            decision.reason.as_deref(),
-            Some("Denied by OPA policy")
-        );
+        assert_eq!(decision.reason.as_deref(), Some("Denied by OPA policy"));
     }
 
     #[tokio::test]
@@ -833,11 +816,8 @@ mod tests {
             ..Default::default()
         };
 
-        let manager = OpaRbacManager::with_transport(
-            rbac,
-            Box::new(MockOpaTransport::error()),
-            config,
-        );
+        let manager =
+            OpaRbacManager::with_transport(rbac, Box::new(MockOpaTransport::error()), config);
 
         let decision = manager
             .is_allowed(
@@ -862,11 +842,8 @@ mod tests {
             ..Default::default()
         };
 
-        let manager = OpaRbacManager::with_transport(
-            rbac,
-            Box::new(MockOpaTransport::error()),
-            config,
-        );
+        let manager =
+            OpaRbacManager::with_transport(rbac, Box::new(MockOpaTransport::error()), config);
 
         let decision = manager
             .is_allowed(

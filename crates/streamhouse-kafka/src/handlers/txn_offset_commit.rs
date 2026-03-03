@@ -192,7 +192,7 @@ mod tests {
         buf.put_i32(1);
         buf.put_i32(0); // partition_index
         buf.put_i64(100); // committed_offset
-        // metadata (nullable string)
+                          // metadata (nullable string)
         buf.put_i16(-1); // null
 
         // Parse fields manually to verify

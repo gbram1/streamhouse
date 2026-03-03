@@ -148,8 +148,8 @@ impl WatermarkTracker {
         }
 
         // Recalculate watermark:  max_timestamp - max_out_of_orderness
-        let new_watermark = pw.max_timestamp_seen
-            - self.config.max_out_of_orderness.as_millis() as i64;
+        let new_watermark =
+            pw.max_timestamp_seen - self.config.max_out_of_orderness.as_millis() as i64;
         if new_watermark > pw.current_watermark {
             pw.current_watermark = new_watermark;
         }
@@ -356,14 +356,8 @@ mod tests {
     async fn test_global_watermark_is_minimum() {
         let tracker = default_tracker();
 
-        tracker
-            .update_watermark("topic", 0, 200_000)
-            .await
-            .unwrap();
-        tracker
-            .update_watermark("topic", 1, 100_000)
-            .await
-            .unwrap();
+        tracker.update_watermark("topic", 0, 200_000).await.unwrap();
+        tracker.update_watermark("topic", 1, 100_000).await.unwrap();
 
         let global = tracker.get_global_watermark().await.unwrap();
         // partition 1 has max_ts=100_000, watermark=100_000-5_000=95_000

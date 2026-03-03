@@ -116,7 +116,9 @@ pub enum DiscoveryEvent {
 #[async_trait]
 pub trait ServiceDiscovery: Send + Sync {
     /// Discover all nodes currently available.
-    async fn discover(&self) -> Result<Vec<DiscoveredNode>, Box<dyn std::error::Error + Send + Sync>>;
+    async fn discover(
+        &self,
+    ) -> Result<Vec<DiscoveredNode>, Box<dyn std::error::Error + Send + Sync>>;
 
     /// Register the local node with the discovery backend.
     async fn register_self(
@@ -189,7 +191,9 @@ impl StaticDiscovery {
 
 #[async_trait]
 impl ServiceDiscovery for StaticDiscovery {
-    async fn discover(&self) -> Result<Vec<DiscoveredNode>, Box<dyn std::error::Error + Send + Sync>> {
+    async fn discover(
+        &self,
+    ) -> Result<Vec<DiscoveredNode>, Box<dyn std::error::Error + Send + Sync>> {
         let nodes = self.nodes.read().await;
         debug!(count = nodes.len(), "Static discovery returning nodes");
         Ok(nodes.iter().cloned().collect())
@@ -237,7 +241,9 @@ impl DnsDiscovery {
 
 #[async_trait]
 impl ServiceDiscovery for DnsDiscovery {
-    async fn discover(&self) -> Result<Vec<DiscoveredNode>, Box<dyn std::error::Error + Send + Sync>> {
+    async fn discover(
+        &self,
+    ) -> Result<Vec<DiscoveredNode>, Box<dyn std::error::Error + Send + Sync>> {
         let domain = self
             ._config
             .dns_domain
@@ -302,7 +308,9 @@ impl MetadataStoreDiscovery {
 
 #[async_trait]
 impl ServiceDiscovery for MetadataStoreDiscovery {
-    async fn discover(&self) -> Result<Vec<DiscoveredNode>, Box<dyn std::error::Error + Send + Sync>> {
+    async fn discover(
+        &self,
+    ) -> Result<Vec<DiscoveredNode>, Box<dyn std::error::Error + Send + Sync>> {
         let nodes = self.nodes.read().await;
         Ok(nodes.iter().cloned().collect())
     }
@@ -396,8 +404,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_static_deregister_self() {
-        let discovery =
-            StaticDiscovery::from_addresses(vec!["10.0.1.1:9090".to_string()]);
+        let discovery = StaticDiscovery::from_addresses(vec!["10.0.1.1:9090".to_string()]);
         let node = DiscoveredNode::new("10.0.1.1:9090");
         discovery.deregister_self(&node).await.unwrap();
         let nodes = discovery.discover().await.unwrap();

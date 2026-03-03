@@ -67,11 +67,7 @@ pub async fn handle_init_producer_id(
     {
         Ok(producer) => {
             let numeric_id = hash_producer_id(&producer.id);
-            (
-                ErrorCode::None,
-                numeric_id,
-                producer.epoch as i16,
-            )
+            (ErrorCode::None, numeric_id, producer.epoch as i16)
         }
         Err(e) => {
             tracing::warn!("InitProducerId failed: {}", e);
@@ -216,7 +212,7 @@ mod tests {
         response.put_i16(0); // error_code = None
         response.put_i64(99999); // producer_id
         response.put_i16(3); // producer_epoch
-        // Tagged fields (empty = single byte 0)
+                             // Tagged fields (empty = single byte 0)
         response.put_u8(0);
 
         let mut buf = response;

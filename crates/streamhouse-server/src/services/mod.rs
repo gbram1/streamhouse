@@ -84,16 +84,16 @@ impl StreamHouseService {
 
         match schema.schema_type {
             streamhouse_schema_registry::SchemaFormat::Json => {
-                let schema_value: serde_json::Value =
-                    serde_json::from_str(&schema.schema).map_err(|e| {
-                        Status::internal(format!("Invalid schema definition: {}", e))
-                    })?;
+                let schema_value: serde_json::Value = serde_json::from_str(&schema.schema)
+                    .map_err(|e| Status::internal(format!("Invalid schema definition: {}", e)))?;
                 let instance: serde_json::Value = serde_json::from_str(value_str)
                     .map_err(|e| Status::invalid_argument(format!("Invalid JSON: {}", e)))?;
                 let validator = jsonschema::validator_for(&schema_value)
                     .map_err(|e| Status::internal(format!("Schema compile error: {}", e)))?;
-                let errors: Vec<String> =
-                    validator.iter_errors(&instance).map(|e| e.to_string()).collect();
+                let errors: Vec<String> = validator
+                    .iter_errors(&instance)
+                    .map(|e| e.to_string())
+                    .collect();
                 if !errors.is_empty() {
                     return Err(Status::invalid_argument(format!(
                         "Schema validation failed: {}",
@@ -102,10 +102,8 @@ impl StreamHouseService {
                 }
             }
             streamhouse_schema_registry::SchemaFormat::Avro => {
-                let avro_schema =
-                    apache_avro::Schema::parse_str(&schema.schema).map_err(|e| {
-                        Status::internal(format!("Invalid Avro schema: {}", e))
-                    })?;
+                let avro_schema = apache_avro::Schema::parse_str(&schema.schema)
+                    .map_err(|e| Status::internal(format!("Invalid Avro schema: {}", e)))?;
                 let json_value: serde_json::Value = serde_json::from_str(value_str)
                     .map_err(|e| Status::invalid_argument(format!("Invalid JSON: {}", e)))?;
                 let avro_value = apache_avro::types::Value::from(json_value);
@@ -561,7 +559,11 @@ impl StreamHouse for StreamHouseService {
                 } else {
                     Some(bytes::Bytes::from(r.key.clone()))
                 };
-                let ts = if r.timestamp > 0 { r.timestamp } else { timestamp };
+                let ts = if r.timestamp > 0 {
+                    r.timestamp
+                } else {
+                    timestamp
+                };
                 (key, bytes::Bytes::from(r.value.clone()), ts)
             })
             .collect();
@@ -571,9 +573,9 @@ impl StreamHouse for StreamHouseService {
 
             match writer_guard.append_batch(&batch).await {
                 Ok(offsets) => {
-                    let base = *offsets.first().ok_or_else(|| {
-                        Status::internal("No offsets returned from batch append")
-                    })?;
+                    let base = *offsets
+                        .first()
+                        .ok_or_else(|| Status::internal("No offsets returned from batch append"))?;
                     (base, offsets.len() as u64)
                 }
                 Err(e) => {
@@ -770,8 +772,7 @@ impl StreamHouse for StreamHouseService {
             }));
         }
 
-        let has_more =
-            !records.is_empty() && records.last().unwrap().offset + 1 < high_watermark;
+        let has_more = !records.is_empty() && records.last().unwrap().offset + 1 < high_watermark;
 
         Ok(Response::new(ConsumeResponse {
             records,
@@ -950,11 +951,7 @@ impl StreamHouse for StreamHouseService {
             )));
         }
 
-        match self
-            .metadata
-            .commit_transaction(&req.transaction_id)
-            .await
-        {
+        match self.metadata.commit_transaction(&req.transaction_id).await {
             Ok(commit_timestamp) => {
                 info!(
                     producer_id = %req.producer_id,
@@ -1007,11 +1004,7 @@ impl StreamHouse for StreamHouseService {
             )));
         }
 
-        match self
-            .metadata
-            .abort_transaction(&req.transaction_id)
-            .await
-        {
+        match self.metadata.abort_transaction(&req.transaction_id).await {
             Ok(()) => {
                 info!(
                     producer_id = %req.producer_id,
@@ -1118,9 +1111,8 @@ mod tests {
                 .unwrap(),
         );
 
-        let object_store = Arc::new(
-            object_store::local::LocalFileSystem::new_with_prefix(&storage_dir).unwrap(),
-        );
+        let object_store =
+            Arc::new(object_store::local::LocalFileSystem::new_with_prefix(&storage_dir).unwrap());
 
         let cache = Arc::new(SegmentCache::new(&cache_dir, 10 * 1024 * 1024).unwrap());
 

@@ -73,11 +73,20 @@ pub trait Operator: Send + Sync {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum FilterPredicate {
     /// Field equals a JSON value.
-    Equals { field: String, value: serde_json::Value },
+    Equals {
+        field: String,
+        value: serde_json::Value,
+    },
     /// Field is greater than a numeric JSON value.
-    GreaterThan { field: String, value: serde_json::Value },
+    GreaterThan {
+        field: String,
+        value: serde_json::Value,
+    },
     /// Field is less than a numeric JSON value.
-    LessThan { field: String, value: serde_json::Value },
+    LessThan {
+        field: String,
+        value: serde_json::Value,
+    },
     /// Field (string) contains a substring.
     Contains { field: String, substring: String },
     /// Logical AND of two predicates.
@@ -133,10 +142,9 @@ impl FilterOperator {
 #[async_trait]
 impl Operator for FilterOperator {
     async fn process(&mut self, record: StreamRecord) -> Result<Vec<StreamRecord>> {
-        let json: serde_json::Value =
-            serde_json::from_slice(&record.value).map_err(|e| {
-                SqlError::ExecutionError(format!("failed to parse record as JSON: {e}"))
-            })?;
+        let json: serde_json::Value = serde_json::from_slice(&record.value).map_err(|e| {
+            SqlError::ExecutionError(format!("failed to parse record as JSON: {e}"))
+        })?;
         if self.predicate.evaluate(&json) {
             Ok(vec![record])
         } else {
@@ -177,10 +185,9 @@ impl ProjectOperator {
 #[async_trait]
 impl Operator for ProjectOperator {
     async fn process(&mut self, record: StreamRecord) -> Result<Vec<StreamRecord>> {
-        let json: serde_json::Value =
-            serde_json::from_slice(&record.value).map_err(|e| {
-                SqlError::ExecutionError(format!("failed to parse record as JSON: {e}"))
-            })?;
+        let json: serde_json::Value = serde_json::from_slice(&record.value).map_err(|e| {
+            SqlError::ExecutionError(format!("failed to parse record as JSON: {e}"))
+        })?;
 
         let mut projected = serde_json::Map::new();
         for proj in &self.projections {
@@ -190,8 +197,9 @@ impl Operator for ProjectOperator {
             }
         }
 
-        let new_value = serde_json::to_vec(&serde_json::Value::Object(projected))
-            .map_err(|e| SqlError::ExecutionError(format!("failed to serialize projection: {e}")))?;
+        let new_value = serde_json::to_vec(&serde_json::Value::Object(projected)).map_err(|e| {
+            SqlError::ExecutionError(format!("failed to serialize projection: {e}"))
+        })?;
 
         Ok(vec![StreamRecord {
             value: new_value,
@@ -482,10 +490,9 @@ impl JoinOperator {
         record: StreamRecord,
         side: JoinSide,
     ) -> Result<Vec<StreamRecord>> {
-        let json: serde_json::Value =
-            serde_json::from_slice(&record.value).map_err(|e| {
-                SqlError::ExecutionError(format!("failed to parse join record as JSON: {e}"))
-            })?;
+        let json: serde_json::Value = serde_json::from_slice(&record.value).map_err(|e| {
+            SqlError::ExecutionError(format!("failed to parse join record as JSON: {e}"))
+        })?;
 
         let key_field = match side {
             JoinSide::Left => &self.config.left_key,
@@ -559,7 +566,10 @@ impl JoinOperator {
                     "right": right,
                 });
                 let value = serde_json::to_vec(&merged).ok()?;
-                Some(StreamRecord::new(value, chrono::Utc::now().timestamp_millis()))
+                Some(StreamRecord::new(
+                    value,
+                    chrono::Utc::now().timestamp_millis(),
+                ))
             }
             JoinType::Left | JoinType::Right | JoinType::Full => {
                 let merged = serde_json::json!({
@@ -567,7 +577,10 @@ impl JoinOperator {
                     "right": right,
                 });
                 let value = serde_json::to_vec(&merged).ok()?;
-                Some(StreamRecord::new(value, chrono::Utc::now().timestamp_millis()))
+                Some(StreamRecord::new(
+                    value,
+                    chrono::Utc::now().timestamp_millis(),
+                ))
             }
         }
     }
@@ -809,8 +822,7 @@ mod tests {
         );
         let mut op = FilterOperator::new(pred);
 
-        let record =
-            make_json_record(serde_json::json!({"type": "order", "amount": 150}), 1000);
+        let record = make_json_record(serde_json::json!({"type": "order", "amount": 150}), 1000);
         let results = op.process(record).await.unwrap();
         assert_eq!(results.len(), 1);
 
@@ -929,8 +941,7 @@ mod tests {
         window_type: WindowType,
         agg: AggregateFunction,
     ) -> WindowAggregateOperator {
-        let store: Arc<Box<dyn StateStore>> =
-            Arc::new(Box::new(InMemoryStateStore::new()));
+        let store: Arc<Box<dyn StateStore>> = Arc::new(Box::new(InMemoryStateStore::new()));
         let tracker = Arc::new(WatermarkTracker::new(WatermarkConfig {
             max_out_of_orderness: Duration::from_millis(0),
             idle_timeout: Duration::from_secs(60),
@@ -969,8 +980,7 @@ mod tests {
         );
 
         for i in 1..=3 {
-            let record =
-                make_json_record(serde_json::json!({"amount": i as f64 * 10.0}), i * 100);
+            let record = make_json_record(serde_json::json!({"amount": i as f64 * 10.0}), i * 100);
             let _ = op.process(record).await.unwrap();
         }
 
@@ -1019,8 +1029,7 @@ mod tests {
     // -- JoinOperator --
 
     fn make_join_operator(join_type: JoinType) -> JoinOperator {
-        let store: Arc<Box<dyn StateStore>> =
-            Arc::new(Box::new(InMemoryStateStore::new()));
+        let store: Arc<Box<dyn StateStore>> = Arc::new(Box::new(InMemoryStateStore::new()));
         let config = JoinConfig {
             left_key: "user_id".to_string(),
             right_key: "user_id".to_string(),

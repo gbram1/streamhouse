@@ -260,16 +260,16 @@ impl CompactionTask {
 
             // Read segment data from object store
             let path = object_store::path::Path::from(segment.s3_key.clone());
-            let get_result = self
-                .object_store
-                .get(&path)
-                .await
-                .map_err(|e| CompactionError::Storage(format!("Failed to GET segment {}: {}", segment.s3_key, e)))?;
+            let get_result = self.object_store.get(&path).await.map_err(|e| {
+                CompactionError::Storage(format!("Failed to GET segment {}: {}", segment.s3_key, e))
+            })?;
 
-            let data = get_result
-                .bytes()
-                .await
-                .map_err(|e| CompactionError::Storage(format!("Failed to read bytes for {}: {}", segment.s3_key, e)))?;
+            let data = get_result.bytes().await.map_err(|e| {
+                CompactionError::Storage(format!(
+                    "Failed to read bytes for {}: {}",
+                    segment.s3_key, e
+                ))
+            })?;
 
             // Parse segment using SegmentReader
             let reader = SegmentReader::new(data).map_err(|e| {
@@ -412,7 +412,9 @@ impl CompactionTask {
             self.metadata
                 .add_segment(compacted_segment)
                 .await
-                .map_err(|e| CompactionError::Metadata(format!("Failed to add compacted segment: {}", e)))?;
+                .map_err(|e| {
+                    CompactionError::Metadata(format!("Failed to add compacted segment: {}", e))
+                })?;
 
             // Delete old segments from object store and metadata
             for segment in &segments_to_compact {
@@ -557,10 +559,19 @@ mod tests {
         async fn list_topics(&self) -> Result<Vec<Topic>> {
             Ok(self.topics.lock().unwrap().clone())
         }
-        async fn get_partition(&self, _topic: &str, _partition_id: u32) -> Result<Option<Partition>> {
+        async fn get_partition(
+            &self,
+            _topic: &str,
+            _partition_id: u32,
+        ) -> Result<Option<Partition>> {
             unimplemented!()
         }
-        async fn update_high_watermark(&self, _topic: &str, _partition_id: u32, _offset: u64) -> Result<()> {
+        async fn update_high_watermark(
+            &self,
+            _topic: &str,
+            _partition_id: u32,
+            _offset: u64,
+        ) -> Result<()> {
             unimplemented!()
         }
         async fn list_partitions(&self, _topic: &str) -> Result<Vec<Partition>> {
@@ -580,13 +591,27 @@ mod tests {
             matching.sort_by_key(|s| s.base_offset);
             Ok(matching)
         }
-        async fn find_segment_for_offset(&self, _topic: &str, _partition_id: u32, _offset: u64) -> Result<Option<SegmentInfo>> {
+        async fn find_segment_for_offset(
+            &self,
+            _topic: &str,
+            _partition_id: u32,
+            _offset: u64,
+        ) -> Result<Option<SegmentInfo>> {
             unimplemented!()
         }
-        async fn delete_segments_before(&self, topic: &str, partition_id: u32, before_offset: u64) -> Result<u64> {
+        async fn delete_segments_before(
+            &self,
+            topic: &str,
+            partition_id: u32,
+            before_offset: u64,
+        ) -> Result<u64> {
             let mut segments = self.segments.lock().unwrap();
             let before_count = segments.len();
-            segments.retain(|s| !(s.topic == topic && s.partition_id == partition_id && s.end_offset < before_offset));
+            segments.retain(|s| {
+                !(s.topic == topic
+                    && s.partition_id == partition_id
+                    && s.end_offset < before_offset)
+            });
             Ok((before_count - segments.len()) as u64)
         }
         async fn get_segment_storage_stats(&self) -> Result<Vec<TopicStorageStats>> {
@@ -598,17 +623,36 @@ mod tests {
                 entry.0 += 1;
                 entry.1 += s.size_bytes;
             }
-            Ok(stats.into_iter().map(|(topic, (segment_count, total_size_bytes))| {
-                TopicStorageStats { topic, segment_count, total_size_bytes }
-            }).collect())
+            Ok(stats
+                .into_iter()
+                .map(
+                    |(topic, (segment_count, total_size_bytes))| TopicStorageStats {
+                        topic,
+                        segment_count,
+                        total_size_bytes,
+                    },
+                )
+                .collect())
         }
         async fn ensure_consumer_group(&self, _group_id: &str) -> Result<()> {
             unimplemented!()
         }
-        async fn commit_offset(&self, _group_id: &str, _topic: &str, _partition_id: u32, _offset: u64, _metadata: Option<String>) -> Result<()> {
+        async fn commit_offset(
+            &self,
+            _group_id: &str,
+            _topic: &str,
+            _partition_id: u32,
+            _offset: u64,
+            _metadata: Option<String>,
+        ) -> Result<()> {
             unimplemented!()
         }
-        async fn get_committed_offset(&self, _group_id: &str, _topic: &str, _partition_id: u32) -> Result<Option<u64>> {
+        async fn get_committed_offset(
+            &self,
+            _group_id: &str,
+            _topic: &str,
+            _partition_id: u32,
+        ) -> Result<Option<u64>> {
             unimplemented!()
         }
         async fn get_consumer_offsets(&self, _group_id: &str) -> Result<Vec<ConsumerOffset>> {
@@ -626,22 +670,45 @@ mod tests {
         async fn get_agent(&self, _agent_id: &str) -> Result<Option<AgentInfo>> {
             unimplemented!()
         }
-        async fn list_agents(&self, _agent_group: Option<&str>, _availability_zone: Option<&str>) -> Result<Vec<AgentInfo>> {
+        async fn list_agents(
+            &self,
+            _agent_group: Option<&str>,
+            _availability_zone: Option<&str>,
+        ) -> Result<Vec<AgentInfo>> {
             unimplemented!()
         }
         async fn deregister_agent(&self, _agent_id: &str) -> Result<()> {
             unimplemented!()
         }
-        async fn acquire_partition_lease(&self, _topic: &str, _partition_id: u32, _agent_id: &str, _lease_duration_ms: i64) -> Result<PartitionLease> {
+        async fn acquire_partition_lease(
+            &self,
+            _topic: &str,
+            _partition_id: u32,
+            _agent_id: &str,
+            _lease_duration_ms: i64,
+        ) -> Result<PartitionLease> {
             unimplemented!()
         }
-        async fn get_partition_lease(&self, _topic: &str, _partition_id: u32) -> Result<Option<PartitionLease>> {
+        async fn get_partition_lease(
+            &self,
+            _topic: &str,
+            _partition_id: u32,
+        ) -> Result<Option<PartitionLease>> {
             unimplemented!()
         }
-        async fn release_partition_lease(&self, _topic: &str, _partition_id: u32, _agent_id: &str) -> Result<()> {
+        async fn release_partition_lease(
+            &self,
+            _topic: &str,
+            _partition_id: u32,
+            _agent_id: &str,
+        ) -> Result<()> {
             unimplemented!()
         }
-        async fn list_partition_leases(&self, _topic: Option<&str>, _agent_id: Option<&str>) -> Result<Vec<PartitionLease>> {
+        async fn list_partition_leases(
+            &self,
+            _topic: Option<&str>,
+            _agent_id: Option<&str>,
+        ) -> Result<Vec<PartitionLease>> {
             unimplemented!()
         }
         async fn create_organization(&self, _config: CreateOrganization) -> Result<Organization> {
@@ -656,7 +723,11 @@ mod tests {
         async fn list_organizations(&self) -> Result<Vec<Organization>> {
             unimplemented!()
         }
-        async fn update_organization_status(&self, _id: &str, _status: OrganizationStatus) -> Result<()> {
+        async fn update_organization_status(
+            &self,
+            _id: &str,
+            _status: OrganizationStatus,
+        ) -> Result<()> {
             unimplemented!()
         }
         async fn update_organization_plan(&self, _id: &str, _plan: OrganizationPlan) -> Result<()> {
@@ -665,7 +736,13 @@ mod tests {
         async fn delete_organization(&self, _id: &str) -> Result<()> {
             unimplemented!()
         }
-        async fn create_api_key(&self, _org_id: &str, _config: CreateApiKey, _key_hash: &str, _key_prefix: &str) -> Result<ApiKey> {
+        async fn create_api_key(
+            &self,
+            _org_id: &str,
+            _config: CreateApiKey,
+            _key_hash: &str,
+            _key_prefix: &str,
+        ) -> Result<ApiKey> {
             unimplemented!()
         }
         async fn get_api_key(&self, _id: &str) -> Result<Option<ApiKey>> {
@@ -683,19 +760,35 @@ mod tests {
         async fn revoke_api_key(&self, _id: &str) -> Result<()> {
             unimplemented!()
         }
-        async fn get_organization_quota(&self, _organization_id: &str) -> Result<OrganizationQuota> {
+        async fn get_organization_quota(
+            &self,
+            _organization_id: &str,
+        ) -> Result<OrganizationQuota> {
             unimplemented!()
         }
         async fn set_organization_quota(&self, _quota: OrganizationQuota) -> Result<()> {
             unimplemented!()
         }
-        async fn get_organization_usage(&self, _organization_id: &str) -> Result<Vec<OrganizationUsage>> {
+        async fn get_organization_usage(
+            &self,
+            _organization_id: &str,
+        ) -> Result<Vec<OrganizationUsage>> {
             unimplemented!()
         }
-        async fn update_organization_usage(&self, _organization_id: &str, _metric: &str, _value: i64) -> Result<()> {
+        async fn update_organization_usage(
+            &self,
+            _organization_id: &str,
+            _metric: &str,
+            _value: i64,
+        ) -> Result<()> {
             unimplemented!()
         }
-        async fn increment_organization_usage(&self, _organization_id: &str, _metric: &str, _delta: i64) -> Result<()> {
+        async fn increment_organization_usage(
+            &self,
+            _organization_id: &str,
+            _metric: &str,
+            _delta: i64,
+        ) -> Result<()> {
             unimplemented!()
         }
         async fn init_producer(&self, _config: InitProducerConfig) -> Result<Producer> {
@@ -704,7 +797,11 @@ mod tests {
         async fn get_producer(&self, _producer_id: &str) -> Result<Option<Producer>> {
             unimplemented!()
         }
-        async fn get_producer_by_transactional_id(&self, _transactional_id: &str, _organization_id: Option<&str>) -> Result<Option<Producer>> {
+        async fn get_producer_by_transactional_id(
+            &self,
+            _transactional_id: &str,
+            _organization_id: Option<&str>,
+        ) -> Result<Option<Producer>> {
             unimplemented!()
         }
         async fn update_producer_heartbeat(&self, _producer_id: &str) -> Result<()> {
@@ -722,28 +819,65 @@ mod tests {
         async fn get_producer_by_numeric_id(&self, _numeric_id: i64) -> Result<Option<Producer>> {
             unimplemented!()
         }
-        async fn get_producer_sequence(&self, _producer_id: &str, _topic: &str, _partition_id: u32) -> Result<Option<i64>> {
+        async fn get_producer_sequence(
+            &self,
+            _producer_id: &str,
+            _topic: &str,
+            _partition_id: u32,
+        ) -> Result<Option<i64>> {
             unimplemented!()
         }
-        async fn update_producer_sequence(&self, _producer_id: &str, _topic: &str, _partition_id: u32, _sequence: i64) -> Result<()> {
+        async fn update_producer_sequence(
+            &self,
+            _producer_id: &str,
+            _topic: &str,
+            _partition_id: u32,
+            _sequence: i64,
+        ) -> Result<()> {
             unimplemented!()
         }
-        async fn check_and_update_sequence(&self, _producer_id: &str, _topic: &str, _partition_id: u32, _base_sequence: i64, _record_count: u32) -> Result<bool> {
+        async fn check_and_update_sequence(
+            &self,
+            _producer_id: &str,
+            _topic: &str,
+            _partition_id: u32,
+            _base_sequence: i64,
+            _record_count: u32,
+        ) -> Result<bool> {
             unimplemented!()
         }
-        async fn begin_transaction(&self, _producer_id: &str, _timeout_ms: u32) -> Result<Transaction> {
+        async fn begin_transaction(
+            &self,
+            _producer_id: &str,
+            _timeout_ms: u32,
+        ) -> Result<Transaction> {
             unimplemented!()
         }
         async fn get_transaction(&self, _transaction_id: &str) -> Result<Option<Transaction>> {
             unimplemented!()
         }
-        async fn add_transaction_partition(&self, _transaction_id: &str, _topic: &str, _partition_id: u32, _first_offset: u64) -> Result<()> {
+        async fn add_transaction_partition(
+            &self,
+            _transaction_id: &str,
+            _topic: &str,
+            _partition_id: u32,
+            _first_offset: u64,
+        ) -> Result<()> {
             unimplemented!()
         }
-        async fn update_transaction_partition_offset(&self, _transaction_id: &str, _topic: &str, _partition_id: u32, _last_offset: u64) -> Result<()> {
+        async fn update_transaction_partition_offset(
+            &self,
+            _transaction_id: &str,
+            _topic: &str,
+            _partition_id: u32,
+            _last_offset: u64,
+        ) -> Result<()> {
             unimplemented!()
         }
-        async fn get_transaction_partitions(&self, _transaction_id: &str) -> Result<Vec<TransactionPartition>> {
+        async fn get_transaction_partitions(
+            &self,
+            _transaction_id: &str,
+        ) -> Result<Vec<TransactionPartition>> {
             unimplemented!()
         }
         async fn prepare_transaction(&self, _transaction_id: &str) -> Result<()> {
@@ -761,40 +895,87 @@ mod tests {
         async fn add_transaction_marker(&self, _marker: TransactionMarker) -> Result<()> {
             unimplemented!()
         }
-        async fn get_transaction_markers(&self, _topic: &str, _partition_id: u32, _min_offset: u64) -> Result<Vec<TransactionMarker>> {
+        async fn get_transaction_markers(
+            &self,
+            _topic: &str,
+            _partition_id: u32,
+            _min_offset: u64,
+        ) -> Result<Vec<TransactionMarker>> {
             unimplemented!()
         }
         async fn get_last_stable_offset(&self, _topic: &str, _partition_id: u32) -> Result<u64> {
             unimplemented!()
         }
-        async fn update_last_stable_offset(&self, _topic: &str, _partition_id: u32, _lso: u64) -> Result<()> {
+        async fn update_last_stable_offset(
+            &self,
+            _topic: &str,
+            _partition_id: u32,
+            _lso: u64,
+        ) -> Result<()> {
             unimplemented!()
         }
-        async fn initiate_lease_transfer(&self, _topic: &str, _partition_id: u32, _from: &str, _to: &str, _reason: LeaderChangeReason, _timeout_ms: u32) -> Result<LeaseTransfer> {
+        async fn initiate_lease_transfer(
+            &self,
+            _topic: &str,
+            _partition_id: u32,
+            _from: &str,
+            _to: &str,
+            _reason: LeaderChangeReason,
+            _timeout_ms: u32,
+        ) -> Result<LeaseTransfer> {
             unimplemented!()
         }
-        async fn accept_lease_transfer(&self, _transfer_id: &str, _agent_id: &str) -> Result<LeaseTransfer> {
+        async fn accept_lease_transfer(
+            &self,
+            _transfer_id: &str,
+            _agent_id: &str,
+        ) -> Result<LeaseTransfer> {
             unimplemented!()
         }
-        async fn complete_lease_transfer(&self, _transfer_id: &str, _last_flushed_offset: u64, _high_watermark: u64) -> Result<PartitionLease> {
+        async fn complete_lease_transfer(
+            &self,
+            _transfer_id: &str,
+            _last_flushed_offset: u64,
+            _high_watermark: u64,
+        ) -> Result<PartitionLease> {
             unimplemented!()
         }
-        async fn reject_lease_transfer(&self, _transfer_id: &str, _agent_id: &str, _reason: &str) -> Result<()> {
+        async fn reject_lease_transfer(
+            &self,
+            _transfer_id: &str,
+            _agent_id: &str,
+            _reason: &str,
+        ) -> Result<()> {
             unimplemented!()
         }
         async fn get_lease_transfer(&self, _transfer_id: &str) -> Result<Option<LeaseTransfer>> {
             unimplemented!()
         }
-        async fn get_pending_transfers_for_agent(&self, _agent_id: &str) -> Result<Vec<LeaseTransfer>> {
+        async fn get_pending_transfers_for_agent(
+            &self,
+            _agent_id: &str,
+        ) -> Result<Vec<LeaseTransfer>> {
             unimplemented!()
         }
         async fn cleanup_timed_out_transfers(&self) -> Result<u64> {
             unimplemented!()
         }
-        async fn record_leader_change(&self, _topic: &str, _partition_id: u32, _from_agent_id: Option<&str>, _to_agent_id: &str, _reason: LeaderChangeReason, _epoch: u64, _gap_ms: i64) -> Result<()> {
+        async fn record_leader_change(
+            &self,
+            _topic: &str,
+            _partition_id: u32,
+            _from_agent_id: Option<&str>,
+            _to_agent_id: &str,
+            _reason: LeaderChangeReason,
+            _epoch: u64,
+            _gap_ms: i64,
+        ) -> Result<()> {
             unimplemented!()
         }
-        async fn create_materialized_view(&self, _config: CreateMaterializedView) -> Result<MaterializedView> {
+        async fn create_materialized_view(
+            &self,
+            _config: CreateMaterializedView,
+        ) -> Result<MaterializedView> {
             unimplemented!()
         }
         async fn get_materialized_view(&self, _name: &str) -> Result<Option<MaterializedView>> {
@@ -806,22 +987,44 @@ mod tests {
         async fn list_materialized_views(&self) -> Result<Vec<MaterializedView>> {
             unimplemented!()
         }
-        async fn update_materialized_view_status(&self, _id: &str, _status: MaterializedViewStatus, _error_message: Option<&str>) -> Result<()> {
+        async fn update_materialized_view_status(
+            &self,
+            _id: &str,
+            _status: MaterializedViewStatus,
+            _error_message: Option<&str>,
+        ) -> Result<()> {
             unimplemented!()
         }
-        async fn update_materialized_view_stats(&self, _id: &str, _row_count: u64, _last_refresh_at: i64) -> Result<()> {
+        async fn update_materialized_view_stats(
+            &self,
+            _id: &str,
+            _row_count: u64,
+            _last_refresh_at: i64,
+        ) -> Result<()> {
             unimplemented!()
         }
         async fn delete_materialized_view(&self, _name: &str) -> Result<()> {
             unimplemented!()
         }
-        async fn get_materialized_view_offsets(&self, _view_id: &str) -> Result<Vec<MaterializedViewOffset>> {
+        async fn get_materialized_view_offsets(
+            &self,
+            _view_id: &str,
+        ) -> Result<Vec<MaterializedViewOffset>> {
             unimplemented!()
         }
-        async fn update_materialized_view_offset(&self, _view_id: &str, _partition_id: u32, _last_offset: u64) -> Result<()> {
+        async fn update_materialized_view_offset(
+            &self,
+            _view_id: &str,
+            _partition_id: u32,
+            _last_offset: u64,
+        ) -> Result<()> {
             unimplemented!()
         }
-        async fn get_materialized_view_data(&self, _view_id: &str, _limit: Option<usize>) -> Result<Vec<MaterializedViewData>> {
+        async fn get_materialized_view_data(
+            &self,
+            _view_id: &str,
+            _limit: Option<usize>,
+        ) -> Result<Vec<MaterializedViewData>> {
             unimplemented!()
         }
         async fn upsert_materialized_view_data(&self, _data: MaterializedViewData) -> Result<()> {
@@ -839,10 +1042,19 @@ mod tests {
         async fn delete_connector(&self, _name: &str) -> Result<()> {
             unimplemented!()
         }
-        async fn update_connector_state(&self, _name: &str, _state: &str, _error_message: Option<&str>) -> Result<()> {
+        async fn update_connector_state(
+            &self,
+            _name: &str,
+            _state: &str,
+            _error_message: Option<&str>,
+        ) -> Result<()> {
             unimplemented!()
         }
-        async fn update_connector_records_processed(&self, _name: &str, _records_processed: i64) -> Result<()> {
+        async fn update_connector_records_processed(
+            &self,
+            _name: &str,
+            _records_processed: i64,
+        ) -> Result<()> {
             unimplemented!()
         }
     }
@@ -993,12 +1205,18 @@ mod tests {
             .as_millis() as i64
             + 3_600_000; // 1 hour in the future
 
-        let records1 = vec![
-            Record::new(0, 1000, Some(Bytes::from("key1")), Bytes::from("val1")),
-        ];
-        let records2 = vec![
-            Record::new(1, 1001, Some(Bytes::from("key1")), Bytes::from("val2")),
-        ];
+        let records1 = vec![Record::new(
+            0,
+            1000,
+            Some(Bytes::from("key1")),
+            Bytes::from("val1"),
+        )];
+        let records2 = vec![Record::new(
+            1,
+            1001,
+            Some(Bytes::from("key1")),
+            Bytes::from("val2"),
+        )];
         let seg1 = build_and_upload_segment(&store, "topic", 0, &records1, future_timestamp).await;
         let seg2 = build_and_upload_segment(&store, "topic", 0, &records2, future_timestamp).await;
 
@@ -1054,7 +1272,13 @@ mod tests {
 
         // Verify the compacted segment was uploaded and is readable
         let compacted_path = object_store::path::Path::from("topic/0/seg_1_compacted.bin");
-        let compacted_data = store.get(&compacted_path).await.unwrap().bytes().await.unwrap();
+        let compacted_data = store
+            .get(&compacted_path)
+            .await
+            .unwrap()
+            .bytes()
+            .await
+            .unwrap();
         let reader = SegmentReader::new(compacted_data).unwrap();
         let compacted_records = reader.read_all().unwrap();
 
@@ -1090,13 +1314,28 @@ mod tests {
         // Segment 1: key1=val1, key2=val2
         // Use recent timestamps for the records so tombstones aren't expired
         let records1 = vec![
-            Record::new(0, now_ms as u64, Some(Bytes::from("key1")), Bytes::from("val1")),
-            Record::new(1, now_ms as u64, Some(Bytes::from("key2")), Bytes::from("val2")),
+            Record::new(
+                0,
+                now_ms as u64,
+                Some(Bytes::from("key1")),
+                Bytes::from("val1"),
+            ),
+            Record::new(
+                1,
+                now_ms as u64,
+                Some(Bytes::from("key2")),
+                Bytes::from("val2"),
+            ),
         ];
         // Segment 2: key1 tombstone (empty value), key3=val3
         let records2 = vec![
             Record::new(2, now_ms as u64, Some(Bytes::from("key1")), Bytes::new()), // tombstone
-            Record::new(3, now_ms as u64, Some(Bytes::from("key3")), Bytes::from("val3")),
+            Record::new(
+                3,
+                now_ms as u64,
+                Some(Bytes::from("key3")),
+                Bytes::from("val3"),
+            ),
         ];
 
         let seg1 = build_and_upload_segment(&store, "topic", 0, &records1, old_ts).await;
@@ -1113,7 +1352,13 @@ mod tests {
 
         // Verify compacted segment content
         let compacted_path = object_store::path::Path::from("topic/0/seg_1_compacted.bin");
-        let compacted_data = store.get(&compacted_path).await.unwrap().bytes().await.unwrap();
+        let compacted_data = store
+            .get(&compacted_path)
+            .await
+            .unwrap()
+            .bytes()
+            .await
+            .unwrap();
         let reader = SegmentReader::new(compacted_data).unwrap();
         let compacted_records = reader.read_all().unwrap();
 
@@ -1141,9 +1386,12 @@ mod tests {
         let old_ts = 1_000_000; // segment created_at
 
         // Segment 1: key1=val1
-        let records1 = vec![
-            Record::new(0, 1000, Some(Bytes::from("key1")), Bytes::from("val1")),
-        ];
+        let records1 = vec![Record::new(
+            0,
+            1000,
+            Some(Bytes::from("key1")),
+            Bytes::from("val1"),
+        )];
         // Segment 2: key1 tombstone with very old timestamp
         let records2 = vec![
             Record::new(1, 1001, Some(Bytes::from("key1")), Bytes::new()), // tombstone
@@ -1208,7 +1456,13 @@ mod tests {
 
         // Verify compacted content
         let compacted_path = object_store::path::Path::from("topic/0/seg_0_compacted.bin");
-        let compacted_data = store.get(&compacted_path).await.unwrap().bytes().await.unwrap();
+        let compacted_data = store
+            .get(&compacted_path)
+            .await
+            .unwrap()
+            .bytes()
+            .await
+            .unwrap();
         let reader = SegmentReader::new(compacted_data).unwrap();
         let compacted_records = reader.read_all().unwrap();
 
@@ -1272,7 +1526,13 @@ mod tests {
 
         // Verify only the latest value survives
         let compacted_path = object_store::path::Path::from("topic/0/seg_19_compacted.bin");
-        let compacted_data = store.get(&compacted_path).await.unwrap().bytes().await.unwrap();
+        let compacted_data = store
+            .get(&compacted_path)
+            .await
+            .unwrap()
+            .bytes()
+            .await
+            .unwrap();
         let reader = SegmentReader::new(compacted_data).unwrap();
         let compacted_records = reader.read_all().unwrap();
 
@@ -1295,17 +1555,26 @@ mod tests {
         let old_ts = now_ms - 3_600_000;
 
         // Segment 1: key1=val1
-        let records1 = vec![
-            Record::new(0, now_ms as u64, Some(Bytes::from("key1")), Bytes::from("val1")),
-        ];
+        let records1 = vec![Record::new(
+            0,
+            now_ms as u64,
+            Some(Bytes::from("key1")),
+            Bytes::from("val1"),
+        )];
         // Segment 2: key1 tombstone
-        let records2 = vec![
-            Record::new(1, now_ms as u64, Some(Bytes::from("key1")), Bytes::new()),
-        ];
+        let records2 = vec![Record::new(
+            1,
+            now_ms as u64,
+            Some(Bytes::from("key1")),
+            Bytes::new(),
+        )];
         // Segment 3: key1=val1_resurrected (new value after tombstone)
-        let records3 = vec![
-            Record::new(2, now_ms as u64, Some(Bytes::from("key1")), Bytes::from("val1_resurrected")),
-        ];
+        let records3 = vec![Record::new(
+            2,
+            now_ms as u64,
+            Some(Bytes::from("key1")),
+            Bytes::from("val1_resurrected"),
+        )];
 
         let seg1 = build_and_upload_segment(&store, "topic", 0, &records1, old_ts).await;
         let seg2 = build_and_upload_segment(&store, "topic", 0, &records2, old_ts).await;
@@ -1322,7 +1591,13 @@ mod tests {
 
         // Verify the resurrected value survives (tombstone was superseded)
         let compacted_path = object_store::path::Path::from("topic/0/seg_2_compacted.bin");
-        let compacted_data = store.get(&compacted_path).await.unwrap().bytes().await.unwrap();
+        let compacted_data = store
+            .get(&compacted_path)
+            .await
+            .unwrap()
+            .bytes()
+            .await
+            .unwrap();
         let reader = SegmentReader::new(compacted_data).unwrap();
         let compacted_records = reader.read_all().unwrap();
 
@@ -1393,12 +1668,18 @@ mod tests {
         let store: Arc<dyn ObjectStore> = Arc::new(InMemory::new());
         let old_ts = 1_000_000;
 
-        let records1 = vec![
-            Record::new(0, 1000, Some(Bytes::from("key1")), Bytes::from("val1")),
-        ];
-        let records2 = vec![
-            Record::new(1, 1001, Some(Bytes::from("key1")), Bytes::from("val2")),
-        ];
+        let records1 = vec![Record::new(
+            0,
+            1000,
+            Some(Bytes::from("key1")),
+            Bytes::from("val1"),
+        )];
+        let records2 = vec![Record::new(
+            1,
+            1001,
+            Some(Bytes::from("key1")),
+            Bytes::from("val2"),
+        )];
 
         let seg1 = build_and_upload_segment(&store, "topic", 0, &records1, old_ts).await;
         let seg2 = build_and_upload_segment(&store, "topic", 0, &records2, old_ts).await;

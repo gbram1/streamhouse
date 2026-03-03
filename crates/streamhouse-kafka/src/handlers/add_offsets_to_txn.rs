@@ -60,11 +60,7 @@ pub async fn handle_add_offsets_to_txn(
     };
 
     // Begin/get the active transaction for this producer
-    let transaction = match state
-        .metadata
-        .begin_transaction(&producer.id, 60000)
-        .await
-    {
+    let transaction = match state.metadata.begin_transaction(&producer.id, 60000).await {
         Ok(txn) => txn,
         Err(e) => {
             warn!("Failed to get/begin transaction: {}", e);
@@ -90,10 +86,7 @@ pub async fn handle_add_offsets_to_txn(
     {
         Ok(()) => ErrorCode::None,
         Err(e) => {
-            warn!(
-                "Failed to add __consumer_offsets to transaction: {}",
-                e
-            );
+            warn!("Failed to add __consumer_offsets to transaction: {}", e);
             ErrorCode::UnknownServerError
         }
     };
@@ -202,8 +195,7 @@ mod tests {
             client_id: None,
         };
 
-        let response =
-            build_response(&header, ErrorCode::InvalidProducerIdMapping).unwrap();
+        let response = build_response(&header, ErrorCode::InvalidProducerIdMapping).unwrap();
         let mut buf = response;
         assert_eq!(buf.get_i32(), 0);
         assert_eq!(buf.get_i16(), ErrorCode::InvalidProducerIdMapping.as_i16());

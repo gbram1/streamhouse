@@ -84,11 +84,7 @@ pub async fn handle_add_partitions_to_txn(
     };
 
     // Find active transaction for this producer
-    let transaction = match state
-        .metadata
-        .begin_transaction(&producer.id, 60000)
-        .await
-    {
+    let transaction = match state.metadata.begin_transaction(&producer.id, 60000).await {
         Ok(txn) => txn,
         Err(e) => {
             warn!("Failed to get/begin transaction: {}", e);
@@ -274,7 +270,7 @@ mod tests {
         let mut response = BytesMut::new();
         response.put_i32(0); // throttle_time_ms
         response.put_i32(1); // 1 topic
-        // topic name
+                             // topic name
         let topic = "test-topic";
         response.put_i16(topic.len() as i16);
         response.extend_from_slice(topic.as_bytes());
@@ -309,8 +305,8 @@ mod tests {
             client_id: None,
         };
 
-        let response = build_error_response(&header, &topics, ErrorCode::InvalidProducerIdMapping)
-            .unwrap();
+        let response =
+            build_error_response(&header, &topics, ErrorCode::InvalidProducerIdMapping).unwrap();
 
         let mut buf = response;
         assert_eq!(buf.get_i32(), 0); // throttle_time_ms
@@ -344,8 +340,7 @@ mod tests {
             client_id: None,
         };
 
-        let response =
-            build_error_response(&header, &topics, ErrorCode::InvalidTxnState).unwrap();
+        let response = build_error_response(&header, &topics, ErrorCode::InvalidTxnState).unwrap();
 
         // Just verify the response is non-empty and starts with throttle_time_ms
         assert!(response.len() > 4);

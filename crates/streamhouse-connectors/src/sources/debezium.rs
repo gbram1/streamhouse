@@ -148,10 +148,7 @@ impl CdcEvent {
     /// serialized as JSON in the record value.
     pub fn to_source_record(&self) -> Result<SourceRecord> {
         let value = serde_json::to_vec(self).map_err(|e| {
-            ConnectorError::SerializationError(format!(
-                "failed to serialize CdcEvent: {}",
-                e
-            ))
+            ConnectorError::SerializationError(format!("failed to serialize CdcEvent: {}", e))
         })?;
 
         Ok(SourceRecord {
@@ -198,18 +195,14 @@ impl DebeziumConfig {
         let database_type = config
             .get("database.type")
             .ok_or_else(|| {
-                ConnectorError::ConfigError(
-                    "missing required 'database.type'".to_string(),
-                )
+                ConnectorError::ConfigError("missing required 'database.type'".to_string())
             })
             .and_then(|s| DatabaseType::from_str_config(s))?;
 
         let hostname = config
             .get("database.hostname")
             .ok_or_else(|| {
-                ConnectorError::ConfigError(
-                    "missing required 'database.hostname'".to_string(),
-                )
+                ConnectorError::ConfigError("missing required 'database.hostname'".to_string())
             })?
             .clone();
 
@@ -222,9 +215,7 @@ impl DebeziumConfig {
         let port = config
             .get("database.port")
             .ok_or_else(|| {
-                ConnectorError::ConfigError(
-                    "missing required 'database.port'".to_string(),
-                )
+                ConnectorError::ConfigError("missing required 'database.port'".to_string())
             })
             .and_then(|s| {
                 s.parse::<u16>().map_err(|e| {
@@ -235,36 +226,28 @@ impl DebeziumConfig {
         let database = config
             .get("database.dbname")
             .ok_or_else(|| {
-                ConnectorError::ConfigError(
-                    "missing required 'database.dbname'".to_string(),
-                )
+                ConnectorError::ConfigError("missing required 'database.dbname'".to_string())
             })?
             .clone();
 
         let username = config
             .get("database.user")
             .ok_or_else(|| {
-                ConnectorError::ConfigError(
-                    "missing required 'database.user'".to_string(),
-                )
+                ConnectorError::ConfigError("missing required 'database.user'".to_string())
             })?
             .clone();
 
         let password = config
             .get("database.password")
             .ok_or_else(|| {
-                ConnectorError::ConfigError(
-                    "missing required 'database.password'".to_string(),
-                )
+                ConnectorError::ConfigError("missing required 'database.password'".to_string())
             })?
             .clone();
 
         let tables_raw = config
             .get("table.include.list")
             .ok_or_else(|| {
-                ConnectorError::ConfigError(
-                    "missing required 'table.include.list'".to_string(),
-                )
+                ConnectorError::ConfigError("missing required 'table.include.list'".to_string())
             })?
             .clone();
 
@@ -283,9 +266,7 @@ impl DebeziumConfig {
         let server_name = config
             .get("database.server.name")
             .ok_or_else(|| {
-                ConnectorError::ConfigError(
-                    "missing required 'database.server.name'".to_string(),
-                )
+                ConnectorError::ConfigError("missing required 'database.server.name'".to_string())
             })?
             .clone();
 
@@ -451,10 +432,7 @@ mod tests {
             "table.include.list".to_string(),
             "public.users,public.orders".to_string(),
         );
-        m.insert(
-            "database.server.name".to_string(),
-            "dbserver1".to_string(),
-        );
+        m.insert("database.server.name".to_string(), "dbserver1".to_string());
         m
     }
 
@@ -729,8 +707,7 @@ mod tests {
         assert!(record.partition.is_none());
 
         // The value should be valid JSON containing the event fields
-        let parsed: serde_json::Value =
-            serde_json::from_slice(&record.value).unwrap();
+        let parsed: serde_json::Value = serde_json::from_slice(&record.value).unwrap();
         assert_eq!(parsed["operation"], "Create");
         assert_eq!(parsed["table"], "public.users");
         assert!(parsed["before"].is_null());
@@ -750,8 +727,7 @@ mod tests {
         };
 
         let record = event.to_source_record().unwrap();
-        let parsed: serde_json::Value =
-            serde_json::from_slice(&record.value).unwrap();
+        let parsed: serde_json::Value = serde_json::from_slice(&record.value).unwrap();
         assert_eq!(parsed["operation"], "Update");
         assert_eq!(parsed["before"]["name"], "Alice");
         assert_eq!(parsed["after"]["name"], "Bob");
@@ -772,8 +748,7 @@ mod tests {
         let record = event.to_source_record().unwrap();
         assert_eq!(record.key, Some(Bytes::from("public.orders")));
 
-        let parsed: serde_json::Value =
-            serde_json::from_slice(&record.value).unwrap();
+        let parsed: serde_json::Value = serde_json::from_slice(&record.value).unwrap();
         assert_eq!(parsed["operation"], "Delete");
         assert_eq!(parsed["before"]["id"], 42);
         assert!(parsed["after"].is_null());
@@ -791,8 +766,7 @@ mod tests {
         };
 
         let record = event.to_source_record().unwrap();
-        let parsed: serde_json::Value =
-            serde_json::from_slice(&record.value).unwrap();
+        let parsed: serde_json::Value = serde_json::from_slice(&record.value).unwrap();
         assert_eq!(parsed["operation"], "Snapshot");
         assert_eq!(parsed["after"]["name"], "Widget");
     }

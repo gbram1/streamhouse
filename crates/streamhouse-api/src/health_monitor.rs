@@ -208,10 +208,8 @@ impl ClusterHealthMonitor {
 
         // Check for leadership gaps if expected count is configured
         if self.thresholds.expected_leadership_count > 0 {
-            let actual_leadership: u32 = health
-                .values()
-                .map(|n| n.partition_leadership_count)
-                .sum();
+            let actual_leadership: u32 =
+                health.values().map(|n| n.partition_leadership_count).sum();
             if actual_leadership < self.thresholds.expected_leadership_count {
                 info!(
                     actual = actual_leadership,

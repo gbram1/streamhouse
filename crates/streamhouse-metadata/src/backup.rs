@@ -401,10 +401,7 @@ impl BackupScheduler {
             if self.config.compress {
                 use std::io::Write;
                 let file = std::fs::File::create(&filepath).map_err(|e| {
-                    MetadataError::InternalError(format!(
-                        "Failed to create backup file: {}",
-                        e
-                    ))
+                    MetadataError::InternalError(format!("Failed to create backup file: {}", e))
                 })?;
                 let mut encoder =
                     flate2::write::GzEncoder::new(file, flate2::Compression::default());
@@ -422,10 +419,7 @@ impl BackupScheduler {
                 })?;
             } else {
                 std::fs::write(&filepath, &json_data).map_err(|e| {
-                    MetadataError::InternalError(format!(
-                        "Failed to write backup file: {}",
-                        e
-                    ))
+                    MetadataError::InternalError(format!("Failed to write backup file: {}", e))
                 })?;
             }
         }
@@ -801,11 +795,7 @@ impl KafkaMigrator {
     ///
     /// Requires a Kafka consumer client (e.g., rdkafka). The current implementation
     /// provides the framework; integrate your preferred Kafka client library.
-    pub async fn migrate_topic(
-        &self,
-        _topic: &str,
-        _max_records: Option<u64>,
-    ) -> Result<u64> {
+    pub async fn migrate_topic(&self, _topic: &str, _max_records: Option<u64>) -> Result<u64> {
         // Full implementation requires rdkafka or similar Kafka client:
         // 1. Create a Kafka consumer for the topic
         // 2. Seek to beginning of each partition
@@ -835,11 +825,7 @@ impl KafkaMigrator {
     /// Offset semantics may differ between Kafka and StreamHouse. The migrator
     /// copies offsets as-is, which works when data is migrated in order starting
     /// from offset 0.
-    pub async fn migrate_consumer_offsets(
-        &self,
-        _group_id: &str,
-        _topic: &str,
-    ) -> Result<()> {
+    pub async fn migrate_consumer_offsets(&self, _group_id: &str, _topic: &str) -> Result<()> {
         // Full implementation:
         // 1. Use Kafka admin client to fetch committed offsets for the group
         // 2. For each (topic, partition, offset), commit to StreamHouse

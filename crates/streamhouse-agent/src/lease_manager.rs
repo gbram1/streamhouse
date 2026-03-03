@@ -802,7 +802,10 @@ mod tests {
         let manager = LeaseManager::new("agent-empty".to_string(), store);
 
         let active = manager.get_active_leases().await;
-        assert!(active.is_empty(), "new manager should have no active leases");
+        assert!(
+            active.is_empty(),
+            "new manager should have no active leases"
+        );
     }
 
     // ----------------------------------------------------------------

@@ -288,10 +288,7 @@ impl ActiveActiveCoordinator {
     }
 
     /// Create a new coordinator with a custom conflict resolver.
-    pub fn with_resolver(
-        config: ActiveActiveConfig,
-        resolver: Box<dyn ConflictResolver>,
-    ) -> Self {
+    pub fn with_resolver(config: ActiveActiveConfig, resolver: Box<dyn ConflictResolver>) -> Self {
         Self {
             config,
             regions: RwLock::new(HashMap::new()),
@@ -307,11 +304,7 @@ impl ActiveActiveCoordinator {
     }
 
     /// Register a new region in the active-active cluster.
-    pub async fn register_region(
-        &self,
-        region_id: String,
-        endpoint: String,
-    ) -> Result<()> {
+    pub async fn register_region(&self, region_id: String, endpoint: String) -> Result<()> {
         let mut regions = self.regions.write().await;
 
         if regions.contains_key(&region_id) {
@@ -374,9 +367,9 @@ impl ActiveActiveCoordinator {
         let start = Instant::now();
 
         let regions = self.regions.read().await;
-        let peer = regions.get(peer_region_id).ok_or_else(|| {
-            ActiveActiveError::RegionNotFound(peer_region_id.to_string())
-        })?;
+        let peer = regions
+            .get(peer_region_id)
+            .ok_or_else(|| ActiveActiveError::RegionNotFound(peer_region_id.to_string()))?;
 
         if !peer.is_active {
             return Err(ActiveActiveError::RegionNotActive(
@@ -424,16 +417,11 @@ impl ActiveActiveCoordinator {
     }
 
     /// Resolve a single conflict using the configured strategy.
-    pub async fn resolve_conflict(
-        &self,
-        conflict: &ConflictRecord,
-    ) -> Result<ConflictResolution> {
+    pub async fn resolve_conflict(&self, conflict: &ConflictRecord) -> Result<ConflictResolution> {
         let resolution = self.conflict_resolver.resolve(conflict).await;
         debug!(
             "Resolved conflict for key in {}/{}: {:?}",
-            conflict.topic,
-            conflict.local_region,
-            resolution
+            conflict.topic, conflict.local_region, resolution
         );
         Ok(resolution)
     }
@@ -459,14 +447,11 @@ impl ActiveActiveCoordinator {
     }
 
     /// Get the version vector for a specific region.
-    pub async fn get_version_vector(
-        &self,
-        region_id: &str,
-    ) -> Result<HashMap<String, u64>> {
+    pub async fn get_version_vector(&self, region_id: &str) -> Result<HashMap<String, u64>> {
         let regions = self.regions.read().await;
-        let state = regions.get(region_id).ok_or_else(|| {
-            ActiveActiveError::RegionNotFound(region_id.to_string())
-        })?;
+        let state = regions
+            .get(region_id)
+            .ok_or_else(|| ActiveActiveError::RegionNotFound(region_id.to_string()))?;
 
         Ok(state.version_vector.clone())
     }
@@ -477,43 +462,37 @@ impl ActiveActiveCoordinator {
     pub async fn increment_version(&self, region_id: &str) -> Result<u64> {
         let mut regions = self.regions.write().await;
 
-        let state = regions.get_mut(region_id).ok_or_else(|| {
-            ActiveActiveError::RegionNotFound(region_id.to_string())
-        })?;
+        let state = regions
+            .get_mut(region_id)
+            .ok_or_else(|| ActiveActiveError::RegionNotFound(region_id.to_string()))?;
 
         let new_version = state.version_vector.get(region_id).unwrap_or(&0) + 1;
-        state.version_vector.insert(region_id.to_string(), new_version);
+        state
+            .version_vector
+            .insert(region_id.to_string(), new_version);
 
         Ok(new_version)
     }
 
     /// Update the replication lag for a region.
-    pub async fn update_replication_lag(
-        &self,
-        region_id: &str,
-        lag: Duration,
-    ) -> Result<()> {
+    pub async fn update_replication_lag(&self, region_id: &str, lag: Duration) -> Result<()> {
         let mut regions = self.regions.write().await;
 
-        let state = regions.get_mut(region_id).ok_or_else(|| {
-            ActiveActiveError::RegionNotFound(region_id.to_string())
-        })?;
+        let state = regions
+            .get_mut(region_id)
+            .ok_or_else(|| ActiveActiveError::RegionNotFound(region_id.to_string()))?;
 
         state.replication_lag = lag;
         Ok(())
     }
 
     /// Set a region's active status.
-    pub async fn set_region_active(
-        &self,
-        region_id: &str,
-        active: bool,
-    ) -> Result<()> {
+    pub async fn set_region_active(&self, region_id: &str, active: bool) -> Result<()> {
         let mut regions = self.regions.write().await;
 
-        let state = regions.get_mut(region_id).ok_or_else(|| {
-            ActiveActiveError::RegionNotFound(region_id.to_string())
-        })?;
+        let state = regions
+            .get_mut(region_id)
+            .ok_or_else(|| ActiveActiveError::RegionNotFound(region_id.to_string()))?;
 
         state.is_active = active;
         info!(
@@ -608,11 +587,17 @@ mod tests {
         let coord = ActiveActiveCoordinator::new(default_config());
 
         coord
-            .register_region("us-east-1".to_string(), "https://east.example.com".to_string())
+            .register_region(
+                "us-east-1".to_string(),
+                "https://east.example.com".to_string(),
+            )
             .await
             .unwrap();
         coord
-            .register_region("us-west-2".to_string(), "https://west.example.com".to_string())
+            .register_region(
+                "us-west-2".to_string(),
+                "https://west.example.com".to_string(),
+            )
             .await
             .unwrap();
 
@@ -628,12 +613,18 @@ mod tests {
         let coord = ActiveActiveCoordinator::new(default_config());
 
         coord
-            .register_region("us-east-1".to_string(), "https://east.example.com".to_string())
+            .register_region(
+                "us-east-1".to_string(),
+                "https://east.example.com".to_string(),
+            )
             .await
             .unwrap();
 
         let result = coord
-            .register_region("us-east-1".to_string(), "https://east2.example.com".to_string())
+            .register_region(
+                "us-east-1".to_string(),
+                "https://east2.example.com".to_string(),
+            )
             .await;
         assert!(result.is_err());
         match result.unwrap_err() {
@@ -699,14 +690,15 @@ mod tests {
             }
         }
 
-        let coord = ActiveActiveCoordinator::with_resolver(
-            default_config(),
-            Box::new(MergeResolver),
-        );
+        let coord =
+            ActiveActiveCoordinator::with_resolver(default_config(), Box::new(MergeResolver));
 
         let conflict = make_conflict(1000, 2000, "us-east-1", "us-west-2");
         let resolution = coord.resolve_conflict(&conflict).await.unwrap();
-        assert_eq!(resolution, ConflictResolution::Merge(b"merged-value".to_vec()));
+        assert_eq!(
+            resolution,
+            ConflictResolution::Merge(b"merged-value".to_vec())
+        );
     }
 
     // Test 6: Sync with peer resolves conflicts
@@ -715,11 +707,17 @@ mod tests {
         let coord = ActiveActiveCoordinator::new(default_config());
 
         coord
-            .register_region("us-east-1".to_string(), "https://east.example.com".to_string())
+            .register_region(
+                "us-east-1".to_string(),
+                "https://east.example.com".to_string(),
+            )
             .await
             .unwrap();
         coord
-            .register_region("us-west-2".to_string(), "https://west.example.com".to_string())
+            .register_region(
+                "us-west-2".to_string(),
+                "https://west.example.com".to_string(),
+            )
             .await
             .unwrap();
 
@@ -741,11 +739,17 @@ mod tests {
         let coord = ActiveActiveCoordinator::new(default_config());
 
         coord
-            .register_region("us-east-1".to_string(), "https://east.example.com".to_string())
+            .register_region(
+                "us-east-1".to_string(),
+                "https://east.example.com".to_string(),
+            )
             .await
             .unwrap();
         coord
-            .register_region("us-west-2".to_string(), "https://west.example.com".to_string())
+            .register_region(
+                "us-west-2".to_string(),
+                "https://west.example.com".to_string(),
+            )
             .await
             .unwrap();
 
@@ -767,7 +771,10 @@ mod tests {
         let coord = ActiveActiveCoordinator::new(default_config());
 
         coord
-            .register_region("us-east-1".to_string(), "https://east.example.com".to_string())
+            .register_region(
+                "us-east-1".to_string(),
+                "https://east.example.com".to_string(),
+            )
             .await
             .unwrap();
 
@@ -788,11 +795,17 @@ mod tests {
         let coord = ActiveActiveCoordinator::new(default_config());
 
         coord
-            .register_region("us-east-1".to_string(), "https://east.example.com".to_string())
+            .register_region(
+                "us-east-1".to_string(),
+                "https://east.example.com".to_string(),
+            )
             .await
             .unwrap();
         coord
-            .register_region("us-west-2".to_string(), "https://west.example.com".to_string())
+            .register_region(
+                "us-west-2".to_string(),
+                "https://west.example.com".to_string(),
+            )
             .await
             .unwrap();
 
@@ -813,11 +826,17 @@ mod tests {
         let coord = ActiveActiveCoordinator::new(default_config());
 
         coord
-            .register_region("us-east-1".to_string(), "https://east.example.com".to_string())
+            .register_region(
+                "us-east-1".to_string(),
+                "https://east.example.com".to_string(),
+            )
             .await
             .unwrap();
         coord
-            .register_region("us-west-2".to_string(), "https://west.example.com".to_string())
+            .register_region(
+                "us-west-2".to_string(),
+                "https://west.example.com".to_string(),
+            )
             .await
             .unwrap();
 
@@ -838,11 +857,17 @@ mod tests {
         let coord = ActiveActiveCoordinator::new(default_config());
 
         coord
-            .register_region("us-east-1".to_string(), "https://east.example.com".to_string())
+            .register_region(
+                "us-east-1".to_string(),
+                "https://east.example.com".to_string(),
+            )
             .await
             .unwrap();
         coord
-            .register_region("us-west-2".to_string(), "https://west.example.com".to_string())
+            .register_region(
+                "us-west-2".to_string(),
+                "https://west.example.com".to_string(),
+            )
             .await
             .unwrap();
 
@@ -878,13 +903,19 @@ mod tests {
         let coord = ActiveActiveCoordinator::new(default_config());
 
         coord
-            .register_region("us-east-1".to_string(), "https://east.example.com".to_string())
+            .register_region(
+                "us-east-1".to_string(),
+                "https://east.example.com".to_string(),
+            )
             .await
             .unwrap();
 
         // Register second region
         coord
-            .register_region("us-west-2".to_string(), "https://west.example.com".to_string())
+            .register_region(
+                "us-west-2".to_string(),
+                "https://west.example.com".to_string(),
+            )
             .await
             .unwrap();
 

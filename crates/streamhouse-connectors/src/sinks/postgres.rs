@@ -155,11 +155,7 @@ impl PostgresSinkConnector {
     ///
     /// All records are assumed to have the same set of columns (keys from the
     /// first record's JSON object).
-    pub fn build_insert_sql(
-        table: &str,
-        columns: &[String],
-        num_rows: usize,
-    ) -> String {
+    pub fn build_insert_sql(table: &str, columns: &[String], num_rows: usize) -> String {
         let col_list = columns.join(", ");
         let mut sql = format!("INSERT INTO {} ({}) VALUES ", table, col_list);
 
@@ -192,10 +188,8 @@ impl PostgresSinkConnector {
         let pk_list = pk_fields.join(", ");
         sql.push_str(&format!(" ON CONFLICT ({}) DO UPDATE SET ", pk_list));
 
-        let non_pk_columns: Vec<&String> = columns
-            .iter()
-            .filter(|c| !pk_fields.contains(c))
-            .collect();
+        let non_pk_columns: Vec<&String> =
+            columns.iter().filter(|c| !pk_fields.contains(c)).collect();
 
         for (i, col) in non_pk_columns.iter().enumerate() {
             if i > 0 {
@@ -208,9 +202,7 @@ impl PostgresSinkConnector {
     }
 
     /// Parse a SinkRecord's value as a JSON object and extract columns/values.
-    pub fn parse_record_columns(
-        record: &SinkRecord,
-    ) -> Result<Vec<(String, serde_json::Value)>> {
+    pub fn parse_record_columns(record: &SinkRecord) -> Result<Vec<(String, serde_json::Value)>> {
         let value_str = std::str::from_utf8(&record.value).map_err(|e| {
             ConnectorError::SerializationError(format!("invalid UTF-8 in record value: {}", e))
         })?;
@@ -218,9 +210,7 @@ impl PostgresSinkConnector {
         let parsed: serde_json::Value = serde_json::from_str(value_str)?;
 
         match parsed {
-            serde_json::Value::Object(map) => {
-                Ok(map.into_iter().collect())
-            }
+            serde_json::Value::Object(map) => Ok(map.into_iter().collect()),
             _ => Err(ConnectorError::SerializationError(
                 "record value must be a JSON object".to_string(),
             )),
@@ -296,10 +286,7 @@ impl SinkConnector for PostgresSinkConnector {
             let pool = sqlx::PgPool::connect(&self.config.connection_url)
                 .await
                 .map_err(|e| {
-                    ConnectorError::ConnectionError(format!(
-                        "failed to connect to Postgres: {}",
-                        e
-                    ))
+                    ConnectorError::ConnectionError(format!("failed to connect to Postgres: {}", e))
                 })?;
             self.pool = Some(pool);
         }
@@ -428,10 +415,22 @@ mod tests {
 
     #[test]
     fn test_insert_mode_from_str() {
-        assert_eq!(InsertMode::from_str_config("insert").unwrap(), InsertMode::Insert);
-        assert_eq!(InsertMode::from_str_config("INSERT").unwrap(), InsertMode::Insert);
-        assert_eq!(InsertMode::from_str_config("upsert").unwrap(), InsertMode::Upsert);
-        assert_eq!(InsertMode::from_str_config("UPSERT").unwrap(), InsertMode::Upsert);
+        assert_eq!(
+            InsertMode::from_str_config("insert").unwrap(),
+            InsertMode::Insert
+        );
+        assert_eq!(
+            InsertMode::from_str_config("INSERT").unwrap(),
+            InsertMode::Insert
+        );
+        assert_eq!(
+            InsertMode::from_str_config("upsert").unwrap(),
+            InsertMode::Upsert
+        );
+        assert_eq!(
+            InsertMode::from_str_config("UPSERT").unwrap(),
+            InsertMode::Upsert
+        );
     }
 
     #[test]
@@ -448,7 +447,10 @@ mod tests {
     fn test_build_insert_sql_single_row() {
         let columns = vec!["id".to_string(), "name".to_string(), "value".to_string()];
         let sql = PostgresSinkConnector::build_insert_sql("events", &columns, 1);
-        assert_eq!(sql, "INSERT INTO events (id, name, value) VALUES ($1, $2, $3)");
+        assert_eq!(
+            sql,
+            "INSERT INTO events (id, name, value) VALUES ($1, $2, $3)"
+        );
     }
 
     #[test]

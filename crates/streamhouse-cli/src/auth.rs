@@ -125,8 +125,7 @@ impl AuthManager {
     /// Save credentials to disk as JSON with restricted file permissions (0o600).
     pub fn save(&self) -> Result<()> {
         if let Some(parent) = self.credentials_path.parent() {
-            std::fs::create_dir_all(parent)
-                .context("Failed to create credentials directory")?;
+            std::fs::create_dir_all(parent).context("Failed to create credentials directory")?;
         }
 
         let json = serde_json::to_string_pretty(&self.credentials)
@@ -149,8 +148,7 @@ impl AuthManager {
 
     /// Load credentials from the configured path.
     fn load_from_path(path: &PathBuf) -> Result<Credentials> {
-        let data = std::fs::read_to_string(path)
-            .context("Failed to read credentials file")?;
+        let data = std::fs::read_to_string(path).context("Failed to read credentials file")?;
         let credentials: Credentials =
             serde_json::from_str(&data).context("Failed to parse credentials file")?;
         Ok(credentials)
@@ -192,7 +190,11 @@ impl AuthManager {
     /// Switch to a different named instance.
     pub fn switch_instance(&mut self, name: &str) -> Result<()> {
         if !self.credentials.instances.contains_key(name) {
-            anyhow::bail!("Instance '{}' not found. Available: {:?}", name, self.list_instances());
+            anyhow::bail!(
+                "Instance '{}' not found. Available: {:?}",
+                name,
+                self.list_instances()
+            );
         }
         self.credentials.active_instance = Some(name.to_string());
         self.save()?;
@@ -515,12 +517,17 @@ mod tests {
         let path = temp_credentials_path();
         {
             let mut manager = AuthManager::with_path(path.clone()).unwrap();
-            manager.login("https://api.streamhouse.dev", Some("prod")).unwrap();
+            manager
+                .login("https://api.streamhouse.dev", Some("prod"))
+                .unwrap();
         }
 
         // Reload from disk
         let manager = AuthManager::with_path(path).unwrap();
-        assert_eq!(manager.credentials().active_instance, Some("prod".to_string()));
+        assert_eq!(
+            manager.credentials().active_instance,
+            Some("prod".to_string())
+        );
         assert!(manager.credentials().instances.contains_key("prod"));
     }
 
@@ -528,7 +535,9 @@ mod tests {
     fn test_auth_manager_file_permissions() {
         let path = temp_credentials_path();
         let mut manager = AuthManager::with_path(path.clone()).unwrap();
-        manager.login("https://api.streamhouse.dev", Some("test")).unwrap();
+        manager
+            .login("https://api.streamhouse.dev", Some("test"))
+            .unwrap();
 
         #[cfg(unix)]
         {
@@ -543,9 +552,14 @@ mod tests {
     fn test_auth_manager_login() {
         let path = temp_credentials_path();
         let mut manager = AuthManager::with_path(path).unwrap();
-        manager.login("https://api.streamhouse.dev", Some("prod")).unwrap();
+        manager
+            .login("https://api.streamhouse.dev", Some("prod"))
+            .unwrap();
 
-        assert_eq!(manager.credentials().active_instance, Some("prod".to_string()));
+        assert_eq!(
+            manager.credentials().active_instance,
+            Some("prod".to_string())
+        );
         let config = manager.credentials().instances.get("prod").unwrap();
         assert_eq!(config.server_url, "https://api.streamhouse.dev");
     }
@@ -566,7 +580,9 @@ mod tests {
     fn test_auth_manager_logout() {
         let path = temp_credentials_path();
         let mut manager = AuthManager::with_path(path).unwrap();
-        manager.login("https://api.streamhouse.dev", Some("prod")).unwrap();
+        manager
+            .login("https://api.streamhouse.dev", Some("prod"))
+            .unwrap();
         manager.logout().unwrap();
 
         assert!(manager.credentials().active_instance.is_none());
@@ -577,8 +593,12 @@ mod tests {
     fn test_auth_manager_switch_instance() {
         let path = temp_credentials_path();
         let mut manager = AuthManager::with_path(path).unwrap();
-        manager.login("https://api.streamhouse.dev", Some("prod")).unwrap();
-        manager.login("http://localhost:9090", Some("local")).unwrap();
+        manager
+            .login("https://api.streamhouse.dev", Some("prod"))
+            .unwrap();
+        manager
+            .login("http://localhost:9090", Some("local"))
+            .unwrap();
 
         assert_eq!(
             manager.credentials().active_instance,
@@ -604,8 +624,12 @@ mod tests {
     fn test_auth_manager_list_instances() {
         let path = temp_credentials_path();
         let mut manager = AuthManager::with_path(path).unwrap();
-        manager.login("https://api.streamhouse.dev", Some("prod")).unwrap();
-        manager.login("http://localhost:9090", Some("local")).unwrap();
+        manager
+            .login("https://api.streamhouse.dev", Some("prod"))
+            .unwrap();
+        manager
+            .login("http://localhost:9090", Some("local"))
+            .unwrap();
 
         let mut instances = manager.list_instances();
         instances.sort();
@@ -624,7 +648,9 @@ mod tests {
     fn test_auth_manager_get_token_with_token() {
         let path = temp_credentials_path();
         let mut manager = AuthManager::with_path(path).unwrap();
-        manager.login("https://api.streamhouse.dev", Some("prod")).unwrap();
+        manager
+            .login("https://api.streamhouse.dev", Some("prod"))
+            .unwrap();
 
         // Manually set a token
         let config = manager.credentials_mut().instances.get_mut("prod").unwrap();

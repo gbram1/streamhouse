@@ -1801,8 +1801,17 @@ pub trait MetadataStore: Send + Sync {
     async fn delete_connector(&self, name: &str) -> Result<()>;
 
     /// Update the state (and optional error message) of a connector.
-    async fn update_connector_state(&self, name: &str, state: &str, error_message: Option<&str>) -> Result<()>;
+    async fn update_connector_state(
+        &self,
+        name: &str,
+        state: &str,
+        error_message: Option<&str>,
+    ) -> Result<()>;
 
     /// Update the records_processed counter for a connector.
-    async fn update_connector_records_processed(&self, name: &str, records_processed: i64) -> Result<()>;
+    async fn update_connector_records_processed(
+        &self,
+        name: &str,
+        records_processed: i64,
+    ) -> Result<()>;
 }

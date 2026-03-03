@@ -160,10 +160,16 @@ async fn test_cache_put_overwrites_same_key() {
     let (cache, _dir) = create_cache(1024 * 1024).await;
 
     // Put initial data
-    cache.put("seg-x", Bytes::from(b"version-1".to_vec())).await.unwrap();
+    cache
+        .put("seg-x", Bytes::from(b"version-1".to_vec()))
+        .await
+        .unwrap();
 
     // Overwrite with new data
-    cache.put("seg-x", Bytes::from(b"version-2".to_vec())).await.unwrap();
+    cache
+        .put("seg-x", Bytes::from(b"version-2".to_vec()))
+        .await
+        .unwrap();
 
     // Should get the latest value
     let result = cache.get("seg-x").await.unwrap().unwrap();
@@ -189,14 +195,20 @@ async fn test_cache_eviction_frees_disk_space() {
     let cache = SegmentCache::new(&cache_dir, 150).unwrap();
 
     // Put segment that fills most of cache
-    cache.put("seg-old", Bytes::from(vec![0u8; 100])).await.unwrap();
+    cache
+        .put("seg-old", Bytes::from(vec![0u8; 100]))
+        .await
+        .unwrap();
 
     // Verify file exists on disk
     let old_file = cache_dir.join("seg-old.seg");
     assert!(old_file.exists());
 
     // Put another segment that causes eviction
-    cache.put("seg-new", Bytes::from(vec![0u8; 100])).await.unwrap();
+    cache
+        .put("seg-new", Bytes::from(vec![0u8; 100]))
+        .await
+        .unwrap();
 
     // Old file should have been removed from disk during eviction
     assert!(!old_file.exists());

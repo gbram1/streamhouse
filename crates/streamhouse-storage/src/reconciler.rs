@@ -20,7 +20,7 @@
 //! The grace period (default 1 hour) prevents deleting files that are still being
 //! registered by an in-flight write operation.
 
-use object_store::{ObjectStore, path::Path};
+use object_store::{path::Path, ObjectStore};
 use std::collections::HashSet;
 use std::sync::Arc;
 use std::time::Duration;
@@ -117,11 +117,7 @@ impl S3Reconciler {
                 age_ms,
                 "Deleting orphaned S3 object"
             );
-            match self
-                .object_store
-                .delete(&Path::from(s3_key.as_str()))
-                .await
-            {
+            match self.object_store.delete(&Path::from(s3_key.as_str())).await {
                 Ok(()) => deleted += 1,
                 Err(e) => {
                     tracing::warn!(
@@ -275,7 +271,10 @@ mod tests {
         ));
 
         let deleted = reconciler.reconcile().await.unwrap();
-        assert_eq!(deleted, 0, "Should not delete recent orphan within grace period");
+        assert_eq!(
+            deleted, 0,
+            "Should not delete recent orphan within grace period"
+        );
 
         // Verify the object still exists
         assert!(store.get(&orphan_key).await.is_ok());

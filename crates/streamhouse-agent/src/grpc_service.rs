@@ -632,7 +632,13 @@ impl ProducerService for ProducerServiceImpl {
         let batch: Vec<(Option<bytes::Bytes>, bytes::Bytes, u64)> = req
             .records
             .into_iter()
-            .map(|r| (r.key.map(bytes::Bytes::from), bytes::Bytes::from(r.value), r.timestamp))
+            .map(|r| {
+                (
+                    r.key.map(bytes::Bytes::from),
+                    bytes::Bytes::from(r.value),
+                    r.timestamp,
+                )
+            })
             .collect();
 
         let (base_offset, record_count) = {
@@ -640,9 +646,9 @@ impl ProducerService for ProducerServiceImpl {
 
             match writer_guard.append_batch(&batch).await {
                 Ok(offsets) => {
-                    let base = *offsets.first().ok_or_else(|| {
-                        Status::internal("No offsets returned from batch append")
-                    })?;
+                    let base = *offsets
+                        .first()
+                        .ok_or_else(|| Status::internal("No offsets returned from batch append"))?;
                     (base, offsets.len() as u64)
                 }
                 Err(e) => {
@@ -697,7 +703,11 @@ impl ProducerService for ProducerServiceImpl {
                 "ACK_DURABLE mode - queuing for batched S3 flush"
             );
 
-            if let Err(e) = self.writer_pool.request_durable_flush(&req.topic, req.partition).await {
+            if let Err(e) = self
+                .writer_pool
+                .request_durable_flush(&req.topic, req.partition)
+                .await
+            {
                 error!(
                     topic = %req.topic,
                     partition = req.partition,

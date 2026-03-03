@@ -519,7 +519,10 @@ fn validate_json_schema_client(schema_str: &str, value: &str) -> Result<(), Stri
         serde_json::from_str(value).map_err(|e| format!("Value is not valid JSON: {}", e))?;
     let validator =
         jsonschema::validator_for(&schema_value).map_err(|e| format!("Schema error: {}", e))?;
-    let errors: Vec<String> = validator.iter_errors(&instance).map(|e| e.to_string()).collect();
+    let errors: Vec<String> = validator
+        .iter_errors(&instance)
+        .map(|e| e.to_string())
+        .collect();
     if errors.is_empty() {
         Ok(())
     } else {
@@ -528,8 +531,8 @@ fn validate_json_schema_client(schema_str: &str, value: &str) -> Result<(), Stri
 }
 
 fn validate_avro_schema_client(schema_str: &str, value: &str) -> Result<(), String> {
-    let schema =
-        apache_avro::Schema::parse_str(schema_str).map_err(|e| format!("Invalid Avro schema: {}", e))?;
+    let schema = apache_avro::Schema::parse_str(schema_str)
+        .map_err(|e| format!("Invalid Avro schema: {}", e))?;
     let json_value: serde_json::Value =
         serde_json::from_str(value).map_err(|e| format!("Value is not valid JSON: {}", e))?;
     let avro_value = apache_avro::types::Value::from(json_value);

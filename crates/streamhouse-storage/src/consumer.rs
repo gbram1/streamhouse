@@ -190,7 +190,8 @@ mod tests {
     async fn test_consumer_starts_at_offset_zero_without_group() {
         let metadata = create_test_metadata("orders", 1).await;
         let temp_dir = tempfile::tempdir().unwrap();
-        let cache = Arc::new(SegmentCache::new(temp_dir.path().join("cache"), 1024 * 1024).unwrap());
+        let cache =
+            Arc::new(SegmentCache::new(temp_dir.path().join("cache"), 1024 * 1024).unwrap());
         let reader = create_test_reader("orders", 0, metadata.clone(), cache);
 
         let consumer = Consumer::new("orders".to_string(), 0, None, reader, metadata)
@@ -204,7 +205,8 @@ mod tests {
     async fn test_consumer_with_group_starts_at_zero_when_no_committed_offset() {
         let metadata = create_test_metadata("orders", 1).await;
         let temp_dir = tempfile::tempdir().unwrap();
-        let cache = Arc::new(SegmentCache::new(temp_dir.path().join("cache"), 1024 * 1024).unwrap());
+        let cache =
+            Arc::new(SegmentCache::new(temp_dir.path().join("cache"), 1024 * 1024).unwrap());
         let reader = create_test_reader("orders", 0, metadata.clone(), cache);
 
         let consumer = Consumer::new(
@@ -231,7 +233,8 @@ mod tests {
             .unwrap();
 
         let temp_dir = tempfile::tempdir().unwrap();
-        let cache = Arc::new(SegmentCache::new(temp_dir.path().join("cache"), 1024 * 1024).unwrap());
+        let cache =
+            Arc::new(SegmentCache::new(temp_dir.path().join("cache"), 1024 * 1024).unwrap());
         let reader = create_test_reader("orders", 0, metadata.clone(), cache);
 
         let consumer = Consumer::new(
@@ -251,7 +254,8 @@ mod tests {
     async fn test_consumer_seek() {
         let metadata = create_test_metadata("orders", 1).await;
         let temp_dir = tempfile::tempdir().unwrap();
-        let cache = Arc::new(SegmentCache::new(temp_dir.path().join("cache"), 1024 * 1024).unwrap());
+        let cache =
+            Arc::new(SegmentCache::new(temp_dir.path().join("cache"), 1024 * 1024).unwrap());
         let reader = create_test_reader("orders", 0, metadata.clone(), cache);
 
         let mut consumer = Consumer::new("orders".to_string(), 0, None, reader, metadata)
@@ -274,7 +278,8 @@ mod tests {
     async fn test_consumer_commit_without_group_is_noop() {
         let metadata = create_test_metadata("orders", 1).await;
         let temp_dir = tempfile::tempdir().unwrap();
-        let cache = Arc::new(SegmentCache::new(temp_dir.path().join("cache"), 1024 * 1024).unwrap());
+        let cache =
+            Arc::new(SegmentCache::new(temp_dir.path().join("cache"), 1024 * 1024).unwrap());
         let reader = create_test_reader("orders", 0, metadata.clone(), cache);
 
         let consumer = Consumer::new("orders".to_string(), 0, None, reader, metadata.clone())
@@ -296,7 +301,8 @@ mod tests {
     async fn test_consumer_commit_with_group_persists_offset() {
         let metadata = create_test_metadata("orders", 1).await;
         let temp_dir = tempfile::tempdir().unwrap();
-        let cache = Arc::new(SegmentCache::new(temp_dir.path().join("cache"), 1024 * 1024).unwrap());
+        let cache =
+            Arc::new(SegmentCache::new(temp_dir.path().join("cache"), 1024 * 1024).unwrap());
         let reader = create_test_reader("orders", 0, metadata.clone(), cache);
 
         let mut consumer = Consumer::new(
@@ -327,7 +333,8 @@ mod tests {
     async fn test_consumer_position_after_seek() {
         let metadata = create_test_metadata("events", 1).await;
         let temp_dir = tempfile::tempdir().unwrap();
-        let cache = Arc::new(SegmentCache::new(temp_dir.path().join("cache"), 1024 * 1024).unwrap());
+        let cache =
+            Arc::new(SegmentCache::new(temp_dir.path().join("cache"), 1024 * 1024).unwrap());
         let reader = create_test_reader("events", 0, metadata.clone(), cache);
 
         let mut consumer = Consumer::new("events".to_string(), 0, None, reader, metadata)

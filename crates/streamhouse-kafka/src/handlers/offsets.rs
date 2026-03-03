@@ -70,7 +70,11 @@ pub async fn handle_list_offsets(
         (isolation_level, topics)
     };
 
-    debug!("ListOffsets: topics={}, isolation_level={}", topics.len(), isolation_level);
+    debug!(
+        "ListOffsets: topics={}, isolation_level={}",
+        topics.len(),
+        isolation_level
+    );
 
     // Get offsets
     let mut topic_responses = Vec::new();
@@ -79,8 +83,14 @@ pub async fn handle_list_offsets(
         let mut partition_responses = Vec::new();
 
         for (partition_index, timestamp) in partitions {
-            let response =
-                get_partition_offset(state, &topic_name, partition_index as u32, timestamp, isolation_level).await;
+            let response = get_partition_offset(
+                state,
+                &topic_name,
+                partition_index as u32,
+                timestamp,
+                isolation_level,
+            )
+            .await;
             partition_responses.push(response);
         }
 
@@ -209,22 +219,20 @@ async fn get_partition_offset(
             }
         }
         -2 => 0, // Earliest is always 0 for now
-        ts => {
-            match find_offset_by_timestamp(state, topic_name, partition_id, ts as u64).await {
-                Ok(Some(offset)) => offset as i64,
-                Ok(None) => partition.high_watermark as i64,
-                Err(e) => {
-                    warn!(
-                        topic = topic_name,
-                        partition = partition_id,
-                        timestamp = ts,
-                        error = %e,
-                        "Timestamp-based offset lookup failed, falling back to high watermark"
-                    );
-                    partition.high_watermark as i64
-                }
+        ts => match find_offset_by_timestamp(state, topic_name, partition_id, ts as u64).await {
+            Ok(Some(offset)) => offset as i64,
+            Ok(None) => partition.high_watermark as i64,
+            Err(e) => {
+                warn!(
+                    topic = topic_name,
+                    partition = partition_id,
+                    timestamp = ts,
+                    error = %e,
+                    "Timestamp-based offset lookup failed, falling back to high watermark"
+                );
+                partition.high_watermark as i64
             }
-        }
+        },
     };
 
     ListOffsetsPartitionResponse {

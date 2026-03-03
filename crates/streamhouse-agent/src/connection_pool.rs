@@ -255,14 +255,12 @@ impl ConnectionPool {
         // Check circuit breaker
         {
             let mut breakers = self.circuit_breakers.lock().await;
-            let breaker = breakers
-                .entry(address.to_string())
-                .or_insert_with(|| {
-                    CircuitBreaker::new(
-                        self.config.circuit_breaker_threshold,
-                        self.config.circuit_breaker_timeout,
-                    )
-                });
+            let breaker = breakers.entry(address.to_string()).or_insert_with(|| {
+                CircuitBreaker::new(
+                    self.config.circuit_breaker_threshold,
+                    self.config.circuit_breaker_timeout,
+                )
+            });
             if !breaker.allow_request() {
                 return Err(PoolError::CircuitOpen(address.to_string()));
             }
@@ -275,7 +273,11 @@ impl ConnectionPool {
                 if let Some(conn) = pool.iter_mut().find(|c| !c.checked_out && c.healthy) {
                     conn.checked_out = true;
                     conn.last_used = Instant::now();
-                    debug!(address = address, conn_id = conn.id, "Reusing pooled connection");
+                    debug!(
+                        address = address,
+                        conn_id = conn.id,
+                        "Reusing pooled connection"
+                    );
                     return Ok(conn.clone());
                 }
 
@@ -336,14 +338,12 @@ impl ConnectionPool {
         self.total_failed.fetch_add(1, Ordering::Relaxed);
 
         let mut breakers = self.circuit_breakers.lock().await;
-        let breaker = breakers
-            .entry(address.to_string())
-            .or_insert_with(|| {
-                CircuitBreaker::new(
-                    self.config.circuit_breaker_threshold,
-                    self.config.circuit_breaker_timeout,
-                )
-            });
+        let breaker = breakers.entry(address.to_string()).or_insert_with(|| {
+            CircuitBreaker::new(
+                self.config.circuit_breaker_threshold,
+                self.config.circuit_breaker_timeout,
+            )
+        });
         breaker.record_failure();
 
         info!(

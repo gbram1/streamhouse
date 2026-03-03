@@ -128,7 +128,7 @@ fn parse_request_header_with_client_id() {
     buf.put_i16(0); // api_key: Produce
     buf.put_i16(3); // api_version
     buf.put_i32(42); // correlation_id
-    // client_id: "my-app"
+                     // client_id: "my-app"
     buf.put_i16(6);
     buf.put_slice(b"my-app");
 

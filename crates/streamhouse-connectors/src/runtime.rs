@@ -7,8 +7,8 @@
 //! the crate decoupled.
 
 use std::collections::HashMap;
-use std::pin::Pin;
 use std::future::Future;
+use std::pin::Pin;
 
 use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
@@ -41,11 +41,8 @@ struct ConnectorHandle {
 /// The runtime calls this function repeatedly to obtain records for the sink.
 /// Returning an empty vec signals that no records are currently available.
 /// Returning an error causes the connector to transition to the Failed state.
-pub type RecordSourceFn = Box<
-    dyn Fn() -> Pin<Box<dyn Future<Output = Result<Vec<SinkRecord>>> + Send>>
-        + Send
-        + Sync,
->;
+pub type RecordSourceFn =
+    Box<dyn Fn() -> Pin<Box<dyn Future<Output = Result<Vec<SinkRecord>>> + Send>> + Send + Sync>;
 
 /// Runtime that manages the lifecycle of connector instances.
 ///
@@ -189,10 +186,9 @@ impl ConnectorRuntime {
 
     /// Send a pause signal to a running connector.
     pub fn pause(&mut self, name: &str) -> Result<()> {
-        let handle = self
-            .connectors
-            .get_mut(name)
-            .ok_or_else(|| ConnectorError::RuntimeError(format!("connector '{}' not found", name)))?;
+        let handle = self.connectors.get_mut(name).ok_or_else(|| {
+            ConnectorError::RuntimeError(format!("connector '{}' not found", name))
+        })?;
 
         if handle.state != ConnectorState::Running {
             return Err(ConnectorError::RuntimeError(format!(
@@ -212,10 +208,9 @@ impl ConnectorRuntime {
 
     /// Send a resume signal to a paused connector.
     pub fn resume(&mut self, name: &str) -> Result<()> {
-        let handle = self
-            .connectors
-            .get_mut(name)
-            .ok_or_else(|| ConnectorError::RuntimeError(format!("connector '{}' not found", name)))?;
+        let handle = self.connectors.get_mut(name).ok_or_else(|| {
+            ConnectorError::RuntimeError(format!("connector '{}' not found", name))
+        })?;
 
         if handle.state != ConnectorState::Paused {
             return Err(ConnectorError::RuntimeError(format!(
@@ -235,10 +230,9 @@ impl ConnectorRuntime {
 
     /// Stop a connector and wait for its task to finish.
     pub async fn stop(&mut self, name: &str) -> Result<()> {
-        let handle = self
-            .connectors
-            .remove(name)
-            .ok_or_else(|| ConnectorError::RuntimeError(format!("connector '{}' not found", name)))?;
+        let handle = self.connectors.remove(name).ok_or_else(|| {
+            ConnectorError::RuntimeError(format!("connector '{}' not found", name))
+        })?;
 
         let _ = handle.control_tx.send(ControlSignal::Stop).await;
         let _ = handle.join_handle.await;
@@ -268,8 +262,8 @@ mod tests {
     use super::*;
     use crate::config::ConnectorType;
     use crate::traits::SinkRecord;
-    use std::sync::Arc;
     use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::Arc;
 
     // A simple mock sink that counts put calls
     struct CountingSink {

@@ -179,12 +179,9 @@ impl ElasticsearchSinkConnector {
 
     /// Send a bulk request to Elasticsearch.
     async fn send_bulk(&self, body: &str) -> Result<()> {
-        let client = self
-            .client
-            .as_ref()
-            .ok_or_else(|| {
-                ConnectorError::ConnectionError("HTTP client not initialized".to_string())
-            })?;
+        let client = self.client.as_ref().ok_or_else(|| {
+            ConnectorError::ConnectionError("HTTP client not initialized".to_string())
+        })?;
 
         let url = format!("{}/_bulk", self.config.connection_url);
 
@@ -251,16 +248,9 @@ impl ElasticsearchSinkConnector {
 impl SinkConnector for ElasticsearchSinkConnector {
     async fn start(&mut self) -> Result<()> {
         if self.client.is_none() {
-            self.client = Some(
-                reqwest::Client::builder()
-                    .build()
-                    .map_err(|e| {
-                        ConnectorError::ConnectionError(format!(
-                            "failed to build HTTP client: {}",
-                            e
-                        ))
-                    })?,
-            );
+            self.client = Some(reqwest::Client::builder().build().map_err(|e| {
+                ConnectorError::ConnectionError(format!("failed to build HTTP client: {}", e))
+            })?);
         }
         tracing::info!(connector = %self.name, "Elasticsearch sink connector started");
         Ok(())
@@ -272,8 +262,7 @@ impl SinkConnector for ElasticsearchSinkConnector {
         // Auto-flush if we hit the batch size
         while self.buffer.len() >= self.config.batch_size {
             // Drain batch_size records
-            let batch: Vec<SinkRecord> =
-                self.buffer.drain(..self.config.batch_size).collect();
+            let batch: Vec<SinkRecord> = self.buffer.drain(..self.config.batch_size).collect();
             let body = Self::build_bulk_body(
                 &self.config.index_name,
                 self.config.document_id_field.as_deref(),
@@ -390,8 +379,7 @@ mod tests {
     #[test]
     fn test_bulk_body_no_id_field() {
         let records = sample_records(2);
-        let body =
-            ElasticsearchSinkConnector::build_bulk_body("my-index", None, &records).unwrap();
+        let body = ElasticsearchSinkConnector::build_bulk_body("my-index", None, &records).unwrap();
 
         let lines: Vec<&str> = body.trim().split('\n').collect();
         // 2 records x 2 lines each = 4 lines
@@ -434,12 +422,8 @@ mod tests {
             key: None,
             value: Bytes::from(r#"{"num_id": 42, "data": "test"}"#),
         }];
-        let body = ElasticsearchSinkConnector::build_bulk_body(
-            "idx",
-            Some("num_id"),
-            &records,
-        )
-        .unwrap();
+        let body =
+            ElasticsearchSinkConnector::build_bulk_body("idx", Some("num_id"), &records).unwrap();
 
         let lines: Vec<&str> = body.trim().split('\n').collect();
         let action: serde_json::Value = serde_json::from_str(lines[0]).unwrap();
@@ -456,12 +440,9 @@ mod tests {
             key: None,
             value: Bytes::from(r#"{"name": "no-id-field-here"}"#),
         }];
-        let body = ElasticsearchSinkConnector::build_bulk_body(
-            "idx",
-            Some("nonexistent"),
-            &records,
-        )
-        .unwrap();
+        let body =
+            ElasticsearchSinkConnector::build_bulk_body("idx", Some("nonexistent"), &records)
+                .unwrap();
 
         let lines: Vec<&str> = body.trim().split('\n').collect();
         let action: serde_json::Value = serde_json::from_str(lines[0]).unwrap();
@@ -492,8 +473,7 @@ mod tests {
     #[test]
     fn test_bulk_body_ends_with_newline() {
         let records = sample_records(1);
-        let body =
-            ElasticsearchSinkConnector::build_bulk_body("idx", None, &records).unwrap();
+        let body = ElasticsearchSinkConnector::build_bulk_body("idx", None, &records).unwrap();
         assert!(body.ends_with('\n'));
     }
 

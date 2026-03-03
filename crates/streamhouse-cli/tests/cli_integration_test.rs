@@ -69,10 +69,22 @@ fn test_help_contains_subcommands() {
     assert!(output.status.success());
     let stdout = String::from_utf8_lossy(&output.stdout);
     // Verify core subcommands are listed in help output
-    assert!(stdout.contains("topic"), "help should list 'topic' subcommand");
-    assert!(stdout.contains("produce"), "help should list 'produce' subcommand");
-    assert!(stdout.contains("consume"), "help should list 'consume' subcommand");
-    assert!(stdout.contains("schema"), "help should list 'schema' subcommand");
+    assert!(
+        stdout.contains("topic"),
+        "help should list 'topic' subcommand"
+    );
+    assert!(
+        stdout.contains("produce"),
+        "help should list 'produce' subcommand"
+    );
+    assert!(
+        stdout.contains("consume"),
+        "help should list 'consume' subcommand"
+    );
+    assert!(
+        stdout.contains("schema"),
+        "help should list 'schema' subcommand"
+    );
 }
 
 #[test]
@@ -84,12 +96,18 @@ fn test_topic_subcommand_help() {
 
     assert!(output.status.success());
     let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(stdout.contains("create") || stdout.contains("Create"),
-        "topic help should mention create");
-    assert!(stdout.contains("list") || stdout.contains("List"),
-        "topic help should mention list");
-    assert!(stdout.contains("delete") || stdout.contains("Delete"),
-        "topic help should mention delete");
+    assert!(
+        stdout.contains("create") || stdout.contains("Create"),
+        "topic help should mention create"
+    );
+    assert!(
+        stdout.contains("list") || stdout.contains("List"),
+        "topic help should mention list"
+    );
+    assert!(
+        stdout.contains("delete") || stdout.contains("Delete"),
+        "topic help should mention delete"
+    );
 }
 
 #[test]

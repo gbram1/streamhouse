@@ -54,10 +54,8 @@ pub async fn list_connectors(
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
-    let response: Vec<ConnectorResponse> = connectors
-        .into_iter()
-        .map(connector_to_response)
-        .collect();
+    let response: Vec<ConnectorResponse> =
+        connectors.into_iter().map(connector_to_response).collect();
 
     Ok(Json(response))
 }

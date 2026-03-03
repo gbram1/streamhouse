@@ -263,9 +263,7 @@ mod tests {
 
     #[test]
     fn test_print_key_value_uncolored() {
-        let pairs = vec![
-            ("key1".to_string(), "value1".to_string()),
-        ];
+        let pairs = vec![("key1".to_string(), "value1".to_string())];
         print_key_value(pairs, false);
     }
 }

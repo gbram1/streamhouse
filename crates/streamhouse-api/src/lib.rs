@@ -8,8 +8,8 @@ use axum::{
 };
 use std::sync::Arc;
 use streamhouse_client::Producer;
-use tokio::sync::Notify;
 use streamhouse_metadata::MetadataStore;
+use tokio::sync::Notify;
 use tower_http::cors::CorsLayer;
 use utoipa::OpenApi;
 use utoipa_swagger_ui::SwaggerUi;
@@ -19,28 +19,26 @@ pub mod active_active;
 pub mod audit;
 pub mod audit_store;
 pub mod auth;
+pub mod cluster;
 pub mod compliance;
+pub mod discovery;
 pub mod failover;
 pub mod handlers;
+pub mod health_monitor;
 pub mod jwt;
 pub mod leader;
 pub mod models;
 pub mod oauth;
-pub mod pitr;
 pub mod opa;
+pub mod pitr;
+pub mod prometheus;
 pub mod rbac;
 pub mod replication;
-pub mod prometheus;
 pub mod sasl;
 pub mod shutdown;
 pub mod tls;
-pub mod cluster;
-pub mod discovery;
-pub mod health_monitor;
 
-pub use cluster::{
-    ClusterCoordinator, ClusterNode, ClusterTopology, NodeStatus,
-};
+pub use cluster::{ClusterCoordinator, ClusterNode, ClusterTopology, NodeStatus};
 pub use discovery::{
     DiscoveredNode, DiscoveryConfig, DiscoveryEvent, DnsDiscovery, MetadataStoreDiscovery,
     ServiceDiscovery, StaticDiscovery,
@@ -84,15 +82,16 @@ pub use oauth::{
     oauth_router, IdTokenClaims, OAuthConfig, OAuthError, OAuthProvider, OAuthService,
     OAuthSession, OAuthTokens, PkceChallenge, UserInfo,
 };
+pub use opa::{
+    OpaClient, OpaConfig, OpaDecision, OpaDecisionSource, OpaError, OpaInput, OpaLayer,
+    OpaRbacManager, OpaResponse, OpaResult, OpaService,
+};
 pub use pitr::{
     BackupMetadata, BackupStatus, BaseBackup, PitrConfig, PitrConfigBuilder, PitrError,
     PitrManager, RecoveryResult, RecoveryTarget, SystemSnapshot,
     VerificationResult as PitrVerificationResult, WalEntry, WalOperation, WalSegment, WalStats,
 };
-pub use opa::{
-    OpaClient, OpaConfig, OpaDecision, OpaDecisionSource, OpaError, OpaInput, OpaLayer,
-    OpaRbacManager, OpaResult, OpaResponse, OpaService,
-};
+pub use prometheus::PrometheusClient;
 pub use rbac::{
     DataMasker, DataMaskingPolicy, MaskType, Permission, RbacError, RbacLayer, RbacManager,
     RbacMiddleware, Role, RoleAssignment, ADMIN_ROLE_ID, DEVELOPER_ROLE_ID, OPERATOR_ROLE_ID,
@@ -102,7 +101,6 @@ pub use replication::{
     RegionEndpoint, RegionReplicationState, ReplicatedSegment, ReplicationConfig, ReplicationError,
     ReplicationLag, ReplicationManager, ReplicationMode, ReplicationStats, ReplicationStatus,
 };
-pub use prometheus::PrometheusClient;
 pub use sasl::{
     ScramClient, ScramConfig, ScramError, ScramMechanism, ScramServer, ScramState,
     StoredCredentials,

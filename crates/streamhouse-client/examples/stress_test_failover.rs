@@ -106,9 +106,18 @@ fn start_server(grpc_port: u16, http_port: u16, kafka_port: u16, data_dir: &str)
         .env("HTTP_ADDR", format!("0.0.0.0:{}", http_port))
         .env("KAFKA_ADDR", format!("0.0.0.0:{}", kafka_port))
         .env("USE_LOCAL_STORAGE", "1")
-        .env("LOCAL_STORAGE_PATH", data_path.join("storage").to_str().unwrap())
-        .env("STREAMHOUSE_METADATA", data_path.join("metadata.db").to_str().unwrap())
-        .env("STREAMHOUSE_CACHE", data_path.join("cache").to_str().unwrap())
+        .env(
+            "LOCAL_STORAGE_PATH",
+            data_path.join("storage").to_str().unwrap(),
+        )
+        .env(
+            "STREAMHOUSE_METADATA",
+            data_path.join("metadata.db").to_str().unwrap(),
+        )
+        .env(
+            "STREAMHOUSE_CACHE",
+            data_path.join("cache").to_str().unwrap(),
+        )
         .env("FLUSH_INTERVAL_SECS", "5")
         .env("WAL_ENABLED", "true")
         .env("WAL_DIR", data_path.join("wal").to_str().unwrap())
@@ -119,7 +128,12 @@ fn start_server(grpc_port: u16, http_port: u16, kafka_port: u16, data_dir: &str)
         .spawn()
         .unwrap_or_else(|e| panic!("Failed to start server on port {}: {}", grpc_port, e));
 
-    println!("  Started server :{} (PID {}, log: {})", grpc_port, child.id(), log_path.display());
+    println!(
+        "  Started server :{} (PID {}, log: {})",
+        grpc_port,
+        child.id(),
+        log_path.display()
+    );
 
     ServerInstance {
         grpc_port,
@@ -133,9 +147,7 @@ fn kill_9(server: &mut ServerInstance) -> Option<u32> {
     if let Some(ref mut child) = server.child {
         let pid = child.id();
         // Use kill -9 to simulate a real crash (no graceful shutdown)
-        let _ = Command::new("kill")
-            .args(["-9", &pid.to_string()])
-            .output();
+        let _ = Command::new("kill").args(["-9", &pid.to_string()]).output();
         let _ = child.wait();
         server.child = None;
         Some(pid)
@@ -228,8 +240,11 @@ async fn producer_task(
 
             let records: Vec<Record> = (0..BATCH_SIZE)
                 .map(|i| Record {
-                    key: format!("k{}", (task_id * 1_000_000 + batch_num * BATCH_SIZE + i) % 100_000)
-                        .into_bytes(),
+                    key: format!(
+                        "k{}",
+                        (task_id * 1_000_000 + batch_num * BATCH_SIZE + i) % 100_000
+                    )
+                    .into_bytes(),
                     value: value.clone(),
                     headers: Default::default(),
                 })
@@ -388,10 +403,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("================================================================");
     println!();
     println!("  Topic:           {} ({} partitions)", TOPIC, PARTITIONS);
-    println!("  Producers:       {} tasks (round-robin across servers)", PRODUCER_TASKS);
+    println!(
+        "  Producers:       {} tasks (round-robin across servers)",
+        PRODUCER_TASKS
+    );
     println!("  Batch size:      {} records", BATCH_SIZE);
     println!("  Pre-crash:       {}s of producing", PRE_CRASH_SECS);
-    println!("  Post-crash:      {}s of producing to survivor", POST_CRASH_SECS);
+    println!(
+        "  Post-crash:      {}s of producing to survivor",
+        POST_CRASH_SECS
+    );
     println!();
 
     // Clean up previous test data
@@ -451,7 +472,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Phase 2: Produce to both servers
     // =========================================================================
     println!();
-    println!("--- Phase 2: Producing to both servers ({}s) ---", PRE_CRASH_SECS);
+    println!(
+        "--- Phase 2: Producing to both servers ({}s) ---",
+        PRE_CRASH_SECS
+    );
     println!();
 
     let stats = Arc::new(Stats::new());
@@ -504,14 +528,20 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Phase 3: CRASH — kill -9 Server B
     // =========================================================================
     println!();
-    println!("--- Phase 3: CRASH — kill -9 Server B (:{}) ---", server_b.grpc_port);
+    println!(
+        "--- Phase 3: CRASH — kill -9 Server B (:{}) ---",
+        server_b.grpc_port
+    );
     println!();
 
     let _crash_time = Instant::now();
     if let Some(pid) = kill_9(&mut server_b) {
         println!("  Killed Server B (PID {}) with SIGKILL", pid);
     }
-    println!("  Records acked before crash: {}", format_number(pre_crash_acked));
+    println!(
+        "  Records acked before crash: {}",
+        format_number(pre_crash_acked)
+    );
     println!();
     println!("  Producers will failover to Server A...");
     println!("  Waiting for lease expiry + partition reassignment (~30-60s)...");
@@ -520,7 +550,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // =========================================================================
     // Phase 4: Continue producing to survivor
     // =========================================================================
-    println!("--- Phase 4: Producing to survivor ({}s) ---", POST_CRASH_SECS);
+    println!(
+        "--- Phase 4: Producing to survivor ({}s) ---",
+        POST_CRASH_SECS
+    );
     println!();
 
     tokio::time::sleep(Duration::from_secs(POST_CRASH_SECS)).await;
@@ -538,7 +571,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let recovery_errors = total_errors - pre_crash_errors;
 
     println!();
-    println!("  Records acked after crash:  {}", format_number(post_crash_acked));
+    println!(
+        "  Records acked after crash:  {}",
+        format_number(post_crash_acked)
+    );
     println!("  Errors during/after crash:  {}", recovery_errors);
 
     // =========================================================================
@@ -603,9 +639,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("  Failover Report");
     println!("================================================================");
     println!();
-    println!("  Records acked (producer-side):  {}", format_number(total_acked));
-    println!("  Records consumed (read-back):   {}", format_number(total_consumed));
-    println!("  High watermark total:           {}", format_number(total_hw));
+    println!(
+        "  Records acked (producer-side):  {}",
+        format_number(total_acked)
+    );
+    println!(
+        "  Records consumed (read-back):   {}",
+        format_number(total_consumed)
+    );
+    println!(
+        "  High watermark total:           {}",
+        format_number(total_hw)
+    );
     println!();
 
     let acked_loss = if total_acked > total_consumed {
@@ -616,7 +661,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     if acked_loss == 0 {
         println!("  ZERO ACKNOWLEDGED MESSAGE LOSS");
-        println!("  All {} acked records were consumed back.", format_number(total_acked));
+        println!(
+            "  All {} acked records were consumed back.",
+            format_number(total_acked)
+        );
     } else {
         let loss_pct = acked_loss as f64 / total_acked as f64 * 100.0;
         println!(
@@ -635,7 +683,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             0.0
         };
         println!();
-        println!("  Estimated loss window:  {:.1}s (flush_interval={}s)", est_loss_window, flush_interval);
+        println!(
+            "  Estimated loss window:  {:.1}s (flush_interval={}s)",
+            est_loss_window, flush_interval
+        );
         println!(
             "  Throughput at crash:    {} msg/s",
             format_number(est_throughput)
@@ -643,8 +694,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     println!();
-    println!("  Errors during test:     {} total ({} during/after crash)",
-        total_errors, recovery_errors);
+    println!(
+        "  Errors during test:     {} total ({} during/after crash)",
+        total_errors, recovery_errors
+    );
     println!("  Recovery time:          ~30-60s (lease expiry interval)");
     println!();
 

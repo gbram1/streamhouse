@@ -270,12 +270,18 @@ impl SqlExecutor {
                         let va = extract_json_field(&a.value, other);
                         let vb = extract_json_field(&b.value, other);
                         match (va.parse::<f64>(), vb.parse::<f64>()) {
-                            (Ok(fa), Ok(fb)) => fa.partial_cmp(&fb).unwrap_or(std::cmp::Ordering::Equal),
+                            (Ok(fa), Ok(fb)) => {
+                                fa.partial_cmp(&fb).unwrap_or(std::cmp::Ordering::Equal)
+                            }
                             _ => va.cmp(&vb),
                         }
                     }
                 };
-                if desc { cmp.reverse() } else { cmp }
+                if desc {
+                    cmp.reverse()
+                } else {
+                    cmp
+                }
             });
         }
 
@@ -478,7 +484,9 @@ impl SqlExecutor {
             // agg_values (in sorted key order matching agg_columns)
             for col_name in &agg_columns {
                 let val = if let serde_json::Value::Object(map) = &data.agg_values {
-                    map.get(col_name).cloned().unwrap_or(serde_json::Value::Null)
+                    map.get(col_name)
+                        .cloned()
+                        .unwrap_or(serde_json::Value::Null)
                 } else {
                     serde_json::Value::Null
                 };
@@ -917,8 +925,7 @@ impl SqlExecutor {
         // Group messages by the GROUP BY columns
         let mut groups: HashMap<String, Vec<MessageRow>> = HashMap::new();
         for msg in all_messages {
-            let key = extract_group_key(&msg, &query.group_by)
-                .unwrap_or_default();
+            let key = extract_group_key(&msg, &query.group_by).unwrap_or_default();
             groups.entry(key).or_default().push(msg);
         }
 
@@ -1110,12 +1117,19 @@ impl SqlExecutor {
             let col_name = order_by.column.to_lowercase();
             let desc = order_by.descending;
             // Find column index by name
-            if let Some(col_idx) = columns.iter().position(|c| c.name.to_lowercase() == col_name) {
+            if let Some(col_idx) = columns
+                .iter()
+                .position(|c| c.name.to_lowercase() == col_name)
+            {
                 rows.sort_by(|a, b| {
                     let va = a.get(col_idx).unwrap_or(&serde_json::Value::Null);
                     let vb = b.get(col_idx).unwrap_or(&serde_json::Value::Null);
                     let cmp = compare_json_values(va, vb);
-                    if desc { cmp.reverse() } else { cmp }
+                    if desc {
+                        cmp.reverse()
+                    } else {
+                        cmp
+                    }
                 });
             }
         }
@@ -1197,30 +1211,28 @@ impl SqlExecutor {
         let mut messages = Vec::new();
 
         match streamhouse_storage::SegmentReader::new(data.clone()) {
-            Ok(reader) => {
-                match reader.read_all() {
-                    Ok(records) => {
-                        for record in records {
-                            let key = record
-                                .key
-                                .as_ref()
-                                .map(|k| String::from_utf8_lossy(k).to_string());
-                            let value = String::from_utf8_lossy(&record.value).to_string();
-                            messages.push(MessageRow {
-                                topic: segment.topic.clone(),
-                                partition: segment.partition_id,
-                                offset: record.offset,
-                                key,
-                                value,
-                                timestamp: record.timestamp as i64,
-                            });
-                        }
-                    }
-                    Err(e) => {
-                        tracing::warn!("Failed to read segment records: {}", e);
+            Ok(reader) => match reader.read_all() {
+                Ok(records) => {
+                    for record in records {
+                        let key = record
+                            .key
+                            .as_ref()
+                            .map(|k| String::from_utf8_lossy(k).to_string());
+                        let value = String::from_utf8_lossy(&record.value).to_string();
+                        messages.push(MessageRow {
+                            topic: segment.topic.clone(),
+                            partition: segment.partition_id,
+                            offset: record.offset,
+                            key,
+                            value,
+                            timestamp: record.timestamp as i64,
+                        });
                     }
                 }
-            }
+                Err(e) => {
+                    tracing::warn!("Failed to read segment records: {}", e);
+                }
+            },
             Err(_) => {
                 // Fallback: try NDJSON format for backward compatibility
                 let text = String::from_utf8_lossy(&data);

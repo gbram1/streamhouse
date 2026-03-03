@@ -401,10 +401,7 @@ impl DataMasker {
                 if !role_ids.contains(&ADMIN_ROLE_ID.to_string()) {
                     return Some(policy.mask_type.clone());
                 }
-            } else if role_ids
-                .iter()
-                .any(|r| policy.applies_to_roles.contains(r))
-            {
+            } else if role_ids.iter().any(|r| policy.applies_to_roles.contains(r)) {
                 return Some(policy.mask_type.clone());
             }
         }
@@ -428,7 +425,7 @@ impl DataMasker {
                     let first = &value[..2];
                     let last = &value[value.len() - 2..];
                     let mask_len = value.len() - 4;
-                    format!("{}{}{}",first, "*".repeat(mask_len), last)
+                    format!("{}{}{}", first, "*".repeat(mask_len), last)
                 }
             }
         }
@@ -474,7 +471,10 @@ impl RbacManager {
         roles.insert(developer.id.clone(), developer);
         roles.insert(viewer.id.clone(), viewer);
 
-        info!("RBAC manager initialized with {} built-in roles", roles.len());
+        info!(
+            "RBAC manager initialized with {} built-in roles",
+            roles.len()
+        );
 
         Self {
             roles: Arc::new(RwLock::new(roles)),
@@ -875,10 +875,7 @@ impl RbacLayer {
 }
 
 /// Default resource extractor for RBAC (same logic as ACL)
-fn default_rbac_resource_extractor(
-    method: &str,
-    path: &str,
-) -> Option<(AclResource, AclAction)> {
+fn default_rbac_resource_extractor(method: &str, path: &str) -> Option<(AclResource, AclAction)> {
     let parts: Vec<&str> = path.split('/').filter(|s| !s.is_empty()).collect();
 
     match parts.as_slice() {
@@ -951,7 +948,8 @@ where
 {
     type Response = axum::response::Response;
     type Error = S::Error;
-    type Future = futures::future::BoxFuture<'static, std::result::Result<Self::Response, Self::Error>>;
+    type Future =
+        futures::future::BoxFuture<'static, std::result::Result<Self::Response, Self::Error>>;
 
     fn poll_ready(
         &mut self,
@@ -1397,10 +1395,7 @@ mod tests {
         let child = Role::with_parent(
             "senior-dev",
             "Senior developer with alter permission",
-            vec![Permission::new(
-                AclResource::All,
-                vec![AclAction::Alter],
-            )],
+            vec![Permission::new(AclResource::All, vec![AclAction::Alter])],
             DEVELOPER_ROLE_ID,
         );
         let child = manager.create_role(child).await.unwrap();
@@ -1472,12 +1467,7 @@ mod tests {
         let manager = RbacManager::new();
 
         // Create hierarchy: child -> developer
-        let child = Role::with_parent(
-            "custom-child",
-            "Child role",
-            vec![],
-            DEVELOPER_ROLE_ID,
-        );
+        let child = Role::with_parent("custom-child", "Child role", vec![], DEVELOPER_ROLE_ID);
         let child = manager.create_role(child).await.unwrap();
 
         manager
@@ -1692,9 +1682,18 @@ mod tests {
             vec![AclAction::Read, AclAction::Write],
         );
 
-        assert!(perm.allows(&AclResource::Topic("orders-eu".to_string()), AclAction::Read));
-        assert!(perm.allows(&AclResource::Topic("orders-us".to_string()), AclAction::Write));
-        assert!(!perm.allows(&AclResource::Topic("orders-eu".to_string()), AclAction::Admin));
+        assert!(perm.allows(
+            &AclResource::Topic("orders-eu".to_string()),
+            AclAction::Read
+        ));
+        assert!(perm.allows(
+            &AclResource::Topic("orders-us".to_string()),
+            AclAction::Write
+        ));
+        assert!(!perm.allows(
+            &AclResource::Topic("orders-eu".to_string()),
+            AclAction::Admin
+        ));
         assert!(!perm.allows(&AclResource::Topic("payments".to_string()), AclAction::Read));
     }
 
@@ -1782,7 +1781,10 @@ mod tests {
         manager.delete_role(&role.id).await.unwrap();
 
         // Assignment should be gone
-        assert!(manager.get_roles_for_principal("user:alice").await.is_empty());
+        assert!(manager
+            .get_roles_for_principal("user:alice")
+            .await
+            .is_empty());
     }
 
     #[tokio::test]

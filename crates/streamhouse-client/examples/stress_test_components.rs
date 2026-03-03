@@ -151,7 +151,11 @@ async fn main() -> anyhow::Result<()> {
     // -----------------------------------------------------------------
     // Phase 3: Full write path (multi-partition with WAL)
     // -----------------------------------------------------------------
-    println!("[3/5] Writing {} records across {} partitions (with WAL) ...", fmt(TOTAL_RECORDS), PARTITION_COUNT);
+    println!(
+        "[3/5] Writing {} records across {} partitions (with WAL) ...",
+        fmt(TOTAL_RECORDS),
+        PARTITION_COUNT
+    );
     let mut run = run_full_write_path(&value).await?;
     run.seg_writer_stats = seg_stats;
     run.wal_stats = Some(wal_stats);
@@ -315,7 +319,8 @@ async fn run_full_write_path(value: &Bytes) -> anyhow::Result<FullRunStats> {
     // --- Write phase ---
     let ts_base: u64 = 1_700_000_000_000;
     let key = Bytes::from("stress-key");
-    let mut append_latencies_us: Vec<u64> = Vec::with_capacity((TOTAL_RECORDS / LATENCY_SAMPLE_RATE) as usize + 1);
+    let mut append_latencies_us: Vec<u64> =
+        Vec::with_capacity((TOTAL_RECORDS / LATENCY_SAMPLE_RATE) as usize + 1);
     let mut throughput_timeline: Vec<(u64, u64)> = Vec::new();
     let mut records_this_second = 0u64;
     let mut current_second = 0u64;
@@ -445,7 +450,7 @@ async fn run_full_write_path(value: &Bytes) -> anyhow::Result<FullRunStats> {
         partition_stats,
         segment_inventory,
         verification,
-        wal_stats: None,       // filled by caller
+        wal_stats: None,                      // filled by caller
         seg_writer_stats: Default::default(), // filled by caller
     })
 }
@@ -469,7 +474,10 @@ fn print_full_report(run: &FullRunStats) {
     println!("  Total records:     {}", fmt(total));
     println!("  Elapsed:           {:.3}s", elapsed);
     println!("  Throughput:        {} rec/s", fmt(throughput as u64));
-    println!("  Raw data rate:     {:.1} MB/s", raw_data_bytes / elapsed / MB);
+    println!(
+        "  Raw data rate:     {:.1} MB/s",
+        raw_data_bytes / elapsed / MB
+    );
     println!();
 
     // Per-second throughput timeline
@@ -515,7 +523,10 @@ fn print_full_report(run: &FullRunStats) {
     let sw = &run.seg_writer_stats;
     if sw.records > 0 {
         println!("  Records:         {}", fmt(sw.records));
-        println!("  Throughput:      {} rec/s", fmt(per_sec(sw.records, sw.elapsed)));
+        println!(
+            "  Throughput:      {} rec/s",
+            fmt(per_sec(sw.records, sw.elapsed))
+        );
         println!("  Blocks:          {}", sw.block_count);
         println!("  Raw size:        {:.1} MB", sw.raw_bytes as f64 / MB);
         println!("  Segment size:    {:.1} MB", sw.segment_bytes as f64 / MB);
@@ -533,7 +544,10 @@ fn print_full_report(run: &FullRunStats) {
     println!("================================================================");
     if let Some(ref ws) = run.wal_stats {
         println!("  Records:         {}", fmt(ws.records));
-        println!("  Throughput:      {} rec/s", fmt(per_sec(ws.records, ws.elapsed)));
+        println!(
+            "  Throughput:      {} rec/s",
+            fmt(per_sec(ws.records, ws.elapsed))
+        );
         println!("  WAL size:        {:.1} MB", ws.wal_bytes as f64 / MB);
         println!(
             "  Disk rate:       {:.1} MB/s",
@@ -600,7 +614,10 @@ fn print_full_report(run: &FullRunStats) {
 
     // =====================================================================
     println!("================================================================");
-    println!("  SEGMENT INVENTORY (all {} segments)", run.segment_inventory.len());
+    println!(
+        "  SEGMENT INVENTORY (all {} segments)",
+        run.segment_inventory.len()
+    );
     println!("================================================================");
     if run.segment_inventory.len() <= 40 {
         println!(
@@ -655,8 +672,13 @@ fn print_full_report(run: &FullRunStats) {
         let min = *sizes.iter().min().unwrap();
         let max = *sizes.iter().max().unwrap();
         let avg = sizes.iter().sum::<u64>() as f64 / sizes.len() as f64;
-        let records_per: Vec<u32> = run.segment_inventory.iter().map(|s| s.record_count).collect();
-        let avg_recs = records_per.iter().map(|r| *r as f64).sum::<f64>() / records_per.len() as f64;
+        let records_per: Vec<u32> = run
+            .segment_inventory
+            .iter()
+            .map(|s| s.record_count)
+            .collect();
+        let avg_recs =
+            records_per.iter().map(|r| *r as f64).sum::<f64>() / records_per.len() as f64;
         println!();
         println!("  Size distribution:");
         println!("    min:  {:.1} KB", min as f64 / 1024.0);
@@ -717,10 +739,7 @@ fn print_full_report(run: &FullRunStats) {
     println!("  SUMMARY");
     println!("================================================================");
     println!();
-    println!(
-        "  Write throughput:     {} rec/s",
-        fmt(throughput as u64)
-    );
+    println!("  Write throughput:     {} rec/s", fmt(throughput as u64));
     println!(
         "  Data rate:            {:.1} MB/s",
         raw_data_bytes / elapsed / MB

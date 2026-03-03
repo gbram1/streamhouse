@@ -73,11 +73,7 @@ pub trait StateStore: Send + Sync {
     async fn delete(&self, namespace: &str, key: &[u8]) -> Result<()>;
 
     /// Scan all keys that share a given prefix within a namespace.
-    async fn scan_prefix(
-        &self,
-        namespace: &str,
-        prefix: &[u8],
-    ) -> Result<Vec<(Vec<u8>, Vec<u8>)>>;
+    async fn scan_prefix(&self, namespace: &str, prefix: &[u8]) -> Result<Vec<(Vec<u8>, Vec<u8>)>>;
 
     /// Create a serialisable snapshot of the current state.
     async fn checkpoint(&self) -> Result<StateCheckpoint>;
@@ -160,10 +156,7 @@ impl Default for InMemoryStateStore {
 impl StateStore for InMemoryStateStore {
     async fn get(&self, namespace: &str, key: &[u8]) -> Result<Option<Vec<u8>>> {
         let data = self.data.read().await;
-        Ok(data
-            .get(namespace)
-            .and_then(|ns| ns.get(key))
-            .cloned())
+        Ok(data.get(namespace).and_then(|ns| ns.get(key)).cloned())
     }
 
     async fn put(&self, namespace: &str, key: &[u8], value: &[u8]) -> Result<()> {
@@ -182,11 +175,7 @@ impl StateStore for InMemoryStateStore {
         Ok(())
     }
 
-    async fn scan_prefix(
-        &self,
-        namespace: &str,
-        prefix: &[u8],
-    ) -> Result<Vec<(Vec<u8>, Vec<u8>)>> {
+    async fn scan_prefix(&self, namespace: &str, prefix: &[u8]) -> Result<Vec<(Vec<u8>, Vec<u8>)>> {
         let data = self.data.read().await;
         let results = data
             .get(namespace)
@@ -202,9 +191,8 @@ impl StateStore for InMemoryStateStore {
 
     async fn checkpoint(&self) -> Result<StateCheckpoint> {
         let data = self.data.read().await;
-        let snapshot = bincode::serialize(&*data).map_err(|e| {
-            SqlError::CheckpointError(format!("failed to serialise state: {e}"))
-        })?;
+        let snapshot = bincode::serialize(&*data)
+            .map_err(|e| SqlError::CheckpointError(format!("failed to serialise state: {e}")))?;
         Ok(StateCheckpoint {
             checkpoint_id: Uuid::new_v4().to_string(),
             processor_id: String::new(), // filled in by the processor
@@ -548,10 +536,7 @@ mod tests {
         let store = Box::new(InMemoryStateStore::new());
         let processor = StreamProcessor::new(config, store);
 
-        let count = processor
-            .process_batch("orders", 0, &[])
-            .await
-            .unwrap();
+        let count = processor.process_batch("orders", 0, &[]).await.unwrap();
         assert_eq!(count, 0);
 
         let stats = processor.get_processing_stats().await;
@@ -570,10 +555,7 @@ mod tests {
 
         let records: Vec<(u64, Vec<u8>)> = (0..5).map(|i| (i, vec![i as u8])).collect();
 
-        let count = processor
-            .process_batch("topic", 0, &records)
-            .await
-            .unwrap();
+        let count = processor.process_batch("topic", 0, &records).await.unwrap();
         // Should only process max_batch_size records
         assert_eq!(count, 2);
     }
@@ -585,10 +567,7 @@ mod tests {
         let processor = StreamProcessor::new(config, store);
 
         // Process some records
-        let records: Vec<(u64, Vec<u8>)> = vec![
-            (0, b"data-0".to_vec()),
-            (1, b"data-1".to_vec()),
-        ];
+        let records: Vec<(u64, Vec<u8>)> = vec![(0, b"data-0".to_vec()), (1, b"data-1".to_vec())];
         processor
             .process_batch("events", 0, &records)
             .await
@@ -634,10 +613,7 @@ mod tests {
 
         // Insert some state via processing
         let records = vec![(0u64, b"hello".to_vec())];
-        processor
-            .process_batch("topic", 0, &records)
-            .await
-            .unwrap();
+        processor.process_batch("topic", 0, &records).await.unwrap();
 
         // Checkpoint
         let mut offsets = HashMap::new();
@@ -671,10 +647,7 @@ mod tests {
 
         for i in 0..3 {
             let records = vec![(i, vec![i as u8])];
-            processor
-                .process_batch("topic", 0, &records)
-                .await
-                .unwrap();
+            processor.process_batch("topic", 0, &records).await.unwrap();
         }
 
         let stats = processor.get_processing_stats().await;
@@ -694,8 +667,7 @@ mod tests {
         let processor = StreamProcessor::new(config, store);
 
         // Generate a large batch to guarantee timeout
-        let records: Vec<(u64, Vec<u8>)> =
-            (0..100_000).map(|i| (i, vec![0u8; 128])).collect();
+        let records: Vec<(u64, Vec<u8>)> = (0..100_000).map(|i| (i, vec![0u8; 128])).collect();
 
         let result = processor.process_batch("topic", 0, &records).await;
         // May or may not timeout depending on scheduling — but if it does, it

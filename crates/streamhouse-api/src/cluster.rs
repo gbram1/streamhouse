@@ -118,10 +118,7 @@ impl ClusterCoordinator {
         heartbeat_interval: Duration,
         failure_timeout: Duration,
     ) -> Self {
-        info!(
-            node_id = local_node_id,
-            "Creating cluster coordinator"
-        );
+        info!(node_id = local_node_id, "Creating cluster coordinator");
         Self {
             topology: Arc::new(RwLock::new(ClusterTopology::new())),
             local_node_id: local_node_id.to_string(),
@@ -142,7 +139,11 @@ impl ClusterCoordinator {
             last_heartbeat: now,
             partition_count: 0,
         };
-        info!(node_id = node_id, address = address, "Adding node to cluster");
+        info!(
+            node_id = node_id,
+            address = address,
+            "Adding node to cluster"
+        );
         topo.nodes.insert(node_id.to_string(), node);
         topo.elect_controller();
     }
@@ -266,11 +267,7 @@ mod tests {
     use super::*;
 
     fn make_coordinator() -> ClusterCoordinator {
-        ClusterCoordinator::new(
-            "node-1",
-            Duration::from_secs(5),
-            Duration::from_secs(30),
-        )
+        ClusterCoordinator::new("node-1", Duration::from_secs(5), Duration::from_secs(30))
     }
 
     #[tokio::test]
@@ -408,11 +405,8 @@ mod tests {
     #[tokio::test]
     async fn test_detect_failed_nodes_with_timeout() {
         // Use a very short timeout
-        let coord = ClusterCoordinator::new(
-            "node-1",
-            Duration::from_millis(1),
-            Duration::from_millis(1),
-        );
+        let coord =
+            ClusterCoordinator::new("node-1", Duration::from_millis(1), Duration::from_millis(1));
         coord.add_node("node-1", "10.0.1.1:9090").await;
 
         // Wait longer than timeout

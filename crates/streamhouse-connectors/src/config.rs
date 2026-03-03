@@ -101,10 +101,7 @@ mod tests {
         assert_eq!(deserialized.connector_class, "com.streamhouse.S3Sink");
         assert_eq!(deserialized.topics, vec!["events", "logs"]);
         assert_eq!(deserialized.tasks_max, 4);
-        assert_eq!(
-            deserialized.config.get("s3.bucket").unwrap(),
-            "my-bucket"
-        );
+        assert_eq!(deserialized.config.get("s3.bucket").unwrap(), "my-bucket");
     }
 
     #[test]

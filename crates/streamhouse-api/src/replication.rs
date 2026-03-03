@@ -39,7 +39,6 @@ use thiserror::Error;
 use tokio::sync::RwLock;
 use tracing::{debug, error, info, warn};
 
-
 /// Errors that can occur during replication operations
 #[derive(Debug, Error)]
 pub enum ReplicationError {
@@ -118,8 +117,8 @@ impl Default for ReplicationConfig {
             target_regions: Vec::new(),
             replication_mode: ReplicationMode::Async,
             s3_versioning_enabled: true,
-            rto_seconds: 300,  // 5 minutes
-            rpo_seconds: 60,   // 1 minute
+            rto_seconds: 300, // 5 minutes
+            rpo_seconds: 60,  // 1 minute
         }
     }
 }
@@ -512,10 +511,7 @@ impl ReplicationManager {
 
                     // Update last replication time
                     let mut last_times = self.last_replication_time.write().await;
-                    last_times.insert(
-                        region_name.clone(),
-                        chrono::Utc::now().timestamp_millis(),
-                    );
+                    last_times.insert(region_name.clone(), chrono::Utc::now().timestamp_millis());
                 }
                 Err(e) => {
                     error!(
@@ -731,9 +727,7 @@ mod tests {
     async fn create_test_manager() -> ReplicationManager {
         let config = test_config();
         let source_store: Arc<dyn ObjectStore> = Arc::new(InMemory::new());
-        ReplicationManager::new(config, source_store)
-            .await
-            .unwrap()
+        ReplicationManager::new(config, source_store).await.unwrap()
     }
 
     #[tokio::test]
@@ -805,10 +799,7 @@ mod tests {
         let store: Arc<dyn ObjectStore> = Arc::new(InMemory::new());
 
         // Add region
-        manager
-            .add_target_region(endpoint, store)
-            .await
-            .unwrap();
+        manager.add_target_region(endpoint, store).await.unwrap();
 
         let endpoints = manager.list_endpoints().await;
         assert_eq!(endpoints.len(), 1);
@@ -898,11 +889,13 @@ mod tests {
 
         // Both regions should have been replicated
         assert!(result.region_status.get("eu-west-1").unwrap().replicated);
-        assert!(result
-            .region_status
-            .get("ap-southeast-1")
-            .unwrap()
-            .replicated);
+        assert!(
+            result
+                .region_status
+                .get("ap-southeast-1")
+                .unwrap()
+                .replicated
+        );
 
         // Should be tracked
         let tracked = manager.get_segment("segment-001").await;

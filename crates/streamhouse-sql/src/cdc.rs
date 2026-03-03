@@ -215,10 +215,8 @@ impl CdcProcessor {
     /// }
     /// ```
     pub fn parse_debezium_envelope(&self, payload: &[u8]) -> Result<CdcRecord> {
-        let envelope: serde_json::Value =
-            serde_json::from_slice(payload).map_err(|e| {
-                SqlError::CdcError(format!("invalid JSON in CDC envelope: {e}"))
-            })?;
+        let envelope: serde_json::Value = serde_json::from_slice(payload)
+            .map_err(|e| SqlError::CdcError(format!("invalid JSON in CDC envelope: {e}")))?;
 
         let op_str = envelope
             .get("op")
@@ -227,10 +225,7 @@ impl CdcProcessor {
 
         let operation = CdcOperation::from_debezium_op(op_str)?;
 
-        let timestamp = envelope
-            .get("ts_ms")
-            .and_then(|v| v.as_i64())
-            .unwrap_or(0);
+        let timestamp = envelope.get("ts_ms").and_then(|v| v.as_i64()).unwrap_or(0);
 
         let before = envelope.get("before").cloned();
         let after = envelope.get("after").cloned();
@@ -499,7 +494,10 @@ mod tests {
 
         let result = proc.parse_debezium_envelope(payload.to_string().as_bytes());
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("unknown Debezium operation"));
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("unknown Debezium operation"));
     }
 
     #[tokio::test]
@@ -514,7 +512,10 @@ mod tests {
 
         let result = proc.parse_debezium_envelope(payload.to_string().as_bytes());
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("missing 'op' field"));
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("missing 'op' field"));
     }
 
     #[tokio::test]
@@ -669,7 +670,10 @@ mod tests {
             .unwrap();
 
         assert_eq!(record.source.connector, "mysql");
-        assert_eq!(record.source.binlog_file, Some("mysql-bin.000003".to_string()));
+        assert_eq!(
+            record.source.binlog_file,
+            Some("mysql-bin.000003".to_string())
+        );
         assert_eq!(record.source.binlog_pos, Some(12345));
         assert_eq!(record.source.server_id, Some("db-primary".to_string()));
     }

@@ -79,8 +79,8 @@ async fn make_manager(
 /// Register N nodes in the failover manager.
 async fn register_nodes(manager: &FailoverManager, count: usize) {
     for i in 0..count {
-        let node = NodeInfo::new(format!("node-{}", i))
-            .with_address(format!("http://node-{}:8080", i));
+        let node =
+            NodeInfo::new(format!("node-{}", i)).with_address(format!("http://node-{}:8080", i));
         manager.register_node(node).await;
     }
 }
@@ -99,9 +99,7 @@ async fn chaos_failover_health_flapping_single_node() {
         .auto_failover(false);
 
     let manager = make_manager(config, "monitor-node", health.clone()).await;
-    manager
-        .register_node(NodeInfo::new("flappy-node"))
-        .await;
+    manager.register_node(NodeInfo::new("flappy-node")).await;
 
     // Simulate flapping: alternate health status each check cycle
     for i in 0..10 {
@@ -148,9 +146,7 @@ async fn chaos_failover_multi_node_health_flapping() {
             } else {
                 HealthStatus::Healthy
             };
-            health
-                .set_status(&format!("node-{}", i), status)
-                .await;
+            health.set_status(&format!("node-{}", i), status).await;
         }
         manager.run_health_checks().await.unwrap();
     }
@@ -169,14 +165,10 @@ async fn chaos_failover_sustained_unhealthy_triggers_node_down() {
         .auto_failover(false);
 
     let manager = make_manager(config, "monitor", health.clone()).await;
-    manager
-        .register_node(NodeInfo::new("sick-node"))
-        .await;
+    manager.register_node(NodeInfo::new("sick-node")).await;
 
     // First make it healthy (to establish baseline)
-    health
-        .set_status("sick-node", HealthStatus::Healthy)
-        .await;
+    health.set_status("sick-node", HealthStatus::Healthy).await;
     manager.run_health_checks().await.unwrap();
 
     let mut events = manager.subscribe();
@@ -386,8 +378,7 @@ async fn chaos_failover_concurrent_register_unregister() {
     let m1 = manager.clone();
     let h1 = tokio::spawn(async move {
         for i in 10..20 {
-            m1.register_node(NodeInfo::new(format!("node-{}", i)))
-                .await;
+            m1.register_node(NodeInfo::new(format!("node-{}", i))).await;
         }
     });
 
@@ -424,14 +415,10 @@ async fn chaos_failover_event_delivery_under_load() {
         .auto_failover(false);
 
     let manager = make_manager(config, "event-delivery", health.clone()).await;
-    manager
-        .register_node(NodeInfo::new("event-node"))
-        .await;
+    manager.register_node(NodeInfo::new("event-node")).await;
 
     // Make healthy first
-    health
-        .set_status("event-node", HealthStatus::Healthy)
-        .await;
+    health.set_status("event-node", HealthStatus::Healthy).await;
     manager.run_health_checks().await.unwrap();
 
     let mut events = manager.subscribe();
@@ -443,9 +430,7 @@ async fn chaos_failover_event_delivery_under_load() {
             .await;
         manager.run_health_checks().await.unwrap();
 
-        health
-            .set_status("event-node", HealthStatus::Healthy)
-            .await;
+        health.set_status("event-node", HealthStatus::Healthy).await;
         manager.run_health_checks().await.unwrap();
     }
 
@@ -506,9 +491,7 @@ async fn chaos_failover_manual_policy_no_auto_action() {
         .auto_failover(true);
 
     let manager = make_manager(config, "manual-node", health.clone()).await;
-    manager
-        .register_node(NodeInfo::new("leader-node"))
-        .await;
+    manager.register_node(NodeInfo::new("leader-node")).await;
 
     // Set the current leader
     {
@@ -544,9 +527,7 @@ async fn chaos_failover_graceful_policy_delay() {
     let health = Arc::new(InMemoryHealthChecker::new());
     let grace_period = Duration::from_millis(100);
     let config = FailoverConfig::default()
-        .policy(FailoverPolicy::Graceful {
-            grace_period,
-        })
+        .policy(FailoverPolicy::Graceful { grace_period })
         .auto_failover(false);
 
     let manager = make_manager(config, "graceful-node", health.clone()).await;
@@ -631,9 +612,7 @@ async fn chaos_failover_full_lifecycle_stress() {
     let mut events = manager.subscribe();
 
     // Node-0 goes down
-    health
-        .set_status("node-0", HealthStatus::Unhealthy)
-        .await;
+    health.set_status("node-0", HealthStatus::Unhealthy).await;
     manager.run_health_checks().await.unwrap();
     manager.run_health_checks().await.unwrap();
 
@@ -644,15 +623,11 @@ async fn chaos_failover_full_lifecycle_stress() {
         .unwrap();
 
     // Node-0 recovers
-    health
-        .set_status("node-0", HealthStatus::Healthy)
-        .await;
+    health.set_status("node-0", HealthStatus::Healthy).await;
     manager.run_health_checks().await.unwrap();
 
     // Node-1 goes down
-    health
-        .set_status("node-1", HealthStatus::Unhealthy)
-        .await;
+    health.set_status("node-1", HealthStatus::Unhealthy).await;
     manager.run_health_checks().await.unwrap();
     manager.run_health_checks().await.unwrap();
 
@@ -687,9 +662,7 @@ async fn chaos_failover_degraded_counts_as_healthy() {
         .auto_failover(false);
 
     let manager = make_manager(config, "degraded-test", health.clone()).await;
-    manager
-        .register_node(NodeInfo::new("degraded-node"))
-        .await;
+    manager.register_node(NodeInfo::new("degraded-node")).await;
 
     health
         .set_status("degraded-node", HealthStatus::Degraded)

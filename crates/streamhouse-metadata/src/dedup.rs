@@ -188,8 +188,7 @@ impl DedupCache {
                     DedupResult::Ok
                 } else {
                     // Gap: base_sequence > last + 1
-                    self.gaps
-                        .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                    self.gaps.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                     DedupResult::SequenceGap {
                         expected: last + 1,
                         got: base_sequence,
@@ -226,11 +225,7 @@ impl DedupCache {
     pub fn stats(&self) -> DedupStats {
         // We can't call async here easily, so we use try_read or just report capacity.
         // For the entry count, we use a best-effort approach.
-        let entries = self
-            .cache
-            .try_read()
-            .map(|c| c.len())
-            .unwrap_or(0);
+        let entries = self.cache.try_read().map(|c| c.len()).unwrap_or(0);
 
         DedupStats {
             entries,
@@ -450,24 +445,16 @@ mod tests {
         let cache = DedupCache::new(100);
 
         // One accepted
-        cache
-            .check_and_update("p1", "t", 0, 0, 1)
-            .await;
+        cache.check_and_update("p1", "t", 0, 0, 1).await;
 
         // One contiguous accepted
-        cache
-            .check_and_update("p1", "t", 0, 1, 1)
-            .await;
+        cache.check_and_update("p1", "t", 0, 1, 1).await;
 
         // One duplicate
-        cache
-            .check_and_update("p1", "t", 0, 0, 1)
-            .await;
+        cache.check_and_update("p1", "t", 0, 0, 1).await;
 
         // One gap
-        cache
-            .check_and_update("p1", "t", 0, 100, 1)
-            .await;
+        cache.check_and_update("p1", "t", 0, 100, 1).await;
 
         let stats = cache.stats();
         assert_eq!(stats.capacity, 100);
@@ -482,24 +469,16 @@ mod tests {
         let cache = DedupCache::new(2);
 
         // Fill cache with 2 entries
-        cache
-            .check_and_update("p1", "t", 0, 0, 10)
-            .await;
-        cache
-            .check_and_update("p2", "t", 0, 0, 10)
-            .await;
+        cache.check_and_update("p1", "t", 0, 0, 10).await;
+        cache.check_and_update("p2", "t", 0, 0, 10).await;
 
         // Add a third entry, should evict p1 (LRU)
-        cache
-            .check_and_update("p3", "t", 0, 0, 10)
-            .await;
+        cache.check_and_update("p3", "t", 0, 0, 10).await;
 
         assert_eq!(cache.len().await, 2);
 
         // p1 was evicted, so seq 0 is accepted again (fresh start)
-        let result = cache
-            .check_and_update("p1", "t", 0, 0, 10)
-            .await;
+        let result = cache.check_and_update("p1", "t", 0, 0, 10).await;
         assert_eq!(result, DedupResult::Ok);
     }
 
@@ -509,9 +488,7 @@ mod tests {
 
         // Single record batches: seq 0, 1, 2, 3...
         for i in 0..10 {
-            let result = cache
-                .check_and_update("p1", "t", 0, i, 1)
-                .await;
+            let result = cache.check_and_update("p1", "t", 0, i, 1).await;
             assert_eq!(result, DedupResult::Ok, "seq {} should be accepted", i);
         }
 
@@ -528,15 +505,11 @@ mod tests {
         assert_eq!(cache.get_sequence("p1", "t", 0).await, None);
 
         // After recording
-        cache
-            .check_and_update("p1", "t", 0, 0, 5)
-            .await;
+        cache.check_and_update("p1", "t", 0, 0, 5).await;
         assert_eq!(cache.get_sequence("p1", "t", 0).await, Some(4));
 
         // After another batch
-        cache
-            .check_and_update("p1", "t", 0, 5, 5)
-            .await;
+        cache.check_and_update("p1", "t", 0, 5, 5).await;
         assert_eq!(cache.get_sequence("p1", "t", 0).await, Some(9));
     }
 
@@ -560,9 +533,7 @@ mod tests {
         assert!(cache.is_empty().await);
         assert_eq!(cache.len().await, 0);
 
-        cache
-            .check_and_update("p1", "t", 0, 0, 1)
-            .await;
+        cache.check_and_update("p1", "t", 0, 0, 1).await;
         assert!(!cache.is_empty().await);
         assert_eq!(cache.len().await, 1);
     }

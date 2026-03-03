@@ -751,8 +751,7 @@ mod tests {
 
     #[test]
     fn test_extract_json_path_no_dollar_prefix() {
-        let json: serde_json::Value =
-            serde_json::from_str(r#"{"a": {"b": 42}}"#).unwrap();
+        let json: serde_json::Value = serde_json::from_str(r#"{"a": {"b": 42}}"#).unwrap();
         // Path without "$." prefix should still work
         assert_eq!(
             extract_json_path(&json, "a.b"),
@@ -762,8 +761,7 @@ mod tests {
 
     #[test]
     fn test_extract_json_path_array_index() {
-        let json: serde_json::Value =
-            serde_json::from_str(r#"{"items": [10, 20, 30]}"#).unwrap();
+        let json: serde_json::Value = serde_json::from_str(r#"{"items": [10, 20, 30]}"#).unwrap();
         assert_eq!(
             extract_json_path(&json, "$.items.1"),
             serde_json::Value::Number(20.into())
@@ -783,10 +781,7 @@ mod tests {
     #[test]
     fn test_extract_json_path_from_scalar_returns_null() {
         let json = serde_json::Value::Number(42.into());
-        assert_eq!(
-            extract_json_path(&json, "$.field"),
-            serde_json::Value::Null
-        );
+        assert_eq!(extract_json_path(&json, "$.field"), serde_json::Value::Null);
     }
 
     // ---------------------------------------------------------------
@@ -797,28 +792,19 @@ mod tests {
     fn test_compare_json_values_numbers() {
         let a = serde_json::json!(10);
         let b = serde_json::json!(20);
-        assert_eq!(
-            compare_json_values(&a, &b),
-            Some(std::cmp::Ordering::Less)
-        );
+        assert_eq!(compare_json_values(&a, &b), Some(std::cmp::Ordering::Less));
         assert_eq!(
             compare_json_values(&b, &a),
             Some(std::cmp::Ordering::Greater)
         );
-        assert_eq!(
-            compare_json_values(&a, &a),
-            Some(std::cmp::Ordering::Equal)
-        );
+        assert_eq!(compare_json_values(&a, &a), Some(std::cmp::Ordering::Equal));
     }
 
     #[test]
     fn test_compare_json_values_strings() {
         let a = serde_json::json!("alpha");
         let b = serde_json::json!("beta");
-        assert_eq!(
-            compare_json_values(&a, &b),
-            Some(std::cmp::Ordering::Less)
-        );
+        assert_eq!(compare_json_values(&a, &b), Some(std::cmp::Ordering::Less));
     }
 
     #[test]

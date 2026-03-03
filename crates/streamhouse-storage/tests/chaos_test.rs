@@ -773,9 +773,7 @@ async fn chaos_wal_double_crash_recovery() {
 
     // First write session
     {
-        let wal = WAL::open("double-crash", 0, config.clone())
-            .await
-            .unwrap();
+        let wal = WAL::open("double-crash", 0, config.clone()).await.unwrap();
         wal.append(Some(b"session1-key"), b"session1-value")
             .await
             .unwrap();
@@ -785,9 +783,7 @@ async fn chaos_wal_double_crash_recovery() {
 
     // Second write session (appends to existing WAL)
     {
-        let wal = WAL::open("double-crash", 0, config.clone())
-            .await
-            .unwrap();
+        let wal = WAL::open("double-crash", 0, config.clone()).await.unwrap();
         wal.append(Some(b"session2-key"), b"session2-value")
             .await
             .unwrap();
@@ -799,7 +795,11 @@ async fn chaos_wal_double_crash_recovery() {
     let wal = WAL::open("double-crash", 0, config).await.unwrap();
     let records = wal.recover().await.unwrap();
 
-    assert_eq!(records.len(), 2, "Should recover records from both sessions");
+    assert_eq!(
+        records.len(),
+        2,
+        "Should recover records from both sessions"
+    );
     assert_eq!(records[0].value, Bytes::from("session1-value"));
     assert_eq!(records[1].value, Bytes::from("session2-value"));
 }
@@ -1017,5 +1017,9 @@ async fn chaos_fault_injector_concurrent_usage() {
 
     // 10 tasks * 100 calls = 1000 total calls, ~200 should fail (20%)
     let total_faults = injector.total_faults();
-    assert_eq!(total_faults, 200, "Expected 200 faults, got {}", total_faults);
+    assert_eq!(
+        total_faults, 200,
+        "Expected 200 faults, got {}",
+        total_faults
+    );
 }

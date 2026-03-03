@@ -26,9 +26,8 @@ async fn test_app() -> axum::Router {
     let temp_dir = tempfile::tempdir().unwrap();
     let cache_dir = temp_dir.path().join("cache");
     std::fs::create_dir_all(&cache_dir).unwrap();
-    let segment_cache = Arc::new(
-        streamhouse_storage::SegmentCache::new(&cache_dir, 10 * 1024 * 1024).unwrap(),
-    );
+    let segment_cache =
+        Arc::new(streamhouse_storage::SegmentCache::new(&cache_dir, 10 * 1024 * 1024).unwrap());
 
     let state = AppState {
         metadata,
@@ -83,12 +82,7 @@ async fn test_liveness_check() {
     let app = test_app().await;
 
     let resp = app
-        .oneshot(
-            Request::builder()
-                .uri("/live")
-                .body(Body::empty())
-                .unwrap(),
-        )
+        .oneshot(Request::builder().uri("/live").body(Body::empty()).unwrap())
         .await
         .unwrap();
 

@@ -231,10 +231,7 @@ impl WriterPool {
             return handle.request_flush().await;
         }
 
-        let handle = DurableFlushHandle::spawn(
-            writer,
-            self.config.durable_batch_max_age_ms,
-        );
+        let handle = DurableFlushHandle::spawn(writer, self.config.durable_batch_max_age_ms);
         let result = handle.request_flush().await;
         handles.insert(key, handle);
         result

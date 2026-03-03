@@ -254,8 +254,9 @@ impl S3SinkConnector {
                 "key": record.key.as_ref().map(|k| String::from_utf8_lossy(k).to_string()),
                 "value": String::from_utf8_lossy(&record.value).to_string(),
             });
-            serde_json::to_writer(&mut output, &doc)
-                .map_err(|e| ConnectorError::SerializationError(format!("JSON write error: {}", e)))?;
+            serde_json::to_writer(&mut output, &doc).map_err(|e| {
+                ConnectorError::SerializationError(format!("JSON write error: {}", e))
+            })?;
             output.push(b'\n');
         }
         Ok(Bytes::from(output))
@@ -296,14 +297,15 @@ impl S3SinkConnector {
         .map_err(|e| ConnectorError::SerializationError(format!("Arrow error: {}", e)))?;
 
         let mut buf = Vec::new();
-        let mut writer = ArrowWriter::try_new(&mut buf, schema, None)
-            .map_err(|e| ConnectorError::SerializationError(format!("Parquet writer error: {}", e)))?;
-        writer
-            .write(&batch)
-            .map_err(|e| ConnectorError::SerializationError(format!("Parquet write error: {}", e)))?;
-        writer
-            .close()
-            .map_err(|e| ConnectorError::SerializationError(format!("Parquet close error: {}", e)))?;
+        let mut writer = ArrowWriter::try_new(&mut buf, schema, None).map_err(|e| {
+            ConnectorError::SerializationError(format!("Parquet writer error: {}", e))
+        })?;
+        writer.write(&batch).map_err(|e| {
+            ConnectorError::SerializationError(format!("Parquet write error: {}", e))
+        })?;
+        writer.close().map_err(|e| {
+            ConnectorError::SerializationError(format!("Parquet close error: {}", e))
+        })?;
 
         Ok(Bytes::from(buf))
     }
@@ -332,8 +334,9 @@ impl S3SinkConnector {
         let mut writer = Writer::new(&schema, Vec::new());
 
         for record in records {
-            let mut avro_record = AvroRecord::new(&schema)
-                .ok_or_else(|| ConnectorError::SerializationError("failed to create Avro record".to_string()))?;
+            let mut avro_record = AvroRecord::new(&schema).ok_or_else(|| {
+                ConnectorError::SerializationError("failed to create Avro record".to_string())
+            })?;
 
             avro_record.put("topic", record.topic.as_str());
             avro_record.put("partition", record.partition as i32);
@@ -371,9 +374,9 @@ impl S3SinkConnector {
             })?;
         }
 
-        let encoded = writer.into_inner().map_err(|e| {
-            ConnectorError::SerializationError(format!("Avro flush error: {}", e))
-        })?;
+        let encoded = writer
+            .into_inner()
+            .map_err(|e| ConnectorError::SerializationError(format!("Avro flush error: {}", e)))?;
 
         Ok(Bytes::from(encoded))
     }
@@ -384,10 +387,9 @@ impl S3SinkConnector {
             return Ok(());
         }
 
-        let store = self
-            .store
-            .as_ref()
-            .ok_or_else(|| ConnectorError::ConnectionError("S3 store not initialized".to_string()))?;
+        let store = self.store.as_ref().ok_or_else(|| {
+            ConnectorError::ConnectionError("S3 store not initialized".to_string())
+        })?;
 
         let topic = &records[0].topic;
         let timestamp = records[0].timestamp;
@@ -577,13 +579,34 @@ mod tests {
 
     #[test]
     fn test_output_format_from_str() {
-        assert_eq!(OutputFormat::from_str_config("json").unwrap(), OutputFormat::Json);
-        assert_eq!(OutputFormat::from_str_config("JSON").unwrap(), OutputFormat::Json);
-        assert_eq!(OutputFormat::from_str_config("ndjson").unwrap(), OutputFormat::Json);
-        assert_eq!(OutputFormat::from_str_config("parquet").unwrap(), OutputFormat::Parquet);
-        assert_eq!(OutputFormat::from_str_config("PARQUET").unwrap(), OutputFormat::Parquet);
-        assert_eq!(OutputFormat::from_str_config("avro").unwrap(), OutputFormat::Avro);
-        assert_eq!(OutputFormat::from_str_config("AVRO").unwrap(), OutputFormat::Avro);
+        assert_eq!(
+            OutputFormat::from_str_config("json").unwrap(),
+            OutputFormat::Json
+        );
+        assert_eq!(
+            OutputFormat::from_str_config("JSON").unwrap(),
+            OutputFormat::Json
+        );
+        assert_eq!(
+            OutputFormat::from_str_config("ndjson").unwrap(),
+            OutputFormat::Json
+        );
+        assert_eq!(
+            OutputFormat::from_str_config("parquet").unwrap(),
+            OutputFormat::Parquet
+        );
+        assert_eq!(
+            OutputFormat::from_str_config("PARQUET").unwrap(),
+            OutputFormat::Parquet
+        );
+        assert_eq!(
+            OutputFormat::from_str_config("avro").unwrap(),
+            OutputFormat::Avro
+        );
+        assert_eq!(
+            OutputFormat::from_str_config("AVRO").unwrap(),
+            OutputFormat::Avro
+        );
     }
 
     #[test]
@@ -599,10 +622,22 @@ mod tests {
 
     #[test]
     fn test_partitioning_from_str() {
-        assert_eq!(Partitioning::from_str_config("none").unwrap(), Partitioning::None);
-        assert_eq!(Partitioning::from_str_config("NONE").unwrap(), Partitioning::None);
-        assert_eq!(Partitioning::from_str_config("hourly").unwrap(), Partitioning::Hourly);
-        assert_eq!(Partitioning::from_str_config("daily").unwrap(), Partitioning::Daily);
+        assert_eq!(
+            Partitioning::from_str_config("none").unwrap(),
+            Partitioning::None
+        );
+        assert_eq!(
+            Partitioning::from_str_config("NONE").unwrap(),
+            Partitioning::None
+        );
+        assert_eq!(
+            Partitioning::from_str_config("hourly").unwrap(),
+            Partitioning::Hourly
+        );
+        assert_eq!(
+            Partitioning::from_str_config("daily").unwrap(),
+            Partitioning::Daily
+        );
     }
 
     #[test]

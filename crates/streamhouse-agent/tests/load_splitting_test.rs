@@ -13,7 +13,9 @@ use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::time::Duration;
 use streamhouse_agent::{LeaseManager, PartitionAssigner};
-use streamhouse_metadata::{AgentInfo, CleanupPolicy, MetadataStore, SqliteMetadataStore, TopicConfig};
+use streamhouse_metadata::{
+    AgentInfo, CleanupPolicy, MetadataStore, SqliteMetadataStore, TopicConfig,
+};
 
 /// Helper: create a shared SQLite metadata store
 async fn setup() -> (Arc<dyn MetadataStore>, tempfile::TempDir) {
@@ -251,11 +253,21 @@ async fn test_agent_failure_rebalance() {
     let pb2 = b.assigned().await;
 
     println!("=== After agent-c failure (2 agents) ===");
-    verify_full_coverage(&[("agent-a", pa2.clone()), ("agent-b", pb2.clone())], topic, 6);
+    verify_full_coverage(
+        &[("agent-a", pa2.clone()), ("agent-b", pb2.clone())],
+        topic,
+        6,
+    );
 
     // Both surviving agents should have partitions
-    assert!(!pa2.is_empty(), "Agent A should have partitions after rebalance");
-    assert!(!pb2.is_empty(), "Agent B should have partitions after rebalance");
+    assert!(
+        !pa2.is_empty(),
+        "Agent A should have partitions after rebalance"
+    );
+    assert!(
+        !pb2.is_empty(),
+        "Agent B should have partitions after rebalance"
+    );
 
     // Total should still be 6
     assert_eq!(pa2.len() + pb2.len(), 6);
@@ -289,7 +301,11 @@ async fn test_new_agent_joins_rebalance() {
     let px = x.assigned().await;
     let py = y.assigned().await;
     println!("=== Before join (2 agents) ===");
-    verify_full_coverage(&[("agent-x", px.clone()), ("agent-y", py.clone())], topic, 6);
+    verify_full_coverage(
+        &[("agent-x", px.clone()), ("agent-y", py.clone())],
+        topic,
+        6,
+    );
 
     // Both should have ~3 each
     assert_eq!(px.len() + py.len(), 6);
@@ -360,7 +376,11 @@ async fn test_multi_topic_distribution() {
 
     // Total should be 4 + 3 = 7
     let total = p1.len() + p2.len();
-    assert_eq!(total, 7, "All 7 partitions should be assigned, got {}", total);
+    assert_eq!(
+        total, 7,
+        "All 7 partitions should be assigned, got {}",
+        total
+    );
 
     // Both agents should have partitions
     assert!(!p1.is_empty(), "Agent 1 should have partitions");
@@ -417,7 +437,10 @@ async fn test_scale_from_one_to_three() {
     let p_two = two.assigned().await;
     println!("=== Scaled to 2 agents ===");
     verify_full_coverage(
-        &[("agent-solo", p_solo2.clone()), ("agent-two", p_two.clone())],
+        &[
+            ("agent-solo", p_solo2.clone()),
+            ("agent-two", p_two.clone()),
+        ],
         topic,
         6,
     );

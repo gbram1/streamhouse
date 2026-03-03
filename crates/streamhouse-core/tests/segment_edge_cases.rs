@@ -1,7 +1,9 @@
 //! Edge-case tests for the segment format, varint encoding, and record types.
 
 use bytes::Bytes;
-use streamhouse_core::varint::{decode_varint, decode_varint_u64, encode_varint, encode_varint_u64};
+use streamhouse_core::varint::{
+    decode_varint, decode_varint_u64, encode_varint, encode_varint_u64,
+};
 use streamhouse_core::Record;
 
 // ---------------------------------------------------------------

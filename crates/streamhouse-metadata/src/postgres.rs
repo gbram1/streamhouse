@@ -463,13 +463,12 @@ impl MetadataStore for PostgresMetadataStore {
     }
 
     async fn delete_topic_for_org(&self, org_id: &str, name: &str) -> Result<()> {
-        let result = sqlx::query(
-            "DELETE FROM topics WHERE organization_id = $1::UUID AND name = $2",
-        )
-        .bind(org_id)
-        .bind(name)
-        .execute(&self.pool)
-        .await?;
+        let result =
+            sqlx::query("DELETE FROM topics WHERE organization_id = $1::UUID AND name = $2")
+                .bind(org_id)
+                .bind(name)
+                .execute(&self.pool)
+                .await?;
 
         if result.rows_affected() == 0 {
             return Err(MetadataError::TopicNotFound(name.to_string()));
@@ -620,8 +619,7 @@ impl MetadataStore for PostgresMetadataStore {
         segment: SegmentInfo,
         high_watermark: u64,
     ) -> Result<()> {
-        let default_org_id =
-            uuid::Uuid::parse_str("00000000-0000-0000-0000-000000000000").unwrap();
+        let default_org_id = uuid::Uuid::parse_str("00000000-0000-0000-0000-000000000000").unwrap();
         let now_ms = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap()
@@ -3018,9 +3016,7 @@ impl MetadataStore for PostgresMetadataStore {
         .fetch_all(&self.pool)
         .await?;
 
-        rows.into_iter()
-            .map(Self::row_to_connector_info)
-            .collect()
+        rows.into_iter().map(Self::row_to_connector_info).collect()
     }
 
     async fn delete_connector(&self, name: &str) -> Result<()> {
@@ -3032,7 +3028,12 @@ impl MetadataStore for PostgresMetadataStore {
         Ok(())
     }
 
-    async fn update_connector_state(&self, name: &str, state: &str, error_message: Option<&str>) -> Result<()> {
+    async fn update_connector_state(
+        &self,
+        name: &str,
+        state: &str,
+        error_message: Option<&str>,
+    ) -> Result<()> {
         let now = Self::now_ms();
 
         sqlx::query(
@@ -3048,7 +3049,11 @@ impl MetadataStore for PostgresMetadataStore {
         Ok(())
     }
 
-    async fn update_connector_records_processed(&self, name: &str, records_processed: i64) -> Result<()> {
+    async fn update_connector_records_processed(
+        &self,
+        name: &str,
+        records_processed: i64,
+    ) -> Result<()> {
         let now = Self::now_ms();
 
         sqlx::query(

@@ -172,8 +172,8 @@ impl PartitionReader {
             let segment_data = self.get_segment(&segment_info).await?;
 
             // Open segment reader
-            let reader = SegmentReader::new(segment_data)
-                .map_err(|e| Error::SegmentError(e.to_string()))?;
+            let reader =
+                SegmentReader::new(segment_data).map_err(|e| Error::SegmentError(e.to_string()))?;
 
             // Read records from offset within this segment
             let segment_records = reader

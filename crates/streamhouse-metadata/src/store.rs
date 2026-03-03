@@ -116,8 +116,7 @@ impl SqliteMetadataStore {
 
     /// Create in-memory database (for testing)
     pub async fn new_in_memory() -> Result<Self> {
-        let options = SqliteConnectOptions::from_str("sqlite::memory:")?
-            .foreign_keys(true);
+        let options = SqliteConnectOptions::from_str("sqlite::memory:")?.foreign_keys(true);
 
         let pool = SqlitePoolOptions::new()
             .max_connections(10)
@@ -1994,11 +1993,10 @@ impl MetadataStore for SqliteMetadataStore {
             .execute(&self.pool)
             .await?;
 
-        let row: (i64,) = sqlx::query_as(
-            "SELECT next_id - 1 FROM producer_id_sequence WHERE id = 1",
-        )
-        .fetch_one(&self.pool)
-        .await?;
+        let row: (i64,) =
+            sqlx::query_as("SELECT next_id - 1 FROM producer_id_sequence WHERE id = 1")
+                .fetch_one(&self.pool)
+                .await?;
         let numeric_id = row.0;
 
         // Set the numeric_id on the producer
@@ -3153,8 +3151,8 @@ impl MetadataStore for SqliteMetadataStore {
 
     async fn upsert_materialized_view_data(&self, data: MaterializedViewData) -> Result<()> {
         let now = Self::now_ms();
-        let agg_values_str = serde_json::to_string(&data.agg_values)
-            .unwrap_or_else(|_| "{}".to_string());
+        let agg_values_str =
+            serde_json::to_string(&data.agg_values).unwrap_or_else(|_| "{}".to_string());
 
         sqlx::query(
             "INSERT INTO materialized_view_data (view_id, agg_key, agg_values, window_start, window_end, updated_at) \
@@ -3228,9 +3226,7 @@ impl MetadataStore for SqliteMetadataStore {
         .fetch_all(&self.pool)
         .await?;
 
-        rows.into_iter()
-            .map(Self::row_to_connector_info)
-            .collect()
+        rows.into_iter().map(Self::row_to_connector_info).collect()
     }
 
     async fn delete_connector(&self, name: &str) -> Result<()> {
@@ -3242,7 +3238,12 @@ impl MetadataStore for SqliteMetadataStore {
         Ok(())
     }
 
-    async fn update_connector_state(&self, name: &str, state: &str, error_message: Option<&str>) -> Result<()> {
+    async fn update_connector_state(
+        &self,
+        name: &str,
+        state: &str,
+        error_message: Option<&str>,
+    ) -> Result<()> {
         let now = Self::now_ms();
 
         sqlx::query(
@@ -3258,17 +3259,19 @@ impl MetadataStore for SqliteMetadataStore {
         Ok(())
     }
 
-    async fn update_connector_records_processed(&self, name: &str, records_processed: i64) -> Result<()> {
+    async fn update_connector_records_processed(
+        &self,
+        name: &str,
+        records_processed: i64,
+    ) -> Result<()> {
         let now = Self::now_ms();
 
-        sqlx::query(
-            "UPDATE connectors SET records_processed = ?, updated_at = ? WHERE name = ?",
-        )
-        .bind(records_processed)
-        .bind(now)
-        .bind(name)
-        .execute(&self.pool)
-        .await?;
+        sqlx::query("UPDATE connectors SET records_processed = ?, updated_at = ? WHERE name = ?")
+            .bind(records_processed)
+            .bind(now)
+            .bind(name)
+            .execute(&self.pool)
+            .await?;
 
         Ok(())
     }
@@ -3458,7 +3461,9 @@ mod tests {
         let config = CreateMaterializedView {
             name: "test_view".to_string(),
             source_topic: "events".to_string(),
-            query_sql: "SELECT COUNT(*) FROM events GROUP BY TUMBLE(timestamp, INTERVAL '5 minutes')".to_string(),
+            query_sql:
+                "SELECT COUNT(*) FROM events GROUP BY TUMBLE(timestamp, INTERVAL '5 minutes')"
+                    .to_string(),
             refresh_mode: MaterializedViewRefreshMode::Continuous,
             organization_id: None,
         };
@@ -3469,12 +3474,20 @@ mod tests {
         assert_eq!(view.row_count, 0);
 
         // Get by name
-        let fetched = store.get_materialized_view("test_view").await.unwrap().unwrap();
+        let fetched = store
+            .get_materialized_view("test_view")
+            .await
+            .unwrap()
+            .unwrap();
         assert_eq!(fetched.id, view.id);
         assert_eq!(fetched.name, "test_view");
 
         // Get by id
-        let fetched_by_id = store.get_materialized_view_by_id(&view.id).await.unwrap().unwrap();
+        let fetched_by_id = store
+            .get_materialized_view_by_id(&view.id)
+            .await
+            .unwrap()
+            .unwrap();
         assert_eq!(fetched_by_id.name, "test_view");
 
         // List views
@@ -3487,7 +3500,11 @@ mod tests {
             .update_materialized_view_status(&view.id, MaterializedViewStatus::Running, None)
             .await
             .unwrap();
-        let updated = store.get_materialized_view_by_id(&view.id).await.unwrap().unwrap();
+        let updated = store
+            .get_materialized_view_by_id(&view.id)
+            .await
+            .unwrap()
+            .unwrap();
         assert_eq!(updated.status, MaterializedViewStatus::Running);
 
         // Update stats
@@ -3495,7 +3512,11 @@ mod tests {
             .update_materialized_view_stats(&view.id, 42, 1000)
             .await
             .unwrap();
-        let updated = store.get_materialized_view_by_id(&view.id).await.unwrap().unwrap();
+        let updated = store
+            .get_materialized_view_by_id(&view.id)
+            .await
+            .unwrap()
+            .unwrap();
         assert_eq!(updated.row_count, 42);
 
         // Delete
@@ -3540,11 +3561,17 @@ mod tests {
         store.upsert_materialized_view_data(data2).await.unwrap();
 
         // Query data
-        let results = store.get_materialized_view_data(&view.id, None).await.unwrap();
+        let results = store
+            .get_materialized_view_data(&view.id, None)
+            .await
+            .unwrap();
         assert_eq!(results.len(), 2);
 
         // Verify values
-        let r1 = results.iter().find(|r| r.agg_key == "user1:1000:2000").unwrap();
+        let r1 = results
+            .iter()
+            .find(|r| r.agg_key == "user1:1000:2000")
+            .unwrap();
         assert_eq!(r1.agg_values["count_0"], 5);
         assert_eq!(r1.agg_values["sum_1"], 100);
         assert_eq!(r1.window_start, Some(1000));
@@ -3559,15 +3586,27 @@ mod tests {
             window_end: Some(2000),
             updated_at: 0,
         };
-        store.upsert_materialized_view_data(data1_updated).await.unwrap();
+        store
+            .upsert_materialized_view_data(data1_updated)
+            .await
+            .unwrap();
 
-        let results = store.get_materialized_view_data(&view.id, None).await.unwrap();
+        let results = store
+            .get_materialized_view_data(&view.id, None)
+            .await
+            .unwrap();
         assert_eq!(results.len(), 2); // still 2 rows
-        let r1 = results.iter().find(|r| r.agg_key == "user1:1000:2000").unwrap();
+        let r1 = results
+            .iter()
+            .find(|r| r.agg_key == "user1:1000:2000")
+            .unwrap();
         assert_eq!(r1.agg_values["count_0"], 10);
 
         // Test limit
-        let limited = store.get_materialized_view_data(&view.id, Some(1)).await.unwrap();
+        let limited = store
+            .get_materialized_view_data(&view.id, Some(1))
+            .await
+            .unwrap();
         assert_eq!(limited.len(), 1);
     }
 
@@ -3586,17 +3625,30 @@ mod tests {
         let view = store.create_materialized_view(config).await.unwrap();
 
         // Set offsets for partitions
-        store.update_materialized_view_offset(&view.id, 0, 100).await.unwrap();
-        store.update_materialized_view_offset(&view.id, 1, 200).await.unwrap();
+        store
+            .update_materialized_view_offset(&view.id, 0, 100)
+            .await
+            .unwrap();
+        store
+            .update_materialized_view_offset(&view.id, 1, 200)
+            .await
+            .unwrap();
 
         // Get offsets
         let offsets = store.get_materialized_view_offsets(&view.id).await.unwrap();
         assert_eq!(offsets.len(), 2);
-        assert!(offsets.iter().any(|o| o.partition_id == 0 && o.last_offset == 100));
-        assert!(offsets.iter().any(|o| o.partition_id == 1 && o.last_offset == 200));
+        assert!(offsets
+            .iter()
+            .any(|o| o.partition_id == 0 && o.last_offset == 100));
+        assert!(offsets
+            .iter()
+            .any(|o| o.partition_id == 1 && o.last_offset == 200));
 
         // Update an existing offset
-        store.update_materialized_view_offset(&view.id, 0, 500).await.unwrap();
+        store
+            .update_materialized_view_offset(&view.id, 0, 500)
+            .await
+            .unwrap();
         let offsets = store.get_materialized_view_offsets(&view.id).await.unwrap();
         let p0 = offsets.iter().find(|o| o.partition_id == 0).unwrap();
         assert_eq!(p0.last_offset, 500);
@@ -3616,23 +3668,35 @@ mod tests {
         };
         let view = store.create_materialized_view(config).await.unwrap();
 
-        store.update_materialized_view_offset(&view.id, 0, 100).await.unwrap();
-        store.upsert_materialized_view_data(MaterializedViewData {
-            view_id: view.id.clone(),
-            agg_key: "key1:0:1000".to_string(),
-            agg_values: serde_json::json!({"count_0": 1}),
-            window_start: Some(0),
-            window_end: Some(1000),
-            updated_at: 0,
-        }).await.unwrap();
+        store
+            .update_materialized_view_offset(&view.id, 0, 100)
+            .await
+            .unwrap();
+        store
+            .upsert_materialized_view_data(MaterializedViewData {
+                view_id: view.id.clone(),
+                agg_key: "key1:0:1000".to_string(),
+                agg_values: serde_json::json!({"count_0": 1}),
+                window_start: Some(0),
+                window_end: Some(1000),
+                updated_at: 0,
+            })
+            .await
+            .unwrap();
 
         // Delete view — should cascade
-        store.delete_materialized_view("cascade_view").await.unwrap();
+        store
+            .delete_materialized_view("cascade_view")
+            .await
+            .unwrap();
 
         // Verify data and offsets are gone
         let offsets = store.get_materialized_view_offsets(&view.id).await.unwrap();
         assert!(offsets.is_empty());
-        let data = store.get_materialized_view_data(&view.id, None).await.unwrap();
+        let data = store
+            .get_materialized_view_data(&view.id, None)
+            .await
+            .unwrap();
         assert!(data.is_empty());
     }
 }

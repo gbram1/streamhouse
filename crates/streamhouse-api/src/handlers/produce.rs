@@ -57,7 +57,10 @@ fn validate_json_schema(schema_str: &str, value: &str) -> Result<(), (StatusCode
         )
     })?;
 
-    let errors: Vec<String> = validator.iter_errors(&instance).map(|e| e.to_string()).collect();
+    let errors: Vec<String> = validator
+        .iter_errors(&instance)
+        .map(|e| e.to_string())
+        .collect();
     if errors.is_empty() {
         Ok(())
     } else {
@@ -125,7 +128,12 @@ pub async fn produce(
 
     // Verify topic belongs to org
     if let Err(e) = state.metadata.get_topic_for_org(&org_id, &req.topic).await {
-        tracing::error!("get_topic_for_org failed: org={}, topic={}, err={:?}", org_id, req.topic, e);
+        tracing::error!(
+            "get_topic_for_org failed: org={}, topic={}, err={:?}",
+            org_id,
+            req.topic,
+            e
+        );
         return Err(StatusCode::INTERNAL_SERVER_ERROR);
     }
 
@@ -163,7 +171,12 @@ pub async fn produce(
         let writer = match writer_pool.get_writer(&req.topic, partition).await {
             Ok(w) => w,
             Err(e) => {
-                tracing::error!("get_writer failed: topic={}, partition={}, err={:?}", req.topic, partition, e);
+                tracing::error!(
+                    "get_writer failed: topic={}, partition={}, err={:?}",
+                    req.topic,
+                    partition,
+                    e
+                );
                 return Err(StatusCode::INTERNAL_SERVER_ERROR);
             }
         };
@@ -182,7 +195,12 @@ pub async fn produce(
             match writer_guard.append(key, value, timestamp).await {
                 Ok(o) => o,
                 Err(e) => {
-                    tracing::error!("append failed: topic={}, partition={}, err={:?}", req.topic, partition, e);
+                    tracing::error!(
+                        "append failed: topic={}, partition={}, err={:?}",
+                        req.topic,
+                        partition,
+                        e
+                    );
                     return Err(StatusCode::INTERNAL_SERVER_ERROR);
                 }
             }
