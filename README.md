@@ -6,22 +6,54 @@ StreamHouse is an Apache Kafka alternative that stores events directly in S3. No
 
 ## Quick Start
 
-```bash
-# Start StreamHouse (local dev mode)
-./quickstart.sh
+```console
+$ ./quickstart.sh
+Building StreamHouse...
+   Compiling streamhouse v0.1.0
+    Finished release [optimized] in 45s
 
-# Or manually:
-cargo build --release
-USE_LOCAL_STORAGE=1 ./target/release/unified-server
+Starting server (local storage, no cloud services needed)
+Server ready  REST=http://localhost:8080  gRPC=localhost:50051  Kafka=localhost:9092
 
-# In another terminal, use the CLI:
-cargo run --bin streamctl
+Create topic  POST /api/v1/topics
+  ✓ Created 'demo' with 4 partitions
 
-# Inside the REPL:
+Produce messages  POST /api/v1/produce
+  ✓ partition=0 offset=0  user-0
+  ✓ partition=1 offset=0  user-1
+  ✓ partition=2 offset=0  user-2
+
+Consume messages  GET /api/v1/consume
+  Partition 0: 2 records
+    offset=0  key=user-0  {"event":"signup","user":"alice"}
+    offset=1  key=user-0  {"event":"purchase","user":"alice","item":"gadget"}
+```
+
+Or use the interactive CLI:
+
+```console
+$ cargo run --bin streamctl
+    Finished dev [unoptimized + debuginfo] in 0.5s
+     Running `target/debug/streamctl`
+
+StreamHouse CLI v0.1.0
+Connected to http://localhost:50051
+
 > topic create events --partitions 4
+✓ Created topic 'events' with 4 partitions
+
 > produce events --partition 0 --value {"type":"signup","user":"alice"}
+✓ Produced to partition=0 offset=0
+
 > consume events --partition 0 --offset 0 --limit 10
+offset=0  value={"type":"signup","user":"alice"}  timestamp=2024-03-03T12:34:56Z
+
 > sql query SELECT * FROM events WHERE value->>'type' = 'signup' LIMIT 5
+┌────────┬──────────────────────────────────┬─────────────────────────┐
+│ offset │ value                            │ timestamp               │
+├────────┼──────────────────────────────────┼─────────────────────────┤
+│ 0      │ {"type":"signup","user":"alice"} │ 2024-03-03T12:34:56Z    │
+└────────┴──────────────────────────────────┴─────────────────────────┘
 ```
 
 That's it. You're running an event streaming platform.
