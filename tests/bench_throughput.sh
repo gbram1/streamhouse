@@ -390,7 +390,21 @@ except:
     print(0)
 " 2>/dev/null)
 
+                next_offset=$(echo "$response" | python3 -c "
+import sys, json
+try:
+    data = json.load(sys.stdin)
+    print(data.get('nextOffset', 0))
+except:
+    print(0)
+" 2>/dev/null)
+
                 if [ "$count" = "0" ] || [ -z "$count" ]; then
+                    # If server hints at a later offset, skip ahead
+                    if [ -n "$next_offset" ] && [ "$next_offset" -gt "$offset" ] 2>/dev/null; then
+                        offset=$next_offset
+                        continue
+                    fi
                     break
                 fi
 

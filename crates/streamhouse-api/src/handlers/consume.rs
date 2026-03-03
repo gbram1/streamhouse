@@ -95,11 +95,28 @@ pub async fn consume(
         state.segment_cache.clone(),
     );
 
-    // Read records
-    let result = reader
-        .read(req.offset, req.max_records)
-        .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    // Read records — OffsetNotFound means the requested offset isn't in any
+    // segment (e.g. data hasn't been flushed yet, or was compacted away).
+    // Return an empty response with next_offset pointing to the earliest
+    // available segment so consumers can skip ahead automatically.
+    let result = match reader.read(req.offset, req.max_records).await {
+        Ok(result) => result,
+        Err(streamhouse_storage::Error::OffsetNotFound(_)) => {
+            // Find earliest available offset so consumer can skip ahead
+            let next_offset = state
+                .metadata
+                .get_segments(&req.topic, req.partition)
+                .await
+                .ok()
+                .and_then(|segs| segs.first().map(|s| s.base_offset))
+                .unwrap_or(req.offset);
+            return Ok(Json(ConsumeResponse {
+                records: vec![],
+                next_offset,
+            }));
+        }
+        Err(_) => return Err(StatusCode::INTERNAL_SERVER_ERROR),
+    };
 
     // Convert to API records
     let records: Vec<ConsumedRecord> = result
