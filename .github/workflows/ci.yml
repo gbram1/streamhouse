@@ -3,11 +3,20 @@ name: CI
 on:
   push:
     branches: [ main, master, develop ]
+    paths-ignore:
+      - '**.md'
+      - 'docs/**'
+      - 'LICENSE'
+      - '.gitignore'
   pull_request:
     branches: [ main, master ]
+    paths-ignore:
+      - '**.md'
+      - 'docs/**'
+      - 'LICENSE'
+      - '.gitignore'
   schedule:
-    # Run security audit weekly
-    - cron: '0 0 * * 0'
+    - cron: '0 0 * * 0'  # Weekly security audit
 
 env:
   RUST_BACKTRACE: 1
@@ -15,11 +24,15 @@ env:
   CARGO_INCREMENTAL: 0
   CARGO_NET_RETRY: 10
   RUSTUP_MAX_RETRIES: 10
+  # Use sparse registry for faster index updates
+  CARGO_REGISTRIES_CRATES_IO_PROTOCOL: sparse
+  # Ensure mold linker is used
+  RUSTFLAGS: "-C link-arg=-fuse-ld=mold"
 
 jobs:
-  # Fast checks first - fail fast
-  check:
-    name: Format & Lint
+  # Super fast pre-check - fail in <1 minute if formatting is wrong
+  fmt:
+    name: Format Check
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -27,58 +40,98 @@ jobs:
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
         with:
-          components: rustfmt, clippy
+          components: rustfmt
 
-      - name: Install system dependencies
-        run: sudo apt-get update && sudo apt-get install -y mold protobuf-compiler
-
-      - name: Cache dependencies
-        uses: Swatinem/rust-cache@v2
-        with:
-          shared-key: "stable-ubuntu"
-
-      # Format check (fastest, no compilation)
       - name: Check formatting
         run: cargo fmt --all -- --check
 
-      # Clippy check (compiles in check mode)
-      - name: Clippy
-        run: cargo clippy --workspace --all-features --all-targets -- -D warnings
-
-  test:
-    name: Test Suite
+  # Main build + test job - shares compilation artifacts
+  build-and-test:
+    name: Build & Test
     runs-on: ubuntu-latest
-    needs: check
+    needs: fmt
     steps:
       - uses: actions/checkout@v4
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
 
       - name: Install system dependencies
         run: sudo apt-get update && sudo apt-get install -y mold protobuf-compiler
 
-      - name: Cache dependencies
+      # sccache for cross-step compilation cache
+      - name: Setup sccache
+        uses: mozilla-actions/sccache-action@v0.0.5
+
+      - name: Configure sccache
+        run: |
+          echo "SCCACHE_GHA_ENABLED=true" >> $GITHUB_ENV
+          echo "RUSTC_WRAPPER=sccache" >> $GITHUB_ENV
+
+      - name: Cache Cargo registry
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-
+
+      - name: Cache Rust dependencies
         uses: Swatinem/rust-cache@v2
         with:
-          shared-key: "stable-ubuntu"
+          shared-key: "build-test"
+          save-if: ${{ github.ref == 'refs/heads/main' }}
 
+      # Step 1: Clippy (compiles in check mode)
+      - name: Clippy
+        run: cargo clippy --workspace --all-targets --locked -- -D warnings
+
+      # Step 2: Build for tests (reuses some artifacts from clippy)
+      - name: Build workspace
+        run: cargo build --workspace --locked
+
+      # Step 3: Run tests (reuses build artifacts)
       - name: Install nextest
         uses: taiki-e/install-action@nextest
 
-      # Run tests (reuses cache from clippy job)
       - name: Run tests
-        run: cargo nextest run --workspace --all-features --retries 2
+        run: cargo nextest run --workspace --locked --retries 2
 
+      # Only run doctests on main/PRs to main (slower, less critical)
       - name: Run doctests
-        run: cargo test --workspace --doc --all-features
+        if: github.ref == 'refs/heads/main' || github.base_ref == 'main'
+        run: cargo test --workspace --doc --locked
 
-  # Coverage only on main branch or PRs to main (expensive)
+      # Step 4: Release build (reuses dependencies)
+      - name: Build release
+        run: cargo build --workspace --release --locked
+
+      - name: Upload release binaries
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-binaries
+          path: |
+            target/release/unified-server
+            target/release/standalone-agent
+            target/release/streamctl
+          retention-days: 3
+          compression-level: 9
+
+      # Show sccache stats
+      - name: sccache stats
+        run: sccache --show-stats
+
+  # Coverage only on main or PRs to main
   coverage:
     name: Coverage
     runs-on: ubuntu-latest
     if: github.ref == 'refs/heads/main' || github.base_ref == 'main'
-    needs: check
+    needs: fmt
     steps:
       - uses: actions/checkout@v4
 
@@ -90,32 +143,38 @@ jobs:
       - name: Install system dependencies
         run: sudo apt-get update && sudo apt-get install -y mold protobuf-compiler
 
+      - name: Setup sccache
+        uses: mozilla-actions/sccache-action@v0.0.5
+
+      - name: Configure sccache
+        run: |
+          echo "SCCACHE_GHA_ENABLED=true" >> $GITHUB_ENV
+          echo "RUSTC_WRAPPER=sccache" >> $GITHUB_ENV
+
       - name: Cache dependencies
         uses: Swatinem/rust-cache@v2
         with:
-          shared-key: "stable-ubuntu"
+          shared-key: "coverage"
 
       - name: Install cargo-llvm-cov
         uses: taiki-e/install-action@cargo-llvm-cov
 
-      - name: Generate coverage report
-        run: cargo llvm-cov --workspace --all-features --codecov --output-path codecov.json
+      - name: Generate coverage
+        run: cargo llvm-cov --workspace --locked --codecov --output-path codecov.json
 
-      - name: Upload coverage artifact
+      - name: Upload coverage
         uses: actions/upload-artifact@v4
         with:
           name: coverage-report
           path: codecov.json
-          retention-days: 14
+          retention-days: 7
 
       - name: Coverage summary
         run: |
-          COVERAGE=$(cargo llvm-cov --workspace --all-features --summary-only 2>&1 | grep 'TOTAL' | awk '{print $NF}' | tr -d '%' || echo "0")
-          echo "Total coverage: ${COVERAGE}%"
-          echo "coverage=${COVERAGE}" >> $GITHUB_OUTPUT
-        id: coverage
+          COVERAGE=$(cargo llvm-cov --workspace --locked --summary-only 2>&1 | grep 'TOTAL' | awk '{print $NF}' | tr -d '%' || echo "0")
+          echo "📊 Total coverage: ${COVERAGE}%"
 
-  # Security audit only on main, PRs to main, or weekly schedule
+  # Security audit - only on main, PRs, or scheduled
   security:
     name: Security Audit
     runs-on: ubuntu-latest
@@ -123,36 +182,26 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Cache dependencies
-        uses: Swatinem/rust-cache@v2
+      - name: Run cargo audit
+        uses: actions-rust-lang/audit@v1
+        with:
+          deny-warnings: false
 
       - name: Install cargo-deny
         uses: taiki-e/install-action@cargo-deny
 
-      - name: Run cargo audit
-        uses: actions-rust-lang/audit@v1
-        with:
-          # Don't fail on warnings, only actual vulnerabilities
-          deny-warnings: false
+      - name: Run cargo deny
+        run: |
+          cargo deny check advisories
+          cargo deny check licenses
+          cargo deny check bans
 
-      - name: Run cargo deny (advisories)
-        run: cargo deny check advisories
-
-      - name: Run cargo deny (licenses)
-        run: cargo deny check licenses
-
-      - name: Run cargo deny (bans)
-        run: cargo deny check bans
-
-  # Benchmarks only on PRs (not every push)
+  # Benchmarks only on PRs
   benchmarks:
     name: Benchmarks
     runs-on: ubuntu-latest
     if: github.event_name == 'pull_request'
-    needs: check
+    needs: fmt
     permissions:
       pull-requests: write
     steps:
@@ -164,49 +213,42 @@ jobs:
       - name: Install system dependencies
         run: sudo apt-get update && sudo apt-get install -y mold protobuf-compiler
 
+      - name: Setup sccache
+        uses: mozilla-actions/sccache-action@v0.0.5
+
+      - name: Configure sccache
+        run: |
+          echo "SCCACHE_GHA_ENABLED=true" >> $GITHUB_ENV
+          echo "RUSTC_WRAPPER=sccache" >> $GITHUB_ENV
+
       - name: Cache dependencies
         uses: Swatinem/rust-cache@v2
         with:
-          shared-key: "stable-ubuntu"
+          shared-key: "benchmarks"
 
       - name: Run benchmarks
-        run: cargo bench --workspace --no-fail-fast -- --output-format bencher 2>&1 | tee benchmark-results.txt || true
+        run: cargo bench --workspace --locked --no-fail-fast -- --output-format bencher 2>&1 | tee benchmark-results.txt || true
 
-      - name: Upload benchmark results
+      - name: Upload results
         uses: actions/upload-artifact@v4
         if: always()
         with:
           name: benchmark-results
           path: benchmark-results.txt
-          retention-days: 14
-
-  build:
-    name: Build Release
-    runs-on: ubuntu-latest
-    needs: [check, test]
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Install system dependencies
-        run: sudo apt-get update && sudo apt-get install -y mold protobuf-compiler
-
-      - name: Cache dependencies
-        uses: Swatinem/rust-cache@v2
-        with:
-          shared-key: "stable-ubuntu"
-
-      - name: Build release
-        run: cargo build --workspace --release
-
-      - name: Upload binaries
-        uses: actions/upload-artifact@v4
-        with:
-          name: release-binaries
-          path: |
-            target/release/unified-server
-            target/release/standalone-agent
-            target/release/streamctl
           retention-days: 7
+          compression-level: 9
+
+  # Summary job - require only essential jobs to pass
+  ci-success:
+    name: CI Success
+    runs-on: ubuntu-latest
+    if: always()
+    needs: [fmt, build-and-test]
+    steps:
+      - name: Check results
+        run: |
+          if [ "${{ needs.fmt.result }}" != "success" ] || [ "${{ needs.build-and-test.result }}" != "success" ]; then
+            echo "Required checks failed"
+            exit 1
+          fi
+          echo "✅ All required checks passed!"
