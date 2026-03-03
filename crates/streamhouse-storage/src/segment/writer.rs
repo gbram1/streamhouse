@@ -117,6 +117,9 @@ pub struct SegmentWriter {
 
     /// Last timestamp for delta encoding
     last_timestamp: u64,
+
+    /// Timestamp of the first record appended (for segment metadata)
+    first_timestamp: Option<u64>,
 }
 
 #[derive(Debug, Clone)]
@@ -141,14 +144,16 @@ impl SegmentWriter {
             last_offset: None,
             record_count: 0,
             last_timestamp: 0,
+            first_timestamp: None,
         }
     }
 
     /// Append a record to the segment
     pub fn append(&mut self, record: &Record) -> Result<()> {
-        // Set base offset on first record
+        // Set base offset and first timestamp on first record
         if self.base_offset.is_none() {
             self.base_offset = Some(record.offset);
+            self.first_timestamp = Some(record.timestamp);
             self.last_timestamp = record.timestamp;
 
             // Create index entry for first block
@@ -334,6 +339,20 @@ impl SegmentWriter {
     /// Get the last offset written
     pub fn last_offset(&self) -> Option<u64> {
         self.last_offset
+    }
+
+    /// Get the minimum (first) timestamp in this segment
+    pub fn min_timestamp(&self) -> Option<u64> {
+        self.first_timestamp
+    }
+
+    /// Get the maximum (last) timestamp in this segment
+    pub fn max_timestamp(&self) -> Option<u64> {
+        if self.record_count > 0 {
+            Some(self.last_timestamp)
+        } else {
+            None
+        }
     }
 }
 

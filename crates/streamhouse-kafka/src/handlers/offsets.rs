@@ -240,8 +240,8 @@ async fn get_partition_offset(
 ///
 /// Strategy:
 /// 1. Get all segments for the partition from metadata
-/// 2. Use segment `created_at` as a rough filter to avoid downloading all segments
-/// 3. Download candidate segments and scan records
+/// 2. Use segment `min_timestamp`/`max_timestamp` to skip irrelevant segments
+/// 3. Download only candidate segments that could contain the target
 /// 4. Return the first offset with timestamp >= target
 ///
 /// Returns `None` if no matching offset is found (target is beyond all data).
@@ -257,19 +257,15 @@ async fn find_offset_by_timestamp(
         return Ok(None);
     }
 
-    // Segments are ordered by base_offset. Use created_at as a rough timestamp
-    // proxy to skip segments that are definitely too new. We must be conservative:
-    // scan from the first segment whose created_at could contain our target.
-    // Since created_at is when the segment was *sealed* (not when its first record
-    // arrived), we start from the segment *before* the first one with
-    // created_at >= target_timestamp.
-    let start_idx = segments
-        .iter()
-        .position(|s| s.created_at as u64 >= target_timestamp)
-        .map(|i| i.saturating_sub(1))
-        .unwrap_or(segments.len().saturating_sub(1));
+    // Segments are ordered by base_offset. Use min/max timestamps to skip
+    // segments that definitely don't contain the target timestamp.
+    for segment_info in &segments {
+        // Skip segments whose max_timestamp is before the target — the target
+        // can't be in this segment.
+        if (segment_info.max_timestamp as u64) < target_timestamp {
+            continue;
+        }
 
-    for segment_info in &segments[start_idx..] {
         let path = object_store::path::Path::from(segment_info.s3_key.as_str());
 
         // Try cache first, then S3

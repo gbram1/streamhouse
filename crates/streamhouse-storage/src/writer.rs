@@ -512,6 +512,8 @@ impl PartitionWriter {
             .last_offset()
             .ok_or_else(|| Error::SegmentError("Cannot roll empty segment".to_string()))?;
         let record_count = segment.record_count();
+        let min_timestamp = segment.min_timestamp().unwrap_or(now_ms() as u64) as i64;
+        let max_timestamp = segment.max_timestamp().unwrap_or(now_ms() as u64) as i64;
 
         // Finish the segment (compress, add index, footer)
         let segment_bytes = segment
@@ -551,6 +553,8 @@ impl PartitionWriter {
             s3_bucket: self.config.s3_bucket.clone(),
             s3_key: s3_key.clone(),
             created_at: now_ms(),
+            min_timestamp,
+            max_timestamp,
         };
 
         self.metadata

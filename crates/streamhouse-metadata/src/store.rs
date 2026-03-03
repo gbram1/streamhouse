@@ -566,22 +566,22 @@ impl MetadataStore for SqliteMetadataStore {
         let end_offset_i64 = segment.end_offset as i64;
         let size_bytes_i64 = segment.size_bytes as i64;
 
-        sqlx::query!(
-            r#"
-            INSERT INTO segments (id, topic, partition_id, base_offset, end_offset, record_count, size_bytes, s3_bucket, s3_key, created_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            "#,
-            segment.id,
-            segment.topic,
-            segment.partition_id,
-            base_offset_i64,
-            end_offset_i64,
-            segment.record_count,
-            size_bytes_i64,
-            segment.s3_bucket,
-            segment.s3_key,
-            segment.created_at,
+        sqlx::query(
+            "INSERT INTO segments (id, topic, partition_id, base_offset, end_offset, record_count, size_bytes, s3_bucket, s3_key, created_at, min_timestamp, max_timestamp)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         )
+        .bind(&segment.id)
+        .bind(&segment.topic)
+        .bind(segment.partition_id as i32)
+        .bind(base_offset_i64)
+        .bind(end_offset_i64)
+        .bind(segment.record_count as i32)
+        .bind(size_bytes_i64)
+        .bind(&segment.s3_bucket)
+        .bind(&segment.s3_key)
+        .bind(segment.created_at)
+        .bind(segment.min_timestamp)
+        .bind(segment.max_timestamp)
         .execute(&self.pool)
         .await?;
 
@@ -601,22 +601,22 @@ impl MetadataStore for SqliteMetadataStore {
         let watermark_i64 = high_watermark as i64;
         let now = Self::now_ms();
 
-        sqlx::query!(
-            r#"
-            INSERT INTO segments (id, topic, partition_id, base_offset, end_offset, record_count, size_bytes, s3_bucket, s3_key, created_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            "#,
-            segment.id,
-            segment.topic,
-            segment.partition_id,
-            base_offset_i64,
-            end_offset_i64,
-            segment.record_count,
-            size_bytes_i64,
-            segment.s3_bucket,
-            segment.s3_key,
-            segment.created_at,
+        sqlx::query(
+            "INSERT INTO segments (id, topic, partition_id, base_offset, end_offset, record_count, size_bytes, s3_bucket, s3_key, created_at, min_timestamp, max_timestamp)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         )
+        .bind(&segment.id)
+        .bind(&segment.topic)
+        .bind(segment.partition_id as i32)
+        .bind(base_offset_i64)
+        .bind(end_offset_i64)
+        .bind(segment.record_count as i32)
+        .bind(size_bytes_i64)
+        .bind(&segment.s3_bucket)
+        .bind(&segment.s3_key)
+        .bind(segment.created_at)
+        .bind(segment.min_timestamp)
+        .bind(segment.max_timestamp)
         .execute(&mut *tx)
         .await?;
 
@@ -639,42 +639,33 @@ impl MetadataStore for SqliteMetadataStore {
     }
 
     async fn get_segments(&self, topic: &str, partition_id: u32) -> Result<Vec<SegmentInfo>> {
-        let rows = sqlx::query!(
-            r#"
-            SELECT
-                id as "id!",
-                topic as "topic!",
-                partition_id as "partition_id!",
-                base_offset as "base_offset!",
-                end_offset as "end_offset!",
-                record_count as "record_count!",
-                size_bytes as "size_bytes!",
-                s3_bucket as "s3_bucket!",
-                s3_key as "s3_key!",
-                created_at as "created_at!"
-            FROM segments
-            WHERE topic = ? AND partition_id = ?
-            ORDER BY base_offset
-            "#,
-            topic,
-            partition_id,
+        use sqlx::Row;
+        let rows = sqlx::query(
+            "SELECT id, topic, partition_id, base_offset, end_offset, record_count, size_bytes, s3_bucket, s3_key, created_at, min_timestamp, max_timestamp
+             FROM segments
+             WHERE topic = ? AND partition_id = ?
+             ORDER BY base_offset",
         )
+        .bind(topic)
+        .bind(partition_id as i32)
         .fetch_all(&self.pool)
         .await?;
 
         Ok(rows
             .into_iter()
             .map(|r| SegmentInfo {
-                id: r.id,
-                topic: r.topic,
-                partition_id: r.partition_id as u32,
-                base_offset: r.base_offset as u64,
-                end_offset: r.end_offset as u64,
-                record_count: r.record_count as u32,
-                size_bytes: r.size_bytes as u64,
-                s3_bucket: r.s3_bucket,
-                s3_key: r.s3_key,
-                created_at: r.created_at,
+                id: r.get("id"),
+                topic: r.get("topic"),
+                partition_id: r.get::<i32, _>("partition_id") as u32,
+                base_offset: r.get::<i64, _>("base_offset") as u64,
+                end_offset: r.get::<i64, _>("end_offset") as u64,
+                record_count: r.get::<i32, _>("record_count") as u32,
+                size_bytes: r.get::<i64, _>("size_bytes") as u64,
+                s3_bucket: r.get("s3_bucket"),
+                s3_key: r.get("s3_key"),
+                created_at: r.get("created_at"),
+                min_timestamp: r.get("min_timestamp"),
+                max_timestamp: r.get("max_timestamp"),
             })
             .collect())
     }
@@ -685,45 +676,36 @@ impl MetadataStore for SqliteMetadataStore {
         partition_id: u32,
         offset: u64,
     ) -> Result<Option<SegmentInfo>> {
+        use sqlx::Row;
         let offset_i64 = offset as i64;
 
-        let row = sqlx::query!(
-            r#"
-            SELECT
-                id as "id!",
-                topic as "topic!",
-                partition_id as "partition_id!",
-                base_offset as "base_offset!",
-                end_offset as "end_offset!",
-                record_count as "record_count!",
-                size_bytes as "size_bytes!",
-                s3_bucket as "s3_bucket!",
-                s3_key as "s3_key!",
-                created_at as "created_at!"
-            FROM segments
-            WHERE topic = ? AND partition_id = ? AND base_offset <= ? AND end_offset >= ?
-            ORDER BY base_offset DESC
-            LIMIT 1
-            "#,
-            topic,
-            partition_id,
-            offset_i64,
-            offset_i64,
+        let row = sqlx::query(
+            "SELECT id, topic, partition_id, base_offset, end_offset, record_count, size_bytes, s3_bucket, s3_key, created_at, min_timestamp, max_timestamp
+             FROM segments
+             WHERE topic = ? AND partition_id = ? AND base_offset <= ? AND end_offset >= ?
+             ORDER BY base_offset DESC
+             LIMIT 1",
         )
+        .bind(topic)
+        .bind(partition_id as i32)
+        .bind(offset_i64)
+        .bind(offset_i64)
         .fetch_optional(&self.pool)
         .await?;
 
         Ok(row.map(|r| SegmentInfo {
-            id: r.id,
-            topic: r.topic,
-            partition_id: r.partition_id as u32,
-            base_offset: r.base_offset as u64,
-            end_offset: r.end_offset as u64,
-            record_count: r.record_count as u32,
-            size_bytes: r.size_bytes as u64,
-            s3_bucket: r.s3_bucket,
-            s3_key: r.s3_key,
-            created_at: r.created_at,
+            id: r.get("id"),
+            topic: r.get("topic"),
+            partition_id: r.get::<i32, _>("partition_id") as u32,
+            base_offset: r.get::<i64, _>("base_offset") as u64,
+            end_offset: r.get::<i64, _>("end_offset") as u64,
+            record_count: r.get::<i32, _>("record_count") as u32,
+            size_bytes: r.get::<i64, _>("size_bytes") as u64,
+            s3_bucket: r.get("s3_bucket"),
+            s3_key: r.get("s3_key"),
+            created_at: r.get("created_at"),
+            min_timestamp: r.get("min_timestamp"),
+            max_timestamp: r.get("max_timestamp"),
         }))
     }
 
@@ -3372,6 +3354,8 @@ mod tests {
                 s3_bucket: "test".to_string(),
                 s3_key: "seg1.seg".to_string(),
                 created_at: 0,
+                min_timestamp: 0,
+                max_timestamp: 0,
             })
             .await
             .unwrap();
@@ -3388,6 +3372,8 @@ mod tests {
                 s3_bucket: "test".to_string(),
                 s3_key: "seg2.seg".to_string(),
                 created_at: 0,
+                min_timestamp: 0,
+                max_timestamp: 0,
             })
             .await
             .unwrap();

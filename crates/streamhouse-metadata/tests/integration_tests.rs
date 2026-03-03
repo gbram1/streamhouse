@@ -37,6 +37,8 @@ fn create_test_segment(topic: &str, partition_id: u32, base_offset: u64) -> Segm
         s3_bucket: "test-bucket".to_string(),
         s3_key: format!("{}/{}/seg_{}.bin", topic, partition_id, base_offset),
         created_at: chrono::Utc::now().timestamp_millis(),
+        min_timestamp: 0,
+        max_timestamp: 0,
     }
 }
 

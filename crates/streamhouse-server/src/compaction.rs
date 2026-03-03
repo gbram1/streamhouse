@@ -405,6 +405,8 @@ impl CompactionTask {
                     .unwrap_or_default(),
                 s3_key: compacted_key,
                 created_at: now_ms,
+                min_timestamp: 0,
+                max_timestamp: 0,
             };
 
             self.metadata
@@ -884,6 +886,8 @@ mod tests {
             s3_bucket: "test-bucket".to_string(),
             s3_key,
             created_at,
+            min_timestamp: 0,
+            max_timestamp: 0,
         }
     }
 

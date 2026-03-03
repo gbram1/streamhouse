@@ -21,6 +21,10 @@ pub struct StreamHouseService {
     #[allow(dead_code)]
     config: WriteConfig,
     agent_id: String,
+    /// When true, produce_batch() validates that this agent holds the partition
+    /// lease before writing. Set to true when the embedded agent is active
+    /// (server holds leases), false when standalone agents hold leases.
+    validate_leases: bool,
     shutting_down: Arc<RwLock<bool>>,
     /// Notified when topics are created or deleted so the partition assigner
     /// can immediately discover them instead of waiting for the next poll.
@@ -37,6 +41,7 @@ impl StreamHouseService {
         writer_pool: Arc<WriterPool>,
         config: WriteConfig,
         agent_id: String,
+        validate_leases: bool,
     ) -> Self {
         Self {
             metadata,
@@ -45,6 +50,7 @@ impl StreamHouseService {
             writer_pool,
             config,
             agent_id,
+            validate_leases,
             shutting_down: Arc::new(RwLock::new(false)),
             topic_changed: Arc::new(Notify::new()),
             schema_registry: None,
@@ -187,9 +193,6 @@ impl StreamHouseService {
     }
 
     /// Check if a partition lease is valid and held by this agent.
-    /// Currently unused — WriterPool handles routing, but kept for future
-    /// agent-only deployments where lease validation at the gRPC layer is needed.
-    #[allow(dead_code)]
     async fn validate_lease(&self, topic: &str, partition: u32) -> Result<(), Status> {
         match self.metadata.get_partition_lease(topic, partition).await {
             Ok(Some(lease)) => {
@@ -503,10 +506,12 @@ impl StreamHouse for StreamHouseService {
             self.validate_schema(&req.topic, &record.value).await?;
         }
 
-        // NOTE: Lease validation skipped — WriterPool handles routing to the
-        // correct writer, matching the REST produce path.  validate_lease()
-        // fails in standalone-agent mode (DISABLE_EMBEDDED_AGENT=1) because the
-        // server process doesn't hold partition leases; agents do.
+        // Validate partition lease when the embedded agent is active (server
+        // holds leases).  Skipped in standalone-agent mode where external agents
+        // hold leases and WriterPool handles routing.
+        if self.validate_leases {
+            self.validate_lease(&req.topic, req.partition).await?;
+        }
 
         // Validate idempotent producer (if producer_id is present)
         let should_write = if let Some(ref producer_id) = req.producer_id {
@@ -1140,6 +1145,7 @@ mod tests {
             writer_pool,
             config,
             "test-agent".to_string(),
+            false, // no lease validation in tests
         );
         (service, temp_dir)
     }

@@ -193,6 +193,8 @@ fn segment_info_roundtrip() {
         s3_bucket: "data".to_string(),
         s3_key: "orders/0/seg-001.bin".to_string(),
         created_at: 1700000000000,
+        min_timestamp: 0,
+        max_timestamp: 0,
     };
 
     let json = serde_json::to_string(&info).unwrap();

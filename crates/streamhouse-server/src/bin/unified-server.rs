@@ -400,7 +400,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     });
     tracing::info!("   Kafka server started on {}", kafka_addr_display);
 
+    // Embedded agent: register, heartbeat, partition assignment
+    // Set DISABLE_EMBEDDED_AGENT=1 to skip (when running standalone agents separately)
+    let embedded_agent_disabled = std::env::var("DISABLE_EMBEDDED_AGENT")
+        .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
+        .unwrap_or(false);
+
     // Create gRPC service (unified: admin + producer + consumer + lifecycle)
+    // Validate leases only when the embedded agent is active (it holds the leases).
     let mut grpc_service = StreamHouseService::new(
         metadata.clone(),
         object_store.clone(),
@@ -408,13 +415,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         writer_pool.clone(),
         config.clone(),
         agent_id.clone(),
+        !embedded_agent_disabled,
     );
-
-    // Embedded agent: register, heartbeat, partition assignment
-    // Set DISABLE_EMBEDDED_AGENT=1 to skip (when running standalone agents separately)
-    let embedded_agent_disabled = std::env::var("DISABLE_EMBEDDED_AGENT")
-        .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
-        .unwrap_or(false);
 
     if embedded_agent_disabled {
         tracing::info!("⏭️  Embedded agent disabled (DISABLE_EMBEDDED_AGENT set)");

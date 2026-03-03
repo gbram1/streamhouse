@@ -65,6 +65,7 @@ async fn setup_test_service() -> (StreamHouseService, tempfile::TempDir) {
         writer_pool,
         config,
         TEST_AGENT_ID.to_string(),
+        false,
     );
     (service, temp_dir)
 }
@@ -164,6 +165,7 @@ async fn setup_test_service_with_metadata() -> (
         writer_pool,
         config,
         TEST_AGENT_ID.to_string(),
+        false,
     );
     (service, metadata, temp_dir)
 }

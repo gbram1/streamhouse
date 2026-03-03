@@ -85,6 +85,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         multipart_threshold: 8 * 1024 * 1024,
         multipart_part_size: 8 * 1024 * 1024,
         parallel_upload_parts: 4,
+        durable_batch_max_age_ms: 200,
+        durable_batch_max_records: 10_000,
+        durable_batch_max_bytes: 16 * 1024 * 1024,
     };
 
     println!(

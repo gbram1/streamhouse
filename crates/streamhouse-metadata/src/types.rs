@@ -281,6 +281,8 @@ pub struct Partition {
 ///     s3_bucket: "streamhouse".to_string(),
 ///     s3_key: "orders/0/seg_1000.bin".to_string(),
 ///     created_at: now_ms(),
+///     min_timestamp: 0,
+///     max_timestamp: 0,
 /// };
 ///
 /// // To read this segment from S3:
@@ -317,6 +319,12 @@ pub struct SegmentInfo {
 
     /// Creation timestamp (milliseconds since Unix epoch)
     pub created_at: i64,
+
+    /// Minimum record timestamp in this segment (milliseconds since Unix epoch)
+    pub min_timestamp: i64,
+
+    /// Maximum record timestamp in this segment (milliseconds since Unix epoch)
+    pub max_timestamp: i64,
 }
 
 /// Aggregated storage statistics per topic from the segments table.
@@ -2975,6 +2983,8 @@ mod tests {
             s3_bucket: "streamhouse".to_string(),
             s3_key: "orders/0/seg_1000.bin".to_string(),
             created_at: 1700000000000,
+            min_timestamp: 0,
+            max_timestamp: 0,
         };
 
         let json = serde_json::to_string(&segment).unwrap();

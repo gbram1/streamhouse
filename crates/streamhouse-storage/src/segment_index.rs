@@ -259,6 +259,8 @@ mod tests {
                     s3_bucket: "test".to_string(),
                     s3_key: format!("test/0/seg_{}.bin", i),
                     created_at: 0,
+                    min_timestamp: 0,
+                    max_timestamp: 0,
                 })
                 .await
                 .unwrap();
@@ -364,6 +366,8 @@ mod tests {
                 s3_bucket: "test".to_string(),
                 s3_key: "test/0/seg_5.bin".to_string(),
                 created_at: 0,
+                min_timestamp: 0,
+                max_timestamp: 0,
             })
             .await
             .unwrap();
@@ -403,6 +407,8 @@ mod tests {
                     s3_bucket: "test".to_string(),
                     s3_key: format!("test/0/seg_{}.bin", i),
                     created_at: 0,
+                    min_timestamp: 0,
+                    max_timestamp: 0,
                 })
                 .await
                 .unwrap();

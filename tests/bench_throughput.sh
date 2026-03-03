@@ -354,9 +354,10 @@ dim "  Measures: S3 segment read + SegmentReader decode + HTTP serialization"
 dim "  $PARTITIONS partitions consumed in parallel"
 echo ""
 
-# Wait for segments to be flushed to S3
-echo "  Waiting 5s for segment flushes to S3..."
-sleep 5
+# Wait for segments to be flushed to S3 (>2x the 5s flush interval to
+# guarantee at least 2 flush cycles complete after the last write)
+echo "  Waiting 12s for segment flushes to S3..."
+sleep 12
 
 run_consume_benchmark() {
     local label="$1" max_records_per_fetch="$2"

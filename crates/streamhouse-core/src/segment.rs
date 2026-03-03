@@ -39,6 +39,8 @@
 //!     s3_bucket: "streamhouse-data".to_string(),
 //!     s3_key: "clickstream/0/seg_123.bin".to_string(),
 //!     created_at: 1234567890,
+//!     min_timestamp: 0,
+//!     max_timestamp: 0,
 //! };
 //! ```
 
@@ -76,6 +78,12 @@ pub struct SegmentInfo {
 
     /// Creation timestamp
     pub created_at: i64,
+
+    /// Minimum timestamp across all records in this segment
+    pub min_timestamp: i64,
+
+    /// Maximum timestamp across all records in this segment
+    pub max_timestamp: i64,
 }
 
 /// Compression type for segments
@@ -120,6 +128,8 @@ mod tests {
             s3_bucket: "streamhouse-data".to_string(),
             s3_key: "clickstream/0/seg_001.bin".to_string(),
             created_at: 1_700_000_000,
+            min_timestamp: 0,
+            max_timestamp: 0,
         }
     }
 
@@ -155,6 +165,8 @@ mod tests {
             s3_bucket: String::new(),
             s3_key: String::new(),
             created_at: 0,
+            min_timestamp: 0,
+            max_timestamp: 0,
         };
         assert_eq!(seg.base_offset, 0);
         assert_eq!(seg.record_count, 0);
@@ -173,6 +185,8 @@ mod tests {
             s3_bucket: "b".to_string(),
             s3_key: "k".to_string(),
             created_at: i64::MAX,
+            min_timestamp: 0,
+            max_timestamp: 0,
         };
         assert_eq!(seg.partition_id, u32::MAX);
         assert_eq!(seg.base_offset, u64::MAX);
@@ -193,6 +207,8 @@ mod tests {
             s3_bucket: "b".to_string(),
             s3_key: "k".to_string(),
             created_at: -1,
+            min_timestamp: 0,
+            max_timestamp: 0,
         };
         assert_eq!(seg.created_at, -1);
     }
@@ -284,6 +300,8 @@ mod tests {
             s3_bucket: "b".to_string(),
             s3_key: "k".to_string(),
             created_at: i64::MAX,
+            min_timestamp: 0,
+            max_timestamp: 0,
         };
         let json = serde_json::to_string(&seg).expect("serialize");
         let deserialized: SegmentInfo = serde_json::from_str(&json).expect("deserialize");
@@ -442,6 +460,8 @@ mod tests {
             s3_bucket: "bucket".to_string(),
             s3_key: "key".to_string(),
             created_at: 0,
+            min_timestamp: 0,
+            max_timestamp: 0,
         };
         assert!(seg.topic.contains('\u{1F680}'));
     }
@@ -460,6 +480,8 @@ mod tests {
             s3_bucket: "b".to_string(),
             s3_key: long_key.clone(),
             created_at: 0,
+            min_timestamp: 0,
+            max_timestamp: 0,
         };
         assert_eq!(seg.s3_key, long_key);
     }
@@ -478,6 +500,8 @@ mod tests {
             s3_bucket: "b".to_string(),
             s3_key: "k".to_string(),
             created_at: 0,
+            min_timestamp: 0,
+            max_timestamp: 0,
         };
         assert_eq!(seg.base_offset, seg.end_offset);
         assert_eq!(seg.record_count, 1);
@@ -496,6 +520,8 @@ mod tests {
             s3_bucket: "b".to_string(),
             s3_key: "k".to_string(),
             created_at: i64::MIN,
+            min_timestamp: 0,
+            max_timestamp: 0,
         };
         assert_eq!(seg.created_at, i64::MIN);
     }
@@ -607,6 +633,8 @@ mod tests {
             s3_bucket: String::new(),
             s3_key: String::new(),
             created_at: i64::MIN,
+            min_timestamp: 0,
+            max_timestamp: 0,
         };
         let json = serde_json::to_string(&seg).expect("serialize");
         let deserialized: SegmentInfo = serde_json::from_str(&json).expect("deserialize");
@@ -626,6 +654,8 @@ mod tests {
             s3_bucket: "b".to_string(),
             s3_key: "k".to_string(),
             created_at: -1_000_000,
+            min_timestamp: 0,
+            max_timestamp: 0,
         };
         let json = serde_json::to_string(&seg).expect("serialize");
         let deserialized: SegmentInfo = serde_json::from_str(&json).expect("deserialize");
@@ -659,6 +689,8 @@ mod tests {
             s3_bucket: "b".to_string(),
             s3_key: "k".to_string(),
             created_at: 0,
+            min_timestamp: 0,
+            max_timestamp: 0,
         };
         let json = serde_json::to_string(&seg).expect("serialize");
         let deserialized: SegmentInfo = serde_json::from_str(&json).expect("deserialize");

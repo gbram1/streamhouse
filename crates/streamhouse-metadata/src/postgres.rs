@@ -593,8 +593,8 @@ impl MetadataStore for PostgresMetadataStore {
 
         sqlx::query(
             "INSERT INTO segments (id, organization_id, topic, partition_id, base_offset, end_offset,
-                                   record_count, size_bytes, s3_bucket, s3_key, created_at)
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)",
+                                   record_count, size_bytes, s3_bucket, s3_key, created_at, min_timestamp, max_timestamp)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)",
         )
         .bind(&segment.id)
         .bind(default_org_id)
@@ -607,6 +607,8 @@ impl MetadataStore for PostgresMetadataStore {
         .bind(&segment.s3_bucket)
         .bind(&segment.s3_key)
         .bind(segment.created_at)
+        .bind(segment.min_timestamp)
+        .bind(segment.max_timestamp)
         .execute(&self.pool)
         .await?;
 
@@ -629,8 +631,8 @@ impl MetadataStore for PostgresMetadataStore {
 
         sqlx::query(
             "INSERT INTO segments (id, organization_id, topic, partition_id, base_offset, end_offset,
-                                   record_count, size_bytes, s3_bucket, s3_key, created_at)
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)",
+                                   record_count, size_bytes, s3_bucket, s3_key, created_at, min_timestamp, max_timestamp)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)",
         )
         .bind(&segment.id)
         .bind(default_org_id)
@@ -643,6 +645,8 @@ impl MetadataStore for PostgresMetadataStore {
         .bind(&segment.s3_bucket)
         .bind(&segment.s3_key)
         .bind(segment.created_at)
+        .bind(segment.min_timestamp)
+        .bind(segment.max_timestamp)
         .execute(&mut *tx)
         .await?;
 
@@ -664,7 +668,7 @@ impl MetadataStore for PostgresMetadataStore {
     async fn get_segments(&self, topic: &str, partition_id: u32) -> Result<Vec<SegmentInfo>> {
         let rows = sqlx::query(
             "SELECT id, topic, partition_id, base_offset, end_offset, record_count,
-                    size_bytes, s3_bucket, s3_key, created_at
+                    size_bytes, s3_bucket, s3_key, created_at, min_timestamp, max_timestamp
              FROM segments WHERE topic = $1 AND partition_id = $2 ORDER BY base_offset",
         )
         .bind(topic)
@@ -685,6 +689,8 @@ impl MetadataStore for PostgresMetadataStore {
                 s3_bucket: r.get("s3_bucket"),
                 s3_key: r.get("s3_key"),
                 created_at: r.get("created_at"),
+                min_timestamp: r.get("min_timestamp"),
+                max_timestamp: r.get("max_timestamp"),
             })
             .collect())
     }
@@ -697,7 +703,7 @@ impl MetadataStore for PostgresMetadataStore {
     ) -> Result<Option<SegmentInfo>> {
         let row = sqlx::query(
             "SELECT id, topic, partition_id, base_offset, end_offset, record_count,
-                    size_bytes, s3_bucket, s3_key, created_at
+                    size_bytes, s3_bucket, s3_key, created_at, min_timestamp, max_timestamp
              FROM segments
              WHERE topic = $1 AND partition_id = $2
                AND base_offset <= $3 AND end_offset >= $3
@@ -720,6 +726,8 @@ impl MetadataStore for PostgresMetadataStore {
             s3_bucket: r.get("s3_bucket"),
             s3_key: r.get("s3_key"),
             created_at: r.get("created_at"),
+            min_timestamp: r.get("min_timestamp"),
+            max_timestamp: r.get("max_timestamp"),
         }))
     }
 
@@ -3397,6 +3405,8 @@ mod tests {
             s3_bucket: "test-bucket".to_string(),
             s3_key: "segment_test/0/00000000.seg".to_string(),
             created_at: chrono::Utc::now().timestamp_millis(),
+            min_timestamp: 0,
+            max_timestamp: 0,
         };
 
         let segment2 = SegmentInfo {
@@ -3410,6 +3420,8 @@ mod tests {
             s3_bucket: "test-bucket".to_string(),
             s3_key: "segment_test/0/00001000.seg".to_string(),
             created_at: chrono::Utc::now().timestamp_millis(),
+            min_timestamp: 0,
+            max_timestamp: 0,
         };
 
         store.add_segment(segment1).await.unwrap();
@@ -3891,6 +3903,8 @@ mod tests {
                 s3_bucket: "test".to_string(),
                 s3_key: "test/key".to_string(),
                 created_at: chrono::Utc::now().timestamp_millis(),
+                min_timestamp: 0,
+                max_timestamp: 0,
             })
             .await
             .unwrap();

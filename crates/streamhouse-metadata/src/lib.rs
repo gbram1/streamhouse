@@ -66,6 +66,8 @@
 //!     s3_bucket: "streamhouse".to_string(),
 //!     s3_key: "orders/0/seg_0.bin".to_string(),
 //!     created_at: now_ms(),
+//!     min_timestamp: 0,
+//!     max_timestamp: 0,
 //! }).await?;
 //!
 //! // Find which segment contains offset 50,000
@@ -482,6 +484,8 @@ pub trait MetadataStore: Send + Sync {
     ///     s3_bucket: "streamhouse".to_string(),
     ///     s3_key: "orders/0/seg_1000.bin".to_string(),
     ///     created_at: now_ms(),
+    ///     min_timestamp: 0,
+    ///     max_timestamp: 0,
     /// }).await?;
     /// ```
     async fn add_segment(&self, segment: SegmentInfo) -> Result<()>;

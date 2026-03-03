@@ -222,6 +222,8 @@ mod tests {
                 s3_bucket: "test".to_string(),
                 s3_key: registered_key.to_string(),
                 created_at: 0,
+                min_timestamp: 0,
+                max_timestamp: 0,
             })
             .await
             .unwrap();
