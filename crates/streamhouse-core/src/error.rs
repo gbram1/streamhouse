@@ -219,7 +219,7 @@ mod tests {
     #[test]
     fn test_from_io_error_in_result_context() {
         fn fallible() -> Result<()> {
-            let io_err = std::io::Error::new(std::io::ErrorKind::Other, "something broke");
+            let io_err = std::io::Error::other( "something broke");
             Err(io_err)?
         }
         let result = fallible();
@@ -380,7 +380,7 @@ mod tests {
 
     #[test]
     fn test_debug_io() {
-        let io_err = std::io::Error::new(std::io::ErrorKind::Other, "test");
+        let io_err = std::io::Error::other( "test");
         let err = Error::Io(io_err);
         let debug = format!("{:?}", err);
         assert!(debug.contains("Io"));
@@ -463,14 +463,14 @@ mod tests {
     #[test]
     fn test_error_is_std_error() {
         fn assert_std_error<E: std::error::Error>(_e: &E) {}
-        let io_err = std::io::Error::new(std::io::ErrorKind::Other, "test");
+        let io_err = std::io::Error::other( "test");
         let err = Error::Io(io_err);
         assert_std_error(&err);
     }
 
     #[test]
     fn test_io_error_source() {
-        let io_err = std::io::Error::new(std::io::ErrorKind::Other, "inner");
+        let io_err = std::io::Error::other( "inner");
         let err = Error::Io(io_err);
         // thiserror provides source() for #[from] variants
         let source = std::error::Error::source(&err);

@@ -417,7 +417,7 @@ mod tests {
         // All variants not explicitly mapped should fall through to UnknownServerError
         let fallthrough_errors: Vec<KafkaError> = vec![
             KafkaError::Unknown("x".to_string()),
-            KafkaError::Io(std::io::Error::new(std::io::ErrorKind::Other, "x")),
+            KafkaError::Io(std::io::Error::other( "x")),
             KafkaError::Protocol("x".to_string()),
             KafkaError::ConsumerGroup("x".to_string()),
             KafkaError::MetadataStore("x".to_string()),

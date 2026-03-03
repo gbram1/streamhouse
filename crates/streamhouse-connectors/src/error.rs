@@ -171,7 +171,7 @@ mod tests {
 
     #[test]
     fn test_debug_io_error() {
-        let io_err = std::io::Error::new(std::io::ErrorKind::Other, "test");
+        let io_err = std::io::Error::other( "test");
         let err = ConnectorError::IoError(io_err);
         let debug = format!("{:?}", err);
         assert!(debug.contains("IoError"));
@@ -225,7 +225,7 @@ mod tests {
 
     #[test]
     fn test_io_error_has_source() {
-        let io_err = std::io::Error::new(std::io::ErrorKind::Other, "inner");
+        let io_err = std::io::Error::other( "inner");
         let err = ConnectorError::IoError(io_err);
         let source = std::error::Error::source(&err);
         assert!(source.is_some());

@@ -511,7 +511,11 @@ mod tests {
         // Every agent gets exactly 2
         for agent in &sorted_agents {
             let count = assignments.get(agent).map(|s| s.len()).unwrap_or(0);
-            assert_eq!(count, 2, "Agent {} should have 2 partitions, got {}", agent, count);
+            assert_eq!(
+                count, 2,
+                "Agent {} should have 2 partitions, got {}",
+                agent, count
+            );
         }
 
         // Total should be 6
@@ -541,7 +545,11 @@ mod tests {
         // 9 / 3 = 3 each
         for agent in &sorted_agents {
             let count = assignments.get(agent).map(|s| s.len()).unwrap_or(0);
-            assert_eq!(count, 3, "Agent {} should have 3 partitions, got {}", agent, count);
+            assert_eq!(
+                count, 3,
+                "Agent {} should have 3 partitions, got {}",
+                agent, count
+            );
         }
     }
 
@@ -598,7 +606,11 @@ mod tests {
         // All 6 partitions still assigned, 3 each
         for agent in &sorted_2 {
             let count = assignments_2.get(agent).map(|s| s.len()).unwrap_or(0);
-            assert_eq!(count, 3, "Agent {} should have 3 partitions after removal", agent);
+            assert_eq!(
+                count, 3,
+                "Agent {} should have 3 partitions after removal",
+                agent
+            );
         }
 
         // agent-2 should have no partitions

@@ -714,12 +714,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 streamhouse_observability::metrics::UPTIME_SECONDS
                     .set(start_time.elapsed().as_secs() as i64);
                 if let Ok(topics) = metadata.list_topics().await {
-                    streamhouse_observability::metrics::TOPICS_TOTAL
-                        .set(topics.len() as i64);
+                    streamhouse_observability::metrics::TOPICS_TOTAL.set(topics.len() as i64);
                 }
                 if let Ok(agents) = metadata.list_agents(None, None).await {
-                    streamhouse_observability::metrics::AGENTS_ACTIVE
-                        .set(agents.len() as i64);
+                    streamhouse_observability::metrics::AGENTS_ACTIVE.set(agents.len() as i64);
                 }
             }
         });
