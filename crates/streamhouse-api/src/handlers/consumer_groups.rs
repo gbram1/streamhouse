@@ -1,8 +1,9 @@
 //! Consumer group endpoints
 
-use axum::{extract::State, http::StatusCode, Json};
+use axum::{extract::State, http::{HeaderMap, StatusCode}, Json};
 use std::collections::HashSet;
 
+use crate::handlers::topics::extract_org_id;
 use crate::models::{
     CommitOffsetRequest, CommitOffsetResponse, ConsumerGroupDetail, ConsumerGroupInfo,
     ConsumerGroupLag, ConsumerOffsetInfo, DeleteConsumerGroupResponse, ResetOffsetDetail,
@@ -21,11 +22,14 @@ use crate::AppState;
 )]
 pub async fn list_consumer_groups(
     State(state): State<AppState>,
+    headers: HeaderMap,
 ) -> Result<Json<Vec<ConsumerGroupInfo>>, StatusCode> {
-    // Get all consumer group IDs
+    let org_id = extract_org_id(&headers);
+
+    // Get consumer group IDs for this organization
     let group_ids = state
         .metadata
-        .list_consumer_groups()
+        .list_consumer_groups_for_org(&org_id)
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
@@ -33,10 +37,10 @@ pub async fn list_consumer_groups(
     let mut groups = Vec::new();
 
     for group_id in group_ids {
-        // Get consumer offsets for this group
+        // Get consumer offsets for this group (org-scoped)
         let offsets = state
             .metadata
-            .get_consumer_offsets(&group_id)
+            .get_consumer_offsets_for_org(&org_id, &group_id)
             .await
             .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
@@ -89,12 +93,15 @@ pub async fn list_consumer_groups(
 )]
 pub async fn get_consumer_group(
     State(state): State<AppState>,
+    headers: HeaderMap,
     axum::extract::Path(group_id): axum::extract::Path<String>,
 ) -> Result<Json<ConsumerGroupDetail>, StatusCode> {
-    // Get consumer offsets for this group
+    let org_id = extract_org_id(&headers);
+
+    // Get consumer offsets for this group (org-scoped)
     let consumer_offsets = state
         .metadata
-        .get_consumer_offsets(&group_id)
+        .get_consumer_offsets_for_org(&org_id, &group_id)
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
@@ -145,12 +152,15 @@ pub async fn get_consumer_group(
 )]
 pub async fn get_consumer_group_lag(
     State(state): State<AppState>,
+    headers: HeaderMap,
     axum::extract::Path(group_id): axum::extract::Path<String>,
 ) -> Result<Json<ConsumerGroupLag>, StatusCode> {
-    // Get consumer offsets for this group
+    let org_id = extract_org_id(&headers);
+
+    // Get consumer offsets for this group (org-scoped)
     let consumer_offsets = state
         .metadata
-        .get_consumer_offsets(&group_id)
+        .get_consumer_offsets_for_org(&org_id, &group_id)
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
@@ -197,12 +207,15 @@ pub async fn get_consumer_group_lag(
 )]
 pub async fn commit_offset(
     State(state): State<AppState>,
+    headers: HeaderMap,
     Json(req): Json<CommitOffsetRequest>,
 ) -> Result<Json<CommitOffsetResponse>, StatusCode> {
-    // Validate topic exists
+    let org_id = extract_org_id(&headers);
+
+    // Validate topic exists for this org
     state
         .metadata
-        .get_topic(&req.topic)
+        .get_topic_for_org(&org_id, &req.topic)
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
         .ok_or(StatusCode::NOT_FOUND)?;
@@ -215,10 +228,10 @@ pub async fn commit_offset(
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
         .ok_or(StatusCode::NOT_FOUND)?;
 
-    // Commit the offset
+    // Commit the offset (org-scoped)
     state
         .metadata
-        .commit_offset(&req.group_id, &req.topic, req.partition, req.offset, None)
+        .commit_offset_for_org(&org_id, &req.group_id, &req.topic, req.partition, req.offset, None)
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
@@ -241,13 +254,16 @@ pub async fn commit_offset(
 )]
 pub async fn reset_offsets(
     State(state): State<AppState>,
+    headers: HeaderMap,
     axum::extract::Path(group_id): axum::extract::Path<String>,
     Json(req): Json<ResetOffsetsRequest>,
 ) -> Result<Json<ResetOffsetsResponse>, StatusCode> {
-    // Get current offsets for this consumer group
+    let org_id = extract_org_id(&headers);
+
+    // Get current offsets for this consumer group (org-scoped)
     let current_offsets = state
         .metadata
-        .get_consumer_offsets(&group_id)
+        .get_consumer_offsets_for_org(&org_id, &group_id)
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
@@ -300,10 +316,11 @@ pub async fn reset_offsets(
             }
         };
 
-        // Commit the new offset
+        // Commit the new offset (org-scoped)
         state
             .metadata
-            .commit_offset(
+            .commit_offset_for_org(
+                &org_id,
                 &group_id,
                 &offset.topic,
                 offset.partition_id,
@@ -383,21 +400,24 @@ async fn find_offset_for_timestamp(
 )]
 pub async fn seek_to_timestamp(
     State(state): State<AppState>,
+    headers: HeaderMap,
     axum::extract::Path(group_id): axum::extract::Path<String>,
     Json(req): Json<SeekToTimestampRequest>,
 ) -> Result<Json<SeekToTimestampResponse>, StatusCode> {
-    // Validate topic exists
+    let org_id = extract_org_id(&headers);
+
+    // Validate topic exists for this org
     let topic = state
         .metadata
-        .get_topic(&req.topic)
+        .get_topic_for_org(&org_id, &req.topic)
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
         .ok_or(StatusCode::NOT_FOUND)?;
 
-    // Get current offsets
+    // Get current offsets (org-scoped)
     let current_offsets = state
         .metadata
-        .get_consumer_offsets(&group_id)
+        .get_consumer_offsets_for_org(&org_id, &group_id)
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
@@ -432,10 +452,10 @@ pub async fn seek_to_timestamp(
             .await
             .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
-        // Commit the new offset
+        // Commit the new offset (org-scoped)
         state
             .metadata
-            .commit_offset(&group_id, &req.topic, partition_id, new_offset, None)
+            .commit_offset_for_org(&org_id, &group_id, &req.topic, partition_id, new_offset, None)
             .await
             .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
@@ -469,12 +489,15 @@ pub async fn seek_to_timestamp(
 )]
 pub async fn delete_consumer_group(
     State(state): State<AppState>,
+    headers: HeaderMap,
     axum::extract::Path(group_id): axum::extract::Path<String>,
 ) -> Result<Json<DeleteConsumerGroupResponse>, StatusCode> {
-    // Get current offsets to count partitions
+    let org_id = extract_org_id(&headers);
+
+    // Get current offsets to count partitions (org-scoped)
     let current_offsets = state
         .metadata
-        .get_consumer_offsets(&group_id)
+        .get_consumer_offsets_for_org(&org_id, &group_id)
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
@@ -484,10 +507,10 @@ pub async fn delete_consumer_group(
 
     let partitions_count = current_offsets.len();
 
-    // Delete the consumer group
+    // Delete the consumer group (org-scoped)
     state
         .metadata
-        .delete_consumer_group(&group_id)
+        .delete_consumer_group_for_org(&org_id, &group_id)
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 

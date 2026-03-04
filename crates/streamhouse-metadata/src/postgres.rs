@@ -883,6 +883,131 @@ impl MetadataStore for PostgresMetadataStore {
         Ok(())
     }
 
+    // ── Org-scoped consumer group operations ──────────────────────
+
+    async fn list_consumer_groups_for_org(&self, org_id: &str) -> Result<Vec<String>> {
+        let rows = sqlx::query(
+            "SELECT DISTINCT group_id FROM consumer_offsets WHERE organization_id = $1::UUID ORDER BY group_id",
+        )
+        .bind(org_id)
+        .fetch_all(&self.pool)
+        .await?;
+
+        Ok(rows.into_iter().map(|r| r.get("group_id")).collect())
+    }
+
+    async fn ensure_consumer_group_for_org(&self, org_id: &str, group_id: &str) -> Result<()> {
+        let now_ms = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_millis() as i64;
+
+        sqlx::query(
+            "INSERT INTO consumer_groups (organization_id, group_id, created_at, updated_at)
+             VALUES ($1::UUID, $2, $3, $4) ON CONFLICT (organization_id, group_id) DO NOTHING",
+        )
+        .bind(org_id)
+        .bind(group_id)
+        .bind(now_ms)
+        .bind(now_ms)
+        .execute(&self.pool)
+        .await?;
+
+        Ok(())
+    }
+
+    async fn commit_offset_for_org(
+        &self,
+        org_id: &str,
+        group_id: &str,
+        topic: &str,
+        partition_id: u32,
+        offset: u64,
+        metadata: Option<String>,
+    ) -> Result<()> {
+        self.ensure_consumer_group_for_org(org_id, group_id).await?;
+
+        let now_ms = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_millis() as i64;
+
+        sqlx::query(
+            "INSERT INTO consumer_offsets (organization_id, group_id, topic, partition_id, committed_offset, metadata, committed_at)
+             VALUES ($1::UUID, $2, $3, $4, $5, $6, $7)
+             ON CONFLICT (organization_id, group_id, topic, partition_id)
+             DO UPDATE SET committed_offset = $5, metadata = $6, committed_at = $7",
+        )
+        .bind(org_id)
+        .bind(group_id)
+        .bind(topic)
+        .bind(partition_id as i32)
+        .bind(offset as i64)
+        .bind(metadata)
+        .bind(now_ms)
+        .execute(&self.pool)
+        .await?;
+
+        Ok(())
+    }
+
+    async fn get_committed_offset_for_org(
+        &self,
+        org_id: &str,
+        group_id: &str,
+        topic: &str,
+        partition_id: u32,
+    ) -> Result<Option<u64>> {
+        let row = sqlx::query(
+            "SELECT committed_offset FROM consumer_offsets
+             WHERE organization_id = $1::UUID AND group_id = $2 AND topic = $3 AND partition_id = $4",
+        )
+        .bind(org_id)
+        .bind(group_id)
+        .bind(topic)
+        .bind(partition_id as i32)
+        .fetch_optional(&self.pool)
+        .await?;
+
+        Ok(row.map(|r| r.get::<i64, _>("committed_offset") as u64))
+    }
+
+    async fn get_consumer_offsets_for_org(
+        &self,
+        org_id: &str,
+        group_id: &str,
+    ) -> Result<Vec<ConsumerOffset>> {
+        let rows = sqlx::query(
+            "SELECT group_id, topic, partition_id, committed_offset, metadata
+             FROM consumer_offsets WHERE organization_id = $1::UUID AND group_id = $2
+             ORDER BY topic, partition_id",
+        )
+        .bind(org_id)
+        .bind(group_id)
+        .fetch_all(&self.pool)
+        .await?;
+
+        Ok(rows
+            .into_iter()
+            .map(|r| ConsumerOffset {
+                group_id: r.get("group_id"),
+                topic: r.get("topic"),
+                partition_id: r.get::<i32, _>("partition_id") as u32,
+                committed_offset: r.get::<i64, _>("committed_offset") as u64,
+                metadata: r.get("metadata"),
+            })
+            .collect())
+    }
+
+    async fn delete_consumer_group_for_org(&self, org_id: &str, group_id: &str) -> Result<()> {
+        sqlx::query("DELETE FROM consumer_groups WHERE organization_id = $1::UUID AND group_id = $2")
+            .bind(org_id)
+            .bind(group_id)
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
+
     async fn register_agent(&self, agent: AgentInfo) -> Result<()> {
         let metadata_json = serde_json::to_value(&agent.metadata)?;
 

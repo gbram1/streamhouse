@@ -5,6 +5,7 @@ use axum::{
         ws::{Message, WebSocket, WebSocketUpgrade},
         Path, State,
     },
+    http::{HeaderMap, StatusCode},
     response::IntoResponse,
 };
 use futures::{sink::SinkExt, stream::StreamExt};
@@ -12,18 +13,21 @@ use serde_json::json;
 use std::time::Duration;
 use tokio::time::interval;
 
+use crate::handlers::topics::extract_org_id;
 use crate::AppState;
 
 /// Upgrade HTTP to WebSocket for real-time metrics
 pub async fn metrics_websocket(
     ws: WebSocketUpgrade,
     State(state): State<AppState>,
+    headers: HeaderMap,
 ) -> impl IntoResponse {
-    ws.on_upgrade(|socket| handle_metrics_stream(socket, state))
+    let org_id = extract_org_id(&headers);
+    ws.on_upgrade(|socket| handle_metrics_stream(socket, state, org_id))
 }
 
 /// Stream cluster metrics every 5 seconds
-async fn handle_metrics_stream(socket: WebSocket, state: AppState) {
+async fn handle_metrics_stream(socket: WebSocket, state: AppState, org_id: String) {
     let (mut sender, mut receiver) = socket.split();
 
     // Send metrics every 5 seconds
@@ -33,7 +37,7 @@ async fn handle_metrics_stream(socket: WebSocket, state: AppState) {
         tokio::select! {
             _ = tick.tick() => {
                 // Collect current metrics
-                let metrics = match collect_realtime_metrics(&state).await {
+                let metrics = match collect_realtime_metrics(&state, &org_id).await {
                     Ok(m) => m,
                     Err(e) => {
                         tracing::error!("Failed to collect metrics: {}", e);
@@ -67,8 +71,9 @@ async fn handle_metrics_stream(socket: WebSocket, state: AppState) {
 /// Collect current metrics snapshot
 async fn collect_realtime_metrics(
     state: &AppState,
+    org_id: &str,
 ) -> Result<serde_json::Value, Box<dyn std::error::Error>> {
-    let topics = state.metadata.list_topics().await?;
+    let topics = state.metadata.list_topics_for_org(org_id).await?;
     let agents = state.metadata.list_agents(None, None).await?;
 
     // Calculate aggregates
@@ -111,8 +116,19 @@ pub async fn topic_websocket(
     ws: WebSocketUpgrade,
     Path(topic_name): Path<String>,
     State(state): State<AppState>,
-) -> impl IntoResponse {
-    ws.on_upgrade(move |socket| handle_topic_stream(socket, state, topic_name))
+    headers: HeaderMap,
+) -> Result<impl IntoResponse, StatusCode> {
+    let org_id = extract_org_id(&headers);
+
+    // Validate topic belongs to this org before upgrading
+    state
+        .metadata
+        .get_topic_for_org(&org_id, &topic_name)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+        .ok_or(StatusCode::NOT_FOUND)?;
+
+    Ok(ws.on_upgrade(move |socket| handle_topic_stream(socket, state, topic_name)))
 }
 
 async fn handle_topic_stream(socket: WebSocket, state: AppState, topic_name: String) {
@@ -175,8 +191,22 @@ pub async fn consumer_websocket(
     ws: WebSocketUpgrade,
     Path(group_id): Path<String>,
     State(state): State<AppState>,
-) -> impl IntoResponse {
-    ws.on_upgrade(move |socket| handle_consumer_stream(socket, state, group_id))
+    headers: HeaderMap,
+) -> Result<impl IntoResponse, StatusCode> {
+    let org_id = extract_org_id(&headers);
+
+    // Validate consumer group belongs to this org before upgrading
+    let offsets = state
+        .metadata
+        .get_consumer_offsets_for_org(&org_id, &group_id)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    if offsets.is_empty() {
+        return Err(StatusCode::NOT_FOUND);
+    }
+
+    Ok(ws.on_upgrade(move |socket| handle_consumer_stream(socket, state, group_id)))
 }
 
 async fn handle_consumer_stream(socket: WebSocket, state: AppState, group_id: String) {

@@ -2,12 +2,12 @@
 
 use axum::{
     extract::{Path, Query, State},
-    http::StatusCode,
+    http::{HeaderMap, StatusCode},
     Json,
 };
 use std::collections::HashMap;
 
-use crate::{models::*, prometheus::PrometheusClient, AppState};
+use crate::{handlers::topics::extract_org_id, models::*, prometheus::PrometheusClient, AppState};
 
 #[utoipa::path(
     get,
@@ -19,11 +19,14 @@ use crate::{models::*, prometheus::PrometheusClient, AppState};
 )]
 pub async fn get_metrics(
     State(state): State<AppState>,
+    headers: HeaderMap,
 ) -> Result<Json<MetricsSnapshot>, StatusCode> {
-    // Get topics count
+    let org_id = extract_org_id(&headers);
+
+    // Get topics count for this org
     let topics = state
         .metadata
-        .list_topics()
+        .list_topics_for_org(&org_id)
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
@@ -492,8 +495,12 @@ fn get_simulated_error_metrics(time_range: &str) -> Result<Json<Vec<ErrorMetric>
 )]
 pub async fn get_agent_metrics(
     State(state): State<AppState>,
+    headers: HeaderMap,
     Path(agent_id): Path<String>,
 ) -> Result<Json<AgentMetricsResponse>, StatusCode> {
+    // Agent metrics expose infrastructure details — require admin access
+    crate::handlers::agents::require_admin(&headers)?;
+
     // Get agent info
     let agent = state
         .metadata

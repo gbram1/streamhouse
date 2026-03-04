@@ -11,7 +11,7 @@ use crate::{models::*, AppState};
 use streamhouse_metadata::{TopicConfig, DEFAULT_ORGANIZATION_ID};
 
 /// Extract organization ID from request headers, defaulting to DEFAULT_ORGANIZATION_ID.
-fn extract_org_id(headers: &HeaderMap) -> String {
+pub(crate) fn extract_org_id(headers: &HeaderMap) -> String {
     headers
         .get("x-organization-id")
         .and_then(|v| v.to_str().ok())
@@ -351,12 +351,15 @@ pub async fn delete_topic(
 )]
 pub async fn list_partitions(
     State(state): State<AppState>,
+    headers: HeaderMap,
     Path(name): Path<String>,
 ) -> Result<Json<Vec<Partition>>, StatusCode> {
-    // Check if topic exists
+    let org_id = extract_org_id(&headers);
+
+    // Check if topic exists for this org
     state
         .metadata
-        .get_topic(&name)
+        .get_topic_for_org(&org_id, &name)
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
         .ok_or(StatusCode::NOT_FOUND)?;
@@ -412,6 +415,7 @@ pub async fn list_partitions(
 )]
 pub async fn get_topic_messages(
     State(state): State<AppState>,
+    headers: HeaderMap,
     Path(name): Path<String>,
     Query(params): Query<MessageQueryParams>,
 ) -> Result<Json<Vec<ConsumedRecord>>, StatusCode> {
@@ -419,10 +423,12 @@ pub async fn get_topic_messages(
     use object_store::path::Path as ObjectPath;
     use streamhouse_storage::segment::SegmentReader;
 
-    // Validate topic exists
+    let org_id = extract_org_id(&headers);
+
+    // Validate topic exists for this org
     state
         .metadata
-        .get_topic(&name)
+        .get_topic_for_org(&org_id, &name)
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
         .ok_or(StatusCode::NOT_FOUND)?;

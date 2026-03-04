@@ -30,6 +30,8 @@ pub struct SqlExecutor {
     arrow_executor: ArrowExecutor,
     /// Enable Arrow acceleration (default: true)
     use_arrow: bool,
+    /// Organization ID for multi-tenant isolation (None = global access)
+    org_id: Option<String>,
 }
 
 impl SqlExecutor {
@@ -50,6 +52,7 @@ impl SqlExecutor {
             object_store,
             arrow_executor,
             use_arrow: true,
+            org_id: None,
         }
     }
 
@@ -70,7 +73,15 @@ impl SqlExecutor {
             object_store,
             arrow_executor,
             use_arrow: false,
+            org_id: None,
         }
+    }
+
+    /// Set organization ID for multi-tenant isolation.
+    /// When set, queries are restricted to topics owned by this org.
+    pub fn with_org(mut self, org_id: String) -> Self {
+        self.org_id = Some(org_id);
+        self
     }
 
     /// Enable or disable Arrow acceleration at runtime
@@ -83,12 +94,32 @@ impl SqlExecutor {
         self.use_arrow
     }
 
+    /// Validate that a topic belongs to the current org (if org_id is set).
+    /// Returns Ok(()) if no org_id is set or if the topic belongs to the org.
+    async fn validate_topic_org(&self, topic_name: &str) -> Result<()> {
+        if let Some(ref org_id) = self.org_id {
+            let topic = self.metadata.get_topic_for_org(org_id, topic_name).await?;
+            if topic.is_none() {
+                return Err(SqlError::TopicNotFound(topic_name.to_string()));
+            }
+        }
+        Ok(())
+    }
+
     /// Execute a SQL query
     pub async fn execute(&self, sql: &str, timeout_ms: Option<u64>) -> Result<QueryResult> {
         let start = Instant::now();
         let timeout = timeout_ms.unwrap_or(DEFAULT_TIMEOUT_MS);
 
         let query = crate::parse_query(sql)?;
+
+        // Pre-flight org ownership check: validate all referenced topics belong to this org
+        if self.org_id.is_some() {
+            let topic_names = Self::extract_topic_names(&query);
+            for topic_name in &topic_names {
+                self.validate_topic_org(topic_name).await?;
+            }
+        }
 
         let result = match query {
             SqlQuery::Select(q) => self.execute_select(q, start, timeout).await?,
@@ -120,6 +151,24 @@ impl SqlExecutor {
         };
 
         Ok(result)
+    }
+
+    /// Extract topic names referenced by a parsed SQL query.
+    fn extract_topic_names(query: &SqlQuery) -> Vec<String> {
+        match query {
+            SqlQuery::Select(q) => vec![q.topic.clone()],
+            SqlQuery::DescribeTopic(name) => vec![name.clone()],
+            SqlQuery::Count(q) => vec![q.topic.clone()],
+            SqlQuery::WindowAggregate(q) => vec![q.topic.clone()],
+            SqlQuery::GroupByAggregate(q) => vec![q.topic.clone()],
+            SqlQuery::Join(q) => vec![q.left.topic.clone(), q.right.topic.clone()],
+            SqlQuery::CreateMaterializedView(q) => vec![q.source_topic.clone()],
+            SqlQuery::ShowTopics
+            | SqlQuery::ShowMaterializedViews
+            | SqlQuery::DropMaterializedView(_)
+            | SqlQuery::RefreshMaterializedView(_)
+            | SqlQuery::DescribeMaterializedView(_) => vec![],
+        }
     }
 
     async fn execute_select(
@@ -618,7 +667,11 @@ impl SqlExecutor {
 
     async fn execute_show_topics(&self) -> Result<QueryResult> {
         let start = Instant::now();
-        let topics = self.metadata.list_topics().await?;
+        let topics = if let Some(ref org_id) = self.org_id {
+            self.metadata.list_topics_for_org(org_id).await?
+        } else {
+            self.metadata.list_topics().await?
+        };
 
         let columns = vec![
             ColumnInfo {

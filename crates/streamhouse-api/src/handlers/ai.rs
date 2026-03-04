@@ -4,7 +4,7 @@
 
 use axum::{
     extract::{Path, State},
-    http::StatusCode,
+    http::{HeaderMap, StatusCode},
     Json,
 };
 use serde::{Deserialize, Serialize};
@@ -13,6 +13,7 @@ use std::sync::Arc;
 use tokio::sync::RwLock;
 use utoipa::ToSchema;
 
+use crate::handlers::topics::extract_org_id;
 use crate::AppState;
 
 /// In-memory query history store (per-session, not persisted)
@@ -351,8 +352,10 @@ lazy_static::lazy_static! {
 )]
 pub async fn ask_query(
     State(state): State<AppState>,
+    headers: HeaderMap,
     Json(req): Json<AskQueryRequest>,
 ) -> Result<Json<AskQueryResponse>, (StatusCode, Json<AskQueryError>)> {
+    let org_id = extract_org_id(&headers);
     // Get API key from environment
     let api_key = std::env::var("ANTHROPIC_API_KEY").map_err(|_| {
         (
@@ -369,14 +372,14 @@ pub async fn ask_query(
         )
     })?;
 
-    // Fetch topic schemas for context
+    // Fetch topic schemas for context (org-scoped)
     let topics = match &req.topics {
         Some(t) => t.clone(),
         None => {
-            // Get all topics
+            // Get topics for this org
             state
                 .metadata
-                .list_topics()
+                .list_topics_for_org(&org_id)
                 .await
                 .map_err(|e| {
                     (
@@ -395,15 +398,16 @@ pub async fn ask_query(
         }
     };
 
-    // Build schema context for the prompt
-    let schema_context = build_schema_context(&state, &topics).await?;
+    // Build schema context for the prompt (org-scoped)
+    let schema_context = build_schema_context(&state, &org_id, &topics).await?;
 
     // Generate SQL using Claude
     let generation_result = generate_sql(&api_key, &req.question, &schema_context, None).await?;
 
-    // Calculate cost estimate
+    // Calculate cost estimate (org-scoped)
     let cost_estimate = estimate_query_cost(
         &state,
+        &org_id,
         &generation_result.sql,
         &generation_result.topics_used,
     )
@@ -465,16 +469,17 @@ pub async fn ask_query(
     }))
 }
 
-/// Build schema context from topics
+/// Build schema context from topics (org-scoped)
 async fn build_schema_context(
     state: &AppState,
+    org_id: &str,
     topics: &[String],
 ) -> Result<String, (StatusCode, Json<AskQueryError>)> {
     let mut context = String::new();
     context.push_str("Available tables (topics) and their schemas:\n\n");
 
     for topic_name in topics {
-        if let Ok(Some(topic)) = state.metadata.get_topic(topic_name).await {
+        if let Ok(Some(topic)) = state.metadata.get_topic_for_org(org_id, topic_name).await {
             context.push_str(&format!("TABLE: {}\n", topic.name));
             context.push_str(&format!("  Partitions: {}\n", topic.partition_count));
 
@@ -821,9 +826,11 @@ pub async fn get_query_by_id(
 )]
 pub async fn refine_query(
     State(state): State<AppState>,
+    headers: HeaderMap,
     Path(id): Path<String>,
     Json(req): Json<RefineQueryRequest>,
 ) -> Result<Json<AskQueryResponse>, (StatusCode, Json<AskQueryError>)> {
+    let org_id = extract_org_id(&headers);
     // Get the original query
     let original = {
         let history = QUERY_HISTORY.read().await;
@@ -855,16 +862,17 @@ pub async fn refine_query(
         )
     })?;
 
-    // Build context with original query
-    let schema_context = build_schema_context(&state, &original.topics_used).await?;
+    // Build context with original query (org-scoped)
+    let schema_context = build_schema_context(&state, &org_id, &original.topics_used).await?;
 
     // Generate refined SQL
     let generation_result =
         generate_sql(&api_key, &req.refinement, &schema_context, Some(&original)).await?;
 
-    // Calculate cost estimate
+    // Calculate cost estimate (org-scoped)
     let cost_estimate = estimate_query_cost(
         &state,
+        &org_id,
         &generation_result.sql,
         &generation_result.topics_used,
     )
@@ -927,8 +935,10 @@ pub async fn refine_query(
 )]
 pub async fn estimate_cost(
     State(state): State<AppState>,
+    headers: HeaderMap,
     Json(req): Json<EstimateCostRequest>,
 ) -> Result<Json<CostEstimate>, (StatusCode, Json<AskQueryError>)> {
+    let org_id = extract_org_id(&headers);
     let (sql, topics) = if req.is_sql {
         // Parse SQL to extract topics
         let topics = extract_topics_from_sql(&req.query);
@@ -952,12 +962,12 @@ pub async fn estimate_cost(
             vec![]
         });
 
-        let schema_context = build_schema_context(&state, &topics).await?;
+        let schema_context = build_schema_context(&state, &org_id, &topics).await?;
         let result = generate_sql(&api_key, &req.query, &schema_context, None).await?;
         (result.sql, result.topics_used)
     };
 
-    let estimate = estimate_query_cost(&state, &sql, &topics)
+    let estimate = estimate_query_cost(&state, &org_id, &sql, &topics)
         .await
         .map_err(|e| {
             (
@@ -997,9 +1007,10 @@ fn extract_topics_from_sql(sql: &str) -> Vec<String> {
     topics
 }
 
-/// Estimate query cost
+/// Estimate query cost (org-scoped)
 async fn estimate_query_cost(
     state: &AppState,
+    org_id: &str,
     sql: &str,
     topics: &[String],
 ) -> Result<CostEstimate, String> {
@@ -1008,9 +1019,9 @@ async fn estimate_query_cost(
     let mut warnings = Vec::new();
     let mut suggestions = Vec::new();
 
-    // Get topic stats
+    // Get topic stats (org-scoped)
     for topic_name in topics {
-        if let Ok(Some(topic)) = state.metadata.get_topic(topic_name).await {
+        if let Ok(Some(topic)) = state.metadata.get_topic_for_org(org_id, topic_name).await {
             // Get message count from all partitions
             for partition_id in 0..topic.partition_count {
                 if let Ok(segments) = state.metadata.get_segments(topic_name, partition_id).await {
@@ -1135,12 +1146,15 @@ pub async fn clear_query_history() -> StatusCode {
 )]
 pub async fn infer_schema(
     State(state): State<AppState>,
+    headers: HeaderMap,
     Json(req): Json<InferSchemaRequest>,
 ) -> Result<Json<InferredSchema>, (StatusCode, Json<AskQueryError>)> {
-    // Check if topic exists
+    let org_id = extract_org_id(&headers);
+
+    // Check if topic exists (org-scoped)
     let topic = state
         .metadata
-        .get_topic(&req.topic)
+        .get_topic_for_org(&org_id, &req.topic)
         .await
         .map_err(|e| {
             (
