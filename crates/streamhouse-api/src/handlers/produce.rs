@@ -118,9 +118,9 @@ pub async fn produce(
 ) -> Result<Json<ProduceResponse>, StatusCode> {
     let org_id = extract_org_id(&headers, auth_key.as_ref().map(|e| &e.0));
 
-    // Verify topic belongs to org
-    match state.metadata.get_topic_for_org(&org_id, &req.topic).await {
-        Ok(Some(_)) => {} // Topic belongs to this org
+    // Verify topic belongs to org and get its metadata
+    let topic = match state.metadata.get_topic_for_org(&org_id, &req.topic).await {
+        Ok(Some(t)) => t,
         Ok(None) => return Err(StatusCode::NOT_FOUND),
         Err(e) => {
             tracing::error!(
@@ -129,16 +129,6 @@ pub async fn produce(
                 req.topic,
                 e
             );
-            return Err(StatusCode::INTERNAL_SERVER_ERROR);
-        }
-    }
-
-    // Validate topic exists
-    let topic = match state.metadata.get_topic(&req.topic).await {
-        Ok(Some(t)) => t,
-        Ok(None) => return Err(StatusCode::NOT_FOUND),
-        Err(e) => {
-            tracing::error!("get_topic failed: topic={}, err={:?}", req.topic, e);
             return Err(StatusCode::INTERNAL_SERVER_ERROR);
         }
     };
