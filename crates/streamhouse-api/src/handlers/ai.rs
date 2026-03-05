@@ -189,6 +189,42 @@ pub struct AskQueryError {
     pub suggestions: Vec<String>,
 }
 
+/// Which AI provider to use
+#[derive(Debug, Clone)]
+enum AiProvider {
+    OpenAi { api_key: String },
+    Anthropic { api_key: String },
+}
+
+/// Detect which AI provider is configured, preferring OpenAI
+fn detect_ai_provider() -> Option<AiProvider> {
+    if let Ok(key) = std::env::var("OPENAI_API_KEY") {
+        Some(AiProvider::OpenAi { api_key: key })
+    } else if let Ok(key) = std::env::var("ANTHROPIC_API_KEY") {
+        Some(AiProvider::Anthropic { api_key: key })
+    } else {
+        None
+    }
+}
+
+/// Get AI provider or return a service unavailable error
+fn require_ai_provider() -> Result<AiProvider, (StatusCode, Json<AskQueryError>)> {
+    detect_ai_provider().ok_or_else(|| {
+        (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(AskQueryError {
+                error: "ai_not_configured".to_string(),
+                message: "No AI API key configured. Set OPENAI_API_KEY or ANTHROPIC_API_KEY.".to_string(),
+                sql: None,
+                suggestions: vec![
+                    "Set OPENAI_API_KEY environment variable".to_string(),
+                    "Or set ANTHROPIC_API_KEY environment variable".to_string(),
+                ],
+            }),
+        )
+    })
+}
+
 /// Claude API request
 #[derive(Debug, Serialize)]
 struct ClaudeRequest {
@@ -218,6 +254,132 @@ struct ClaudeContent {
     text: String,
     #[serde(rename = "type")]
     content_type: String,
+}
+
+/// OpenAI API request
+#[derive(Debug, Serialize)]
+struct OpenAiRequest {
+    model: String,
+    max_tokens: u32,
+    messages: Vec<OpenAiMessage>,
+}
+
+#[derive(Debug, Serialize)]
+struct OpenAiMessage {
+    role: String,
+    content: String,
+}
+
+/// OpenAI API response
+#[derive(Debug, Deserialize)]
+#[allow(dead_code)]
+struct OpenAiResponse {
+    choices: Vec<OpenAiChoice>,
+}
+
+#[derive(Debug, Deserialize)]
+#[allow(dead_code)]
+struct OpenAiChoice {
+    message: OpenAiResponseMessage,
+}
+
+#[derive(Debug, Deserialize)]
+#[allow(dead_code)]
+struct OpenAiResponseMessage {
+    content: String,
+}
+
+/// Call an AI provider with a system prompt and user message, returning the text response
+async fn call_ai(
+    provider: &AiProvider,
+    system_prompt: &str,
+    user_message: &str,
+    max_tokens: u32,
+) -> Result<String, String> {
+    let client = reqwest::Client::new();
+
+    match provider {
+        AiProvider::OpenAi { api_key } => {
+            let request = OpenAiRequest {
+                model: "gpt-4o".to_string(),
+                max_tokens,
+                messages: vec![
+                    OpenAiMessage {
+                        role: "system".to_string(),
+                        content: system_prompt.to_string(),
+                    },
+                    OpenAiMessage {
+                        role: "user".to_string(),
+                        content: user_message.to_string(),
+                    },
+                ],
+            };
+
+            let response = client
+                .post("https://api.openai.com/v1/chat/completions")
+                .header("Authorization", format!("Bearer {}", api_key))
+                .header("Content-Type", "application/json")
+                .json(&request)
+                .send()
+                .await
+                .map_err(|e| format!("Failed to connect to OpenAI: {}", e))?;
+
+            if !response.status().is_success() {
+                let status = response.status();
+                let error_text = response.text().await.unwrap_or_default();
+                return Err(format!("OpenAI returned error {}: {}", status, error_text));
+            }
+
+            let oai_response: OpenAiResponse = response
+                .json()
+                .await
+                .map_err(|e| format!("Failed to parse OpenAI response: {}", e))?;
+
+            Ok(oai_response
+                .choices
+                .first()
+                .map(|c| c.message.content.clone())
+                .unwrap_or_default())
+        }
+        AiProvider::Anthropic { api_key } => {
+            let request = ClaudeRequest {
+                model: "claude-sonnet-4-20250514".to_string(),
+                max_tokens,
+                system: system_prompt.to_string(),
+                messages: vec![ClaudeMessage {
+                    role: "user".to_string(),
+                    content: user_message.to_string(),
+                }],
+            };
+
+            let response = client
+                .post("https://api.anthropic.com/v1/messages")
+                .header("x-api-key", api_key.as_str())
+                .header("anthropic-version", "2023-06-01")
+                .header("content-type", "application/json")
+                .json(&request)
+                .send()
+                .await
+                .map_err(|e| format!("Failed to connect to Anthropic: {}", e))?;
+
+            if !response.status().is_success() {
+                let status = response.status();
+                let error_text = response.text().await.unwrap_or_default();
+                return Err(format!("Anthropic returned error {}: {}", status, error_text));
+            }
+
+            let claude_response: ClaudeResponse = response
+                .json()
+                .await
+                .map_err(|e| format!("Failed to parse Anthropic response: {}", e))?;
+
+            Ok(claude_response
+                .content
+                .first()
+                .map(|c| c.text.clone())
+                .unwrap_or_default())
+        }
+    }
 }
 
 /// Parsed SQL generation response
@@ -358,53 +520,46 @@ pub async fn ask_query(
     Json(req): Json<AskQueryRequest>,
 ) -> Result<Json<AskQueryResponse>, (StatusCode, Json<AskQueryError>)> {
     let org_id = extract_org_id(&headers, auth_key.as_ref().map(|e| &e.0));
-    // Get API key from environment
-    let api_key = std::env::var("ANTHROPIC_API_KEY").map_err(|_| {
-        (
-            StatusCode::SERVICE_UNAVAILABLE,
-            Json(AskQueryError {
-                error: "ai_not_configured".to_string(),
-                message: "ANTHROPIC_API_KEY environment variable not set".to_string(),
-                sql: None,
-                suggestions: vec![
-                    "Set ANTHROPIC_API_KEY environment variable".to_string(),
-                    "Get an API key from https://console.anthropic.com".to_string(),
-                ],
-            }),
-        )
-    })?;
+    // Detect AI provider
+    let provider = require_ai_provider()?;
 
     // Fetch topic schemas for context (org-scoped)
+    // Always get the org's actual topics to validate/filter
+    let org_topics: Vec<String> = state
+        .metadata
+        .list_topics_for_org(&org_id)
+        .await
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(AskQueryError {
+                    error: "metadata_error".to_string(),
+                    message: format!("Failed to list topics: {}", e),
+                    sql: None,
+                    suggestions: vec![],
+                }),
+            )
+        })?
+        .into_iter()
+        .map(|t| t.name)
+        .collect();
+
     let topics = match &req.topics {
-        Some(t) => t.clone(),
-        None => {
-            // Get topics for this org
-            state
-                .metadata
-                .list_topics_for_org(&org_id)
-                .await
-                .map_err(|e| {
-                    (
-                        StatusCode::INTERNAL_SERVER_ERROR,
-                        Json(AskQueryError {
-                            error: "metadata_error".to_string(),
-                            message: format!("Failed to list topics: {}", e),
-                            sql: None,
-                            suggestions: vec![],
-                        }),
-                    )
-                })?
-                .into_iter()
-                .map(|t| t.name)
+        Some(t) => {
+            // Filter user-specified topics to only those in this org
+            t.iter()
+                .filter(|name| org_topics.contains(name))
+                .cloned()
                 .collect()
         }
+        None => org_topics.clone(),
     };
 
     // Build schema context for the prompt (org-scoped)
     let schema_context = build_schema_context(&state, &org_id, &topics).await?;
 
-    // Generate SQL using Claude
-    let generation_result = generate_sql(&api_key, &req.question, &schema_context, None).await?;
+    // Generate SQL using AI provider
+    let generation_result = generate_sql(&provider, &req.question, &schema_context, None).await?;
 
     // Calculate cost estimate (org-scoped)
     let cost_estimate = estimate_query_cost(
@@ -416,9 +571,9 @@ pub async fn ask_query(
     .await
     .ok();
 
-    // Optionally execute the query
+    // Optionally execute the query (org-scoped)
     let results = if req.execute {
-        Some(execute_generated_sql(&state, &generation_result.sql, req.timeout_ms).await?)
+        Some(execute_generated_sql(&state, &org_id, &generation_result.sql, req.timeout_ms).await?)
     } else {
         None
     };
@@ -513,15 +668,13 @@ async fn build_schema_context(
     Ok(context)
 }
 
-/// Generate SQL using Claude API
+/// Generate SQL using configured AI provider
 async fn generate_sql(
-    api_key: &str,
+    provider: &AiProvider,
     question: &str,
     schema_context: &str,
     original_query: Option<&QueryHistoryEntry>,
 ) -> Result<SqlGenerationResponse, (StatusCode, Json<AskQueryError>)> {
-    let client = reqwest::Client::new();
-
     let refinement_context = if let Some(original) = original_query {
         format!(
             r#"
@@ -569,68 +722,19 @@ Respond with a JSON object containing:
         format!("Generate a SQL query for: {}", question)
     };
 
-    let request = ClaudeRequest {
-        model: "claude-sonnet-4-20250514".to_string(),
-        max_tokens: 1024,
-        system: system_prompt,
-        messages: vec![ClaudeMessage {
-            role: "user".to_string(),
-            content: user_message,
-        }],
-    };
-
-    let response = client
-        .post("https://api.anthropic.com/v1/messages")
-        .header("x-api-key", api_key)
-        .header("anthropic-version", "2023-06-01")
-        .header("content-type", "application/json")
-        .json(&request)
-        .send()
+    let text = call_ai(provider, &system_prompt, &user_message, 1024)
         .await
         .map_err(|e| {
             (
                 StatusCode::SERVICE_UNAVAILABLE,
                 Json(AskQueryError {
                     error: "ai_request_failed".to_string(),
-                    message: format!("Failed to connect to AI service: {}", e),
+                    message: e,
                     sql: None,
-                    suggestions: vec!["Check your internet connection".to_string()],
+                    suggestions: vec!["Check your API key and internet connection".to_string()],
                 }),
             )
         })?;
-
-    if !response.status().is_success() {
-        let status = response.status();
-        let error_text = response.text().await.unwrap_or_default();
-        return Err((
-            StatusCode::SERVICE_UNAVAILABLE,
-            Json(AskQueryError {
-                error: "ai_error".to_string(),
-                message: format!("AI service returned error {}: {}", status, error_text),
-                sql: None,
-                suggestions: vec!["Check your API key".to_string()],
-            }),
-        ));
-    }
-
-    let claude_response: ClaudeResponse = response.json().await.map_err(|e| {
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(AskQueryError {
-                error: "ai_parse_error".to_string(),
-                message: format!("Failed to parse AI response: {}", e),
-                sql: None,
-                suggestions: vec![],
-            }),
-        )
-    })?;
-
-    // Extract the text content
-    let text = claude_response
-        .content
-        .first()
-        .map(|c| c.text.clone())
-        .unwrap_or_default();
 
     // Parse the JSON response
     // Try to extract JSON from the response (it might be wrapped in markdown)
@@ -693,9 +797,10 @@ fn extract_sql_fallback(text: &str) -> Option<String> {
     None
 }
 
-/// Execute the generated SQL query
+/// Execute the generated SQL query (org-scoped)
 async fn execute_generated_sql(
     state: &AppState,
+    org_id: &str,
     sql: &str,
     timeout_ms: Option<u64>,
 ) -> Result<QueryResults, (StatusCode, Json<AskQueryError>)> {
@@ -703,7 +808,8 @@ async fn execute_generated_sql(
         state.metadata.clone(),
         state.segment_cache.clone(),
         state.object_store.clone(),
-    );
+    )
+    .with_org(org_id.to_string());
 
     match executor.execute(sql, timeout_ms).await {
         Ok(result) => Ok(QueryResults {
@@ -740,14 +846,18 @@ async fn execute_generated_sql(
     tag = "ai"
 )]
 pub async fn ai_health() -> Result<Json<serde_json::Value>, StatusCode> {
-    if std::env::var("ANTHROPIC_API_KEY").is_ok() {
-        Ok(Json(serde_json::json!({
+    match detect_ai_provider() {
+        Some(AiProvider::OpenAi { .. }) => Ok(Json(serde_json::json!({
+            "status": "configured",
+            "provider": "openai",
+            "model": "gpt-4o"
+        }))),
+        Some(AiProvider::Anthropic { .. }) => Ok(Json(serde_json::json!({
             "status": "configured",
             "provider": "anthropic",
             "model": "claude-sonnet-4-20250514"
-        })))
-    } else {
-        Err(StatusCode::SERVICE_UNAVAILABLE)
+        }))),
+        None => Err(StatusCode::SERVICE_UNAVAILABLE),
     }
 }
 
@@ -852,25 +962,15 @@ pub async fn refine_query(
         )
     })?;
 
-    // Get API key
-    let api_key = std::env::var("ANTHROPIC_API_KEY").map_err(|_| {
-        (
-            StatusCode::SERVICE_UNAVAILABLE,
-            Json(AskQueryError {
-                error: "ai_not_configured".to_string(),
-                message: "ANTHROPIC_API_KEY environment variable not set".to_string(),
-                sql: None,
-                suggestions: vec!["Set ANTHROPIC_API_KEY environment variable".to_string()],
-            }),
-        )
-    })?;
+    // Detect AI provider
+    let provider = require_ai_provider()?;
 
     // Build context with original query (org-scoped)
     let schema_context = build_schema_context(&state, &org_id, &original.topics_used).await?;
 
     // Generate refined SQL
     let generation_result =
-        generate_sql(&api_key, &req.refinement, &schema_context, Some(&original)).await?;
+        generate_sql(&provider, &req.refinement, &schema_context, Some(&original)).await?;
 
     // Calculate cost estimate (org-scoped)
     let cost_estimate = estimate_query_cost(
@@ -882,9 +982,9 @@ pub async fn refine_query(
     .await
     .ok();
 
-    // Optionally execute
+    // Optionally execute (org-scoped)
     let results = if req.execute {
-        Some(execute_generated_sql(&state, &generation_result.sql, req.timeout_ms).await?)
+        Some(execute_generated_sql(&state, &org_id, &generation_result.sql, req.timeout_ms).await?)
     } else {
         None
     };
@@ -949,17 +1049,7 @@ pub async fn estimate_cost(
         (req.query.clone(), topics)
     } else {
         // Generate SQL first
-        let api_key = std::env::var("ANTHROPIC_API_KEY").map_err(|_| {
-            (
-                StatusCode::SERVICE_UNAVAILABLE,
-                Json(AskQueryError {
-                    error: "ai_not_configured".to_string(),
-                    message: "ANTHROPIC_API_KEY environment variable not set".to_string(),
-                    sql: None,
-                    suggestions: vec![],
-                }),
-            )
-        })?;
+        let provider = require_ai_provider()?;
 
         let topics = req.topics.unwrap_or_else(|| {
             // Default to all topics - would need async here
@@ -967,7 +1057,7 @@ pub async fn estimate_cost(
         });
 
         let schema_context = build_schema_context(&state, &org_id, &topics).await?;
-        let result = generate_sql(&api_key, &req.query, &schema_context, None).await?;
+        let result = generate_sql(&provider, &req.query, &schema_context, None).await?;
         (result.sql, result.topics_used)
     };
 
@@ -1184,12 +1274,13 @@ pub async fn infer_schema(
             )
         })?;
 
-    // Sample messages from the topic using SQL
+    // Sample messages from the topic using SQL (org-scoped)
     let executor = streamhouse_sql::SqlExecutor::new(
         state.metadata.clone(),
         state.segment_cache.clone(),
         state.object_store.clone(),
-    );
+    )
+    .with_org(org_id.clone());
 
     let sample_sql = format!(
         "SELECT value FROM {} LIMIT {}",
@@ -1254,8 +1345,8 @@ pub async fn infer_schema(
 
     // Generate AI descriptions and recommendations if requested
     let (descriptions, summary, ai_index_suggestions) = if req.generate_descriptions {
-        if let Ok(api_key) = std::env::var("ANTHROPIC_API_KEY") {
-            match generate_schema_analysis(&api_key, &req.topic, &fields).await {
+        if let Some(provider) = detect_ai_provider() {
+            match generate_schema_analysis(&provider, &req.topic, &fields).await {
                 Ok(analysis) => (
                     Some(analysis.field_descriptions),
                     Some(analysis.summary),
@@ -1494,12 +1585,10 @@ fn generate_index_recommendations(
 
 /// Generate AI-powered schema analysis
 async fn generate_schema_analysis(
-    api_key: &str,
+    provider: &AiProvider,
     topic_name: &str,
     fields: &[InferredField],
 ) -> Result<SchemaAnalysisResponse, String> {
-    let client = reqwest::Client::new();
-
     // Build field summary for the prompt
     let field_summary: String = fields
         .iter()
@@ -1537,42 +1626,13 @@ Respond with JSON:
         topic_name, field_summary
     );
 
-    let request = ClaudeRequest {
-        model: "claude-sonnet-4-20250514".to_string(),
-        max_tokens: 2048,
-        system: system_prompt,
-        messages: vec![ClaudeMessage {
-            role: "user".to_string(),
-            content:
-                "Analyze this schema and provide descriptions, summary, and index recommendations."
-                    .to_string(),
-        }],
-    };
-
-    let response = client
-        .post("https://api.anthropic.com/v1/messages")
-        .header("x-api-key", api_key)
-        .header("anthropic-version", "2023-06-01")
-        .header("content-type", "application/json")
-        .json(&request)
-        .send()
-        .await
-        .map_err(|e| format!("Failed to call AI: {}", e))?;
-
-    if !response.status().is_success() {
-        return Err(format!("AI returned error: {}", response.status()));
-    }
-
-    let claude_response: ClaudeResponse = response
-        .json()
-        .await
-        .map_err(|e| format!("Failed to parse AI response: {}", e))?;
-
-    let text = claude_response
-        .content
-        .first()
-        .map(|c| c.text.clone())
-        .unwrap_or_default();
+    let text = call_ai(
+        provider,
+        &system_prompt,
+        "Analyze this schema and provide descriptions, summary, and index recommendations.",
+        2048,
+    )
+    .await?;
 
     let json_text = extract_json(&text);
     serde_json::from_str(&json_text).map_err(|e| format!("Failed to parse schema analysis: {}", e))
