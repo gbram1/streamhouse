@@ -248,6 +248,11 @@ async fn get_simulated_throughput_metrics(
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
+    // No topics in this org → no throughput data
+    if topics.is_empty() {
+        return Ok(Json(vec![]));
+    }
+
     let mut total_messages = 0u64;
     for topic in &topics {
         let partitions = state
@@ -270,11 +275,7 @@ async fn get_simulated_throughput_metrics(
     };
 
     let now = chrono::Utc::now().timestamp();
-    let base_rate = if total_messages > 0 {
-        (total_messages as f64 / 3600.0).max(10.0)
-    } else {
-        50.0
-    };
+    let base_rate = (total_messages as f64 / 3600.0).max(10.0);
 
     let metrics: Vec<ThroughputMetric> = (0..points)
         .map(|i| {
@@ -307,9 +308,21 @@ async fn get_simulated_throughput_metrics(
 )]
 pub async fn get_latency_metrics(
     State(state): State<AppState>,
+    headers: HeaderMap,
     Query(params): Query<TimeRangeParams>,
 ) -> Result<Json<Vec<LatencyMetric>>, StatusCode> {
+    let org_id = extract_org_id(&headers);
     let time_range = params.time_range.as_deref().unwrap_or("1h");
+
+    // No topics in this org → no latency data
+    let topics = state
+        .metadata
+        .list_topics_for_org(&org_id)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    if topics.is_empty() {
+        return Ok(Json(vec![]));
+    }
 
     // Try to get real metrics from Prometheus
     if let Some(prometheus) = &state.prometheus {
@@ -412,9 +425,21 @@ fn get_simulated_latency_metrics(time_range: &str) -> Result<Json<Vec<LatencyMet
 )]
 pub async fn get_error_metrics(
     State(state): State<AppState>,
+    headers: HeaderMap,
     Query(params): Query<TimeRangeParams>,
 ) -> Result<Json<Vec<ErrorMetric>>, StatusCode> {
+    let org_id = extract_org_id(&headers);
     let time_range = params.time_range.as_deref().unwrap_or("1h");
+
+    // No topics in this org → no error data
+    let topics = state
+        .metadata
+        .list_topics_for_org(&org_id)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    if topics.is_empty() {
+        return Ok(Json(vec![]));
+    }
 
     // Try to get real metrics from Prometheus
     if let Some(prometheus) = &state.prometheus {
