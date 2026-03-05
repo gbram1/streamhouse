@@ -328,6 +328,12 @@ pub trait MetadataStore: Send + Sync {
         self.get_topic(name).await
     }
 
+    /// Get the organization_id that owns a topic.
+    async fn get_topic_organization_id(&self, _topic: &str) -> Result<Option<String>> {
+        // Default: return default org (backward compat for SQLite without org column)
+        Ok(Some("00000000-0000-0000-0000-000000000000".to_string()))
+    }
+
     /// Ensure an organization exists, creating it if necessary (lazy sync from external auth).
     async fn ensure_organization(&self, _org_id: &str, _name: &str) -> Result<()> {
         Ok(())

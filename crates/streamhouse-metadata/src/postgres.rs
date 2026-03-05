@@ -356,6 +356,18 @@ impl MetadataStore for PostgresMetadataStore {
         }))
     }
 
+    async fn get_topic_organization_id(&self, topic: &str) -> Result<Option<String>> {
+        let row = sqlx::query(
+            "SELECT organization_id::text FROM topics WHERE name = $1",
+        )
+        .bind(topic)
+        .fetch_optional(&self.pool)
+        .await?;
+
+        use sqlx::Row;
+        Ok(row.map(|r| r.get::<String, _>("organization_id")))
+    }
+
     async fn list_topics(&self) -> Result<Vec<Topic>> {
         let rows = sqlx::query(
             "SELECT name, partition_count, retention_ms, created_at, config

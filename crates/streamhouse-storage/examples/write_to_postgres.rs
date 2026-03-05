@@ -104,6 +104,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             object_store.clone(),
             metadata.clone(),
             write_config.clone(),
+            "data".to_string(),
         )
         .await?;
 
@@ -145,6 +146,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             object_store.clone(),
             metadata.clone(),
             write_config.clone(),
+            "data".to_string(),
         )
         .await?;
 
@@ -187,6 +189,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             object_store.clone(),
             metadata.clone(),
             write_config.clone(),
+            "data".to_string(),
         )
         .await?;
 

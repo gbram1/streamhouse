@@ -146,6 +146,9 @@ pub struct PartitionWriter {
     object_store: Arc<dyn ObjectStore>,
     metadata: Arc<dyn MetadataStore>,
 
+    // S3 data prefix (org-scoped): "data" for default org, "org-{id}/data" for others
+    s3_data_prefix: String,
+
     // Write-Ahead Log for durability (optional)
     wal: Option<WAL>,
 
@@ -202,6 +205,7 @@ impl PartitionWriter {
         object_store: Arc<dyn ObjectStore>,
         metadata: Arc<dyn MetadataStore>,
         config: WriteConfig,
+        s3_data_prefix: String,
     ) -> Result<Self> {
         // Get current high watermark from metadata
         let partition = metadata
@@ -311,6 +315,7 @@ impl PartitionWriter {
             segment_size_estimate: 0,
             object_store,
             metadata,
+            s3_data_prefix,
             wal,
             throttle,
             stale_wal_files,
@@ -512,10 +517,10 @@ impl PartitionWriter {
             .map_err(|e| Error::SegmentError(e.to_string()))?;
         let size_bytes = segment_bytes.len() as u64;
 
-        // Generate S3 path
+        // Generate S3 path (org-scoped via s3_data_prefix)
         let s3_key = format!(
-            "data/{}/{}/{:020}.seg",
-            self.topic, self.partition_id, base_offset
+            "{}/{}/{}/{:020}.seg",
+            self.s3_data_prefix, self.topic, self.partition_id, base_offset
         );
 
         // Record segment write metrics (Phase 7.1d)
@@ -1083,6 +1088,9 @@ impl TopicWriter {
         metadata: Arc<dyn MetadataStore>,
         config: WriteConfig,
     ) -> Result<Self> {
+        // Look up org-scoped S3 prefix
+        let s3_data_prefix = Self::resolve_s3_prefix(&*metadata, &topic).await;
+
         let mut partitions = Vec::new();
 
         for partition_id in 0..partition_count {
@@ -1092,6 +1100,7 @@ impl TopicWriter {
                 object_store.clone(),
                 metadata.clone(),
                 config.clone(),
+                s3_data_prefix.clone(),
             )
             .await?;
 
@@ -1103,6 +1112,16 @@ impl TopicWriter {
             partitions,
             round_robin_counter: Arc::new(std::sync::atomic::AtomicU32::new(0)),
         })
+    }
+
+    /// Resolve the S3 data prefix for a topic based on its organization.
+    /// Default org → "data", other orgs → "org-{id}/data"
+    async fn resolve_s3_prefix(metadata: &dyn MetadataStore, topic: &str) -> String {
+        const DEFAULT_ORG: &str = "00000000-0000-0000-0000-000000000000";
+        match metadata.get_topic_organization_id(topic).await {
+            Ok(Some(org_id)) if org_id != DEFAULT_ORG => format!("org-{}/data", org_id),
+            _ => "data".to_string(),
+        }
     }
 
     /// Append a record, automatically selecting partition

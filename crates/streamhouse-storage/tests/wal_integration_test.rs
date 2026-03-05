@@ -79,6 +79,7 @@ async fn test_wal_recovery_offset_continuity() {
             object_store.clone(),
             metadata.clone(),
             write_config.clone(),
+            "data".to_string(),
         )
         .await
         .unwrap();
@@ -113,6 +114,7 @@ async fn test_wal_recovery_offset_continuity() {
             object_store.clone(),
             metadata.clone(),
             write_config.clone(),
+            "data".to_string(),
         )
         .await
         .unwrap();
@@ -149,6 +151,7 @@ async fn test_crash_recovery_no_data_loss() {
             object_store.clone(),
             metadata.clone(),
             write_config.clone(),
+            "data".to_string(),
         )
         .await
         .unwrap();
@@ -180,6 +183,7 @@ async fn test_crash_recovery_no_data_loss() {
             object_store.clone(),
             metadata.clone(),
             write_config.clone(),
+            "data".to_string(),
         )
         .await
         .unwrap();
@@ -231,6 +235,7 @@ async fn test_wal_truncated_after_flush() {
         object_store.clone(),
         metadata.clone(),
         write_config,
+        "data".to_string(),
     )
     .await
     .unwrap();
@@ -271,6 +276,7 @@ async fn test_wal_truncated_after_flush() {
         object_store.clone(),
         metadata.clone(),
         write_config2,
+        "data".to_string(),
     )
     .await
     .unwrap();
@@ -313,6 +319,7 @@ async fn test_multiple_crash_recovery_cycles() {
             object_store.clone(),
             metadata.clone(),
             write_config.clone(),
+            "data".to_string(),
         )
         .await
         .unwrap();
@@ -338,6 +345,7 @@ async fn test_multiple_crash_recovery_cycles() {
             object_store.clone(),
             metadata.clone(),
             write_config.clone(),
+            "data".to_string(),
         )
         .await
         .unwrap();
@@ -381,6 +389,7 @@ async fn test_multiple_crash_recovery_cycles() {
             object_store.clone(),
             metadata.clone(),
             write_config.clone(),
+            "data".to_string(),
         )
         .await
         .unwrap();
@@ -450,6 +459,7 @@ async fn test_concurrent_partition_wals() {
                 object_store,
                 metadata,
                 write_config,
+                "data".to_string(),
             )
             .await
             .unwrap();
@@ -483,6 +493,7 @@ async fn test_concurrent_partition_wals() {
             object_store.clone(),
             metadata.clone(),
             write_config.clone(),
+            "data".to_string(),
         )
         .await
         .unwrap();
@@ -540,6 +551,7 @@ async fn test_wal_disabled_mode() {
         object_store.clone(),
         metadata.clone(),
         write_config_no_wal.clone(),
+        "data".to_string(),
     )
     .await
     .unwrap();
@@ -566,6 +578,7 @@ async fn test_wal_disabled_mode() {
         object_store.clone(),
         metadata.clone(),
         write_config_no_wal,
+        "data".to_string(),
     )
     .await
     .unwrap();

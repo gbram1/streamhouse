@@ -95,6 +95,7 @@ async fn test_consumer_read_after_produce() {
         object_store.clone(),
         metadata.clone(),
         WriteConfig::default(),
+        "data".to_string(),
     )
     .await
     .unwrap();
@@ -163,6 +164,7 @@ async fn test_consumer_offset_commit() {
         object_store.clone(),
         metadata.clone(),
         WriteConfig::default(),
+        "data".to_string(),
     )
     .await
     .unwrap();
@@ -237,6 +239,7 @@ async fn test_consumer_auto_commit() {
         object_store.clone(),
         metadata.clone(),
         WriteConfig::default(),
+        "data".to_string(),
     )
     .await
     .unwrap();
@@ -300,6 +303,7 @@ async fn test_consumer_multiple_partitions() {
             object_store.clone(),
             metadata.clone(),
             WriteConfig::default(),
+            "data".to_string(),
         )
         .await
         .unwrap();
@@ -358,6 +362,7 @@ async fn test_consumer_offset_reset_earliest() {
         object_store.clone(),
         metadata.clone(),
         WriteConfig::default(),
+        "data".to_string(),
     )
     .await
     .unwrap();
@@ -411,6 +416,7 @@ async fn test_consumer_offset_reset_latest() {
         object_store.clone(),
         metadata.clone(),
         WriteConfig::default(),
+        "data".to_string(),
     )
     .await
     .unwrap();
@@ -464,6 +470,7 @@ async fn test_consumer_throughput() {
         object_store.clone(),
         metadata.clone(),
         WriteConfig::default(),
+        "data".to_string(),
     )
     .await
     .unwrap();

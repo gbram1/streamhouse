@@ -311,6 +311,7 @@ async fn run_full_write_path(value: &Bytes) -> anyhow::Result<FullRunStats> {
                 object_store.clone(),
                 metadata.clone(),
                 write_config.clone(),
+                "data".to_string(),
             )
             .await?,
         );

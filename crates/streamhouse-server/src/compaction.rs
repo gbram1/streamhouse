@@ -377,9 +377,16 @@ impl CompactionTask {
             // Upload compacted segment
             let base_offset = compacted_records.first().unwrap().offset;
             let end_offset = compacted_records.last().unwrap().offset;
+            let s3_data_prefix = {
+                const DEFAULT_ORG: &str = "00000000-0000-0000-0000-000000000000";
+                match self.metadata.get_topic_organization_id(topic).await {
+                    Ok(Some(org_id)) if org_id != DEFAULT_ORG => format!("org-{}/data", org_id),
+                    _ => "data".to_string(),
+                }
+            };
             let compacted_key = format!(
-                "{}/{}/seg_{}_compacted.bin",
-                topic, partition_id, base_offset
+                "{}/{}/{}/seg_{}_compacted.bin",
+                s3_data_prefix, topic, partition_id, base_offset
             );
             let compacted_path = object_store::path::Path::from(compacted_key.clone());
 

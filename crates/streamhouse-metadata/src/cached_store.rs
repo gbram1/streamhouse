@@ -452,6 +452,10 @@ impl<S: MetadataStore + 'static> MetadataStore for CachedMetadataStore<S> {
         self.inner.get_topic_for_org(org_id, name).await
     }
 
+    async fn get_topic_organization_id(&self, topic: &str) -> Result<Option<String>> {
+        self.inner.get_topic_organization_id(topic).await
+    }
+
     async fn ensure_organization(&self, org_id: &str, name: &str) -> Result<()> {
         self.inner.ensure_organization(org_id, name).await
     }

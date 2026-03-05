@@ -82,6 +82,7 @@ async fn test_rate_limiting_rejects_excess_requests() {
         object_store.clone(),
         metadata.clone(),
         write_config,
+        "data".to_string(),
     )
     .await
     .unwrap();
@@ -188,6 +189,7 @@ async fn test_circuit_breaker_opens_on_failures() {
         object_store.clone(),
         metadata.clone(),
         write_config,
+        "data".to_string(),
     )
     .await
     .unwrap();
@@ -230,6 +232,7 @@ async fn test_throttle_allows_normal_operations() {
         object_store.clone(),
         metadata.clone(),
         write_config,
+        "data".to_string(),
     )
     .await
     .unwrap();
@@ -293,6 +296,7 @@ async fn test_rate_recovery_after_pause() {
         object_store.clone(),
         metadata.clone(),
         write_config,
+        "data".to_string(),
     )
     .await
     .unwrap();

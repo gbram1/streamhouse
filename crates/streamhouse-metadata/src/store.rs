@@ -297,6 +297,18 @@ impl MetadataStore for SqliteMetadataStore {
         }))
     }
 
+    async fn get_topic_organization_id(&self, topic: &str) -> Result<Option<String>> {
+        let row = sqlx::query(
+            "SELECT organization_id FROM topics WHERE name = ?",
+        )
+        .bind(topic)
+        .fetch_optional(&self.pool)
+        .await?;
+
+        use sqlx::Row;
+        Ok(row.map(|r| r.get::<String, _>("organization_id")))
+    }
+
     async fn list_topics(&self) -> Result<Vec<Topic>> {
         let rows = sqlx::query!(
             r#"
