@@ -31,7 +31,7 @@ use tracing::{debug, error, info, warn};
 use object_store::ObjectStore;
 use streamhouse_core::segment::Compression;
 use streamhouse_core::Record;
-use streamhouse_metadata::{MetadataStore, SegmentInfo};
+use streamhouse_metadata::{MetadataStore, SegmentInfo, DEFAULT_ORGANIZATION_ID};
 use streamhouse_storage::{SegmentCache, SegmentReader, SegmentWriter};
 
 /// Compaction configuration
@@ -198,7 +198,7 @@ impl CompactionTask {
         // Get segments for this partition (ordered by base_offset)
         let segments = self
             .metadata
-            .get_segments(topic, partition_id)
+            .get_segments(DEFAULT_ORGANIZATION_ID, topic, partition_id)
             .await
             .map_err(|e| CompactionError::Metadata(e.to_string()))?;
 
@@ -417,7 +417,7 @@ impl CompactionTask {
             };
 
             self.metadata
-                .add_segment(compacted_segment)
+                .add_segment(DEFAULT_ORGANIZATION_ID, compacted_segment)
                 .await
                 .map_err(|e| {
                     CompactionError::Metadata(format!("Failed to add compacted segment: {}", e))
@@ -689,6 +689,7 @@ mod tests {
         }
         async fn acquire_partition_lease(
             &self,
+            _organization_id: &str,
             _topic: &str,
             _partition_id: u32,
             _agent_id: &str,
@@ -725,6 +726,9 @@ mod tests {
             unimplemented!()
         }
         async fn get_organization_by_slug(&self, _slug: &str) -> Result<Option<Organization>> {
+            unimplemented!()
+        }
+        async fn get_organization_by_clerk_id(&self, _clerk_id: &str) -> Result<Option<Organization>> {
             unimplemented!()
         }
         async fn list_organizations(&self) -> Result<Vec<Organization>> {

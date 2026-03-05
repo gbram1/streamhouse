@@ -500,6 +500,9 @@ pub struct AgentInfo {
 /// ```
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PartitionLease {
+    /// Organization ID that owns this partition
+    pub organization_id: String,
+
     /// Topic name
     pub topic: String,
 
@@ -3071,6 +3074,7 @@ mod tests {
     #[test]
     fn test_partition_lease_serde_roundtrip() {
         let lease = PartitionLease {
+            organization_id: DEFAULT_ORGANIZATION_ID.to_string(),
             topic: "orders".to_string(),
             partition_id: 0,
             leader_agent_id: "agent-001".to_string(),

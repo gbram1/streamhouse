@@ -7,12 +7,14 @@ use axum::{
     },
     http::{HeaderMap, StatusCode},
     response::IntoResponse,
+    Extension,
 };
 use futures::{sink::SinkExt, stream::StreamExt};
 use serde_json::json;
 use std::time::Duration;
 use tokio::time::interval;
 
+use crate::auth::AuthenticatedKey;
 use crate::handlers::topics::extract_org_id;
 use crate::AppState;
 
@@ -21,8 +23,9 @@ pub async fn metrics_websocket(
     ws: WebSocketUpgrade,
     State(state): State<AppState>,
     headers: HeaderMap,
+    auth_key: Option<Extension<AuthenticatedKey>>,
 ) -> impl IntoResponse {
-    let org_id = extract_org_id(&headers);
+    let org_id = extract_org_id(&headers, auth_key.as_ref().map(|e| &e.0));
     ws.on_upgrade(|socket| handle_metrics_stream(socket, state, org_id))
 }
 
@@ -117,8 +120,9 @@ pub async fn topic_websocket(
     Path(topic_name): Path<String>,
     State(state): State<AppState>,
     headers: HeaderMap,
+    auth_key: Option<Extension<AuthenticatedKey>>,
 ) -> Result<impl IntoResponse, StatusCode> {
-    let org_id = extract_org_id(&headers);
+    let org_id = extract_org_id(&headers, auth_key.as_ref().map(|e| &e.0));
 
     // Validate topic belongs to this org before upgrading
     state
@@ -192,8 +196,9 @@ pub async fn consumer_websocket(
     Path(group_id): Path<String>,
     State(state): State<AppState>,
     headers: HeaderMap,
+    auth_key: Option<Extension<AuthenticatedKey>>,
 ) -> Result<impl IntoResponse, StatusCode> {
-    let org_id = extract_org_id(&headers);
+    let org_id = extract_org_id(&headers, auth_key.as_ref().map(|e| &e.0));
 
     // Validate consumer group belongs to this org before upgrading
     let offsets = state

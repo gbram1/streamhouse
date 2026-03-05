@@ -19,6 +19,7 @@ use crate::server::KafkaServerState;
 /// Handle ListOffsets request (API 2)
 pub async fn handle_list_offsets(
     state: &KafkaServerState,
+    org_id: &str,
     header: &RequestHeader,
     body: &mut BytesMut,
 ) -> KafkaResult<BytesMut> {
@@ -85,6 +86,7 @@ pub async fn handle_list_offsets(
         for (partition_index, timestamp) in partitions {
             let response = get_partition_offset(
                 state,
+                org_id,
                 &topic_name,
                 partition_index as u32,
                 timestamp,
@@ -172,13 +174,28 @@ struct ListOffsetsPartitionResponse {
 
 async fn get_partition_offset(
     state: &KafkaServerState,
+    org_id: &str,
     topic_name: &str,
     partition_id: u32,
     timestamp: i64,
     isolation_level: i8,
 ) -> ListOffsetsPartitionResponse {
+    // Verify topic belongs to this org
+    match state.metadata.get_topic_for_org(org_id, topic_name).await {
+        Ok(Some(_)) => {}
+        _ => {
+            return ListOffsetsPartitionResponse {
+                partition_index: partition_id as i32,
+                error_code: ErrorCode::UnknownTopicOrPartition,
+                timestamp: -1,
+                offset: -1,
+                leader_epoch: -1,
+            };
+        }
+    }
+
     // Get partition info
-    let partition = match state.metadata.get_partition(topic_name, partition_id).await {
+    let partition = match state.metadata.get_partition(org_id, topic_name, partition_id).await {
         Ok(Some(p)) => p,
         Ok(None) => {
             return ListOffsetsPartitionResponse {
@@ -219,7 +236,7 @@ async fn get_partition_offset(
             }
         }
         -2 => 0, // Earliest is always 0 for now
-        ts => match find_offset_by_timestamp(state, topic_name, partition_id, ts as u64).await {
+        ts => match find_offset_by_timestamp(state, org_id, topic_name, partition_id, ts as u64).await {
             Ok(Some(offset)) => offset as i64,
             Ok(None) => partition.high_watermark as i64,
             Err(e) => {
@@ -255,11 +272,12 @@ async fn get_partition_offset(
 /// Returns `None` if no matching offset is found (target is beyond all data).
 async fn find_offset_by_timestamp(
     state: &KafkaServerState,
+    org_id: &str,
     topic: &str,
     partition_id: u32,
     target_timestamp: u64,
 ) -> Result<Option<u64>, Box<dyn std::error::Error + Send + Sync>> {
-    let segments = state.metadata.get_segments(topic, partition_id).await?;
+    let segments = state.metadata.get_segments(org_id, topic, partition_id).await?;
 
     if segments.is_empty() {
         return Ok(None);
@@ -305,6 +323,7 @@ async fn find_offset_by_timestamp(
 /// Handle OffsetCommit request (API 8)
 pub async fn handle_offset_commit(
     state: &KafkaServerState,
+    org_id: &str,
     header: &RequestHeader,
     body: &mut BytesMut,
 ) -> KafkaResult<BytesMut> {
@@ -400,6 +419,7 @@ pub async fn handle_offset_commit(
         for (partition_index, offset, metadata) in partitions {
             let error = commit_offset(
                 state,
+                org_id,
                 &group_id,
                 &topic_name,
                 partition_index as u32,
@@ -461,6 +481,7 @@ pub async fn handle_offset_commit(
 
 async fn commit_offset(
     state: &KafkaServerState,
+    org_id: &str,
     group_id: &str,
     topic: &str,
     partition: u32,
@@ -469,7 +490,7 @@ async fn commit_offset(
 ) -> ErrorCode {
     match state
         .metadata
-        .commit_offset(group_id, topic, partition, offset, metadata)
+        .commit_offset_for_org(org_id, group_id, topic, partition, offset, metadata)
         .await
     {
         Ok(_) => ErrorCode::None,
@@ -480,6 +501,7 @@ async fn commit_offset(
 /// Handle OffsetFetch request (API 9)
 pub async fn handle_offset_fetch(
     state: &KafkaServerState,
+    org_id: &str,
     header: &RequestHeader,
     body: &mut BytesMut,
 ) -> KafkaResult<BytesMut> {
@@ -572,7 +594,7 @@ pub async fn handle_offset_fetch(
 
         for partition_index in partitions {
             let (offset, metadata, error) =
-                fetch_offset(state, &group_id, &topic_name, partition_index as u32).await;
+                fetch_offset(state, org_id, &group_id, &topic_name, partition_index as u32).await;
 
             partition_responses.push((partition_index, offset, metadata, error));
         }
@@ -675,13 +697,14 @@ pub async fn handle_offset_fetch(
 
 async fn fetch_offset(
     state: &KafkaServerState,
+    org_id: &str,
     group_id: &str,
     topic: &str,
     partition: u32,
 ) -> (i64, Option<String>, ErrorCode) {
     match state
         .metadata
-        .get_committed_offset(group_id, topic, partition)
+        .get_committed_offset_for_org(org_id, group_id, topic, partition)
         .await
     {
         Ok(Some(offset)) => (offset as i64, None, ErrorCode::None),

@@ -254,7 +254,7 @@ impl CacheMetrics {
 
 // Type aliases to reduce complexity
 type TopicCache = Arc<RwLock<LruCache<String, CacheEntry<Topic>>>>;
-type PartitionCache = Arc<RwLock<LruCache<(String, u32), CacheEntry<Partition>>>>;
+type PartitionCache = Arc<RwLock<LruCache<(String, String, u32), CacheEntry<Partition>>>>;
 type TopicListCache = Arc<RwLock<LruCache<(), CacheEntry<Vec<Topic>>>>>;
 
 /// Metadata store with LRU caching layer
@@ -270,7 +270,7 @@ pub struct CachedMetadataStore<S: MetadataStore> {
     /// Topic cache: topic_name → Topic
     topic_cache: TopicCache,
 
-    /// Partition cache: (topic, partition_id) → Partition
+    /// Partition cache: (org_id, topic, partition_id) → Partition
     partition_cache: PartitionCache,
 
     /// Topic list cache: () → Vec<Topic>
@@ -323,20 +323,20 @@ impl<S: MetadataStore> CachedMetadataStore<S> {
     }
 
     /// Invalidate partition cache entry
-    async fn invalidate_partition(&self, topic: &str, partition_id: u32) {
+    async fn invalidate_partition(&self, org_id: &str, topic: &str, partition_id: u32) {
         self.partition_cache
             .write()
             .await
-            .pop(&(topic.to_string(), partition_id));
+            .pop(&(org_id.to_string(), topic.to_string(), partition_id));
     }
 
     /// Invalidate all partition cache entries for a topic
     async fn invalidate_topic_partitions(&self, topic: &str) {
         let mut cache = self.partition_cache.write().await;
-        // Remove all partitions for this topic
+        // Remove all partitions for this topic (across all orgs)
         let keys_to_remove: Vec<_> = cache
             .iter()
-            .filter(|(k, _)| k.0 == topic)
+            .filter(|(k, _)| k.1 == topic)
             .map(|(k, _)| k.clone())
             .collect();
 
@@ -464,8 +464,8 @@ impl<S: MetadataStore + 'static> MetadataStore for CachedMetadataStore<S> {
     // PARTITION OPERATIONS
     // ========================================================================
 
-    async fn get_partition(&self, topic: &str, partition_id: u32) -> Result<Option<Partition>> {
-        let key = (topic.to_string(), partition_id);
+    async fn get_partition(&self, org_id: &str, topic: &str, partition_id: u32) -> Result<Option<Partition>> {
+        let key = (org_id.to_string(), topic.to_string(), partition_id);
 
         // Try cache first
         {
@@ -485,7 +485,7 @@ impl<S: MetadataStore + 'static> MetadataStore for CachedMetadataStore<S> {
         self.metrics
             .partition_misses
             .fetch_add(1, Ordering::Relaxed);
-        let partition = self.inner.get_partition(topic, partition_id).await?;
+        let partition = self.inner.get_partition(org_id, topic, partition_id).await?;
 
         // Store in cache if found
         if let Some(ref p) = partition {
@@ -498,26 +498,27 @@ impl<S: MetadataStore + 'static> MetadataStore for CachedMetadataStore<S> {
 
     async fn update_high_watermark(
         &self,
+        org_id: &str,
         topic: &str,
         partition_id: u32,
         offset: u64,
     ) -> Result<()> {
         // Write through to database
         self.inner
-            .update_high_watermark(topic, partition_id, offset)
+            .update_high_watermark(org_id, topic, partition_id, offset)
             .await?;
 
         // Invalidate partition cache (watermark changed)
-        self.invalidate_partition(topic, partition_id).await;
+        self.invalidate_partition(org_id, topic, partition_id).await;
 
         Ok(())
     }
 
-    async fn list_partitions(&self, topic: &str) -> Result<Vec<Partition>> {
+    async fn list_partitions(&self, org_id: &str, topic: &str) -> Result<Vec<Partition>> {
         // NOTE: We could cache this, but partition lists are large and queried less
         // frequently than individual partitions. Skip caching for now to keep
         // memory usage bounded.
-        self.inner.list_partitions(topic).await
+        self.inner.list_partitions(org_id, topic).await
     }
 
     // ========================================================================
@@ -526,27 +527,28 @@ impl<S: MetadataStore + 'static> MetadataStore for CachedMetadataStore<S> {
     // Segments change frequently and are queried with varying offset ranges.
     // Caching would have low hit rate and high memory overhead.
 
-    async fn add_segment(&self, segment: SegmentInfo) -> Result<()> {
-        self.inner.add_segment(segment).await
+    async fn add_segment(&self, org_id: &str, segment: SegmentInfo) -> Result<()> {
+        self.inner.add_segment(org_id, segment).await
     }
 
     async fn add_segment_and_update_watermark(
         &self,
+        org_id: &str,
         segment: SegmentInfo,
         high_watermark: u64,
     ) -> Result<()> {
         let topic = segment.topic.clone();
         let partition_id = segment.partition_id;
         self.inner
-            .add_segment_and_update_watermark(segment, high_watermark)
+            .add_segment_and_update_watermark(org_id, segment, high_watermark)
             .await?;
         // Invalidate partition cache since watermark changed
-        self.invalidate_partition(&topic, partition_id).await;
+        self.invalidate_partition(org_id, &topic, partition_id).await;
         Ok(())
     }
 
-    async fn get_segments(&self, topic: &str, partition_id: u32) -> Result<Vec<SegmentInfo>> {
-        self.inner.get_segments(topic, partition_id).await
+    async fn get_segments(&self, org_id: &str, topic: &str, partition_id: u32) -> Result<Vec<SegmentInfo>> {
+        self.inner.get_segments(org_id, topic, partition_id).await
     }
 
     async fn find_segment_for_offset(
@@ -700,13 +702,14 @@ impl<S: MetadataStore + 'static> MetadataStore for CachedMetadataStore<S> {
 
     async fn acquire_partition_lease(
         &self,
+        organization_id: &str,
         topic: &str,
         partition_id: u32,
         agent_id: &str,
         lease_duration_ms: i64,
     ) -> Result<PartitionLease> {
         self.inner
-            .acquire_partition_lease(topic, partition_id, agent_id, lease_duration_ms)
+            .acquire_partition_lease(organization_id, topic, partition_id, agent_id, lease_duration_ms)
             .await
     }
 
@@ -1241,7 +1244,7 @@ impl<S: MetadataStore + 'static> MetadataStore for CachedMetadataStore<S> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{CleanupPolicy, SqliteMetadataStore, TopicConfig};
+    use crate::{CleanupPolicy, SqliteMetadataStore, TopicConfig, DEFAULT_ORGANIZATION_ID};
     use std::collections::HashMap;
     use std::sync::atomic::Ordering;
 
@@ -1304,7 +1307,7 @@ mod tests {
 
         // First read - cache miss
         let part1 = cached
-            .get_partition("test_topic", 0)
+            .get_partition(DEFAULT_ORGANIZATION_ID, "test_topic", 0)
             .await
             .unwrap()
             .unwrap();
@@ -1312,7 +1315,7 @@ mod tests {
 
         // Second read - cache hit
         let part2 = cached
-            .get_partition("test_topic", 0)
+            .get_partition(DEFAULT_ORGANIZATION_ID, "test_topic", 0)
             .await
             .unwrap()
             .unwrap();
@@ -1329,7 +1332,7 @@ mod tests {
         let config = test_topic_config("test_topic");
         cached.create_topic(config).await.unwrap();
         let part1 = cached
-            .get_partition("test_topic", 0)
+            .get_partition(DEFAULT_ORGANIZATION_ID, "test_topic", 0)
             .await
             .unwrap()
             .unwrap();
@@ -1337,13 +1340,13 @@ mod tests {
 
         // Update watermark - should invalidate cache
         cached
-            .update_high_watermark("test_topic", 0, 100)
+            .update_high_watermark(DEFAULT_ORGANIZATION_ID, "test_topic", 0, 100)
             .await
             .unwrap();
 
         // Should read fresh data from database
         let part2 = cached
-            .get_partition("test_topic", 0)
+            .get_partition(DEFAULT_ORGANIZATION_ID, "test_topic", 0)
             .await
             .unwrap()
             .unwrap();
@@ -1476,10 +1479,10 @@ mod tests {
         assert!((hit_rate - 0.666).abs() < 0.01); // 2 hits / 3 total = 0.666
 
         // Test partition metrics
-        let _part1 = cached.get_partition("metrics_topic", 0).await.unwrap();
+        let _part1 = cached.get_partition(DEFAULT_ORGANIZATION_ID, "metrics_topic", 0).await.unwrap();
         assert_eq!(cached.metrics().partition_misses.load(Ordering::Relaxed), 1);
 
-        let _part2 = cached.get_partition("metrics_topic", 0).await.unwrap();
+        let _part2 = cached.get_partition(DEFAULT_ORGANIZATION_ID, "metrics_topic", 0).await.unwrap();
         assert_eq!(cached.metrics().partition_hits.load(Ordering::Relaxed), 1);
 
         // Test topic list metrics

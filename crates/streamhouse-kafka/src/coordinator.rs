@@ -140,7 +140,8 @@ impl ConsumerGroup {
 
 /// Group coordinator manages all consumer groups
 pub struct GroupCoordinator {
-    groups: DashMap<String, RwLock<ConsumerGroup>>,
+    /// Groups keyed by (organization_id, group_id) for tenant isolation
+    groups: DashMap<(String, String), RwLock<ConsumerGroup>>,
     _metadata: Arc<dyn MetadataStore>,
 }
 
@@ -152,13 +153,14 @@ impl GroupCoordinator {
         }
     }
 
-    /// Get or create a consumer group
+    /// Get or create a consumer group, scoped to an organization
     fn get_or_create_group(
         &self,
+        org_id: &str,
         group_id: &str,
-    ) -> dashmap::mapref::one::RefMut<'_, String, RwLock<ConsumerGroup>> {
+    ) -> dashmap::mapref::one::RefMut<'_, (String, String), RwLock<ConsumerGroup>> {
         self.groups
-            .entry(group_id.to_string())
+            .entry((org_id.to_string(), group_id.to_string()))
             .or_insert_with(|| RwLock::new(ConsumerGroup::new(group_id.to_string())))
     }
 
@@ -166,6 +168,7 @@ impl GroupCoordinator {
     #[allow(clippy::too_many_arguments)]
     pub async fn join_group(
         &self,
+        org_id: &str,
         group_id: &str,
         member_id: Option<&str>,
         client_id: &str,
@@ -180,7 +183,7 @@ impl GroupCoordinator {
             session_timeout_ms.clamp(MIN_SESSION_TIMEOUT_MS, MAX_SESSION_TIMEOUT_MS);
 
         // Get or create group
-        let group_entry = self.get_or_create_group(group_id);
+        let group_entry = self.get_or_create_group(org_id, group_id);
         let mut group = group_entry.write().await;
 
         // Generate or validate member ID
@@ -322,12 +325,14 @@ impl GroupCoordinator {
     /// Handle SyncGroup request
     pub async fn sync_group(
         &self,
+        org_id: &str,
         group_id: &str,
         generation_id: i32,
         member_id: &str,
         assignments: Vec<SyncGroupAssignment>,
     ) -> KafkaResult<SyncGroupResult> {
-        let Some(group_entry) = self.groups.get(group_id) else {
+        let key = (org_id.to_string(), group_id.to_string());
+        let Some(group_entry) = self.groups.get(&key) else {
             return Ok(SyncGroupResult {
                 error_code: ErrorCode::GroupIdNotFound,
                 assignment: vec![],
@@ -398,11 +403,13 @@ impl GroupCoordinator {
     /// Handle Heartbeat request
     pub async fn heartbeat(
         &self,
+        org_id: &str,
         group_id: &str,
         generation_id: i32,
         member_id: &str,
     ) -> KafkaResult<ErrorCode> {
-        let Some(group_entry) = self.groups.get(group_id) else {
+        let key = (org_id.to_string(), group_id.to_string());
+        let Some(group_entry) = self.groups.get(&key) else {
             return Ok(ErrorCode::GroupIdNotFound);
         };
 
@@ -434,8 +441,14 @@ impl GroupCoordinator {
     }
 
     /// Handle LeaveGroup request
-    pub async fn leave_group(&self, group_id: &str, member_id: &str) -> KafkaResult<ErrorCode> {
-        let Some(group_entry) = self.groups.get(group_id) else {
+    pub async fn leave_group(
+        &self,
+        org_id: &str,
+        group_id: &str,
+        member_id: &str,
+    ) -> KafkaResult<ErrorCode> {
+        let key = (org_id.to_string(), group_id.to_string());
+        let Some(group_entry) = self.groups.get(&key) else {
             return Ok(ErrorCode::GroupIdNotFound);
         };
 
@@ -470,8 +483,9 @@ impl GroupCoordinator {
     }
 
     /// Get group state for DescribeGroups
-    pub async fn describe_group(&self, group_id: &str) -> Option<DescribeGroupResult> {
-        let group_entry = self.groups.get(group_id)?;
+    pub async fn describe_group(&self, org_id: &str, group_id: &str) -> Option<DescribeGroupResult> {
+        let key = (org_id.to_string(), group_id.to_string());
+        let group_entry = self.groups.get(&key)?;
         let group = group_entry.read().await;
 
         let members = group
@@ -500,11 +514,15 @@ impl GroupCoordinator {
         })
     }
 
-    /// List all groups
-    pub async fn list_groups(&self) -> Vec<ListGroupResult> {
+    /// List groups for a specific organization
+    pub async fn list_groups(&self, org_id: &str) -> Vec<ListGroupResult> {
         let mut results = vec![];
 
         for entry in self.groups.iter() {
+            let (ref entry_org_id, _) = *entry.key();
+            if entry_org_id != org_id {
+                continue;
+            }
             let group = entry.read().await;
             results.push(ListGroupResult {
                 group_id: group.group_id.clone(),

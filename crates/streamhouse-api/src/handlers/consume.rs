@@ -3,23 +3,14 @@
 use axum::{
     extract::State,
     http::{HeaderMap, StatusCode},
-    Json,
+    Extension, Json,
 };
 use serde::Deserialize;
 
+use crate::auth::AuthenticatedKey;
+use crate::handlers::topics::extract_org_id;
 use crate::models::{ConsumeResponse, ConsumedRecord};
 use crate::AppState;
-use streamhouse_metadata::DEFAULT_ORGANIZATION_ID;
-
-/// Extract organization ID from request headers, defaulting to DEFAULT_ORGANIZATION_ID.
-fn extract_org_id(headers: &HeaderMap) -> String {
-    headers
-        .get("x-organization-id")
-        .and_then(|v| v.to_str().ok())
-        .filter(|s| !s.is_empty())
-        .map(|s| s.to_string())
-        .unwrap_or_else(|| DEFAULT_ORGANIZATION_ID.to_string())
-}
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -56,9 +47,10 @@ fn default_max_records() -> usize {
 pub async fn consume(
     State(state): State<AppState>,
     headers: HeaderMap,
+    auth_key: Option<Extension<AuthenticatedKey>>,
     axum::extract::Query(req): axum::extract::Query<ConsumeRequest>,
 ) -> Result<Json<ConsumeResponse>, StatusCode> {
-    let org_id = extract_org_id(&headers);
+    let org_id = extract_org_id(&headers, auth_key.as_ref().map(|e| &e.0));
 
     // Verify topic belongs to org
     if state
@@ -88,6 +80,7 @@ pub async fn consume(
     use streamhouse_storage::PartitionReader;
 
     let reader = PartitionReader::new(
+        org_id.clone(),
         req.topic.clone(),
         req.partition,
         state.metadata.clone(),
@@ -105,7 +98,7 @@ pub async fn consume(
             // Find earliest available offset so consumer can skip ahead
             let next_offset = state
                 .metadata
-                .get_segments(&req.topic, req.partition)
+                .get_segments(&org_id, &req.topic, req.partition)
                 .await
                 .ok()
                 .and_then(|segs| segs.first().map(|s| s.base_offset))

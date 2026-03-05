@@ -17,6 +17,7 @@ use crate::server::KafkaServerState;
 /// Handle AddOffsetsToTxn request
 pub async fn handle_add_offsets_to_txn(
     state: &KafkaServerState,
+    org_id: &str,
     header: &RequestHeader,
     body: &mut BytesMut,
 ) -> KafkaResult<BytesMut> {
@@ -46,7 +47,7 @@ pub async fn handle_add_offsets_to_txn(
     // Look up producer by transactional_id
     let producer = match state
         .metadata
-        .get_producer_by_transactional_id(&transactional_id, None)
+        .get_producer_by_transactional_id(&transactional_id, Some(org_id))
         .await
     {
         Ok(Some(p)) => p,

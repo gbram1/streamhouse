@@ -39,6 +39,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     )?);
 
     let reader = PartitionReader::new(
+        streamhouse_metadata::DEFAULT_ORGANIZATION_ID.to_string(),
         topic.clone(),
         partition,
         metadata.clone(),

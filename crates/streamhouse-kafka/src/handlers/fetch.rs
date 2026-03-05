@@ -18,6 +18,7 @@ use crate::server::KafkaServerState;
 /// Handle Fetch request
 pub async fn handle_fetch(
     state: &KafkaServerState,
+    org_id: &str,
     header: &RequestHeader,
     body: &mut BytesMut,
 ) -> KafkaResult<BytesMut> {
@@ -151,6 +152,7 @@ pub async fn handle_fetch(
         for fp in partitions {
             let response = fetch_partition(
                 state,
+                org_id,
                 &topic_name,
                 fp.partition as u32,
                 fp.fetch_offset as u64,
@@ -312,6 +314,7 @@ struct FetchPartitionResponse {
 
 async fn fetch_partition(
     state: &KafkaServerState,
+    org_id: &str,
     topic_name: &str,
     partition_id: u32,
     offset: u64,
@@ -319,7 +322,7 @@ async fn fetch_partition(
     isolation_level: i8,
 ) -> FetchPartitionResponse {
     // Get partition info
-    let partition_info = match state.metadata.get_partition(topic_name, partition_id).await {
+    let partition_info = match state.metadata.get_partition(org_id, topic_name, partition_id).await {
         Ok(Some(info)) => info,
         Ok(None) => {
             return FetchPartitionResponse {
@@ -362,7 +365,7 @@ async fn fetch_partition(
     };
 
     // Read records from storage
-    let records = read_records(state, topic_name, partition_id, offset, max_bytes)
+    let records = read_records(state, org_id, topic_name, partition_id, offset, max_bytes)
         .await
         .ok();
 
@@ -391,13 +394,27 @@ async fn fetch_partition(
 
 async fn read_records(
     state: &KafkaServerState,
+    org_id: &str,
     topic_name: &str,
     partition_id: u32,
     offset: u64,
     max_bytes: usize,
 ) -> KafkaResult<Vec<u8>> {
+    // Verify topic belongs to this org
+    if state
+        .metadata
+        .get_topic_for_org(org_id, topic_name)
+        .await
+        .ok()
+        .flatten()
+        .is_none()
+    {
+        return Ok(vec![]);
+    }
+
     // Create a PartitionReader to read from storage
     let reader = PartitionReader::new(
+        org_id.to_string(),
         topic_name.to_string(),
         partition_id,
         state.metadata.clone(),

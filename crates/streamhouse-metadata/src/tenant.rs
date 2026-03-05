@@ -274,7 +274,7 @@ pub fn generate_api_key(prefix: &str) -> (String, String, String) {
     // Format: prefix_randomhex
     let raw_key = format!("{}_{}", prefix, random_part);
     let key_hash = ApiKeyValidator::<crate::SqliteMetadataStore>::hash_key(&raw_key);
-    let key_prefix = raw_key.chars().take(16).collect();
+    let key_prefix = raw_key.chars().take(12).collect();
 
     (raw_key, key_hash, key_prefix)
 }

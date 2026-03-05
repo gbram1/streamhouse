@@ -17,6 +17,7 @@ use crate::types::CompressionType;
 /// Handle Produce request
 pub async fn handle_produce(
     state: &KafkaServerState,
+    org_id: &str,
     header: &RequestHeader,
     body: &mut BytesMut,
 ) -> KafkaResult<BytesMut> {
@@ -92,7 +93,7 @@ pub async fn handle_produce(
         for (partition_index, records) in partitions {
             let response = match records {
                 Some(record_data) => {
-                    process_records(state, &topic_name, partition_index as u32, record_data).await
+                    process_records(state, org_id, &topic_name, partition_index as u32, record_data).await
                 }
                 None => PartitionProduceResponse {
                     partition_index,
@@ -194,6 +195,7 @@ struct PartitionProduceResponse {
 
 async fn process_records(
     state: &KafkaServerState,
+    org_id: &str,
     topic_name: &str,
     partition_id: u32,
     record_data: Vec<u8>,
@@ -293,7 +295,7 @@ async fn process_records(
     }
 
     // Get writer from pool
-    let writer = match state.writer_pool.get_writer(topic_name, partition_id).await {
+    let writer = match state.writer_pool.get_writer(org_id, topic_name, partition_id).await {
         Ok(w) => w,
         Err(e) => {
             warn!("Failed to get writer: {}", e);

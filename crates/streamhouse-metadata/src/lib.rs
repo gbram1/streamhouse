@@ -403,7 +403,7 @@ pub trait MetadataStore: Send + Sync {
     /// # Performance
     ///
     /// Very fast (< 100µs) as this uses composite index on (topic, partition_id).
-    async fn get_partition(&self, topic: &str, partition_id: u32) -> Result<Option<Partition>>;
+    async fn get_partition(&self, org_id: &str, topic: &str, partition_id: u32) -> Result<Option<Partition>>;
 
     /// Update the high watermark (latest offset) for a partition.
     ///
@@ -431,6 +431,7 @@ pub trait MetadataStore: Send + Sync {
     /// In Phase 5.2+ with agent coordination, this will be part of the write transaction.
     async fn update_high_watermark(
         &self,
+        org_id: &str,
         topic: &str,
         partition_id: u32,
         offset: u64,
@@ -453,7 +454,7 @@ pub trait MetadataStore: Send + Sync {
     /// # Performance
     ///
     /// Fast (< 1ms for topics with 1000 partitions).
-    async fn list_partitions(&self, topic: &str) -> Result<Vec<Partition>>;
+    async fn list_partitions(&self, org_id: &str, topic: &str) -> Result<Vec<Partition>>;
 
     // ============================================================
     // SEGMENT OPERATIONS
@@ -494,7 +495,7 @@ pub trait MetadataStore: Send + Sync {
     ///     max_timestamp: 0,
     /// }).await?;
     /// ```
-    async fn add_segment(&self, segment: SegmentInfo) -> Result<()>;
+    async fn add_segment(&self, org_id: &str, segment: SegmentInfo) -> Result<()>;
 
     /// Atomically register a segment and update the partition high watermark.
     ///
@@ -507,13 +508,14 @@ pub trait MetadataStore: Send + Sync {
     /// override this.
     async fn add_segment_and_update_watermark(
         &self,
+        org_id: &str,
         segment: SegmentInfo,
         high_watermark: u64,
     ) -> Result<()> {
         let topic = segment.topic.clone();
         let partition_id = segment.partition_id;
-        self.add_segment(segment).await?;
-        self.update_high_watermark(&topic, partition_id, high_watermark)
+        self.add_segment(org_id, segment).await?;
+        self.update_high_watermark(org_id, &topic, partition_id, high_watermark)
             .await
     }
 
@@ -535,7 +537,7 @@ pub trait MetadataStore: Send + Sync {
     /// # Performance
     ///
     /// Fast (< 10ms for partitions with 1000 segments) due to index on (topic, partition_id).
-    async fn get_segments(&self, topic: &str, partition_id: u32) -> Result<Vec<SegmentInfo>>;
+    async fn get_segments(&self, org_id: &str, topic: &str, partition_id: u32) -> Result<Vec<SegmentInfo>>;
 
     /// Find which segment contains a specific offset.
     ///
@@ -1008,6 +1010,7 @@ pub trait MetadataStore: Send + Sync {
     /// ```
     async fn acquire_partition_lease(
         &self,
+        organization_id: &str,
         topic: &str,
         partition_id: u32,
         agent_id: &str,

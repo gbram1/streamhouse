@@ -66,22 +66,23 @@ use crate::config::WriteConfig;
 use crate::error::Result;
 use crate::writer::{DurableFlushHandle, PartitionWriter};
 
-/// Type alias for the writer map to reduce type complexity
-type WriterMap = Arc<RwLock<HashMap<(String, u32), Arc<Mutex<PartitionWriter>>>>>;
+/// Type alias for the writer map to reduce type complexity.
+/// Key is (org_id, topic, partition) to ensure tenant isolation.
+type WriterMap = Arc<RwLock<HashMap<(String, String, u32), Arc<Mutex<PartitionWriter>>>>>;
 
-/// Pool of active segment writers, one per partition
+/// Pool of active segment writers, one per (org, topic, partition)
 ///
-/// The pool manages writers across all topics and partitions, keeping them alive
-/// between requests and periodically flushing them to storage.
+/// The pool manages writers across all organizations, topics and partitions,
+/// keeping them alive between requests and periodically flushing them to storage.
 pub struct WriterPool {
-    /// Map of (topic, partition) -> PartitionWriter
+    /// Map of (org_id, topic, partition) -> PartitionWriter
     ///
     /// Using RwLock for the map since reads (get_writer) are common,
     /// writes (creating new writer) are rare.
     writers: WriterMap,
 
-    /// Map of (topic, partition) -> DurableFlushHandle for batched ACK_DURABLE
-    durable_flush_handles: Arc<RwLock<HashMap<(String, u32), DurableFlushHandle>>>,
+    /// Map of (org_id, topic, partition) -> DurableFlushHandle for batched ACK_DURABLE
+    durable_flush_handles: Arc<RwLock<HashMap<(String, String, u32), DurableFlushHandle>>>,
 
     /// Metadata store for segment tracking
     metadata_store: Arc<dyn MetadataStore>,
@@ -119,13 +120,14 @@ impl WriterPool {
         }
     }
 
-    /// Get writer for a topic partition, creating it if it doesn't exist
+    /// Get writer for an org's topic partition, creating it if it doesn't exist
     ///
     /// This is the main entry point for producing records. Call this to get the writer
     /// for a partition, then lock it and append records.
     ///
     /// ## Arguments
     ///
+    /// - `org_id`: Organization ID (ensures tenant isolation)
     /// - `topic`: Topic name
     /// - `partition`: Partition number
     ///
@@ -136,16 +138,17 @@ impl WriterPool {
     /// ## Example
     ///
     /// ```ignore
-    /// let writer = pool.get_writer("orders", 0).await?;
+    /// let writer = pool.get_writer("org-uuid", "orders", 0).await?;
     /// let mut guard = writer.lock().await;
     /// guard.append(record)?;
     /// ```
     pub async fn get_writer(
         &self,
+        org_id: &str,
         topic: &str,
         partition: u32,
     ) -> Result<Arc<Mutex<PartitionWriter>>> {
-        let key = (topic.to_string(), partition);
+        let key = (org_id.to_string(), topic.to_string(), partition);
 
         // Try to get existing writer (read lock - fast path)
         {
@@ -165,21 +168,24 @@ impl WriterPool {
 
         // Create new writer
         tracing::debug!(
+            org_id = %org_id,
             topic = %topic,
             partition = partition,
             "Creating new partition writer"
         );
 
-        // Resolve org-scoped S3 prefix for this topic
+        // Resolve org-scoped S3 prefix
         let s3_data_prefix = {
             const DEFAULT_ORG: &str = "00000000-0000-0000-0000-000000000000";
-            match self.metadata_store.get_topic_organization_id(topic).await {
-                Ok(Some(org_id)) if org_id != DEFAULT_ORG => format!("org-{}/data", org_id),
-                _ => "data".to_string(),
+            if org_id != DEFAULT_ORG {
+                format!("org-{}/data", org_id)
+            } else {
+                "data".to_string()
             }
         };
 
         let partition_writer = PartitionWriter::new(
+            org_id.to_string(),
             topic.to_string(),
             partition,
             Arc::clone(&self.object_store),
@@ -201,12 +207,13 @@ impl WriterPool {
     /// enabling sub-second consume latency.
     pub async fn read_buffered(
         &self,
+        org_id: &str,
         topic: &str,
         partition: u32,
         start_offset: u64,
         max_records: usize,
     ) -> Vec<streamhouse_core::record::Record> {
-        let key = (topic.to_string(), partition);
+        let key = (org_id.to_string(), topic.to_string(), partition);
         let readers = self.writers.read().await;
         if let Some(writer) = readers.get(&key) {
             let guard = writer.lock().await;
@@ -221,8 +228,13 @@ impl WriterPool {
     /// Instead of flushing to S3 immediately, this queues the caller to wait
     /// for the next batch flush (~200ms window). All callers in the same window
     /// share a single S3 upload.
-    pub async fn request_durable_flush(&self, topic: &str, partition: u32) -> Result<()> {
-        let key = (topic.to_string(), partition);
+    pub async fn request_durable_flush(
+        &self,
+        org_id: &str,
+        topic: &str,
+        partition: u32,
+    ) -> Result<()> {
+        let key = (org_id.to_string(), topic.to_string(), partition);
 
         // Fast path: check if handle exists
         {
@@ -233,7 +245,7 @@ impl WriterPool {
         }
 
         // Slow path: create handle (need writer first)
-        let writer = self.get_writer(topic, partition).await?;
+        let writer = self.get_writer(org_id, topic, partition).await?;
         let mut handles = self.durable_flush_handles.write().await;
 
         // Double-check
@@ -271,10 +283,11 @@ impl WriterPool {
         let mut flush_count = 0;
         let mut error_count = 0;
 
-        for ((topic, partition), writer) in readers.iter() {
+        for ((org_id, topic, partition), writer) in readers.iter() {
             let mut writer_guard = writer.lock().await;
 
             tracing::debug!(
+                org_id = %org_id,
                 topic = %topic,
                 partition = partition,
                 "Flushing partition writer"
@@ -431,13 +444,14 @@ mod tests {
         let metadata = create_test_metadata("orders", 3).await;
         let object_store: Arc<dyn ObjectStore> = Arc::new(InMemory::new());
         let pool = WriterPool::new(metadata, object_store, test_config());
+        let org = streamhouse_metadata::DEFAULT_ORGANIZATION_ID;
 
         assert_eq!(pool.writer_count().await, 0);
 
-        let _w = pool.get_writer("orders", 0).await.unwrap();
+        let _w = pool.get_writer(org, "orders", 0).await.unwrap();
         assert_eq!(pool.writer_count().await, 1);
 
-        let _w = pool.get_writer("orders", 1).await.unwrap();
+        let _w = pool.get_writer(org, "orders", 1).await.unwrap();
         assert_eq!(pool.writer_count().await, 2);
     }
 
@@ -446,9 +460,10 @@ mod tests {
         let metadata = create_test_metadata("orders", 3).await;
         let object_store: Arc<dyn ObjectStore> = Arc::new(InMemory::new());
         let pool = WriterPool::new(metadata, object_store, test_config());
+        let org = streamhouse_metadata::DEFAULT_ORGANIZATION_ID;
 
-        let w1 = pool.get_writer("orders", 0).await.unwrap();
-        let w2 = pool.get_writer("orders", 0).await.unwrap();
+        let w1 = pool.get_writer(org, "orders", 0).await.unwrap();
+        let w2 = pool.get_writer(org, "orders", 0).await.unwrap();
 
         // Should be the same Arc (same pointer)
         assert!(Arc::ptr_eq(&w1, &w2));
@@ -460,9 +475,10 @@ mod tests {
         let metadata = create_test_metadata("orders", 3).await;
         let object_store: Arc<dyn ObjectStore> = Arc::new(InMemory::new());
         let pool = WriterPool::new(metadata, object_store, test_config());
+        let org = streamhouse_metadata::DEFAULT_ORGANIZATION_ID;
 
-        let w0 = pool.get_writer("orders", 0).await.unwrap();
-        let w1 = pool.get_writer("orders", 1).await.unwrap();
+        let w0 = pool.get_writer(org, "orders", 0).await.unwrap();
+        let w1 = pool.get_writer(org, "orders", 1).await.unwrap();
 
         // Different partitions should produce different writers
         assert!(!Arc::ptr_eq(&w0, &w1));
@@ -484,9 +500,10 @@ mod tests {
         let metadata = create_test_metadata("orders", 3).await;
         let object_store: Arc<dyn ObjectStore> = Arc::new(InMemory::new());
         let pool = WriterPool::new(metadata, object_store, test_config());
+        let org = streamhouse_metadata::DEFAULT_ORGANIZATION_ID;
 
-        let _w0 = pool.get_writer("orders", 0).await.unwrap();
-        let _w1 = pool.get_writer("orders", 1).await.unwrap();
+        let _w0 = pool.get_writer(org, "orders", 0).await.unwrap();
+        let _w1 = pool.get_writer(org, "orders", 1).await.unwrap();
 
         // Flush should succeed even with writers that have no data
         pool.flush_all().await.unwrap();
@@ -509,7 +526,7 @@ mod tests {
         let object_store: Arc<dyn ObjectStore> = Arc::new(InMemory::new());
         let pool = WriterPool::new(metadata, object_store, test_config());
 
-        let _w = pool.get_writer("orders", 0).await.unwrap();
+        let _w = pool.get_writer(streamhouse_metadata::DEFAULT_ORGANIZATION_ID, "orders", 0).await.unwrap();
 
         // Shutdown should call flush_all and succeed
         pool.shutdown().await.unwrap();

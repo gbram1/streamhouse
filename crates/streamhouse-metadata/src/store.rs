@@ -495,28 +495,29 @@ impl MetadataStore for SqliteMetadataStore {
         Ok(())
     }
 
-    async fn get_partition(&self, topic: &str, partition_id: u32) -> Result<Option<Partition>> {
-        let row = sqlx::query!(
-            r#"
-            SELECT topic, partition_id, high_watermark
-            FROM partitions
-            WHERE topic = ? AND partition_id = ?
-            "#,
-            topic,
-            partition_id,
+    async fn get_partition(&self, org_id: &str, topic: &str, partition_id: u32) -> Result<Option<Partition>> {
+        use sqlx::Row;
+        let row = sqlx::query(
+            "SELECT topic, partition_id, high_watermark
+             FROM partitions
+             WHERE organization_id = ? AND topic = ? AND partition_id = ?",
         )
+        .bind(org_id)
+        .bind(topic)
+        .bind(partition_id as i32)
         .fetch_optional(&self.pool)
         .await?;
 
         Ok(row.map(|r| Partition {
-            topic: r.topic,
-            partition_id: r.partition_id as u32,
-            high_watermark: r.high_watermark as u64,
+            topic: r.get("topic"),
+            partition_id: r.get::<i32, _>("partition_id") as u32,
+            high_watermark: r.get::<i64, _>("high_watermark") as u64,
         }))
     }
 
     async fn update_high_watermark(
         &self,
+        org_id: &str,
         topic: &str,
         partition_id: u32,
         offset: u64,
@@ -524,17 +525,16 @@ impl MetadataStore for SqliteMetadataStore {
         let offset_i64 = offset as i64;
         let now = Self::now_ms();
 
-        let rows_affected = sqlx::query!(
-            r#"
-            UPDATE partitions
-            SET high_watermark = ?, updated_at = ?
-            WHERE topic = ? AND partition_id = ?
-            "#,
-            offset_i64,
-            now,
-            topic,
-            partition_id,
+        let rows_affected = sqlx::query(
+            "UPDATE partitions
+             SET high_watermark = ?, updated_at = ?
+             WHERE organization_id = ? AND topic = ? AND partition_id = ?",
         )
+        .bind(offset_i64)
+        .bind(now)
+        .bind(org_id)
+        .bind(topic)
+        .bind(partition_id as i32)
         .execute(&self.pool)
         .await?
         .rows_affected();
@@ -549,39 +549,40 @@ impl MetadataStore for SqliteMetadataStore {
         Ok(())
     }
 
-    async fn list_partitions(&self, topic: &str) -> Result<Vec<Partition>> {
-        let rows = sqlx::query!(
-            r#"
-            SELECT topic, partition_id, high_watermark
-            FROM partitions
-            WHERE topic = ?
-            ORDER BY partition_id
-            "#,
-            topic,
+    async fn list_partitions(&self, org_id: &str, topic: &str) -> Result<Vec<Partition>> {
+        use sqlx::Row;
+        let rows = sqlx::query(
+            "SELECT topic, partition_id, high_watermark
+             FROM partitions
+             WHERE organization_id = ? AND topic = ?
+             ORDER BY partition_id",
         )
+        .bind(org_id)
+        .bind(topic)
         .fetch_all(&self.pool)
         .await?;
 
         Ok(rows
             .into_iter()
             .map(|r| Partition {
-                topic: r.topic,
-                partition_id: r.partition_id as u32,
-                high_watermark: r.high_watermark as u64,
+                topic: r.get("topic"),
+                partition_id: r.get::<i32, _>("partition_id") as u32,
+                high_watermark: r.get::<i64, _>("high_watermark") as u64,
             })
             .collect())
     }
 
-    async fn add_segment(&self, segment: SegmentInfo) -> Result<()> {
+    async fn add_segment(&self, org_id: &str, segment: SegmentInfo) -> Result<()> {
         let base_offset_i64 = segment.base_offset as i64;
         let end_offset_i64 = segment.end_offset as i64;
         let size_bytes_i64 = segment.size_bytes as i64;
 
         sqlx::query(
-            "INSERT INTO segments (id, topic, partition_id, base_offset, end_offset, record_count, size_bytes, s3_bucket, s3_key, created_at, min_timestamp, max_timestamp)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "INSERT INTO segments (id, organization_id, topic, partition_id, base_offset, end_offset, record_count, size_bytes, s3_bucket, s3_key, created_at, min_timestamp, max_timestamp)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         )
         .bind(&segment.id)
+        .bind(org_id)
         .bind(&segment.topic)
         .bind(segment.partition_id as i32)
         .bind(base_offset_i64)
@@ -601,6 +602,7 @@ impl MetadataStore for SqliteMetadataStore {
 
     async fn add_segment_and_update_watermark(
         &self,
+        org_id: &str,
         segment: SegmentInfo,
         high_watermark: u64,
     ) -> Result<()> {
@@ -613,10 +615,11 @@ impl MetadataStore for SqliteMetadataStore {
         let now = Self::now_ms();
 
         sqlx::query(
-            "INSERT INTO segments (id, topic, partition_id, base_offset, end_offset, record_count, size_bytes, s3_bucket, s3_key, created_at, min_timestamp, max_timestamp)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "INSERT INTO segments (id, organization_id, topic, partition_id, base_offset, end_offset, record_count, size_bytes, s3_bucket, s3_key, created_at, min_timestamp, max_timestamp)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         )
         .bind(&segment.id)
+        .bind(org_id)
         .bind(&segment.topic)
         .bind(segment.partition_id as i32)
         .bind(base_offset_i64)
@@ -631,17 +634,16 @@ impl MetadataStore for SqliteMetadataStore {
         .execute(&mut *tx)
         .await?;
 
-        sqlx::query!(
-            r#"
-            UPDATE partitions
-            SET high_watermark = ?, updated_at = ?
-            WHERE topic = ? AND partition_id = ?
-            "#,
-            watermark_i64,
-            now,
-            segment.topic,
-            segment.partition_id,
+        sqlx::query(
+            "UPDATE partitions
+             SET high_watermark = ?, updated_at = ?
+             WHERE organization_id = ? AND topic = ? AND partition_id = ?",
         )
+        .bind(watermark_i64)
+        .bind(now)
+        .bind(org_id)
+        .bind(&segment.topic)
+        .bind(segment.partition_id as i32)
         .execute(&mut *tx)
         .await?;
 
@@ -649,14 +651,15 @@ impl MetadataStore for SqliteMetadataStore {
         Ok(())
     }
 
-    async fn get_segments(&self, topic: &str, partition_id: u32) -> Result<Vec<SegmentInfo>> {
+    async fn get_segments(&self, org_id: &str, topic: &str, partition_id: u32) -> Result<Vec<SegmentInfo>> {
         use sqlx::Row;
         let rows = sqlx::query(
             "SELECT id, topic, partition_id, base_offset, end_offset, record_count, size_bytes, s3_bucket, s3_key, created_at, min_timestamp, max_timestamp
              FROM segments
-             WHERE topic = ? AND partition_id = ?
+             WHERE organization_id = ? AND topic = ? AND partition_id = ?
              ORDER BY base_offset",
         )
+        .bind(org_id)
         .bind(topic)
         .bind(partition_id as i32)
         .fetch_all(&self.pool)
@@ -1209,6 +1212,7 @@ impl MetadataStore for SqliteMetadataStore {
 
     async fn acquire_partition_lease(
         &self,
+        organization_id: &str,
         topic: &str,
         partition_id: u32,
         agent_id: &str,
@@ -1224,12 +1228,12 @@ impl MetadataStore for SqliteMetadataStore {
         // This query implements compare-and-swap semantics:
         // - If no lease exists OR lease expired OR same agent holds it, grant/renew
         // - Otherwise, fail (another agent holds the lease)
-        let _result = sqlx::query!(
+        let _result = sqlx::query(
             r#"
             INSERT INTO partition_leases (
-                topic, partition_id, leader_agent_id, lease_expires_at, acquired_at, epoch
+                organization_id, topic, partition_id, leader_agent_id, lease_expires_at, acquired_at, epoch
             )
-            VALUES (?, ?, ?, ?, ?, 1)
+            VALUES (?, ?, ?, ?, ?, ?, 1)
             ON CONFLICT(topic, partition_id) DO UPDATE SET
                 leader_agent_id = CASE
                     WHEN excluded.leader_agent_id = leader_agent_id OR lease_expires_at < ?
@@ -1252,16 +1256,17 @@ impl MetadataStore for SqliteMetadataStore {
                     ELSE epoch
                 END
             "#,
-            topic,
-            partition_id,
-            agent_id,
-            expires_at,
-            now_ms,
-            now_ms,
-            now_ms,
-            now_ms,
-            now_ms,
         )
+        .bind(organization_id)
+        .bind(topic)
+        .bind(partition_id)
+        .bind(agent_id)
+        .bind(expires_at)
+        .bind(now_ms)
+        .bind(now_ms)
+        .bind(now_ms)
+        .bind(now_ms)
+        .bind(now_ms)
         .execute(&self.pool)
         .await?;
 
@@ -1291,26 +1296,29 @@ impl MetadataStore for SqliteMetadataStore {
             .unwrap()
             .as_millis() as i64;
 
-        let row = sqlx::query!(
+        let row = sqlx::query(
             r#"
-            SELECT topic, partition_id, leader_agent_id, lease_expires_at, acquired_at, epoch
+            SELECT organization_id, topic, partition_id, leader_agent_id, lease_expires_at, acquired_at, epoch
             FROM partition_leases
             WHERE topic = ? AND partition_id = ? AND lease_expires_at > ?
             "#,
-            topic,
-            partition_id,
-            now_ms,
         )
+        .bind(topic)
+        .bind(partition_id)
+        .bind(now_ms)
         .fetch_optional(&self.pool)
         .await?;
 
+        use sqlx::Row;
         Ok(row.map(|r| PartitionLease {
-            topic: r.topic,
-            partition_id: r.partition_id as u32,
-            leader_agent_id: r.leader_agent_id,
-            lease_expires_at: r.lease_expires_at,
-            acquired_at: r.acquired_at,
-            epoch: r.epoch as u64,
+            organization_id: r.try_get::<String, _>("organization_id")
+                .unwrap_or_else(|_| crate::DEFAULT_ORGANIZATION_ID.to_string()),
+            topic: r.get("topic"),
+            partition_id: r.get::<i32, _>("partition_id") as u32,
+            leader_agent_id: r.get("leader_agent_id"),
+            lease_expires_at: r.get("lease_expires_at"),
+            acquired_at: r.get("acquired_at"),
+            epoch: r.get::<i64, _>("epoch") as u64,
         }))
     }
 
@@ -1355,28 +1363,28 @@ impl MetadataStore for SqliteMetadataStore {
         // Use a single query structure to avoid type mismatch
         let query = match (topic, agent_id) {
             (Some(t), Some(a)) => format!(
-                "SELECT topic, partition_id, leader_agent_id, lease_expires_at, acquired_at, epoch \
+                "SELECT organization_id, topic, partition_id, leader_agent_id, lease_expires_at, acquired_at, epoch \
                  FROM partition_leases \
                  WHERE topic = '{}' AND leader_agent_id = '{}' AND lease_expires_at > {} \
                  ORDER BY topic, partition_id",
                 t, a, now_ms
             ),
             (Some(t), None) => format!(
-                "SELECT topic, partition_id, leader_agent_id, lease_expires_at, acquired_at, epoch \
+                "SELECT organization_id, topic, partition_id, leader_agent_id, lease_expires_at, acquired_at, epoch \
                  FROM partition_leases \
                  WHERE topic = '{}' AND lease_expires_at > {} \
                  ORDER BY topic, partition_id",
                 t, now_ms
             ),
             (None, Some(a)) => format!(
-                "SELECT topic, partition_id, leader_agent_id, lease_expires_at, acquired_at, epoch \
+                "SELECT organization_id, topic, partition_id, leader_agent_id, lease_expires_at, acquired_at, epoch \
                  FROM partition_leases \
                  WHERE leader_agent_id = '{}' AND lease_expires_at > {} \
                  ORDER BY topic, partition_id",
                 a, now_ms
             ),
             (None, None) => format!(
-                "SELECT topic, partition_id, leader_agent_id, lease_expires_at, acquired_at, epoch \
+                "SELECT organization_id, topic, partition_id, leader_agent_id, lease_expires_at, acquired_at, epoch \
                  FROM partition_leases \
                  WHERE lease_expires_at > {} \
                  ORDER BY topic, partition_id",
@@ -1384,14 +1392,15 @@ impl MetadataStore for SqliteMetadataStore {
             ),
         };
 
-        let rows: Vec<(String, i32, String, i64, i64, i64)> =
+        let rows: Vec<(Option<String>, String, i32, String, i64, i64, i64)> =
             sqlx::query_as(&query).fetch_all(&self.pool).await?;
 
         Ok(rows
             .into_iter()
             .map(
-                |(topic, partition_id, leader_agent_id, lease_expires_at, acquired_at, epoch)| {
+                |(organization_id, topic, partition_id, leader_agent_id, lease_expires_at, acquired_at, epoch)| {
                     PartitionLease {
+                        organization_id: organization_id.unwrap_or_else(|| crate::DEFAULT_ORGANIZATION_ID.to_string()),
                         topic,
                         partition_id: partition_id as u32,
                         leader_agent_id,
@@ -2888,6 +2897,7 @@ impl MetadataStore for SqliteMetadataStore {
         tx.commit().await?;
 
         Ok(PartitionLease {
+            organization_id: crate::DEFAULT_ORGANIZATION_ID.to_string(),
             topic: transfer.topic,
             partition_id: transfer.partition_id,
             leader_agent_id: transfer.to_agent_id,
@@ -3510,7 +3520,7 @@ mod tests {
         assert_eq!(topic.partition_count, 3);
 
         // Should have created 3 partitions
-        let partitions = store.list_partitions("test").await.unwrap();
+        let partitions = store.list_partitions(crate::DEFAULT_ORGANIZATION_ID, "test").await.unwrap();
         assert_eq!(partitions.len(), 3);
     }
 
@@ -3551,7 +3561,7 @@ mod tests {
 
         // Add segments
         store
-            .add_segment(SegmentInfo {
+            .add_segment(crate::DEFAULT_ORGANIZATION_ID, SegmentInfo {
                 id: "seg1".to_string(),
                 topic: "test".to_string(),
                 partition_id: 0,
@@ -3569,7 +3579,7 @@ mod tests {
             .unwrap();
 
         store
-            .add_segment(SegmentInfo {
+            .add_segment(crate::DEFAULT_ORGANIZATION_ID, SegmentInfo {
                 id: "seg2".to_string(),
                 topic: "test".to_string(),
                 partition_id: 0,

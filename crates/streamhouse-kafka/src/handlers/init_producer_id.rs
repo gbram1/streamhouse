@@ -33,6 +33,7 @@ fn hash_producer_id(id: &str) -> i64 {
 /// Handle InitProducerId request
 pub async fn handle_init_producer_id(
     state: &KafkaServerState,
+    org_id: &str,
     header: &RequestHeader,
     body: &mut BytesMut,
 ) -> KafkaResult<BytesMut> {
@@ -58,7 +59,7 @@ pub async fn handle_init_producer_id(
     // Initialize the producer via the metadata store
     let config = InitProducerConfig {
         transactional_id: transactional_id.clone(),
-        organization_id: None,
+        organization_id: Some(org_id.to_string()),
         timeout_ms: transaction_timeout_ms as u32,
         metadata: None,
     };

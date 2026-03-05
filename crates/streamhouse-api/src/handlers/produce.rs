@@ -3,13 +3,14 @@
 use axum::{
     extract::State,
     http::{HeaderMap, StatusCode},
-    Json,
+    Extension, Json,
 };
 use bytes::Bytes;
 use std::collections::HashMap;
 
+use crate::auth::AuthenticatedKey;
+use crate::handlers::topics::extract_org_id;
 use crate::{models::*, AppState};
-use streamhouse_metadata::DEFAULT_ORGANIZATION_ID;
 
 /// Validate a value against the schema registered for `{topic}-value`.
 /// Returns Ok(()) if no schema is registered or validation passes.
@@ -97,16 +98,6 @@ fn validate_avro_schema(schema_str: &str, value: &str) -> Result<(), (StatusCode
     }
 }
 
-/// Extract organization ID from request headers, defaulting to DEFAULT_ORGANIZATION_ID.
-fn extract_org_id(headers: &HeaderMap) -> String {
-    headers
-        .get("x-organization-id")
-        .and_then(|v| v.to_str().ok())
-        .filter(|s| !s.is_empty())
-        .map(|s| s.to_string())
-        .unwrap_or_else(|| DEFAULT_ORGANIZATION_ID.to_string())
-}
-
 #[utoipa::path(
     post,
     path = "/api/v1/produce",
@@ -122,19 +113,24 @@ fn extract_org_id(headers: &HeaderMap) -> String {
 pub async fn produce(
     State(state): State<AppState>,
     headers: HeaderMap,
+    auth_key: Option<Extension<AuthenticatedKey>>,
     Json(req): Json<ProduceRequest>,
 ) -> Result<Json<ProduceResponse>, StatusCode> {
-    let org_id = extract_org_id(&headers);
+    let org_id = extract_org_id(&headers, auth_key.as_ref().map(|e| &e.0));
 
     // Verify topic belongs to org
-    if let Err(e) = state.metadata.get_topic_for_org(&org_id, &req.topic).await {
-        tracing::error!(
-            "get_topic_for_org failed: org={}, topic={}, err={:?}",
-            org_id,
-            req.topic,
-            e
-        );
-        return Err(StatusCode::INTERNAL_SERVER_ERROR);
+    match state.metadata.get_topic_for_org(&org_id, &req.topic).await {
+        Ok(Some(_)) => {} // Topic belongs to this org
+        Ok(None) => return Err(StatusCode::NOT_FOUND),
+        Err(e) => {
+            tracing::error!(
+                "get_topic_for_org failed: org={}, topic={}, err={:?}",
+                org_id,
+                req.topic,
+                e
+            );
+            return Err(StatusCode::INTERNAL_SERVER_ERROR);
+        }
     }
 
     // Validate topic exists
@@ -168,7 +164,7 @@ pub async fn produce(
         }
 
         // Get writer for partition
-        let writer = match writer_pool.get_writer(&req.topic, partition).await {
+        let writer = match writer_pool.get_writer(&org_id, &req.topic, partition).await {
             Ok(w) => w,
             Err(e) => {
                 tracing::error!(
@@ -258,9 +254,10 @@ pub async fn produce(
 pub async fn produce_batch(
     State(state): State<AppState>,
     headers: HeaderMap,
+    auth_key: Option<Extension<AuthenticatedKey>>,
     Json(req): Json<BatchProduceRequest>,
 ) -> Result<Json<BatchProduceResponse>, StatusCode> {
-    let org_id = extract_org_id(&headers);
+    let org_id = extract_org_id(&headers, auth_key.as_ref().map(|e| &e.0));
 
     // Verify topic belongs to org
     if state
@@ -320,7 +317,7 @@ pub async fn produce_batch(
         // Write to each partition
         for (partition, records) in by_partition {
             let writer = writer_pool
-                .get_writer(&req.topic, partition)
+                .get_writer(&org_id, &req.topic, partition)
                 .await
                 .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 

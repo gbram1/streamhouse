@@ -5,7 +5,7 @@
 use axum::{
     extract::{Path, State},
     http::{HeaderMap, StatusCode},
-    Json,
+    Extension, Json,
 };
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -13,6 +13,7 @@ use std::sync::Arc;
 use tokio::sync::RwLock;
 use utoipa::ToSchema;
 
+use crate::auth::AuthenticatedKey;
 use crate::handlers::topics::extract_org_id;
 use crate::AppState;
 
@@ -353,9 +354,10 @@ lazy_static::lazy_static! {
 pub async fn ask_query(
     State(state): State<AppState>,
     headers: HeaderMap,
+    auth_key: Option<Extension<AuthenticatedKey>>,
     Json(req): Json<AskQueryRequest>,
 ) -> Result<Json<AskQueryResponse>, (StatusCode, Json<AskQueryError>)> {
-    let org_id = extract_org_id(&headers);
+    let org_id = extract_org_id(&headers, auth_key.as_ref().map(|e| &e.0));
     // Get API key from environment
     let api_key = std::env::var("ANTHROPIC_API_KEY").map_err(|_| {
         (
@@ -827,10 +829,11 @@ pub async fn get_query_by_id(
 pub async fn refine_query(
     State(state): State<AppState>,
     headers: HeaderMap,
+    auth_key: Option<Extension<AuthenticatedKey>>,
     Path(id): Path<String>,
     Json(req): Json<RefineQueryRequest>,
 ) -> Result<Json<AskQueryResponse>, (StatusCode, Json<AskQueryError>)> {
-    let org_id = extract_org_id(&headers);
+    let org_id = extract_org_id(&headers, auth_key.as_ref().map(|e| &e.0));
     // Get the original query
     let original = {
         let history = QUERY_HISTORY.read().await;
@@ -936,9 +939,10 @@ pub async fn refine_query(
 pub async fn estimate_cost(
     State(state): State<AppState>,
     headers: HeaderMap,
+    auth_key: Option<Extension<AuthenticatedKey>>,
     Json(req): Json<EstimateCostRequest>,
 ) -> Result<Json<CostEstimate>, (StatusCode, Json<AskQueryError>)> {
-    let org_id = extract_org_id(&headers);
+    let org_id = extract_org_id(&headers, auth_key.as_ref().map(|e| &e.0));
     let (sql, topics) = if req.is_sql {
         // Parse SQL to extract topics
         let topics = extract_topics_from_sql(&req.query);
@@ -1024,7 +1028,7 @@ async fn estimate_query_cost(
         if let Ok(Some(topic)) = state.metadata.get_topic_for_org(org_id, topic_name).await {
             // Get message count from all partitions
             for partition_id in 0..topic.partition_count {
-                if let Ok(segments) = state.metadata.get_segments(topic_name, partition_id).await {
+                if let Ok(segments) = state.metadata.get_segments(org_id, topic_name, partition_id).await {
                     let partition_rows: u64 = segments.iter().map(|s| s.record_count as u64).sum();
                     let partition_bytes: u64 = segments.iter().map(|s| s.size_bytes).sum();
 
@@ -1147,9 +1151,10 @@ pub async fn clear_query_history() -> StatusCode {
 pub async fn infer_schema(
     State(state): State<AppState>,
     headers: HeaderMap,
+    auth_key: Option<Extension<AuthenticatedKey>>,
     Json(req): Json<InferSchemaRequest>,
 ) -> Result<Json<InferredSchema>, (StatusCode, Json<AskQueryError>)> {
-    let org_id = extract_org_id(&headers);
+    let org_id = extract_org_id(&headers, auth_key.as_ref().map(|e| &e.0));
 
     // Check if topic exists (org-scoped)
     let topic = state

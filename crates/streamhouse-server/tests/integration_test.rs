@@ -105,7 +105,7 @@ async fn create_topic_with_leases(
 
     for p in 0..partitions {
         metadata
-            .acquire_partition_lease(name, p, TEST_AGENT_ID, 60_000)
+            .acquire_partition_lease(streamhouse_metadata::DEFAULT_ORGANIZATION_ID, name, p, TEST_AGENT_ID, 60_000)
             .await
             .unwrap();
     }

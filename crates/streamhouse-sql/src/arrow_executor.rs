@@ -23,7 +23,7 @@ use arrow::datatypes::{DataType, Field, Schema};
 use datafusion::execution::context::SessionContext;
 use tokio::sync::Mutex;
 
-use streamhouse_metadata::MetadataStore;
+use streamhouse_metadata::{MetadataStore, DEFAULT_ORGANIZATION_ID};
 use streamhouse_storage::SegmentCache;
 
 use crate::error::SqlError;
@@ -342,7 +342,7 @@ impl ArrowExecutor {
 
             let partition = match self
                 .metadata
-                .get_partition(topic_name, partition_id)
+                .get_partition(DEFAULT_ORGANIZATION_ID, topic_name, partition_id)
                 .await?
             {
                 Some(p) => p,
@@ -352,7 +352,7 @@ impl ArrowExecutor {
             let scan_start = offset_start.unwrap_or(0);
             let scan_end = offset_end.unwrap_or(partition.high_watermark);
 
-            let segments = self.metadata.get_segments(topic_name, partition_id).await?;
+            let segments = self.metadata.get_segments(DEFAULT_ORGANIZATION_ID, topic_name, partition_id).await?;
 
             for segment in segments {
                 if segment.end_offset < scan_start || segment.base_offset > scan_end {

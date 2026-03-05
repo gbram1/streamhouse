@@ -12,7 +12,8 @@
 //!
 //! ## How It Works
 //!
-//! 1. List all `.seg` files under the `data/` prefix in S3
+//! 1. List all `.seg` files across all org prefixes in S3
+//!    (`data/` for the default org, `org-{uuid}/data/` for each non-default org)
 //! 2. For each file, check if the metadata store has a segment with that `s3_key`
 //! 3. If no metadata entry exists AND the file is older than the grace period,
 //!    delete it from S3
@@ -53,23 +54,35 @@ impl S3Reconciler {
     pub async fn reconcile(&self) -> Result<u64, Box<dyn std::error::Error + Send + Sync>> {
         use futures::TryStreamExt;
 
-        let prefix = Path::from("data/");
         let now = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)?
             .as_millis() as i64;
         let grace_ms = self.grace_period.as_millis() as i64;
 
-        // List all .seg files in S3
+        // Build list of S3 prefixes to scan — default org + all non-default orgs
+        let mut prefixes = vec!["data/".to_string()];
+        if let Ok(orgs) = self.metadata.list_organizations().await {
+            for org in orgs {
+                if org.id != streamhouse_metadata::DEFAULT_ORGANIZATION_ID {
+                    prefixes.push(format!("org-{}/data/", org.id));
+                }
+            }
+        }
+
+        // List all .seg files across all org prefixes
         let mut s3_keys: Vec<(String, i64)> = Vec::new();
-        let mut list_stream = self.object_store.list(Some(&prefix));
-        while let Some(meta) = list_stream.try_next().await? {
-            let key = meta.location.to_string();
-            if key.ends_with(".seg") {
-                let last_modified_ms = meta
-                    .last_modified
-                    .signed_duration_since(chrono::DateTime::UNIX_EPOCH)
-                    .num_milliseconds();
-                s3_keys.push((key, last_modified_ms));
+        for prefix_str in &prefixes {
+            let prefix = Path::from(prefix_str.as_str());
+            let mut list_stream = self.object_store.list(Some(&prefix));
+            while let Some(meta) = list_stream.try_next().await? {
+                let key = meta.location.to_string();
+                if key.ends_with(".seg") {
+                    let last_modified_ms = meta
+                        .last_modified
+                        .signed_duration_since(chrono::DateTime::UNIX_EPOCH)
+                        .num_milliseconds();
+                    s3_keys.push((key, last_modified_ms));
+                }
             }
         }
 
@@ -83,11 +96,11 @@ impl S3Reconciler {
         let mut known_keys: HashSet<String> = HashSet::new();
 
         for topic in &topics {
-            let partitions = self.metadata.list_partitions(&topic.name).await?;
+            let partitions = self.metadata.list_partitions(streamhouse_metadata::DEFAULT_ORGANIZATION_ID, &topic.name).await?;
             for partition in &partitions {
                 let segments = self
                     .metadata
-                    .get_segments(&topic.name, partition.partition_id)
+                    .get_segments(streamhouse_metadata::DEFAULT_ORGANIZATION_ID, &topic.name, partition.partition_id)
                     .await?;
                 for seg in segments {
                     known_keys.insert(seg.s3_key);
@@ -207,7 +220,7 @@ mod tests {
 
         // Register only the first segment in metadata
         metadata
-            .add_segment(streamhouse_metadata::SegmentInfo {
+            .add_segment(streamhouse_metadata::DEFAULT_ORGANIZATION_ID, streamhouse_metadata::SegmentInfo {
                 id: "orders-0-0".to_string(),
                 topic: "orders".to_string(),
                 partition_id: 0,

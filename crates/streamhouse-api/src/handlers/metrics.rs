@@ -3,11 +3,14 @@
 use axum::{
     extract::{Path, Query, State},
     http::{HeaderMap, StatusCode},
-    Json,
+    Extension, Json,
 };
 use std::collections::HashMap;
 
-use crate::{handlers::topics::extract_org_id, models::*, prometheus::PrometheusClient, AppState};
+use crate::{
+    auth::AuthenticatedKey, handlers::topics::extract_org_id, models::*,
+    prometheus::PrometheusClient, AppState,
+};
 
 #[utoipa::path(
     get,
@@ -20,8 +23,9 @@ use crate::{handlers::topics::extract_org_id, models::*, prometheus::PrometheusC
 pub async fn get_metrics(
     State(state): State<AppState>,
     headers: HeaderMap,
+    auth_key: Option<Extension<AuthenticatedKey>>,
 ) -> Result<Json<MetricsSnapshot>, StatusCode> {
-    let org_id = extract_org_id(&headers);
+    let org_id = extract_org_id(&headers, auth_key.as_ref().map(|e| &e.0));
 
     // Get topics count for this org
     let topics = state
@@ -42,7 +46,7 @@ pub async fn get_metrics(
     for topic in &topics {
         let partitions = state
             .metadata
-            .list_partitions(&topic.name)
+            .list_partitions(&org_id, &topic.name)
             .await
             .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
         partitions_count += partitions.len() as u64;
@@ -53,7 +57,7 @@ pub async fn get_metrics(
     for topic in &topics {
         let partitions = state
             .metadata
-            .list_partitions(&topic.name)
+            .list_partitions(&org_id, &topic.name)
             .await
             .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
         for partition in partitions {
@@ -139,8 +143,9 @@ pub async fn readiness_check(
 pub async fn get_storage_metrics(
     State(state): State<AppState>,
     headers: HeaderMap,
+    auth_key: Option<Extension<AuthenticatedKey>>,
 ) -> Result<Json<StorageMetricsResponse>, StatusCode> {
-    let org_id = extract_org_id(&headers);
+    let org_id = extract_org_id(&headers, auth_key.as_ref().map(|e| &e.0));
 
     // Query segments table for this org's storage stats
     let stats = state
@@ -189,9 +194,10 @@ pub async fn get_storage_metrics(
 pub async fn get_throughput_metrics(
     State(state): State<AppState>,
     headers: HeaderMap,
+    auth_key: Option<Extension<AuthenticatedKey>>,
     Query(params): Query<TimeRangeParams>,
 ) -> Result<Json<Vec<ThroughputMetric>>, StatusCode> {
-    let org_id = extract_org_id(&headers);
+    let org_id = extract_org_id(&headers, auth_key.as_ref().map(|e| &e.0));
     let time_range = params.time_range.as_deref().unwrap_or("1h");
 
     // Try to get real metrics from Prometheus
@@ -257,7 +263,7 @@ async fn get_simulated_throughput_metrics(
     for topic in &topics {
         let partitions = state
             .metadata
-            .list_partitions(&topic.name)
+            .list_partitions(org_id, &topic.name)
             .await
             .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
         for partition in partitions {
@@ -309,9 +315,10 @@ async fn get_simulated_throughput_metrics(
 pub async fn get_latency_metrics(
     State(state): State<AppState>,
     headers: HeaderMap,
+    auth_key: Option<Extension<AuthenticatedKey>>,
     Query(params): Query<TimeRangeParams>,
 ) -> Result<Json<Vec<LatencyMetric>>, StatusCode> {
-    let org_id = extract_org_id(&headers);
+    let org_id = extract_org_id(&headers, auth_key.as_ref().map(|e| &e.0));
     let time_range = params.time_range.as_deref().unwrap_or("1h");
 
     // No topics in this org → no latency data
@@ -426,9 +433,10 @@ fn get_simulated_latency_metrics(time_range: &str) -> Result<Json<Vec<LatencyMet
 pub async fn get_error_metrics(
     State(state): State<AppState>,
     headers: HeaderMap,
+    auth_key: Option<Extension<AuthenticatedKey>>,
     Query(params): Query<TimeRangeParams>,
 ) -> Result<Json<Vec<ErrorMetric>>, StatusCode> {
-    let org_id = extract_org_id(&headers);
+    let org_id = extract_org_id(&headers, auth_key.as_ref().map(|e| &e.0));
     let time_range = params.time_range.as_deref().unwrap_or("1h");
 
     // No topics in this org → no error data

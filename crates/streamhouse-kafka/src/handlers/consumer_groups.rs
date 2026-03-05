@@ -111,6 +111,7 @@ pub async fn handle_find_coordinator(
 /// Handle JoinGroup request (API 11)
 pub async fn handle_join_group(
     state: &KafkaServerState,
+    org_id: &str,
     header: &RequestHeader,
     body: &mut BytesMut,
 ) -> KafkaResult<BytesMut> {
@@ -198,6 +199,7 @@ pub async fn handle_join_group(
     let result = state
         .group_coordinator
         .join_group(
+            org_id,
             &group_id,
             member_id_opt,
             header.client_id.as_deref().unwrap_or("unknown"),
@@ -264,6 +266,7 @@ pub async fn handle_join_group(
 /// Handle SyncGroup request (API 14)
 pub async fn handle_sync_group(
     state: &KafkaServerState,
+    org_id: &str,
     header: &RequestHeader,
     body: &mut BytesMut,
 ) -> KafkaResult<BytesMut> {
@@ -330,7 +333,7 @@ pub async fn handle_sync_group(
     // Process sync request
     let result = state
         .group_coordinator
-        .sync_group(&group_id, generation_id, &member_id, assignments)
+        .sync_group(org_id, &group_id, generation_id, &member_id, assignments)
         .await?;
 
     // Build response
@@ -361,6 +364,7 @@ pub async fn handle_sync_group(
 /// Handle Heartbeat request (API 12)
 pub async fn handle_heartbeat(
     state: &KafkaServerState,
+    org_id: &str,
     header: &RequestHeader,
     body: &mut BytesMut,
 ) -> KafkaResult<BytesMut> {
@@ -394,7 +398,7 @@ pub async fn handle_heartbeat(
     // Process heartbeat
     let error_code = state
         .group_coordinator
-        .heartbeat(&group_id, generation_id, &member_id)
+        .heartbeat(org_id, &group_id, generation_id, &member_id)
         .await?;
 
     // Build response
@@ -419,6 +423,7 @@ pub async fn handle_heartbeat(
 /// Handle LeaveGroup request (API 13)
 pub async fn handle_leave_group(
     state: &KafkaServerState,
+    org_id: &str,
     header: &RequestHeader,
     body: &mut BytesMut,
 ) -> KafkaResult<BytesMut> {
@@ -462,7 +467,7 @@ pub async fn handle_leave_group(
     for member_id in &members {
         let error_code = state
             .group_coordinator
-            .leave_group(&group_id, member_id)
+            .leave_group(org_id, &group_id, member_id)
             .await?;
         member_responses.push((member_id.clone(), error_code));
     }
@@ -516,6 +521,7 @@ pub async fn handle_leave_group(
 /// Handle DescribeGroups request (API 15)
 pub async fn handle_describe_groups(
     state: &KafkaServerState,
+    org_id: &str,
     header: &RequestHeader,
     body: &mut BytesMut,
 ) -> KafkaResult<BytesMut> {
@@ -540,7 +546,7 @@ pub async fn handle_describe_groups(
     // Get group details
     let mut group_responses = Vec::new();
     for group_id in &groups {
-        let result = state.group_coordinator.describe_group(group_id).await;
+        let result = state.group_coordinator.describe_group(org_id, group_id).await;
         group_responses.push((group_id.clone(), result));
     }
 
@@ -650,6 +656,7 @@ pub async fn handle_describe_groups(
 /// Handle ListGroups request (API 16)
 pub async fn handle_list_groups(
     state: &KafkaServerState,
+    org_id: &str,
     header: &RequestHeader,
     body: &mut BytesMut,
 ) -> KafkaResult<BytesMut> {
@@ -667,7 +674,7 @@ pub async fn handle_list_groups(
     debug!("ListGroups");
 
     // Get all groups
-    let groups = state.group_coordinator.list_groups().await;
+    let groups = state.group_coordinator.list_groups(org_id).await;
 
     // Build response
     let mut response = BytesMut::new();

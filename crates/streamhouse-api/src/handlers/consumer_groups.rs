@@ -1,8 +1,9 @@
 //! Consumer group endpoints
 
-use axum::{extract::State, http::{HeaderMap, StatusCode}, Json};
+use axum::{extract::State, http::{HeaderMap, StatusCode}, Extension, Json};
 use std::collections::HashSet;
 
+use crate::auth::AuthenticatedKey;
 use crate::handlers::topics::extract_org_id;
 use crate::models::{
     CommitOffsetRequest, CommitOffsetResponse, ConsumerGroupDetail, ConsumerGroupInfo,
@@ -23,8 +24,9 @@ use crate::AppState;
 pub async fn list_consumer_groups(
     State(state): State<AppState>,
     headers: HeaderMap,
+    auth_key: Option<Extension<AuthenticatedKey>>,
 ) -> Result<Json<Vec<ConsumerGroupInfo>>, StatusCode> {
-    let org_id = extract_org_id(&headers);
+    let org_id = extract_org_id(&headers, auth_key.as_ref().map(|e| &e.0));
 
     // Get consumer group IDs for this organization
     let group_ids = state
@@ -60,7 +62,7 @@ pub async fn list_consumer_groups(
             // Get partition to calculate lag
             if let Ok(Some(partition)) = state
                 .metadata
-                .get_partition(&offset.topic, offset.partition_id)
+                .get_partition(&org_id, &offset.topic, offset.partition_id)
                 .await
             {
                 let lag = partition.high_watermark as i64 - offset.committed_offset as i64;
@@ -94,9 +96,10 @@ pub async fn list_consumer_groups(
 pub async fn get_consumer_group(
     State(state): State<AppState>,
     headers: HeaderMap,
+    auth_key: Option<Extension<AuthenticatedKey>>,
     axum::extract::Path(group_id): axum::extract::Path<String>,
 ) -> Result<Json<ConsumerGroupDetail>, StatusCode> {
-    let org_id = extract_org_id(&headers);
+    let org_id = extract_org_id(&headers, auth_key.as_ref().map(|e| &e.0));
 
     // Get consumer offsets for this group (org-scoped)
     let consumer_offsets = state
@@ -116,7 +119,7 @@ pub async fn get_consumer_group(
         // Get partition metadata to find high watermark
         let partition = state
             .metadata
-            .get_partition(&offset.topic, offset.partition_id)
+            .get_partition(&org_id, &offset.topic, offset.partition_id)
             .await
             .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
             .ok_or(StatusCode::NOT_FOUND)?;
@@ -153,9 +156,10 @@ pub async fn get_consumer_group(
 pub async fn get_consumer_group_lag(
     State(state): State<AppState>,
     headers: HeaderMap,
+    auth_key: Option<Extension<AuthenticatedKey>>,
     axum::extract::Path(group_id): axum::extract::Path<String>,
 ) -> Result<Json<ConsumerGroupLag>, StatusCode> {
-    let org_id = extract_org_id(&headers);
+    let org_id = extract_org_id(&headers, auth_key.as_ref().map(|e| &e.0));
 
     // Get consumer offsets for this group (org-scoped)
     let consumer_offsets = state
@@ -178,7 +182,7 @@ pub async fn get_consumer_group_lag(
         // Get partition metadata to calculate lag
         if let Ok(Some(partition)) = state
             .metadata
-            .get_partition(&offset.topic, offset.partition_id)
+            .get_partition(&org_id, &offset.topic, offset.partition_id)
             .await
         {
             let lag = partition.high_watermark as i64 - offset.committed_offset as i64;
@@ -208,9 +212,10 @@ pub async fn get_consumer_group_lag(
 pub async fn commit_offset(
     State(state): State<AppState>,
     headers: HeaderMap,
+    auth_key: Option<Extension<AuthenticatedKey>>,
     Json(req): Json<CommitOffsetRequest>,
 ) -> Result<Json<CommitOffsetResponse>, StatusCode> {
-    let org_id = extract_org_id(&headers);
+    let org_id = extract_org_id(&headers, auth_key.as_ref().map(|e| &e.0));
 
     // Validate topic exists for this org
     state
@@ -223,7 +228,7 @@ pub async fn commit_offset(
     // Validate partition exists
     state
         .metadata
-        .get_partition(&req.topic, req.partition)
+        .get_partition(&org_id, &req.topic, req.partition)
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
         .ok_or(StatusCode::NOT_FOUND)?;
@@ -255,10 +260,11 @@ pub async fn commit_offset(
 pub async fn reset_offsets(
     State(state): State<AppState>,
     headers: HeaderMap,
+    auth_key: Option<Extension<AuthenticatedKey>>,
     axum::extract::Path(group_id): axum::extract::Path<String>,
     Json(req): Json<ResetOffsetsRequest>,
 ) -> Result<Json<ResetOffsetsResponse>, StatusCode> {
-    let org_id = extract_org_id(&headers);
+    let org_id = extract_org_id(&headers, auth_key.as_ref().map(|e| &e.0));
 
     // Get current offsets for this consumer group (org-scoped)
     let current_offsets = state
@@ -299,7 +305,7 @@ pub async fn reset_offsets(
                 // Get partition's high watermark
                 let partition = state
                     .metadata
-                    .get_partition(&offset.topic, offset.partition_id)
+                    .get_partition(&org_id, &offset.topic, offset.partition_id)
                     .await
                     .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
                     .ok_or(StatusCode::NOT_FOUND)?;
@@ -310,7 +316,7 @@ pub async fn reset_offsets(
                 // For timestamp, we need to find the offset at or after the timestamp
                 // This requires scanning segments - for now, use a simplified approach
                 let timestamp_ms = req.timestamp.ok_or(StatusCode::BAD_REQUEST)?;
-                find_offset_for_timestamp(&state, &offset.topic, offset.partition_id, timestamp_ms)
+                find_offset_for_timestamp(&state, &org_id, &offset.topic, offset.partition_id, timestamp_ms)
                     .await
                     .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
             }
@@ -348,6 +354,7 @@ pub async fn reset_offsets(
 /// Find the offset at or after a given timestamp
 async fn find_offset_for_timestamp(
     state: &AppState,
+    org_id: &str,
     topic: &str,
     partition_id: u32,
     timestamp_ms: i64,
@@ -355,7 +362,7 @@ async fn find_offset_for_timestamp(
     // Get segments for this partition
     let segments = state
         .metadata
-        .get_segments(topic, partition_id)
+        .get_segments(org_id, topic, partition_id)
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
@@ -401,10 +408,11 @@ async fn find_offset_for_timestamp(
 pub async fn seek_to_timestamp(
     State(state): State<AppState>,
     headers: HeaderMap,
+    auth_key: Option<Extension<AuthenticatedKey>>,
     axum::extract::Path(group_id): axum::extract::Path<String>,
     Json(req): Json<SeekToTimestampRequest>,
 ) -> Result<Json<SeekToTimestampResponse>, StatusCode> {
-    let org_id = extract_org_id(&headers);
+    let org_id = extract_org_id(&headers, auth_key.as_ref().map(|e| &e.0));
 
     // Validate topic exists for this org
     let topic = state
@@ -448,7 +456,7 @@ pub async fn seek_to_timestamp(
             .unwrap_or(0);
 
         // Find offset for timestamp
-        let new_offset = find_offset_for_timestamp(&state, &req.topic, partition_id, req.timestamp)
+        let new_offset = find_offset_for_timestamp(&state, &org_id, &req.topic, partition_id, req.timestamp)
             .await
             .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
@@ -490,9 +498,10 @@ pub async fn seek_to_timestamp(
 pub async fn delete_consumer_group(
     State(state): State<AppState>,
     headers: HeaderMap,
+    auth_key: Option<Extension<AuthenticatedKey>>,
     axum::extract::Path(group_id): axum::extract::Path<String>,
 ) -> Result<Json<DeleteConsumerGroupResponse>, StatusCode> {
-    let org_id = extract_org_id(&headers);
+    let org_id = extract_org_id(&headers, auth_key.as_ref().map(|e| &e.0));
 
     // Get current offsets to count partitions (org-scoped)
     let current_offsets = state

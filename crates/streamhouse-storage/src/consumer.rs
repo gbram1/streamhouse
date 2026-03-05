@@ -178,6 +178,7 @@ mod tests {
     ) -> Arc<PartitionReader> {
         let object_store: Arc<dyn ObjectStore> = Arc::new(InMemory::new());
         Arc::new(PartitionReader::new(
+            streamhouse_metadata::DEFAULT_ORGANIZATION_ID.to_string(),
             topic.to_string(),
             partition_id,
             metadata.clone(),

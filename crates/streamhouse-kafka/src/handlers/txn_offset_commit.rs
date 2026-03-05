@@ -18,6 +18,7 @@ use crate::server::KafkaServerState;
 /// Handle TxnOffsetCommit request
 pub async fn handle_txn_offset_commit(
     state: &KafkaServerState,
+    org_id: &str,
     header: &RequestHeader,
     body: &mut BytesMut,
 ) -> KafkaResult<BytesMut> {
@@ -93,7 +94,8 @@ pub async fn handle_txn_offset_commit(
         for (partition_index, committed_offset, metadata) in partitions {
             let error = match state
                 .metadata
-                .commit_offset(
+                .commit_offset_for_org(
+                    org_id,
                     &group_id,
                     topic_name,
                     *partition_index as u32,

@@ -80,7 +80,7 @@ impl MetadataBackup {
         for topic in topics {
             let mut all_segments = Vec::new();
             for partition in 0..topic.partition_count {
-                if let Ok(segments) = store.get_segments(&topic.name, partition).await {
+                if let Ok(segments) = store.get_segments(crate::DEFAULT_ORGANIZATION_ID, &topic.name, partition).await {
                     all_segments.extend(segments);
                 }
             }

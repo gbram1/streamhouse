@@ -3,15 +3,28 @@
 use axum::{
     extract::{Path, Query, State},
     http::{HeaderMap, StatusCode},
-    Json,
+    Extension, Json,
 };
 use chrono::{DateTime, Utc};
 
-use crate::{models::*, AppState};
+use crate::{auth::AuthenticatedKey, models::*, AppState};
 use streamhouse_metadata::{TopicConfig, DEFAULT_ORGANIZATION_ID};
 
-/// Extract organization ID from request headers, defaulting to DEFAULT_ORGANIZATION_ID.
-pub(crate) fn extract_org_id(headers: &HeaderMap) -> String {
+/// Extract organization ID securely.
+///
+/// When auth is enabled, the org ID comes from the `AuthenticatedKey` stored in
+/// request extensions by the auth middleware — this cannot be spoofed by clients.
+/// Falls back to the `x-organization-id` header only when auth middleware is not
+/// present (dev/testing without auth).
+pub(crate) fn extract_org_id(
+    headers: &HeaderMap,
+    auth_key: Option<&AuthenticatedKey>,
+) -> String {
+    // 1. If AuthenticatedKey is present (auth enabled), use its org_id
+    if let Some(key) = auth_key {
+        return key.organization_id.clone();
+    }
+    // 2. Fallback to header (dev/testing without auth)
     headers
         .get("x-organization-id")
         .and_then(|v| v.to_str().ok())
@@ -134,8 +147,9 @@ fn format_timestamp(timestamp_millis: i64) -> String {
 pub async fn list_topics(
     State(state): State<AppState>,
     headers: HeaderMap,
+    auth_key: Option<Extension<AuthenticatedKey>>,
 ) -> Result<Json<Vec<Topic>>, StatusCode> {
-    let org_id = extract_org_id(&headers);
+    let org_id = extract_org_id(&headers, auth_key.as_ref().map(|e| &e.0));
 
     // Ensure the organization exists (lazy creation from Clerk)
     let _ = state.metadata.ensure_organization(&org_id, &org_id).await;
@@ -153,7 +167,7 @@ pub async fn list_topics(
         let mut total_size: u64 = 0;
 
         for partition_id in 0..t.partition_count {
-            if let Ok(segments) = state.metadata.get_segments(&t.name, partition_id).await {
+            if let Ok(segments) = state.metadata.get_segments(&org_id, &t.name, partition_id).await {
                 for seg in segments {
                     total_messages += seg.record_count as u64;
                     total_size += seg.size_bytes;
@@ -188,9 +202,10 @@ pub async fn list_topics(
 pub async fn create_topic(
     State(state): State<AppState>,
     headers: HeaderMap,
+    auth_key: Option<Extension<AuthenticatedKey>>,
     Json(req): Json<CreateTopicRequest>,
 ) -> Result<(StatusCode, Json<Topic>), StatusCode> {
-    let org_id = extract_org_id(&headers);
+    let org_id = extract_org_id(&headers, auth_key.as_ref().map(|e| &e.0));
 
     // Ensure the organization exists (lazy creation from Clerk)
     let _ = state.metadata.ensure_organization(&org_id, &org_id).await;
@@ -261,9 +276,10 @@ pub async fn create_topic(
 pub async fn get_topic(
     State(state): State<AppState>,
     headers: HeaderMap,
+    auth_key: Option<Extension<AuthenticatedKey>>,
     Path(name): Path<String>,
 ) -> Result<Json<Topic>, StatusCode> {
-    let org_id = extract_org_id(&headers);
+    let org_id = extract_org_id(&headers, auth_key.as_ref().map(|e| &e.0));
 
     let topic = state
         .metadata
@@ -277,7 +293,7 @@ pub async fn get_topic(
     let mut total_size: u64 = 0;
 
     for partition_id in 0..topic.partition_count {
-        if let Ok(segments) = state.metadata.get_segments(&topic.name, partition_id).await {
+        if let Ok(segments) = state.metadata.get_segments(&org_id, &topic.name, partition_id).await {
             for seg in segments {
                 total_messages += seg.record_count as u64;
                 total_size += seg.size_bytes;
@@ -310,9 +326,10 @@ pub async fn get_topic(
 pub async fn delete_topic(
     State(state): State<AppState>,
     headers: HeaderMap,
+    auth_key: Option<Extension<AuthenticatedKey>>,
     Path(name): Path<String>,
 ) -> Result<StatusCode, StatusCode> {
-    let org_id = extract_org_id(&headers);
+    let org_id = extract_org_id(&headers, auth_key.as_ref().map(|e| &e.0));
 
     // Check if topic exists for this org
     state
@@ -352,9 +369,10 @@ pub async fn delete_topic(
 pub async fn list_partitions(
     State(state): State<AppState>,
     headers: HeaderMap,
+    auth_key: Option<Extension<AuthenticatedKey>>,
     Path(name): Path<String>,
 ) -> Result<Json<Vec<Partition>>, StatusCode> {
-    let org_id = extract_org_id(&headers);
+    let org_id = extract_org_id(&headers, auth_key.as_ref().map(|e| &e.0));
 
     // Check if topic exists for this org
     state
@@ -367,7 +385,7 @@ pub async fn list_partitions(
     // Get partitions
     let partitions = state
         .metadata
-        .list_partitions(&name)
+        .list_partitions(&org_id, &name)
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
@@ -416,6 +434,7 @@ pub async fn list_partitions(
 pub async fn get_topic_messages(
     State(state): State<AppState>,
     headers: HeaderMap,
+    auth_key: Option<Extension<AuthenticatedKey>>,
     Path(name): Path<String>,
     Query(params): Query<MessageQueryParams>,
 ) -> Result<Json<Vec<ConsumedRecord>>, StatusCode> {
@@ -423,7 +442,7 @@ pub async fn get_topic_messages(
     use object_store::path::Path as ObjectPath;
     use streamhouse_storage::segment::SegmentReader;
 
-    let org_id = extract_org_id(&headers);
+    let org_id = extract_org_id(&headers, auth_key.as_ref().map(|e| &e.0));
 
     // Validate topic exists for this org
     state
@@ -445,7 +464,7 @@ pub async fn get_topic_messages(
     // Get segments for this partition
     let segments = state
         .metadata
-        .get_segments(&name, partition_id)
+        .get_segments(&org_id, &name, partition_id)
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 

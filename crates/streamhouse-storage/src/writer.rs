@@ -133,6 +133,7 @@ fn now_ms() -> i64 {
 /// writer.flush().await?;
 /// ```
 pub struct PartitionWriter {
+    org_id: String,
     topic: String,
     partition_id: u32,
 
@@ -200,6 +201,7 @@ impl PartitionWriter {
     /// ).await?;
     /// ```
     pub async fn new(
+        org_id: String,
         topic: String,
         partition_id: u32,
         object_store: Arc<dyn ObjectStore>,
@@ -209,7 +211,7 @@ impl PartitionWriter {
     ) -> Result<Self> {
         // Get current high watermark from metadata
         let partition = metadata
-            .get_partition(&topic, partition_id)
+            .get_partition(&org_id, &topic, partition_id)
             .await?
             .ok_or_else(|| Error::PartitionNotFound {
                 topic: topic.clone(),
@@ -226,10 +228,14 @@ impl PartitionWriter {
         // Initialize WAL if configured
         let mut stale_wal_files = Vec::new();
         let wal = if let Some(ref wal_config) = config.wal_config {
+            // Scope WAL directory by org_id to isolate multi-tenant WAL files
+            let mut org_wal_config = wal_config.clone();
+            org_wal_config.directory = wal_config.directory.join(&org_id);
+
             // Phase 12.4.5: Shared WAL recovery
             // If agent_id is configured, scan for WAL files from other agents
-            let other_agent_records = if let Some(ref agent_id) = wal_config.agent_id {
-                match WAL::recover_partition(&wal_config.directory, &topic, partition_id, agent_id)
+            let other_agent_records = if let Some(ref agent_id) = org_wal_config.agent_id {
+                match WAL::recover_partition(&org_wal_config.directory, &topic, partition_id, agent_id)
                     .await
                 {
                     Ok((records, stale_paths)) => {
@@ -251,7 +257,7 @@ impl PartitionWriter {
             };
 
             // Open this agent's WAL (creates new file or opens existing)
-            let wal = WAL::open(&topic, partition_id, wal_config.clone()).await?;
+            let wal = WAL::open(&topic, partition_id, org_wal_config.clone()).await?;
 
             // Recover from this agent's own WAL (same-node restart case)
             let own_records = wal.recover().await?;
@@ -307,6 +313,7 @@ impl PartitionWriter {
             .map(|throttle_config| ThrottleCoordinator::new(throttle_config.clone()));
 
         Ok(Self {
+            org_id,
             topic,
             partition_id,
             current_segment,
@@ -554,7 +561,7 @@ impl PartitionWriter {
         };
 
         self.metadata
-            .add_segment_and_update_watermark(segment_info, end_offset + 1)
+            .add_segment_and_update_watermark(&self.org_id, segment_info, end_offset + 1)
             .await?;
 
         // Clear buffered records — they are now persisted in S3 and discoverable via metadata
@@ -1082,6 +1089,7 @@ pub struct TopicWriter {
 impl TopicWriter {
     /// Create a new topic writer
     pub async fn new(
+        org_id: String,
         topic: String,
         partition_count: u32,
         object_store: Arc<dyn ObjectStore>,
@@ -1095,6 +1103,7 @@ impl TopicWriter {
 
         for partition_id in 0..partition_count {
             let writer = PartitionWriter::new(
+                org_id.clone(),
                 topic.clone(),
                 partition_id,
                 object_store.clone(),

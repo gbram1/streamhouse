@@ -129,6 +129,7 @@ impl StorageManager {
 
         // Create writer
         let writer = TopicWriter::new(
+            streamhouse_metadata::DEFAULT_ORGANIZATION_ID.to_string(),
             topic.to_string(),
             topic_meta.partition_count,
             self.object_store.clone(),

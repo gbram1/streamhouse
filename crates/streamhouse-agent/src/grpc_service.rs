@@ -615,7 +615,8 @@ impl ProducerService for ProducerServiceImpl {
         }
 
         // Get writer for partition
-        let writer = match self.writer_pool.get_writer(&req.topic, req.partition).await {
+        // TODO: thread org_id from request context
+        let writer = match self.writer_pool.get_writer(streamhouse_metadata::DEFAULT_ORGANIZATION_ID, &req.topic, req.partition).await {
             Ok(writer) => writer,
             Err(e) => {
                 error!(
@@ -703,9 +704,10 @@ impl ProducerService for ProducerServiceImpl {
                 "ACK_DURABLE mode - queuing for batched S3 flush"
             );
 
+            // TODO: thread org_id from request context
             if let Err(e) = self
                 .writer_pool
-                .request_durable_flush(&req.topic, req.partition)
+                .request_durable_flush(streamhouse_metadata::DEFAULT_ORGANIZATION_ID, &req.topic, req.partition)
                 .await
             {
                 error!(
@@ -1342,7 +1344,8 @@ impl AgentCoordination for AgentCoordinationImpl {
         );
 
         // Flush the writer to ensure all data is persisted
-        if let Ok(writer) = self.writer_pool.get_writer(&req.topic, req.partition).await {
+        // TODO: thread org_id from request context
+        if let Ok(writer) = self.writer_pool.get_writer(streamhouse_metadata::DEFAULT_ORGANIZATION_ID, &req.topic, req.partition).await {
             let mut writer_guard = writer.lock().await;
             if let Err(e) = writer_guard.flush_durable().await {
                 warn!(

@@ -76,6 +76,7 @@ impl Default for SegmentIndexConfig {
 /// Provides O(log n) lookup for offset -> segment mapping.
 #[derive(Clone)]
 pub struct SegmentIndex {
+    org_id: String,
     topic: String,
     partition_id: u32,
     metadata: Arc<dyn MetadataStore>,
@@ -91,12 +92,14 @@ pub struct SegmentIndex {
 impl SegmentIndex {
     /// Create a new segment index
     pub fn new(
+        org_id: String,
         topic: String,
         partition_id: u32,
         metadata: Arc<dyn MetadataStore>,
         config: SegmentIndexConfig,
     ) -> Self {
         Self {
+            org_id,
             topic,
             partition_id,
             metadata,
@@ -174,7 +177,7 @@ impl SegmentIndex {
         // Query all segments for this partition
         let segments = self
             .metadata
-            .get_segments(&self.topic, self.partition_id)
+            .get_segments(&self.org_id, &self.topic, self.partition_id)
             .await?;
 
         // Build new index
@@ -225,7 +228,7 @@ impl SegmentIndex {
 mod tests {
     use super::*;
     use std::collections::HashMap;
-    use streamhouse_metadata::{MetadataStore, SegmentInfo, SqliteMetadataStore, TopicConfig};
+    use streamhouse_metadata::{MetadataStore, SegmentInfo, SqliteMetadataStore, TopicConfig, DEFAULT_ORGANIZATION_ID};
 
     async fn create_test_store() -> Arc<SqliteMetadataStore> {
         let store = SqliteMetadataStore::new(":memory:").await.unwrap();
@@ -248,7 +251,7 @@ mod tests {
         for i in 0..5 {
             let base_offset = i * 10000;
             store
-                .add_segment(SegmentInfo {
+                .add_segment(DEFAULT_ORGANIZATION_ID, SegmentInfo {
                     id: format!("seg-{}", i),
                     topic: "test".to_string(),
                     partition_id: 0,
@@ -273,6 +276,7 @@ mod tests {
         setup_test_partition(&store).await;
 
         let index = SegmentIndex::new(
+            DEFAULT_ORGANIZATION_ID.to_string(),
             "test".to_string(),
             0,
             store.clone(),
@@ -299,6 +303,7 @@ mod tests {
         setup_test_partition(&store).await;
 
         let index = SegmentIndex::new(
+            DEFAULT_ORGANIZATION_ID.to_string(),
             "test".to_string(),
             0,
             store.clone(),
@@ -325,6 +330,7 @@ mod tests {
         setup_test_partition(&store).await;
 
         let index = SegmentIndex::new(
+            DEFAULT_ORGANIZATION_ID.to_string(),
             "test".to_string(),
             0,
             store.clone(),
@@ -342,6 +348,7 @@ mod tests {
         setup_test_partition(&store).await;
 
         let index = SegmentIndex::new(
+            DEFAULT_ORGANIZATION_ID.to_string(),
             "test".to_string(),
             0,
             store.clone(),
@@ -355,7 +362,7 @@ mod tests {
 
         // Add a new segment
         store
-            .add_segment(SegmentInfo {
+            .add_segment(DEFAULT_ORGANIZATION_ID, SegmentInfo {
                 id: "seg-5".to_string(),
                 topic: "test".to_string(),
                 partition_id: 0,
@@ -396,7 +403,7 @@ mod tests {
         for i in 0..20 {
             let base_offset = i * 1000;
             store
-                .add_segment(SegmentInfo {
+                .add_segment(DEFAULT_ORGANIZATION_ID, SegmentInfo {
                     id: format!("seg-{}", i),
                     topic: "test".to_string(),
                     partition_id: 0,
@@ -415,6 +422,7 @@ mod tests {
         }
 
         let index = SegmentIndex::new(
+            DEFAULT_ORGANIZATION_ID.to_string(),
             "test".to_string(),
             0,
             store.clone(),

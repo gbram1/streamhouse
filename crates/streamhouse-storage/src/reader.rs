@@ -55,6 +55,7 @@
 //! let cache = Arc::new(SegmentCache::new("/tmp/cache", 1024*1024*1024)?);
 //!
 //! let reader = PartitionReader::new(
+//!     streamhouse_metadata::DEFAULT_ORGANIZATION_ID.to_string(),
 //!     "orders".to_string(),
 //!     0,  // partition_id
 //!     metadata,
@@ -83,6 +84,7 @@ use streamhouse_metadata::{MetadataStore, SegmentInfo};
 
 /// Reads records from a single partition with caching
 pub struct PartitionReader {
+    org_id: String,
     topic: String,
     partition_id: u32,
     metadata: Arc<dyn MetadataStore>,
@@ -94,6 +96,7 @@ pub struct PartitionReader {
 impl PartitionReader {
     /// Create a new partition reader
     pub fn new(
+        org_id: String,
         topic: String,
         partition_id: u32,
         metadata: Arc<dyn MetadataStore>,
@@ -101,6 +104,7 @@ impl PartitionReader {
         cache: Arc<SegmentCache>,
     ) -> Self {
         let segment_index = SegmentIndex::new(
+            org_id.clone(),
             topic.clone(),
             partition_id,
             metadata.clone(),
@@ -108,6 +112,7 @@ impl PartitionReader {
         );
 
         Self {
+            org_id,
             topic,
             partition_id,
             metadata,
@@ -119,6 +124,7 @@ impl PartitionReader {
 
     /// Create a new partition reader with custom segment index config
     pub fn with_index_config(
+        org_id: String,
         topic: String,
         partition_id: u32,
         metadata: Arc<dyn MetadataStore>,
@@ -127,9 +133,10 @@ impl PartitionReader {
         index_config: SegmentIndexConfig,
     ) -> Self {
         let segment_index =
-            SegmentIndex::new(topic.clone(), partition_id, metadata.clone(), index_config);
+            SegmentIndex::new(org_id.clone(), topic.clone(), partition_id, metadata.clone(), index_config);
 
         Self {
+            org_id,
             topic,
             partition_id,
             metadata,
@@ -209,7 +216,7 @@ impl PartitionReader {
         // Get high watermark from metadata
         let partition = self
             .metadata
-            .get_partition(&self.topic, self.partition_id)
+            .get_partition(&self.org_id, &self.topic, self.partition_id)
             .await?
             .ok_or_else(|| Error::PartitionNotFound {
                 topic: self.topic.clone(),
@@ -272,6 +279,7 @@ impl PartitionReader {
     /// - Skips segments already in cache
     /// - Reduces cache miss rate for sequential reads by 50-70%
     async fn prefetch_next_segments(&self, current: &SegmentInfo, count: usize) {
+        let org_id = self.org_id.clone();
         let topic = self.topic.clone();
         let partition_id = self.partition_id;
         let segment_index = self.segment_index.clone();
@@ -291,14 +299,17 @@ impl PartitionReader {
                 let cache_clone = cache.clone();
                 let topic_clone = topic.clone();
 
+                let org_id_clone = org_id.clone();
                 let future = async move {
                     // Find segment for this offset
                     if let Ok(Some(segment)) = segment_index_clone
                         .find_segment_for_offset(offset_to_find)
                         .await
                     {
-                        let cache_key =
-                            format!("{}-{}-{}", topic_clone, partition_id, segment.base_offset);
+                        let cache_key = format!(
+                            "{}-{}-{}-{}",
+                            org_id_clone, topic_clone, partition_id, segment.base_offset
+                        );
 
                         // Check if already cached
                         if let Ok(Some(_)) = cache_clone.get(&cache_key).await {
@@ -332,7 +343,10 @@ impl PartitionReader {
     }
 
     fn cache_key(&self, info: &SegmentInfo) -> String {
-        format!("{}-{}-{}", self.topic, self.partition_id, info.base_offset)
+        format!(
+            "{}-{}-{}-{}",
+            self.org_id, self.topic, self.partition_id, info.base_offset
+        )
     }
 }
 

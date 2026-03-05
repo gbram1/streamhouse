@@ -1,9 +1,10 @@
 //! SQL query endpoint
 
-use axum::{extract::State, http::{HeaderMap, StatusCode}, Json};
+use axum::{extract::State, http::{HeaderMap, StatusCode}, Extension, Json};
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
+use crate::auth::AuthenticatedKey;
 use crate::handlers::topics::extract_org_id;
 use crate::AppState;
 
@@ -64,9 +65,10 @@ pub struct SqlErrorResponse {
 pub async fn execute_sql(
     State(state): State<AppState>,
     headers: HeaderMap,
+    auth_key: Option<Extension<AuthenticatedKey>>,
     Json(req): Json<SqlQueryRequest>,
 ) -> Result<Json<SqlQueryResponse>, (StatusCode, Json<SqlErrorResponse>)> {
-    let org_id = extract_org_id(&headers);
+    let org_id = extract_org_id(&headers, auth_key.as_ref().map(|e| &e.0));
 
     // Create SQL executor scoped to the requesting organization
     let executor = streamhouse_sql::SqlExecutor::new(

@@ -334,6 +334,7 @@ impl MaterializedViewMaintenance {
         start_offset: u64,
     ) -> Result<(Vec<MessageRow>, u64), streamhouse_storage::Error> {
         let reader = PartitionReader::new(
+            streamhouse_metadata::DEFAULT_ORGANIZATION_ID.to_string(),
             topic.to_string(),
             partition_id,
             self.metadata.clone(),

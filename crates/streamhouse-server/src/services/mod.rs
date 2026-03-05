@@ -1,7 +1,7 @@
 use crate::pb::{stream_house_server::StreamHouse, *};
 use std::collections::HashMap;
 use std::sync::Arc;
-use streamhouse_metadata::{MetadataStore, ProducerState, TopicConfig};
+use streamhouse_metadata::{MetadataStore, ProducerState, TopicConfig, DEFAULT_ORGANIZATION_ID};
 use streamhouse_storage::{
     PartitionReader, PartitionWriter, SegmentCache, WriteConfig, WriterPool,
 };
@@ -134,6 +134,7 @@ impl StreamHouseService {
     /// Get partition writer from pool
     async fn get_writer(
         &self,
+        org_id: &str,
         topic: &str,
         partition_id: u32,
     ) -> Result<Arc<tokio::sync::Mutex<PartitionWriter>>, Status> {
@@ -155,7 +156,7 @@ impl StreamHouseService {
 
         // Get writer from pool
         self.writer_pool
-            .get_writer(topic, partition_id)
+            .get_writer(org_id, topic, partition_id)
             .await
             .map_err(|e| Status::internal(format!("Failed to get writer: {}", e)))
     }
@@ -180,6 +181,7 @@ impl StreamHouseService {
 
         // Create reader
         let reader = PartitionReader::new(
+            streamhouse_metadata::DEFAULT_ORGANIZATION_ID.to_string(),
             topic.to_string(),
             partition_id,
             self.metadata.clone(),
@@ -458,7 +460,8 @@ impl StreamHouse for StreamHouseService {
         // Validate value against schema
         self.validate_schema(&req.topic, &req.value).await?;
 
-        let writer = self.get_writer(&req.topic, req.partition).await?;
+        // TODO: thread org_id from request context
+        let writer = self.get_writer(DEFAULT_ORGANIZATION_ID, &req.topic, req.partition).await?;
         let mut writer_guard = writer.lock().await;
 
         let timestamp = chrono::Utc::now().timestamp_millis() as u64;
@@ -546,7 +549,8 @@ impl StreamHouse for StreamHouseService {
         }
 
         // Get writer for partition
-        let writer = self.get_writer(&req.topic, req.partition).await?;
+        // TODO: thread org_id from request context
+        let writer = self.get_writer(DEFAULT_ORGANIZATION_ID, &req.topic, req.partition).await?;
 
         // Batch append — single WAL write for the entire produce request
         let timestamp = chrono::Utc::now().timestamp_millis() as u64;
@@ -629,9 +633,10 @@ impl StreamHouse for StreamHouseService {
                 "ACK_DURABLE mode - queuing for batched S3 flush"
             );
 
+            // TODO: thread org_id from request context
             if let Err(e) = self
                 .writer_pool
-                .request_durable_flush(&req.topic, req.partition)
+                .request_durable_flush(DEFAULT_ORGANIZATION_ID, &req.topic, req.partition)
                 .await
             {
                 error!(
@@ -717,14 +722,15 @@ impl StreamHouse for StreamHouseService {
             Ok(r) => r,
             Err(streamhouse_storage::Error::OffsetNotFound(_)) => {
                 // Offset not in any S3 segment yet — try the in-memory buffer directly
+                // TODO: thread org_id from request context
                 let buffered = self
                     .writer_pool
-                    .read_buffered(&req.topic, req.partition, req.offset, max_records)
+                    .read_buffered(DEFAULT_ORGANIZATION_ID, &req.topic, req.partition, req.offset, max_records)
                     .await;
 
                 let partition = self
                     .metadata
-                    .get_partition(&req.topic, req.partition)
+                    .get_partition(DEFAULT_ORGANIZATION_ID, &req.topic, req.partition)
                     .await
                     .map_err(|e| Status::internal(format!("Metadata error: {}", e)))?
                     .ok_or_else(|| Status::not_found("Partition not found"))?;
@@ -758,9 +764,10 @@ impl StreamHouse for StreamHouseService {
                 req.offset
             };
             let remaining = max_records - records.len();
+            // TODO: thread org_id from request context
             let buffered = self
                 .writer_pool
-                .read_buffered(&req.topic, req.partition, next_offset, remaining)
+                .read_buffered(DEFAULT_ORGANIZATION_ID, &req.topic, req.partition, next_offset, remaining)
                 .await;
 
             records.extend(buffered.into_iter().map(|r| ConsumedRecord {

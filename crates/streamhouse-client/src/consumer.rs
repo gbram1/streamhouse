@@ -639,6 +639,7 @@ impl Consumer {
 
                 // Create PartitionReader
                 let reader = Arc::new(PartitionReader::new(
+                    streamhouse_metadata::DEFAULT_ORGANIZATION_ID.to_string(),
                     topic.clone(),
                     partition_id,
                     Arc::clone(&self.metadata_store),
@@ -683,7 +684,7 @@ impl Consumer {
                 // Get high watermark from partition
                 let partition = self
                     .metadata_store
-                    .get_partition(topic, partition_id)
+                    .get_partition(streamhouse_metadata::DEFAULT_ORGANIZATION_ID, topic, partition_id)
                     .await?
                     .ok_or_else(|| {
                         ClientError::InvalidPartition(partition_id, topic.to_string(), 0)
@@ -1019,7 +1020,7 @@ impl Consumer {
         // Get partition metadata for high watermark
         let partition_meta = self
             .metadata_store
-            .get_partition(topic, partition)
+            .get_partition(streamhouse_metadata::DEFAULT_ORGANIZATION_ID, topic, partition)
             .await
             .map_err(ClientError::MetadataError)?
             .ok_or_else(|| {
@@ -1042,7 +1043,7 @@ impl Consumer {
             // Get partition metadata
             if let Ok(Some(partition_meta)) = self
                 .metadata_store
-                .get_partition(&key.topic, key.partition_id)
+                .get_partition(streamhouse_metadata::DEFAULT_ORGANIZATION_ID, &key.topic, key.partition_id)
                 .await
             {
                 let current = partition_consumer.current_offset as i64;

@@ -21,6 +21,7 @@ use crate::server::KafkaServerState;
 /// Handle CreateTopics request (API 19)
 pub async fn handle_create_topics(
     state: &KafkaServerState,
+    org_id: &str,
     header: &RequestHeader,
     body: &mut BytesMut,
 ) -> KafkaResult<BytesMut> {
@@ -116,7 +117,7 @@ pub async fn handle_create_topics(
             }
         } else {
             // Actually create the topic
-            create_topic(state, topic).await
+            create_topic(state, org_id, topic).await
         };
         topic_responses.push(response);
     }
@@ -197,6 +198,7 @@ struct CreateTopicResponse {
 
 async fn create_topic(
     state: &KafkaServerState,
+    org_id: &str,
     request: &CreateTopicRequest,
 ) -> CreateTopicResponse {
     // Default partition count to 1 if not specified
@@ -215,8 +217,8 @@ async fn create_topic(
         config: HashMap::new(),
     };
 
-    // Create topic in metadata store
-    match state.metadata.create_topic(config).await {
+    // Create topic in metadata store (org-scoped)
+    match state.metadata.create_topic_for_org(org_id, config).await {
         Ok(_) => CreateTopicResponse {
             name: request.name.clone(),
             error_code: ErrorCode::None,
@@ -245,6 +247,7 @@ async fn create_topic(
 /// Handle DeleteTopics request (API 20)
 pub async fn handle_delete_topics(
     state: &KafkaServerState,
+    org_id: &str,
     header: &RequestHeader,
     body: &mut BytesMut,
 ) -> KafkaResult<BytesMut> {
@@ -294,7 +297,7 @@ pub async fn handle_delete_topics(
     let mut topic_responses = Vec::new();
 
     for name in &topic_names {
-        let error_code = match state.metadata.delete_topic(name).await {
+        let error_code = match state.metadata.delete_topic_for_org(org_id, name).await {
             Ok(_) => ErrorCode::None,
             Err(e) => {
                 let error_str = e.to_string();

@@ -178,6 +178,7 @@ impl LeaseManager {
         let lease = self
             .metadata_store
             .acquire_partition_lease(
+                streamhouse_metadata::DEFAULT_ORGANIZATION_ID,
                 topic,
                 partition_id,
                 &self.agent_id,
@@ -653,6 +654,7 @@ impl LeaseRenewalTask {
         let lease = self
             .metadata_store
             .acquire_partition_lease(
+                streamhouse_metadata::DEFAULT_ORGANIZATION_ID,
                 topic,
                 partition_id,
                 &self.agent_id,

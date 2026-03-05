@@ -17,6 +17,7 @@ use crate::server::KafkaServerState;
 /// Handle Metadata request
 pub async fn handle_metadata(
     state: &KafkaServerState,
+    org_id: &str,
     header: &RequestHeader,
     body: &mut BytesMut,
 ) -> KafkaResult<BytesMut> {
@@ -58,10 +59,10 @@ pub async fn handle_metadata(
         topics, allow_auto_topic_creation
     );
 
-    // Get topic metadata from store
+    // Get topic metadata from store (scoped to organization)
     let mut all_topics = state
         .metadata
-        .list_topics()
+        .list_topics_for_org(org_id)
         .await
         .map_err(|e| crate::error::KafkaError::MetadataStore(e.to_string()))?;
 
@@ -78,11 +79,11 @@ pub async fn handle_metadata(
                     cleanup_policy: Default::default(),
                     config: std::collections::HashMap::new(),
                 };
-                if let Err(e) = state.metadata.create_topic(config).await {
+                if let Err(e) = state.metadata.create_topic_for_org(org_id, config).await {
                     debug!("Failed to auto-create topic {}: {}", topic_name, e);
                 } else {
                     // Refresh the topics list
-                    if let Ok(refreshed) = state.metadata.list_topics().await {
+                    if let Ok(refreshed) = state.metadata.list_topics_for_org(org_id).await {
                         all_topics = refreshed;
                     }
                 }

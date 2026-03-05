@@ -6,7 +6,7 @@ use std::time::Instant;
 
 use streamhouse_metadata::{
     CreateMaterializedView, MaterializedView, MaterializedViewRefreshMode, MaterializedViewStatus,
-    MetadataStore,
+    MetadataStore, DEFAULT_ORGANIZATION_ID,
 };
 use streamhouse_storage::SegmentCache;
 
@@ -240,7 +240,7 @@ impl SqlExecutor {
             // Get partition info
             let partition = match self
                 .metadata
-                .get_partition(&query.topic, *partition_id)
+                .get_partition(self.org_id.as_deref().unwrap_or(DEFAULT_ORGANIZATION_ID), &query.topic, *partition_id)
                 .await?
             {
                 Some(p) => p,
@@ -254,7 +254,7 @@ impl SqlExecutor {
             // Get segments covering this range
             let segments = self
                 .metadata
-                .get_segments(&query.topic, *partition_id)
+                .get_segments(self.org_id.as_deref().unwrap_or(DEFAULT_ORGANIZATION_ID), &query.topic, *partition_id)
                 .await?;
 
             for segment in segments {
@@ -622,7 +622,7 @@ impl SqlExecutor {
             for partition_id in partitions {
                 if let Some(partition) = self
                     .metadata
-                    .get_partition(&query.topic, partition_id)
+                    .get_partition(self.org_id.as_deref().unwrap_or(DEFAULT_ORGANIZATION_ID), &query.topic, partition_id)
                     .await?
                 {
                     count += partition.high_watermark;
@@ -637,7 +637,7 @@ impl SqlExecutor {
 
                 let segments = self
                     .metadata
-                    .get_segments(&query.topic, partition_id)
+                    .get_segments(self.org_id.as_deref().unwrap_or(DEFAULT_ORGANIZATION_ID), &query.topic, partition_id)
                     .await?;
 
                 for segment in segments {
@@ -718,10 +718,10 @@ impl SqlExecutor {
         for partition_id in 0..topic.partition_count {
             let partition = self
                 .metadata
-                .get_partition(topic_name, partition_id)
+                .get_partition(self.org_id.as_deref().unwrap_or(DEFAULT_ORGANIZATION_ID), topic_name, partition_id)
                 .await?;
 
-            let segments = self.metadata.get_segments(topic_name, partition_id).await?;
+            let segments = self.metadata.get_segments(self.org_id.as_deref().unwrap_or(DEFAULT_ORGANIZATION_ID), topic_name, partition_id).await?;
 
             let hwm = partition.map(|p| p.high_watermark).unwrap_or(0);
             total_messages += hwm;
@@ -838,7 +838,7 @@ impl SqlExecutor {
 
             let segments = self
                 .metadata
-                .get_segments(&query.topic, partition_id)
+                .get_segments(self.org_id.as_deref().unwrap_or(DEFAULT_ORGANIZATION_ID), &query.topic, partition_id)
                 .await?;
 
             for segment in segments {
@@ -962,7 +962,7 @@ impl SqlExecutor {
 
             let segments = self
                 .metadata
-                .get_segments(&query.topic, partition_id)
+                .get_segments(self.org_id.as_deref().unwrap_or(DEFAULT_ORGANIZATION_ID), &query.topic, partition_id)
                 .await?;
 
             for segment in segments {
@@ -1218,7 +1218,7 @@ impl SqlExecutor {
                 return Err(SqlError::Timeout(timeout_ms));
             }
 
-            let segments = self.metadata.get_segments(topic_name, partition_id).await?;
+            let segments = self.metadata.get_segments(self.org_id.as_deref().unwrap_or(DEFAULT_ORGANIZATION_ID), topic_name, partition_id).await?;
 
             for segment in segments {
                 let messages = self.read_segment_messages(&segment).await?;
