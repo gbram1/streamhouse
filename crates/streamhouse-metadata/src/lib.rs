@@ -611,6 +611,15 @@ pub trait MetadataStore: Send + Sync {
     /// to provide accurate storage stats regardless of topic lifecycle.
     async fn get_segment_storage_stats(&self) -> Result<Vec<TopicStorageStats>>;
 
+    /// Get aggregated storage statistics for a specific organization, grouped by topic.
+    async fn get_segment_storage_stats_for_org(
+        &self,
+        _org_id: &str,
+    ) -> Result<Vec<TopicStorageStats>> {
+        // Default: fall back to global stats
+        self.get_segment_storage_stats().await
+    }
+
     // ============================================================
     // CONSUMER GROUP OPERATIONS
     // ============================================================

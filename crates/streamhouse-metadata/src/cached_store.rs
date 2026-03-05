@@ -571,6 +571,10 @@ impl<S: MetadataStore + 'static> MetadataStore for CachedMetadataStore<S> {
         self.inner.get_segment_storage_stats().await
     }
 
+    async fn get_segment_storage_stats_for_org(&self, org_id: &str) -> Result<Vec<TopicStorageStats>> {
+        self.inner.get_segment_storage_stats_for_org(org_id).await
+    }
+
     // ========================================================================
     // CONSUMER GROUP OPERATIONS (NOT CACHED)
     // ========================================================================

@@ -750,6 +750,26 @@ impl MetadataStore for SqliteMetadataStore {
             .collect())
     }
 
+    async fn get_segment_storage_stats_for_org(&self, org_id: &str) -> Result<Vec<TopicStorageStats>> {
+        let rows = sqlx::query(
+            "SELECT topic, COUNT(*) as segment_count, COALESCE(SUM(size_bytes), 0) as total_size_bytes
+             FROM segments WHERE organization_id = ? GROUP BY topic",
+        )
+        .bind(org_id)
+        .fetch_all(&self.pool)
+        .await?;
+
+        use sqlx::Row;
+        Ok(rows
+            .iter()
+            .map(|r| TopicStorageStats {
+                topic: r.get::<String, _>("topic"),
+                segment_count: r.get::<i64, _>("segment_count") as u64,
+                total_size_bytes: r.get::<i64, _>("total_size_bytes") as u64,
+            })
+            .collect())
+    }
+
     async fn ensure_consumer_group(&self, group_id: &str) -> Result<()> {
         let now = Self::now_ms();
 

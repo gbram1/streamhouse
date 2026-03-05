@@ -138,11 +138,14 @@ pub async fn readiness_check(
 )]
 pub async fn get_storage_metrics(
     State(state): State<AppState>,
+    headers: HeaderMap,
 ) -> Result<Json<StorageMetricsResponse>, StatusCode> {
-    // Query segments table directly for accurate storage stats
+    let org_id = extract_org_id(&headers);
+
+    // Query segments table for this org's storage stats
     let stats = state
         .metadata
-        .get_segment_storage_stats()
+        .get_segment_storage_stats_for_org(&org_id)
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
@@ -185,8 +188,10 @@ pub async fn get_storage_metrics(
 )]
 pub async fn get_throughput_metrics(
     State(state): State<AppState>,
+    headers: HeaderMap,
     Query(params): Query<TimeRangeParams>,
 ) -> Result<Json<Vec<ThroughputMetric>>, StatusCode> {
+    let org_id = extract_org_id(&headers);
     let time_range = params.time_range.as_deref().unwrap_or("1h");
 
     // Try to get real metrics from Prometheus
@@ -199,7 +204,7 @@ pub async fn get_throughput_metrics(
     }
 
     // Fall back to simulated metrics
-    get_simulated_throughput_metrics(&state, time_range).await
+    get_simulated_throughput_metrics(&state, &org_id, time_range).await
 }
 
 /// Fetch real throughput metrics from Prometheus
@@ -233,12 +238,13 @@ async fn get_real_throughput_metrics(
 /// Generate simulated throughput metrics (fallback)
 async fn get_simulated_throughput_metrics(
     state: &AppState,
+    org_id: &str,
     time_range: &str,
 ) -> Result<Json<Vec<ThroughputMetric>>, StatusCode> {
-    // Get current message count to base simulated data on
+    // Get current message count for this org to base simulated data on
     let topics = state
         .metadata
-        .list_topics()
+        .list_topics_for_org(org_id)
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
