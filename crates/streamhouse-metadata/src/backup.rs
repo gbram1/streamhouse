@@ -188,6 +188,7 @@ impl MetadataBackup {
                 slug: org_backup.organization.slug.clone(),
                 plan: org_backup.organization.plan,
                 settings: HashMap::new(),
+                clerk_id: org_backup.organization.clerk_id.clone(),
             };
             match store.create_organization(config).await {
                 Ok(_) => stats.organizations_created += 1,

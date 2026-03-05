@@ -1383,9 +1383,11 @@ impl MetadataStore for SqliteMetadataStore {
         let status_str = OrganizationStatus::Active.to_string();
         let settings_json = serde_json::to_string(&config.settings)?;
 
+        let clerk_id_val = config.clerk_id.as_deref().map(|s| format!("'{}'", s.replace('\'', "''")));
+        let clerk_id_sql = clerk_id_val.as_deref().unwrap_or("NULL");
         let query = format!(
-            "INSERT INTO organizations (id, name, slug, plan, status, created_at, updated_at, settings) \
-             VALUES ('{}', '{}', '{}', '{}', '{}', {}, {}, '{}')",
+            "INSERT INTO organizations (id, name, slug, plan, status, created_at, updated_at, settings, clerk_id) \
+             VALUES ('{}', '{}', '{}', '{}', '{}', {}, {}, '{}', {})",
             id,
             config.name.replace('\'', "''"),
             config.slug.replace('\'', "''"),
@@ -1394,6 +1396,7 @@ impl MetadataStore for SqliteMetadataStore {
             now,
             now,
             settings_json.replace('\'', "''"),
+            clerk_id_sql,
         );
         let result = sqlx::query(&query).execute(&self.pool).await;
 
@@ -1415,21 +1418,22 @@ impl MetadataStore for SqliteMetadataStore {
             status: OrganizationStatus::Active,
             created_at: now,
             settings: config.settings,
+            clerk_id: config.clerk_id,
         })
     }
 
     async fn get_organization(&self, id: &str) -> Result<Option<Organization>> {
         let query = format!(
-            "SELECT id, name, slug, plan, status, created_at, settings \
+            "SELECT id, name, slug, plan, status, created_at, settings, clerk_id \
              FROM organizations WHERE id = '{}'",
             id
         );
 
-        let row: Option<(String, String, String, String, String, i64, String)> =
+        let row: Option<(String, String, String, String, String, i64, String, Option<String>)> =
             sqlx::query_as(&query).fetch_optional(&self.pool).await?;
 
         Ok(row.map(
-            |(id, name, slug, plan, status, created_at, settings_json)| Organization {
+            |(id, name, slug, plan, status, created_at, settings_json, clerk_id)| Organization {
                 id,
                 name,
                 slug,
@@ -1437,22 +1441,23 @@ impl MetadataStore for SqliteMetadataStore {
                 status: status.parse().unwrap_or_default(),
                 created_at,
                 settings: serde_json::from_str(&settings_json).unwrap_or_default(),
+                clerk_id,
             },
         ))
     }
 
     async fn get_organization_by_slug(&self, slug: &str) -> Result<Option<Organization>> {
         let query = format!(
-            "SELECT id, name, slug, plan, status, created_at, settings \
+            "SELECT id, name, slug, plan, status, created_at, settings, clerk_id \
              FROM organizations WHERE slug = '{}'",
             slug
         );
 
-        let row: Option<(String, String, String, String, String, i64, String)> =
+        let row: Option<(String, String, String, String, String, i64, String, Option<String>)> =
             sqlx::query_as(&query).fetch_optional(&self.pool).await?;
 
         Ok(row.map(
-            |(id, name, slug, plan, status, created_at, settings_json)| Organization {
+            |(id, name, slug, plan, status, created_at, settings_json, clerk_id)| Organization {
                 id,
                 name,
                 slug,
@@ -1460,13 +1465,38 @@ impl MetadataStore for SqliteMetadataStore {
                 status: status.parse().unwrap_or_default(),
                 created_at,
                 settings: serde_json::from_str(&settings_json).unwrap_or_default(),
+                clerk_id,
+            },
+        ))
+    }
+
+    async fn get_organization_by_clerk_id(&self, clerk_id: &str) -> Result<Option<Organization>> {
+        let query = format!(
+            "SELECT id, name, slug, plan, status, created_at, settings, clerk_id \
+             FROM organizations WHERE clerk_id = '{}'",
+            clerk_id.replace('\'', "''")
+        );
+
+        let row: Option<(String, String, String, String, String, i64, String, Option<String>)> =
+            sqlx::query_as(&query).fetch_optional(&self.pool).await?;
+
+        Ok(row.map(
+            |(id, name, slug, plan, status, created_at, settings_json, clerk_id)| Organization {
+                id,
+                name,
+                slug,
+                plan: plan.parse().unwrap_or_default(),
+                status: status.parse().unwrap_or_default(),
+                created_at,
+                settings: serde_json::from_str(&settings_json).unwrap_or_default(),
+                clerk_id,
             },
         ))
     }
 
     async fn list_organizations(&self) -> Result<Vec<Organization>> {
-        let rows: Vec<(String, String, String, String, String, i64, String)> = sqlx::query_as(
-            "SELECT id, name, slug, plan, status, created_at, settings \
+        let rows: Vec<(String, String, String, String, String, i64, String, Option<String>)> = sqlx::query_as(
+            "SELECT id, name, slug, plan, status, created_at, settings, clerk_id \
              FROM organizations ORDER BY name",
         )
         .fetch_all(&self.pool)
@@ -1475,7 +1505,7 @@ impl MetadataStore for SqliteMetadataStore {
         Ok(rows
             .into_iter()
             .map(
-                |(id, name, slug, plan, status, created_at, settings_json)| Organization {
+                |(id, name, slug, plan, status, created_at, settings_json, clerk_id)| Organization {
                     id,
                     name,
                     slug,
@@ -1483,6 +1513,7 @@ impl MetadataStore for SqliteMetadataStore {
                     status: status.parse().unwrap_or_default(),
                     created_at,
                     settings: serde_json::from_str(&settings_json).unwrap_or_default(),
+                    clerk_id,
                 },
             )
             .collect())

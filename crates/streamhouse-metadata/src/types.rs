@@ -575,6 +575,9 @@ pub struct Organization {
 
     /// Organization-specific settings
     pub settings: HashMap<String, String>,
+
+    /// External Clerk organization ID (for mapping Clerk orgs to StreamHouse orgs)
+    pub clerk_id: Option<String>,
 }
 
 /// Organization billing plan.
@@ -665,6 +668,10 @@ pub struct CreateOrganization {
     /// Organization-specific settings
     #[serde(default)]
     pub settings: HashMap<String, String>,
+
+    /// External Clerk organization ID (for mapping Clerk orgs to StreamHouse orgs)
+    #[serde(default)]
+    pub clerk_id: Option<String>,
 }
 
 /// API key for programmatic access.
@@ -3093,6 +3100,7 @@ mod tests {
             status: OrganizationStatus::Active,
             created_at: 1700000000000,
             settings: HashMap::from([("theme".to_string(), "dark".to_string())]),
+            clerk_id: None,
         };
 
         let json = serde_json::to_string(&org).unwrap();
@@ -3230,6 +3238,7 @@ mod tests {
             slug: "test-org".to_string(),
             plan: OrganizationPlan::Pro,
             settings: HashMap::from([("region".to_string(), "us-east-1".to_string())]),
+            clerk_id: None,
         };
 
         let json = serde_json::to_string(&create_org).unwrap();

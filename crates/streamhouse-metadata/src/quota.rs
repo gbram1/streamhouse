@@ -598,6 +598,7 @@ mod tests {
                 status: OrganizationStatus::Active,
                 created_at: 0,
                 settings: HashMap::new(),
+                clerk_id: None,
             },
             api_key: None,
             quota: OrganizationQuota {

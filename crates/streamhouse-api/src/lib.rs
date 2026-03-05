@@ -251,7 +251,11 @@ pub fn create_router(state: AppState) -> Router {
 
     // Admin routes (always require admin permission)
     let admin_routes = Router::new()
-        // Organizations
+        // Organizations — resolve must be registered before /:id to avoid path conflict
+        .route(
+            "/organizations/resolve",
+            post(handlers::organizations::resolve_organization),
+        )
         .route(
             "/organizations",
             get(handlers::organizations::list_organizations)

@@ -75,6 +75,102 @@ pub struct OrganizationUsageResponse {
     pub schemas_count: i64,
 }
 
+/// Resolve a Clerk organization to a StreamHouse organization.
+///
+/// If a StreamHouse org already exists for the given Clerk ID, returns it.
+/// Otherwise creates a new StreamHouse org and returns it.
+#[derive(Debug, Deserialize, ToSchema)]
+pub struct ResolveOrganizationRequest {
+    pub clerk_id: String,
+    pub name: String,
+    pub slug: String,
+}
+
+pub async fn resolve_organization(
+    State(state): State<AppState>,
+    Json(req): Json<ResolveOrganizationRequest>,
+) -> Result<Json<OrganizationResponse>, StatusCode> {
+    // 1. Try to find existing org by clerk_id
+    if let Some(org) = state
+        .metadata
+        .get_organization_by_clerk_id(&req.clerk_id)
+        .await
+        .map_err(|e| {
+            tracing::error!("Failed to look up organization by clerk_id: {}", e);
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?
+    {
+        return Ok(Json(OrganizationResponse {
+            id: org.id,
+            name: org.name,
+            slug: org.slug,
+            plan: format!("{:?}", org.plan).to_lowercase(),
+            status: format!("{:?}", org.status).to_lowercase(),
+            created_at: org.created_at,
+        }));
+    }
+
+    // 2. Sanitize slug — lowercase alphanumeric + hyphens only
+    let base_slug: String = req
+        .slug
+        .chars()
+        .filter(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || *c == '-')
+        .collect();
+    let base_slug = if base_slug.is_empty() {
+        req.clerk_id
+            .chars()
+            .filter(|c| c.is_ascii_alphanumeric() || *c == '-')
+            .collect::<String>()
+            .to_lowercase()
+    } else {
+        base_slug
+    };
+
+    // 3. Deduplicate slug if already taken
+    let mut slug = base_slug.clone();
+    let mut attempt = 0u32;
+    loop {
+        match state.metadata.get_organization_by_slug(&slug).await {
+            Ok(Some(_)) => {
+                attempt += 1;
+                slug = format!("{}-{}", base_slug, attempt);
+            }
+            Ok(None) => break,
+            Err(e) => {
+                tracing::error!("Failed to check slug availability: {}", e);
+                return Err(StatusCode::INTERNAL_SERVER_ERROR);
+            }
+        }
+    }
+
+    // 4. Create new org
+    let config = CreateOrganization {
+        name: req.name,
+        slug,
+        plan: OrganizationPlan::Free,
+        settings: std::collections::HashMap::new(),
+        clerk_id: Some(req.clerk_id),
+    };
+
+    let org = state
+        .metadata
+        .create_organization(config)
+        .await
+        .map_err(|e| {
+            tracing::error!("Failed to create organization: {}", e);
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?;
+
+    Ok(Json(OrganizationResponse {
+        id: org.id,
+        name: org.name,
+        slug: org.slug,
+        plan: format!("{:?}", org.plan).to_lowercase(),
+        status: format!("{:?}", org.status).to_lowercase(),
+        created_at: org.created_at,
+    }))
+}
+
 /// List all organizations
 #[utoipa::path(
     get,
@@ -185,6 +281,7 @@ pub async fn create_organization(
         slug: req.slug,
         plan,
         settings: std::collections::HashMap::new(),
+        clerk_id: None,
     };
 
     let org = state

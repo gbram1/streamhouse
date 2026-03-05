@@ -616,6 +616,54 @@ impl<S: MetadataStore + 'static> MetadataStore for CachedMetadataStore<S> {
         self.inner.delete_consumer_group(group_id).await
     }
 
+    // ── Org-scoped consumer group operations ──────────────────────
+
+    async fn list_consumer_groups_for_org(&self, org_id: &str) -> Result<Vec<String>> {
+        self.inner.list_consumer_groups_for_org(org_id).await
+    }
+
+    async fn ensure_consumer_group_for_org(&self, org_id: &str, group_id: &str) -> Result<()> {
+        self.inner.ensure_consumer_group_for_org(org_id, group_id).await
+    }
+
+    async fn commit_offset_for_org(
+        &self,
+        org_id: &str,
+        group_id: &str,
+        topic: &str,
+        partition_id: u32,
+        offset: u64,
+        metadata: Option<String>,
+    ) -> Result<()> {
+        self.inner
+            .commit_offset_for_org(org_id, group_id, topic, partition_id, offset, metadata)
+            .await
+    }
+
+    async fn get_committed_offset_for_org(
+        &self,
+        org_id: &str,
+        group_id: &str,
+        topic: &str,
+        partition_id: u32,
+    ) -> Result<Option<u64>> {
+        self.inner
+            .get_committed_offset_for_org(org_id, group_id, topic, partition_id)
+            .await
+    }
+
+    async fn get_consumer_offsets_for_org(
+        &self,
+        org_id: &str,
+        group_id: &str,
+    ) -> Result<Vec<ConsumerOffset>> {
+        self.inner.get_consumer_offsets_for_org(org_id, group_id).await
+    }
+
+    async fn delete_consumer_group_for_org(&self, org_id: &str, group_id: &str) -> Result<()> {
+        self.inner.delete_consumer_group_for_org(org_id, group_id).await
+    }
+
     // ========================================================================
     // AGENT OPERATIONS (NOT CACHED - Phase 4)
     // ========================================================================
@@ -697,6 +745,10 @@ impl<S: MetadataStore + 'static> MetadataStore for CachedMetadataStore<S> {
 
     async fn get_organization_by_slug(&self, slug: &str) -> Result<Option<Organization>> {
         self.inner.get_organization_by_slug(slug).await
+    }
+
+    async fn get_organization_by_clerk_id(&self, clerk_id: &str) -> Result<Option<Organization>> {
+        self.inner.get_organization_by_clerk_id(clerk_id).await
     }
 
     async fn list_organizations(&self) -> Result<Vec<Organization>> {
