@@ -725,21 +725,21 @@ impl MetadataStore for SqliteMetadataStore {
 
     async fn delete_segments_before(
         &self,
+        org_id: &str,
         topic: &str,
         partition_id: u32,
         before_offset: u64,
     ) -> Result<u64> {
         let before_offset_i64 = before_offset as i64;
 
-        let result = sqlx::query!(
-            r#"
-            DELETE FROM segments
-            WHERE topic = ? AND partition_id = ? AND end_offset < ?
-            "#,
-            topic,
-            partition_id,
-            before_offset_i64,
+        let result = sqlx::query(
+            "DELETE FROM segments
+             WHERE organization_id = ? AND topic = ? AND partition_id = ? AND end_offset < ?",
         )
+        .bind(org_id)
+        .bind(topic)
+        .bind(partition_id)
+        .bind(before_offset_i64)
         .execute(&self.pool)
         .await?;
 

@@ -190,9 +190,10 @@ impl MaterializedViewMaintenance {
         );
 
         // 1. Get the source topic info
+        // TODO: views should store org_id; for now use DEFAULT_ORGANIZATION_ID
         let topic = self
             .metadata
-            .get_topic(&view.source_topic)
+            .get_topic_for_org(streamhouse_metadata::DEFAULT_ORGANIZATION_ID, &view.source_topic)
             .await?
             .ok_or_else(|| MaintenanceError::TopicNotFound(view.source_topic.clone()))?;
 

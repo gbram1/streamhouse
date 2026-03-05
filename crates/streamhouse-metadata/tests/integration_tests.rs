@@ -416,7 +416,7 @@ async fn test_segment_retention_cleanup<S: MetadataStore>(store: &S) {
 
     // Delete segments before offset 5000
     let deleted = store
-        .delete_segments_before(topic_name, 0, 5000)
+        .delete_segments_before(DEFAULT_ORGANIZATION_ID, topic_name, 0, 5000)
         .await
         .unwrap();
     assert_eq!(deleted, 5); // Should delete segments 0-4999

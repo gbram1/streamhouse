@@ -564,12 +564,13 @@ impl<S: MetadataStore + 'static> MetadataStore for CachedMetadataStore<S> {
 
     async fn delete_segments_before(
         &self,
+        org_id: &str,
         topic: &str,
         partition_id: u32,
         before_offset: u64,
     ) -> Result<u64> {
         self.inner
-            .delete_segments_before(topic, partition_id, before_offset)
+            .delete_segments_before(org_id, topic, partition_id, before_offset)
             .await
     }
 

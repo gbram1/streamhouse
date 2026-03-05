@@ -249,21 +249,10 @@ pub async fn produce_batch(
 ) -> Result<Json<BatchProduceResponse>, StatusCode> {
     let org_id = extract_org_id(&headers, auth_key.as_ref().map(|e| &e.0));
 
-    // Verify topic belongs to org
-    if state
-        .metadata
-        .get_topic_for_org(&org_id, &req.topic)
-        .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
-        .is_none()
-    {
-        return Err(StatusCode::NOT_FOUND);
-    }
-
-    // Validate topic exists
+    // Verify topic belongs to org and get its metadata
     let topic = state
         .metadata
-        .get_topic(&req.topic)
+        .get_topic_for_org(&org_id, &req.topic)
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
         .ok_or(StatusCode::NOT_FOUND)?;

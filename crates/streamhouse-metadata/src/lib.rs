@@ -602,12 +602,13 @@ pub trait MetadataStore: Send + Sync {
     ///
     /// ```ignore
     /// // Delete segments older than offset 100,000
-    /// let deleted = store.delete_segments_before("orders", 0, 100_000).await?;
+    /// let deleted = store.delete_segments_before(DEFAULT_ORGANIZATION_ID, "orders", 0, 100_000).await?;
     /// println!("Deleted {} segment metadata entries", deleted);
     /// // Now delete corresponding S3 files...
     /// ```
     async fn delete_segments_before(
         &self,
+        org_id: &str,
         topic: &str,
         partition_id: u32,
         before_offset: u64,

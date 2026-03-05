@@ -91,19 +91,31 @@ impl S3Reconciler {
             return Ok(0);
         }
 
-        // Collect all known s3_keys from metadata (across all topics/partitions)
-        let topics = self.metadata.list_topics().await?;
+        // Collect all known s3_keys from metadata (across all orgs/topics/partitions)
         let mut known_keys: HashSet<String> = HashSet::new();
 
-        for topic in &topics {
-            let partitions = self.metadata.list_partitions(streamhouse_metadata::DEFAULT_ORGANIZATION_ID, &topic.name).await?;
-            for partition in &partitions {
-                let segments = self
-                    .metadata
-                    .get_segments(streamhouse_metadata::DEFAULT_ORGANIZATION_ID, &topic.name, partition.partition_id)
-                    .await?;
-                for seg in segments {
-                    known_keys.insert(seg.s3_key);
+        // Build list of org_ids to check
+        let mut org_ids: Vec<String> = vec![streamhouse_metadata::DEFAULT_ORGANIZATION_ID.to_string()];
+        if let Ok(orgs) = self.metadata.list_organizations().await {
+            for org in orgs {
+                if org.id != streamhouse_metadata::DEFAULT_ORGANIZATION_ID {
+                    org_ids.push(org.id);
+                }
+            }
+        }
+
+        for org_id in &org_ids {
+            let topics = self.metadata.list_topics_for_org(org_id).await?;
+            for topic in &topics {
+                let partitions = self.metadata.list_partitions(org_id, &topic.name).await?;
+                for partition in &partitions {
+                    let segments = self
+                        .metadata
+                        .get_segments(org_id, &topic.name, partition.partition_id)
+                        .await?;
+                    for seg in segments {
+                        known_keys.insert(seg.s3_key);
+                    }
                 }
             }
         }

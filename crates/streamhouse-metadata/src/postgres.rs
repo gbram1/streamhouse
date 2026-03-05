@@ -766,14 +766,16 @@ impl MetadataStore for PostgresMetadataStore {
 
     async fn delete_segments_before(
         &self,
+        org_id: &str,
         topic: &str,
         partition_id: u32,
         before_offset: u64,
     ) -> Result<u64> {
         let result = sqlx::query(
             "DELETE FROM segments
-             WHERE topic = $1 AND partition_id = $2 AND end_offset < $3",
+             WHERE organization_id = $1 AND topic = $2 AND partition_id = $3 AND end_offset < $4",
         )
+        .bind(org_id)
         .bind(topic)
         .bind(partition_id as i32)
         .bind(before_offset as i64)
@@ -3691,7 +3693,7 @@ mod tests {
 
         // Delete old segments
         let deleted = store
-            .delete_segments_before("segment_test", 0, 1000)
+            .delete_segments_before(DEFAULT_ORGANIZATION_ID, "segment_test", 0, 1000)
             .await
             .unwrap();
         assert_eq!(deleted, 1); // Only seg-1 should be deleted

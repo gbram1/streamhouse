@@ -138,10 +138,10 @@ impl StreamHouseService {
         topic: &str,
         partition_id: u32,
     ) -> Result<Arc<tokio::sync::Mutex<PartitionWriter>>, Status> {
-        // Verify topic exists
+        // Verify topic exists for this org
         let topic_info = self
             .metadata
-            .get_topic(topic)
+            .get_topic_for_org(org_id, topic)
             .await
             .map_err(|e| Status::internal(format!("Metadata error: {}", e)))?
             .ok_or_else(|| Status::not_found(format!("Topic not found: {}", topic)))?;
@@ -162,11 +162,11 @@ impl StreamHouseService {
     }
 
     /// Get a partition reader
-    async fn get_reader(&self, topic: &str, partition_id: u32) -> Result<PartitionReader, Status> {
-        // Verify topic exists
+    async fn get_reader(&self, org_id: &str, topic: &str, partition_id: u32) -> Result<PartitionReader, Status> {
+        // Verify topic exists for this org
         let topic_info = self
             .metadata
-            .get_topic(topic)
+            .get_topic_for_org(org_id, topic)
             .await
             .map_err(|e| Status::internal(format!("Metadata error: {}", e)))?
             .ok_or_else(|| Status::not_found(format!("Topic not found: {}", topic)))?;
@@ -181,7 +181,7 @@ impl StreamHouseService {
 
         // Create reader
         let reader = PartitionReader::new(
-            streamhouse_metadata::DEFAULT_ORGANIZATION_ID.to_string(),
+            org_id.to_string(),
             topic.to_string(),
             partition_id,
             self.metadata.clone(),
@@ -384,9 +384,10 @@ impl StreamHouse for StreamHouseService {
     ) -> Result<Response<GetTopicResponse>, Status> {
         let req = request.into_inner();
 
+        // TODO: thread org_id from request context
         let topic = self
             .metadata
-            .get_topic(&req.name)
+            .get_topic_for_org(DEFAULT_ORGANIZATION_ID, &req.name)
             .await
             .map_err(|e| Status::internal(format!("Metadata error: {}", e)))?
             .ok_or_else(|| Status::not_found(format!("Topic not found: {}", req.name)))?;
@@ -407,9 +408,10 @@ impl StreamHouse for StreamHouseService {
         &self,
         _request: Request<ListTopicsRequest>,
     ) -> Result<Response<ListTopicsResponse>, Status> {
+        // TODO: thread org_id from request context
         let topics = self
             .metadata
-            .list_topics()
+            .list_topics_for_org(DEFAULT_ORGANIZATION_ID)
             .await
             .map_err(|e| Status::internal(format!("Metadata error: {}", e)))?;
 
@@ -715,7 +717,8 @@ impl StreamHouse for StreamHouseService {
         let req = request.into_inner();
         let max_records = req.max_records as usize;
 
-        let reader = self.get_reader(&req.topic, req.partition).await?;
+        // TODO: thread org_id from request context
+        let reader = self.get_reader(DEFAULT_ORGANIZATION_ID, &req.topic, req.partition).await?;
 
         // First try reading from S3 segments
         let result = match reader.read(req.offset, max_records).await {
