@@ -1,0 +1,47 @@
+[package]
+name = "streamhouse-loadtest"
+version.workspace = true
+edition.workspace = true
+
+[[bin]]
+name = "loadtest"
+path = "src/main.rs"
+
+[dependencies]
+# Internal crates
+streamhouse-proto = { path = "../streamhouse-proto" }
+
+# Async
+tokio = { version = "1", features = ["full"] }
+futures = { workspace = true }
+
+# HTTP client
+reqwest = { version = "0.12", features = ["json"] }
+
+# gRPC client
+tonic = { workspace = true }
+prost = { workspace = true }
+
+# Kafka wire protocol
+bytes = { workspace = true }
+lz4_flex = { workspace = true }
+crc32c = { workspace = true }
+
+# Serialization
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+# Observability
+prometheus = "0.13"
+axum = { workspace = true }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+# CLI
+clap = { version = "4.4", features = ["derive", "env"] }
+
+# Utilities
+chrono = { workspace = true }
+rand = "0.8"
+uuid = { workspace = true }
+anyhow = { workspace = true }

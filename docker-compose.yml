@@ -72,6 +72,7 @@ services:
       AWS_SECRET_ACCESS_KEY: minioadmin
       GRPC_ADDR: "0.0.0.0:50051"
       HTTP_ADDR: "0.0.0.0:8080"
+      KAFKA_ADDR: "0.0.0.0:9092"
       RUST_LOG: info
       WAL_ENABLED: "true"
       WAL_DIR: /data/wal
@@ -83,6 +84,7 @@ services:
     ports:
       - "8080:8080"
       - "50051:50051"
+      - "9092:9092"
     volumes:
       - wal_data:/data/wal
       - cache_data:/data/cache

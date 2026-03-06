@@ -29,6 +29,12 @@ scrape_configs:
   #   static_configs:
   #     - targets: ['postgres-exporter:9187']
 
+  # Load test metrics (runs on host machine)
+  - job_name: 'loadtest'
+    static_configs:
+      - targets: ['host.docker.internal:9100']
+    scrape_interval: 5s
+
   # MinIO metrics
   - job_name: 'minio'
     static_configs:

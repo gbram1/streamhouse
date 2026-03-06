@@ -543,3 +543,70 @@ groups:
         - Metadata operations
 
         Check PostgreSQL health and connection pool settings.
+
+# =============================================================================
+# Load Test Alerts
+# =============================================================================
+- name: loadtest
+  interval: 30s
+  rules:
+  - alert: LoadTestDataLoss
+    expr: increase(loadtest_data_loss_events_total[5m]) > 0
+    for: 1m
+    labels:
+      severity: critical
+      component: loadtest
+      team: platform
+    annotations:
+      summary: "Load test detected data loss"
+      description: |
+        Data loss events detected in load test.
+        Produced messages are not being consumed within the expected window.
+
+        Check consumer lag and topic integrity.
+
+  - alert: LoadTestHighErrorRate
+    expr: |
+      sum(rate(loadtest_produce_errors_total[5m])) /
+      (sum(rate(loadtest_produced_total[5m])) > 0) > 0.01
+    for: 5m
+    labels:
+      severity: warning
+      component: loadtest
+      team: platform
+    annotations:
+      summary: "Load test produce error rate >1%"
+      description: |
+        {{ $value | humanizePercentage }} of load test produce requests are failing.
+
+        Check server health, protocol-specific errors, and resource usage.
+
+  - alert: LoadTestConsumersBehind
+    expr: sum(loadtest_produced_total) - sum(loadtest_consumed_total) > 100000
+    for: 5m
+    labels:
+      severity: warning
+      component: loadtest
+      team: platform
+    annotations:
+      summary: "Load test consumers >100K messages behind"
+      description: |
+        Consumer lag is {{ $value }} messages.
+        Consumers are not keeping up with producer throughput.
+
+        Check consumer health and server performance.
+
+  - alert: LoadTestNoProgress
+    expr: rate(loadtest_produced_total[5m]) == 0 and loadtest_active_producers > 0
+    for: 5m
+    labels:
+      severity: critical
+      component: loadtest
+      team: platform
+    annotations:
+      summary: "Load test producers active but not producing"
+      description: |
+        Active producers are running but no messages are being produced.
+        The server may be rejecting all requests.
+
+        Check server health and logs.
