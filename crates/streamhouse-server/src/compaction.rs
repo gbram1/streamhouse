@@ -592,6 +592,7 @@ mod tests {
         }
         async fn update_high_watermark(
             &self,
+            _org_id: &str,
             _topic: &str,
             _partition_id: u32,
             _offset: u64,
