@@ -1240,6 +1240,47 @@ impl<S: MetadataStore + 'static> MetadataStore for CachedMetadataStore<S> {
             .update_connector_records_processed(name, records_processed)
             .await
     }
+
+    // ── Org-scoped connector operations ──────────────────────
+
+    async fn create_connector_for_org(&self, org_id: &str, connector: ConnectorInfo) -> Result<()> {
+        self.inner.create_connector_for_org(org_id, connector).await
+    }
+
+    async fn get_connector_for_org(&self, org_id: &str, name: &str) -> Result<Option<ConnectorInfo>> {
+        self.inner.get_connector_for_org(org_id, name).await
+    }
+
+    async fn list_connectors_for_org(&self, org_id: &str) -> Result<Vec<ConnectorInfo>> {
+        self.inner.list_connectors_for_org(org_id).await
+    }
+
+    async fn delete_connector_for_org(&self, org_id: &str, name: &str) -> Result<()> {
+        self.inner.delete_connector_for_org(org_id, name).await
+    }
+
+    async fn update_connector_state_for_org(
+        &self,
+        org_id: &str,
+        name: &str,
+        state: &str,
+        error_message: Option<&str>,
+    ) -> Result<()> {
+        self.inner
+            .update_connector_state_for_org(org_id, name, state, error_message)
+            .await
+    }
+
+    async fn update_connector_records_processed_for_org(
+        &self,
+        org_id: &str,
+        name: &str,
+        records_processed: i64,
+    ) -> Result<()> {
+        self.inner
+            .update_connector_records_processed_for_org(org_id, name, records_processed)
+            .await
+    }
 }
 
 #[cfg(test)]

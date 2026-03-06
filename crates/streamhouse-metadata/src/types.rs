@@ -1513,6 +1513,7 @@ pub struct MaterializedViewData {
 /// Connector definition stored in metadata
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ConnectorInfo {
+    pub organization_id: String,
     pub name: String,
     pub connector_type: String,
     pub connector_class: String,

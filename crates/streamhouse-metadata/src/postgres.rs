@@ -3201,11 +3201,14 @@ impl MetadataStore for PostgresMetadataStore {
     async fn create_connector(&self, connector: ConnectorInfo) -> Result<()> {
         let topics_json = serde_json::to_string(&connector.topics)?;
         let config_json = serde_json::to_string(&connector.config)?;
+        let org_uuid = uuid::Uuid::parse_str(&connector.organization_id)
+            .unwrap_or_else(|_| uuid::Uuid::parse_str(crate::DEFAULT_ORGANIZATION_ID).unwrap());
 
         sqlx::query(
-            "INSERT INTO connectors (name, connector_type, connector_class, topics, config, state, records_processed, created_at, updated_at) \
-             VALUES ($1, $2, $3, $4, $5, $6, 0, $7, $8)",
+            "INSERT INTO connectors (organization_id, name, connector_type, connector_class, topics, config, state, records_processed, created_at, updated_at) \
+             VALUES ($1, $2, $3, $4, $5, $6, $7, 0, $8, $9)",
         )
+        .bind(org_uuid)
         .bind(&connector.name)
         .bind(&connector.connector_type)
         .bind(&connector.connector_class)
@@ -3222,7 +3225,7 @@ impl MetadataStore for PostgresMetadataStore {
 
     async fn get_connector(&self, name: &str) -> Result<Option<ConnectorInfo>> {
         let row = sqlx::query(
-            "SELECT name, connector_type, connector_class, topics, config, state, \
+            "SELECT organization_id, name, connector_type, connector_class, topics, config, state, \
                     error_message, records_processed, created_at, updated_at \
              FROM connectors WHERE name = $1",
         )
@@ -3238,7 +3241,7 @@ impl MetadataStore for PostgresMetadataStore {
 
     async fn list_connectors(&self) -> Result<Vec<ConnectorInfo>> {
         let rows = sqlx::query(
-            "SELECT name, connector_type, connector_class, topics, config, state, \
+            "SELECT organization_id, name, connector_type, connector_class, topics, config, state, \
                     error_message, records_processed, created_at, updated_at \
              FROM connectors ORDER BY name",
         )
@@ -3296,6 +3299,111 @@ impl MetadataStore for PostgresMetadataStore {
 
         Ok(())
     }
+
+    // ── Org-scoped connector operations ──────────────────────
+
+    async fn create_connector_for_org(&self, _org_id: &str, connector: ConnectorInfo) -> Result<()> {
+        self.create_connector(connector).await
+    }
+
+    async fn get_connector_for_org(&self, org_id: &str, name: &str) -> Result<Option<ConnectorInfo>> {
+        let org_uuid = uuid::Uuid::parse_str(org_id)
+            .unwrap_or_else(|_| uuid::Uuid::parse_str(crate::DEFAULT_ORGANIZATION_ID).unwrap());
+
+        let row = sqlx::query(
+            "SELECT organization_id, name, connector_type, connector_class, topics, config, state, \
+                    error_message, records_processed, created_at, updated_at \
+             FROM connectors WHERE organization_id = $1 AND name = $2",
+        )
+        .bind(org_uuid)
+        .bind(name)
+        .fetch_optional(&self.pool)
+        .await?;
+
+        match row {
+            Some(r) => Ok(Some(Self::row_to_connector_info(r)?)),
+            None => Ok(None),
+        }
+    }
+
+    async fn list_connectors_for_org(&self, org_id: &str) -> Result<Vec<ConnectorInfo>> {
+        let org_uuid = uuid::Uuid::parse_str(org_id)
+            .unwrap_or_else(|_| uuid::Uuid::parse_str(crate::DEFAULT_ORGANIZATION_ID).unwrap());
+
+        let rows = sqlx::query(
+            "SELECT organization_id, name, connector_type, connector_class, topics, config, state, \
+                    error_message, records_processed, created_at, updated_at \
+             FROM connectors WHERE organization_id = $1 ORDER BY name",
+        )
+        .bind(org_uuid)
+        .fetch_all(&self.pool)
+        .await?;
+
+        rows.into_iter().map(Self::row_to_connector_info).collect()
+    }
+
+    async fn delete_connector_for_org(&self, org_id: &str, name: &str) -> Result<()> {
+        let org_uuid = uuid::Uuid::parse_str(org_id)
+            .unwrap_or_else(|_| uuid::Uuid::parse_str(crate::DEFAULT_ORGANIZATION_ID).unwrap());
+
+        sqlx::query("DELETE FROM connectors WHERE organization_id = $1 AND name = $2")
+            .bind(org_uuid)
+            .bind(name)
+            .execute(&self.pool)
+            .await?;
+
+        Ok(())
+    }
+
+    async fn update_connector_state_for_org(
+        &self,
+        org_id: &str,
+        name: &str,
+        state: &str,
+        error_message: Option<&str>,
+    ) -> Result<()> {
+        let now = Self::now_ms();
+        let org_uuid = uuid::Uuid::parse_str(org_id)
+            .unwrap_or_else(|_| uuid::Uuid::parse_str(crate::DEFAULT_ORGANIZATION_ID).unwrap());
+
+        sqlx::query(
+            "UPDATE connectors SET state = $1, error_message = $2, updated_at = $3 \
+             WHERE organization_id = $4 AND name = $5",
+        )
+        .bind(state)
+        .bind(error_message)
+        .bind(now)
+        .bind(org_uuid)
+        .bind(name)
+        .execute(&self.pool)
+        .await?;
+
+        Ok(())
+    }
+
+    async fn update_connector_records_processed_for_org(
+        &self,
+        org_id: &str,
+        name: &str,
+        records_processed: i64,
+    ) -> Result<()> {
+        let now = Self::now_ms();
+        let org_uuid = uuid::Uuid::parse_str(org_id)
+            .unwrap_or_else(|_| uuid::Uuid::parse_str(crate::DEFAULT_ORGANIZATION_ID).unwrap());
+
+        sqlx::query(
+            "UPDATE connectors SET records_processed = $1, updated_at = $2 \
+             WHERE organization_id = $3 AND name = $4",
+        )
+        .bind(records_processed)
+        .bind(now)
+        .bind(org_uuid)
+        .bind(name)
+        .execute(&self.pool)
+        .await?;
+
+        Ok(())
+    }
 }
 
 impl PostgresMetadataStore {
@@ -3309,7 +3417,9 @@ impl PostgresMetadataStore {
         let topics: Vec<String> = serde_json::from_str(&topics_str)?;
         let config: std::collections::HashMap<String, String> = serde_json::from_str(&config_str)?;
 
+        let org_id: uuid::Uuid = r.get("organization_id");
         Ok(ConnectorInfo {
+            organization_id: org_id.to_string(),
             name: r.get("name"),
             connector_type: r.get("connector_type"),
             connector_class: r.get("connector_class"),

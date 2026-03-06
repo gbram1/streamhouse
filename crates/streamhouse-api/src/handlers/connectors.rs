@@ -2,12 +2,14 @@
 
 use axum::{
     extract::{Path, State},
-    http::StatusCode,
-    Json,
+    http::{HeaderMap, StatusCode},
+    Extension, Json,
 };
 use chrono::Utc;
 
 use crate::{
+    auth::AuthenticatedKey,
+    handlers::topics::extract_org_id,
     models::{ConnectorResponse, CreateConnectorRequest},
     AppState,
 };
@@ -47,10 +49,14 @@ fn connector_to_response(info: ConnectorInfo) -> ConnectorResponse {
 )]
 pub async fn list_connectors(
     State(state): State<AppState>,
+    headers: HeaderMap,
+    auth_key: Option<Extension<AuthenticatedKey>>,
 ) -> Result<Json<Vec<ConnectorResponse>>, StatusCode> {
+    let org_id = extract_org_id(&headers, auth_key.as_ref().map(|e| &e.0));
+
     let connectors = state
         .metadata
-        .list_connectors()
+        .list_connectors_for_org(&org_id)
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
@@ -76,11 +82,15 @@ pub async fn list_connectors(
 )]
 pub async fn create_connector(
     State(state): State<AppState>,
+    headers: HeaderMap,
+    auth_key: Option<Extension<AuthenticatedKey>>,
     Json(req): Json<CreateConnectorRequest>,
 ) -> Result<(StatusCode, Json<ConnectorResponse>), StatusCode> {
+    let org_id = extract_org_id(&headers, auth_key.as_ref().map(|e| &e.0));
     let now = Utc::now().timestamp_millis();
 
     let info = ConnectorInfo {
+        organization_id: org_id.clone(),
         name: req.name,
         connector_type: req.connector_type,
         connector_class: req.connector_class,
@@ -95,7 +105,7 @@ pub async fn create_connector(
 
     state
         .metadata
-        .create_connector(info.clone())
+        .create_connector_for_org(&org_id, info.clone())
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
@@ -121,11 +131,15 @@ pub async fn create_connector(
 )]
 pub async fn get_connector(
     State(state): State<AppState>,
+    headers: HeaderMap,
+    auth_key: Option<Extension<AuthenticatedKey>>,
     Path(name): Path<String>,
 ) -> Result<Json<ConnectorResponse>, StatusCode> {
+    let org_id = extract_org_id(&headers, auth_key.as_ref().map(|e| &e.0));
+
     let connector = state
         .metadata
-        .get_connector(&name)
+        .get_connector_for_org(&org_id, &name)
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
         .ok_or(StatusCode::NOT_FOUND)?;
@@ -151,19 +165,23 @@ pub async fn get_connector(
 )]
 pub async fn delete_connector(
     State(state): State<AppState>,
+    headers: HeaderMap,
+    auth_key: Option<Extension<AuthenticatedKey>>,
     Path(name): Path<String>,
 ) -> Result<StatusCode, StatusCode> {
+    let org_id = extract_org_id(&headers, auth_key.as_ref().map(|e| &e.0));
+
     // Verify connector exists before deleting
     state
         .metadata
-        .get_connector(&name)
+        .get_connector_for_org(&org_id, &name)
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
         .ok_or(StatusCode::NOT_FOUND)?;
 
     state
         .metadata
-        .delete_connector(&name)
+        .delete_connector_for_org(&org_id, &name)
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
@@ -188,26 +206,30 @@ pub async fn delete_connector(
 )]
 pub async fn pause_connector(
     State(state): State<AppState>,
+    headers: HeaderMap,
+    auth_key: Option<Extension<AuthenticatedKey>>,
     Path(name): Path<String>,
 ) -> Result<Json<ConnectorResponse>, StatusCode> {
+    let org_id = extract_org_id(&headers, auth_key.as_ref().map(|e| &e.0));
+
     // Verify connector exists
     state
         .metadata
-        .get_connector(&name)
+        .get_connector_for_org(&org_id, &name)
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
         .ok_or(StatusCode::NOT_FOUND)?;
 
     state
         .metadata
-        .update_connector_state(&name, "paused", None)
+        .update_connector_state_for_org(&org_id, &name, "paused", None)
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
     // Re-fetch the updated connector
     let connector = state
         .metadata
-        .get_connector(&name)
+        .get_connector_for_org(&org_id, &name)
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
         .ok_or(StatusCode::NOT_FOUND)?;
@@ -233,26 +255,30 @@ pub async fn pause_connector(
 )]
 pub async fn resume_connector(
     State(state): State<AppState>,
+    headers: HeaderMap,
+    auth_key: Option<Extension<AuthenticatedKey>>,
     Path(name): Path<String>,
 ) -> Result<Json<ConnectorResponse>, StatusCode> {
+    let org_id = extract_org_id(&headers, auth_key.as_ref().map(|e| &e.0));
+
     // Verify connector exists
     state
         .metadata
-        .get_connector(&name)
+        .get_connector_for_org(&org_id, &name)
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
         .ok_or(StatusCode::NOT_FOUND)?;
 
     state
         .metadata
-        .update_connector_state(&name, "running", None)
+        .update_connector_state_for_org(&org_id, &name, "running", None)
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
     // Re-fetch the updated connector
     let connector = state
         .metadata
-        .get_connector(&name)
+        .get_connector_for_org(&org_id, &name)
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
         .ok_or(StatusCode::NOT_FOUND)?;

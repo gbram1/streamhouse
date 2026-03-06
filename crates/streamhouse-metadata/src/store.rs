@@ -143,6 +143,7 @@ impl SqliteMetadataStore {
         let config: HashMap<String, String> = serde_json::from_str(&config_str)?;
 
         Ok(ConnectorInfo {
+            organization_id: r.get("organization_id"),
             name: r.get("name"),
             connector_type: r.get("connector_type"),
             connector_class: r.get("connector_class"),
@@ -3399,9 +3400,10 @@ impl MetadataStore for SqliteMetadataStore {
         let config_json = serde_json::to_string(&connector.config)?;
 
         sqlx::query(
-            "INSERT INTO connectors (name, connector_type, connector_class, topics, config, state, records_processed, created_at, updated_at) \
-             VALUES (?, ?, ?, ?, ?, ?, 0, ?, ?)",
+            "INSERT INTO connectors (organization_id, name, connector_type, connector_class, topics, config, state, records_processed, created_at, updated_at) \
+             VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, ?)",
         )
+        .bind(&connector.organization_id)
         .bind(&connector.name)
         .bind(&connector.connector_type)
         .bind(&connector.connector_class)
@@ -3418,7 +3420,7 @@ impl MetadataStore for SqliteMetadataStore {
 
     async fn get_connector(&self, name: &str) -> Result<Option<ConnectorInfo>> {
         let row = sqlx::query(
-            "SELECT name, connector_type, connector_class, topics, config, state, \
+            "SELECT organization_id, name, connector_type, connector_class, topics, config, state, \
                     error_message, records_processed, created_at, updated_at \
              FROM connectors WHERE name = ?",
         )
@@ -3434,7 +3436,7 @@ impl MetadataStore for SqliteMetadataStore {
 
     async fn list_connectors(&self) -> Result<Vec<ConnectorInfo>> {
         let rows = sqlx::query(
-            "SELECT name, connector_type, connector_class, topics, config, state, \
+            "SELECT organization_id, name, connector_type, connector_class, topics, config, state, \
                     error_message, records_processed, created_at, updated_at \
              FROM connectors ORDER BY name",
         )
@@ -3487,6 +3489,98 @@ impl MetadataStore for SqliteMetadataStore {
             .bind(name)
             .execute(&self.pool)
             .await?;
+
+        Ok(())
+    }
+
+    // ── Org-scoped connector operations ──────────────────────
+
+    async fn create_connector_for_org(&self, _org_id: &str, connector: ConnectorInfo) -> Result<()> {
+        self.create_connector(connector).await
+    }
+
+    async fn get_connector_for_org(&self, org_id: &str, name: &str) -> Result<Option<ConnectorInfo>> {
+        let row = sqlx::query(
+            "SELECT organization_id, name, connector_type, connector_class, topics, config, state, \
+                    error_message, records_processed, created_at, updated_at \
+             FROM connectors WHERE organization_id = ? AND name = ?",
+        )
+        .bind(org_id)
+        .bind(name)
+        .fetch_optional(&self.pool)
+        .await?;
+
+        match row {
+            Some(r) => Ok(Some(Self::row_to_connector_info(r)?)),
+            None => Ok(None),
+        }
+    }
+
+    async fn list_connectors_for_org(&self, org_id: &str) -> Result<Vec<ConnectorInfo>> {
+        let rows = sqlx::query(
+            "SELECT organization_id, name, connector_type, connector_class, topics, config, state, \
+                    error_message, records_processed, created_at, updated_at \
+             FROM connectors WHERE organization_id = ? ORDER BY name",
+        )
+        .bind(org_id)
+        .fetch_all(&self.pool)
+        .await?;
+
+        rows.into_iter().map(Self::row_to_connector_info).collect()
+    }
+
+    async fn delete_connector_for_org(&self, org_id: &str, name: &str) -> Result<()> {
+        sqlx::query("DELETE FROM connectors WHERE organization_id = ? AND name = ?")
+            .bind(org_id)
+            .bind(name)
+            .execute(&self.pool)
+            .await?;
+
+        Ok(())
+    }
+
+    async fn update_connector_state_for_org(
+        &self,
+        org_id: &str,
+        name: &str,
+        state: &str,
+        error_message: Option<&str>,
+    ) -> Result<()> {
+        let now = Self::now_ms();
+
+        sqlx::query(
+            "UPDATE connectors SET state = ?, error_message = ?, updated_at = ? \
+             WHERE organization_id = ? AND name = ?",
+        )
+        .bind(state)
+        .bind(error_message)
+        .bind(now)
+        .bind(org_id)
+        .bind(name)
+        .execute(&self.pool)
+        .await?;
+
+        Ok(())
+    }
+
+    async fn update_connector_records_processed_for_org(
+        &self,
+        org_id: &str,
+        name: &str,
+        records_processed: i64,
+    ) -> Result<()> {
+        let now = Self::now_ms();
+
+        sqlx::query(
+            "UPDATE connectors SET records_processed = ?, updated_at = ? \
+             WHERE organization_id = ? AND name = ?",
+        )
+        .bind(records_processed)
+        .bind(now)
+        .bind(org_id)
+        .bind(name)
+        .execute(&self.pool)
+        .await?;
 
         Ok(())
     }

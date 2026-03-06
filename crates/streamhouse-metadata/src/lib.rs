@@ -1895,4 +1895,47 @@ pub trait MetadataStore: Send + Sync {
         name: &str,
         records_processed: i64,
     ) -> Result<()>;
+
+    // ── Org-scoped connector operations ──────────────────────
+
+    /// Create a connector for a specific organization.
+    async fn create_connector_for_org(&self, _org_id: &str, connector: ConnectorInfo) -> Result<()> {
+        self.create_connector(connector).await
+    }
+
+    /// Get a connector by name for a specific organization.
+    async fn get_connector_for_org(&self, _org_id: &str, name: &str) -> Result<Option<ConnectorInfo>> {
+        self.get_connector(name).await
+    }
+
+    /// List all connectors for a specific organization.
+    async fn list_connectors_for_org(&self, _org_id: &str) -> Result<Vec<ConnectorInfo>> {
+        self.list_connectors().await
+    }
+
+    /// Delete a connector by name for a specific organization.
+    async fn delete_connector_for_org(&self, _org_id: &str, name: &str) -> Result<()> {
+        self.delete_connector(name).await
+    }
+
+    /// Update the state of a connector for a specific organization.
+    async fn update_connector_state_for_org(
+        &self,
+        _org_id: &str,
+        name: &str,
+        state: &str,
+        error_message: Option<&str>,
+    ) -> Result<()> {
+        self.update_connector_state(name, state, error_message).await
+    }
+
+    /// Update the records_processed counter for a connector in a specific organization.
+    async fn update_connector_records_processed_for_org(
+        &self,
+        _org_id: &str,
+        name: &str,
+        records_processed: i64,
+    ) -> Result<()> {
+        self.update_connector_records_processed(name, records_processed).await
+    }
 }
