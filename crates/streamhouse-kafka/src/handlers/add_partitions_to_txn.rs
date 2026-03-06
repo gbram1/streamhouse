@@ -85,7 +85,7 @@ pub async fn handle_add_partitions_to_txn(
     };
 
     // Find active transaction for this producer
-    let transaction = match state.metadata.begin_transaction(&producer.id, 60000).await {
+    let transaction = match state.metadata.begin_transaction_for_org(org_id, &producer.id, 60000).await {
         Ok(txn) => txn,
         Err(e) => {
             warn!("Failed to get/begin transaction: {}", e);
@@ -102,7 +102,8 @@ pub async fn handle_add_partitions_to_txn(
         for &partition_index in partitions {
             let error = match state
                 .metadata
-                .add_transaction_partition(
+                .add_transaction_partition_for_org(
+                    org_id,
                     &transaction.transaction_id,
                     topic_name,
                     partition_index as u32,

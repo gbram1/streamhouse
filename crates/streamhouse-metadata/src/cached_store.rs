@@ -1281,6 +1281,82 @@ impl<S: MetadataStore + 'static> MetadataStore for CachedMetadataStore<S> {
             .update_connector_records_processed_for_org(org_id, name, records_processed)
             .await
     }
+
+    // ── Org-scoped transaction operations ──────────────────────
+
+    async fn begin_transaction_for_org(
+        &self,
+        org_id: &str,
+        producer_id: &str,
+        timeout_ms: u32,
+    ) -> Result<Transaction> {
+        self.inner
+            .begin_transaction_for_org(org_id, producer_id, timeout_ms)
+            .await
+    }
+
+    async fn get_transaction_for_org(
+        &self,
+        org_id: &str,
+        transaction_id: &str,
+    ) -> Result<Option<Transaction>> {
+        self.inner
+            .get_transaction_for_org(org_id, transaction_id)
+            .await
+    }
+
+    async fn prepare_transaction_for_org(
+        &self,
+        org_id: &str,
+        transaction_id: &str,
+    ) -> Result<()> {
+        self.inner
+            .prepare_transaction_for_org(org_id, transaction_id)
+            .await
+    }
+
+    async fn commit_transaction_for_org(
+        &self,
+        org_id: &str,
+        transaction_id: &str,
+    ) -> Result<i64> {
+        self.inner
+            .commit_transaction_for_org(org_id, transaction_id)
+            .await
+    }
+
+    async fn abort_transaction_for_org(
+        &self,
+        org_id: &str,
+        transaction_id: &str,
+    ) -> Result<()> {
+        self.inner
+            .abort_transaction_for_org(org_id, transaction_id)
+            .await
+    }
+
+    async fn add_transaction_partition_for_org(
+        &self,
+        org_id: &str,
+        transaction_id: &str,
+        topic: &str,
+        partition_id: u32,
+        first_offset: u64,
+    ) -> Result<()> {
+        self.inner
+            .add_transaction_partition_for_org(org_id, transaction_id, topic, partition_id, first_offset)
+            .await
+    }
+
+    async fn get_transaction_partitions_for_org(
+        &self,
+        org_id: &str,
+        transaction_id: &str,
+    ) -> Result<Vec<TransactionPartition>> {
+        self.inner
+            .get_transaction_partitions_for_org(org_id, transaction_id)
+            .await
+    }
 }
 
 #[cfg(test)]

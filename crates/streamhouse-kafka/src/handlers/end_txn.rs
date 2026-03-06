@@ -63,7 +63,7 @@ pub async fn handle_end_txn(
 
     // Find the active transaction for this producer.
     // We get the transaction by beginning one (which returns existing if ongoing).
-    let transaction = match state.metadata.begin_transaction(&producer.id, 60000).await {
+    let transaction = match state.metadata.begin_transaction_for_org(org_id, &producer.id, 60000).await {
         Ok(txn) => txn,
         Err(e) => {
             warn!("Failed to get transaction for producer: {}", e);
@@ -74,7 +74,7 @@ pub async fn handle_end_txn(
     // Get all partitions enrolled in this transaction
     let partitions = match state
         .metadata
-        .get_transaction_partitions(&transaction.transaction_id)
+        .get_transaction_partitions_for_org(org_id, &transaction.transaction_id)
         .await
     {
         Ok(p) => p,
@@ -90,7 +90,7 @@ pub async fn handle_end_txn(
         // Commit the transaction
         match state
             .metadata
-            .commit_transaction(&transaction.transaction_id)
+            .commit_transaction_for_org(org_id, &transaction.transaction_id)
             .await
         {
             Ok(_commit_ts) => {}
@@ -138,7 +138,7 @@ pub async fn handle_end_txn(
         // Abort the transaction
         match state
             .metadata
-            .abort_transaction(&transaction.transaction_id)
+            .abort_transaction_for_org(org_id, &transaction.transaction_id)
             .await
         {
             Ok(()) => {}

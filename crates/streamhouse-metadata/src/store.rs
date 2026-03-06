@@ -3584,6 +3584,272 @@ impl MetadataStore for SqliteMetadataStore {
 
         Ok(())
     }
+
+    // ── Org-scoped transaction operations ──────────────────────
+
+    async fn begin_transaction_for_org(
+        &self,
+        org_id: &str,
+        producer_id: &str,
+        timeout_ms: u32,
+    ) -> Result<Transaction> {
+        let now = Self::now_ms();
+        let transaction_id = uuid::Uuid::new_v4().to_string();
+
+        sqlx::query(
+            "INSERT INTO transactions (transaction_id, producer_id, state, timeout_ms, started_at, updated_at, organization_id) \
+             VALUES (?, ?, 'ongoing', ?, ?, ?, ?)",
+        )
+        .bind(&transaction_id)
+        .bind(producer_id)
+        .bind(timeout_ms)
+        .bind(now)
+        .bind(now)
+        .bind(org_id)
+        .execute(&self.pool)
+        .await?;
+
+        Ok(Transaction {
+            transaction_id,
+            producer_id: producer_id.to_string(),
+            state: TransactionState::Ongoing,
+            timeout_ms,
+            started_at: now,
+            updated_at: now,
+            completed_at: None,
+        })
+    }
+
+    async fn get_transaction_for_org(
+        &self,
+        org_id: &str,
+        transaction_id: &str,
+    ) -> Result<Option<Transaction>> {
+        let row: Option<(String, String, String, i64, i64, i64, Option<i64>)> = sqlx::query_as(
+            "SELECT transaction_id, producer_id, state, timeout_ms, started_at, updated_at, completed_at \
+             FROM transactions WHERE transaction_id = ? AND organization_id = ?",
+        )
+        .bind(transaction_id)
+        .bind(org_id)
+        .fetch_optional(&self.pool)
+        .await?;
+
+        Ok(row.map(
+            |(transaction_id, producer_id, state, timeout_ms, started_at, updated_at, completed_at)| {
+                Transaction {
+                    transaction_id,
+                    producer_id,
+                    state: state.parse().unwrap_or(TransactionState::Ongoing),
+                    timeout_ms: timeout_ms as u32,
+                    started_at,
+                    updated_at,
+                    completed_at,
+                }
+            },
+        ))
+    }
+
+    async fn prepare_transaction_for_org(
+        &self,
+        org_id: &str,
+        transaction_id: &str,
+    ) -> Result<()> {
+        let now = Self::now_ms();
+        let result = sqlx::query(
+            "UPDATE transactions SET state = 'preparing', updated_at = ? \
+             WHERE transaction_id = ? AND organization_id = ? AND state = 'ongoing'",
+        )
+        .bind(now)
+        .bind(transaction_id)
+        .bind(org_id)
+        .execute(&self.pool)
+        .await?;
+
+        if result.rows_affected() == 0 {
+            return Err(MetadataError::TransactionError(format!(
+                "Transaction {} is not in ongoing state",
+                transaction_id
+            )));
+        }
+
+        Ok(())
+    }
+
+    async fn commit_transaction_for_org(
+        &self,
+        org_id: &str,
+        transaction_id: &str,
+    ) -> Result<i64> {
+        let now = Self::now_ms();
+
+        // Get transaction partitions for writing markers
+        let partitions = self.get_transaction_partitions(transaction_id).await?;
+
+        let mut tx = self.pool.begin().await?;
+
+        // Update transaction state with org check
+        let result = sqlx::query(
+            "UPDATE transactions SET state = 'committed', updated_at = ?, completed_at = ? \
+             WHERE transaction_id = ? AND organization_id = ? AND (state = 'ongoing' OR state = 'preparing')",
+        )
+        .bind(now)
+        .bind(now)
+        .bind(transaction_id)
+        .bind(org_id)
+        .execute(&mut *tx)
+        .await?;
+
+        if result.rows_affected() == 0 {
+            return Err(MetadataError::TransactionError(format!(
+                "Transaction {} cannot be committed",
+                transaction_id
+            )));
+        }
+
+        // Write commit markers for each partition
+        for partition in &partitions {
+            let marker_id = uuid::Uuid::new_v4().to_string();
+            let marker_query = format!(
+                "INSERT INTO transaction_markers (id, transaction_id, topic, partition_id, offset, marker_type, created_at) \
+                 VALUES ('{}', '{}', '{}', {}, {}, 'commit', {})",
+                marker_id, transaction_id, partition.topic, partition.partition_id, partition.last_offset, now
+            );
+            sqlx::query(&marker_query).execute(&mut *tx).await?;
+
+            // Update LSO for each partition
+            let lso_query = format!(
+                "INSERT INTO partition_lso (topic, partition_id, last_stable_offset, updated_at) \
+                 VALUES ('{}', {}, {}, {}) \
+                 ON CONFLICT(topic, partition_id) DO UPDATE SET \
+                    last_stable_offset = MAX(partition_lso.last_stable_offset, excluded.last_stable_offset), \
+                    updated_at = excluded.updated_at",
+                partition.topic, partition.partition_id, partition.last_offset + 1, now
+            );
+            sqlx::query(&lso_query).execute(&mut *tx).await?;
+        }
+
+        tx.commit().await?;
+        Ok(now)
+    }
+
+    async fn abort_transaction_for_org(
+        &self,
+        org_id: &str,
+        transaction_id: &str,
+    ) -> Result<()> {
+        let now = Self::now_ms();
+
+        // Get transaction partitions for writing markers
+        let partitions = self.get_transaction_partitions(transaction_id).await?;
+
+        let mut tx = self.pool.begin().await?;
+
+        // Update transaction state with org check
+        let result = sqlx::query(
+            "UPDATE transactions SET state = 'aborted', updated_at = ?, completed_at = ? \
+             WHERE transaction_id = ? AND organization_id = ? AND (state = 'ongoing' OR state = 'preparing')",
+        )
+        .bind(now)
+        .bind(now)
+        .bind(transaction_id)
+        .bind(org_id)
+        .execute(&mut *tx)
+        .await?;
+
+        if result.rows_affected() == 0 {
+            return Err(MetadataError::TransactionError(format!(
+                "Transaction {} cannot be aborted",
+                transaction_id
+            )));
+        }
+
+        // Write abort markers for each partition
+        for partition in &partitions {
+            let marker_id = uuid::Uuid::new_v4().to_string();
+            let marker_query = format!(
+                "INSERT INTO transaction_markers (id, transaction_id, topic, partition_id, offset, marker_type, created_at) \
+                 VALUES ('{}', '{}', '{}', {}, {}, 'abort', {})",
+                marker_id, transaction_id, partition.topic, partition.partition_id, partition.last_offset, now
+            );
+            sqlx::query(&marker_query).execute(&mut *tx).await?;
+
+            // Update LSO for each partition (even aborted transactions advance the LSO)
+            let lso_query = format!(
+                "INSERT INTO partition_lso (topic, partition_id, last_stable_offset, updated_at) \
+                 VALUES ('{}', {}, {}, {}) \
+                 ON CONFLICT(topic, partition_id) DO UPDATE SET \
+                    last_stable_offset = MAX(partition_lso.last_stable_offset, excluded.last_stable_offset), \
+                    updated_at = excluded.updated_at",
+                partition.topic, partition.partition_id, partition.last_offset + 1, now
+            );
+            sqlx::query(&lso_query).execute(&mut *tx).await?;
+        }
+
+        tx.commit().await?;
+        Ok(())
+    }
+
+    async fn add_transaction_partition_for_org(
+        &self,
+        org_id: &str,
+        transaction_id: &str,
+        topic: &str,
+        partition_id: u32,
+        first_offset: u64,
+    ) -> Result<()> {
+        // Verify transaction belongs to org before adding partition
+        let count: (i64,) = sqlx::query_as(
+            "SELECT COUNT(*) FROM transactions WHERE transaction_id = ? AND organization_id = ?",
+        )
+        .bind(transaction_id)
+        .bind(org_id)
+        .fetch_one(&self.pool)
+        .await?;
+
+        if count.0 == 0 {
+            return Err(MetadataError::TransactionError(format!(
+                "Transaction {} not found for organization {}",
+                transaction_id, org_id
+            )));
+        }
+
+        self.add_transaction_partition(transaction_id, topic, partition_id, first_offset)
+            .await
+    }
+
+    async fn get_transaction_partitions_for_org(
+        &self,
+        org_id: &str,
+        transaction_id: &str,
+    ) -> Result<Vec<TransactionPartition>> {
+        // JOIN with transactions to verify org ownership
+        let rows: Vec<(String, String, i64, i64, i64)> = sqlx::query_as(
+            "SELECT tp.transaction_id, tp.topic, tp.partition_id, tp.first_offset, tp.last_offset \
+             FROM transaction_partitions tp \
+             JOIN transactions t ON tp.transaction_id = t.transaction_id \
+             WHERE tp.transaction_id = ? AND t.organization_id = ? \
+             ORDER BY tp.topic, tp.partition_id",
+        )
+        .bind(transaction_id)
+        .bind(org_id)
+        .fetch_all(&self.pool)
+        .await?;
+
+        Ok(rows
+            .into_iter()
+            .map(
+                |(transaction_id, topic, partition_id, first_offset, last_offset)| {
+                    TransactionPartition {
+                        transaction_id,
+                        topic,
+                        partition_id: partition_id as u32,
+                        first_offset: first_offset as u64,
+                        last_offset: last_offset as u64,
+                    }
+                },
+            )
+            .collect())
+    }
 }
 
 #[cfg(test)]
