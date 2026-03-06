@@ -17,6 +17,7 @@ pub async fn run_kafka_producer(
     partitions: u32,
     batch_size: usize,
     produce_rate: usize,
+    api_key: Option<String>,
     produced_counts: Arc<std::collections::HashMap<String, AtomicU64>>,
     mut shutdown: watch::Receiver<bool>,
 ) {
@@ -56,6 +57,54 @@ pub async fn run_kafka_producer(
         tracing::error!(err = %e, "Kafka handshake recv failed");
         metrics::ACTIVE_PRODUCERS.dec();
         return;
+    }
+
+    // SASL authentication (if API key available)
+    if let Some(ref key) = api_key {
+        let sasl_handshake = kafka_wire::build_sasl_handshake_request(1, &client_id, "PLAIN");
+        if let Err(e) = kafka_wire::send_request(&mut stream, &sasl_handshake).await {
+            tracing::error!(err = %e, "SASL handshake send failed");
+            metrics::ACTIVE_PRODUCERS.dec();
+            return;
+        }
+        match kafka_wire::recv_response(&mut stream).await {
+            Ok(resp) => {
+                let err_code = kafka_wire::parse_sasl_handshake_error(&resp);
+                if err_code != 0 {
+                    tracing::error!(error_code = err_code, "SASL handshake error");
+                    metrics::ACTIVE_PRODUCERS.dec();
+                    return;
+                }
+            }
+            Err(e) => {
+                tracing::error!(err = %e, "SASL handshake recv failed");
+                metrics::ACTIVE_PRODUCERS.dec();
+                return;
+            }
+        }
+
+        let sasl_auth = kafka_wire::build_sasl_authenticate_request(2, &client_id, key, key);
+        if let Err(e) = kafka_wire::send_request(&mut stream, &sasl_auth).await {
+            tracing::error!(err = %e, "SASL authenticate send failed");
+            metrics::ACTIVE_PRODUCERS.dec();
+            return;
+        }
+        match kafka_wire::recv_response(&mut stream).await {
+            Ok(resp) => {
+                let err_code = kafka_wire::parse_sasl_authenticate_error(&resp);
+                if err_code != 0 {
+                    tracing::error!(error_code = err_code, "SASL authenticate error");
+                    metrics::ACTIVE_PRODUCERS.dec();
+                    return;
+                }
+                tracing::info!(topic = %topic, "Kafka SASL auth successful");
+            }
+            Err(e) => {
+                tracing::error!(err = %e, "SASL authenticate recv failed");
+                metrics::ACTIVE_PRODUCERS.dec();
+                return;
+            }
+        }
     }
 
     let mut rng = rand::rngs::StdRng::from_entropy();

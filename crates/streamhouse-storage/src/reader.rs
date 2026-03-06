@@ -234,7 +234,7 @@ impl PartitionReader {
         let cache_key = self.cache_key(info);
 
         // Try cache first
-        if let Some(data) = self.cache.get(&cache_key).await? {
+        if let Some(data) = self.cache.get(&cache_key, &self.org_id).await? {
             tracing::debug!(
                 topic = %self.topic,
                 partition = self.partition_id,
@@ -258,7 +258,7 @@ impl PartitionReader {
         let data = result.bytes().await?;
 
         // Cache for future reads
-        self.cache.put(&cache_key, data.clone()).await?;
+        self.cache.put(&cache_key, data.clone(), &self.org_id).await?;
 
         Ok(data)
     }
@@ -312,7 +312,7 @@ impl PartitionReader {
                         );
 
                         // Check if already cached
-                        if let Ok(Some(_)) = cache_clone.get(&cache_key).await {
+                        if let Ok(Some(_)) = cache_clone.get(&cache_key, &org_id_clone).await {
                             return; // Already cached
                         }
 
@@ -328,7 +328,7 @@ impl PartitionReader {
                         let path = object_store::path::Path::from(segment.s3_key.as_str());
                         if let Ok(result) = object_store_clone.get(&path).await {
                             if let Ok(data) = result.bytes().await {
-                                let _ = cache_clone.put(&cache_key, data).await;
+                                let _ = cache_clone.put(&cache_key, data, &org_id_clone).await;
                             }
                         }
                     }

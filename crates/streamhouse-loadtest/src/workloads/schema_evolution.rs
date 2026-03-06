@@ -11,6 +11,8 @@ pub async fn run_schema_evolution(
     interval_secs: u64,
     mut shutdown: watch::Receiver<bool>,
 ) {
+    // Wait before first evolution to let producers warm up without schema validation
+    tokio::time::sleep(Duration::from_secs(interval_secs)).await;
     let mut interval = tokio::time::interval(Duration::from_secs(interval_secs));
     let mut version = 2;
 
@@ -46,7 +48,7 @@ pub async fn run_schema_evolution(
         });
 
         match client
-            .post_json::<serde_json::Value>("/subjects/ft-user-events-value/versions", &body)
+            .post_json::<serde_json::Value>("/schemas/subjects/ft-user-events-value/versions", &body)
             .await
         {
             Ok(resp) => {

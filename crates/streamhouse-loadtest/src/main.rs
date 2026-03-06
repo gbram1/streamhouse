@@ -89,6 +89,12 @@ async fn main() -> anyhow::Result<()> {
         all_topics
             .iter()
             .map(|(_, _, t)| (t.name.clone(), AtomicU64::new(0)))
+            .chain(
+                // Kafka-specific topics in default org
+                ["kafka-orders", "kafka-market-data"]
+                    .iter()
+                    .map(|name| (name.to_string(), AtomicU64::new(0))),
+            )
             .collect(),
     );
     let consumed_counts: Arc<HashMap<String, AtomicU64>> = Arc::new(
@@ -129,31 +135,32 @@ async fn main() -> anyhow::Result<()> {
     }
     println!("  Started {} REST producers", orgs.len() * 2);
 
-    // Kafka producers: ft-orders and ft-market-data
-    for topic_name in &["ft-orders", "ft-market-data"] {
-        if let Some((_, slug, spec)) = all_topics.iter().find(|(_, _, t)| t.name == *topic_name) {
-            let addr = config.kafka_addr.clone();
-            let slug = slug.clone();
-            let topic = spec.name.clone();
-            let parts = spec.partitions;
-            let pc = Arc::clone(&produced_counts);
-            let rx = shutdown_rx.clone();
-            let rate = config.produce_rate * 5; // Higher rate for Kafka
-            let bs = 100;
-            tasks.spawn(async move {
-                workloads::kafka_producer::run_kafka_producer(
-                    addr, slug, topic, parts, bs, rate, pc, rx,
-                )
-                .await;
-            });
-        }
+    // Kafka producers: use default-org topics (unauthenticated Kafka connections
+    // resolve to the default organization)
+    for (topic_name, partitions) in &[("kafka-orders", 8u32), ("kafka-market-data", 16u32)] {
+        let addr = config.kafka_addr.clone();
+        let slug = "default".to_string();
+        let topic = topic_name.to_string();
+        let parts = *partitions;
+        let pc = Arc::clone(&produced_counts);
+        let rx = shutdown_rx.clone();
+        let rate = config.produce_rate * 5; // Higher rate for Kafka
+        let bs = 100;
+        // Add to produced_counts tracking (these topics aren't in all_topics)
+        tasks.spawn(async move {
+            workloads::kafka_producer::run_kafka_producer(
+                addr, slug, topic, parts, bs, rate, None, pc, rx,
+            )
+            .await;
+        });
     }
     println!("  Started 2 Kafka producers");
 
     // gRPC producers: ft-transactions and an-clickstream
     for topic_name in &["ft-transactions", "an-clickstream"] {
-        if let Some((_, slug, spec)) = all_topics.iter().find(|(_, _, t)| t.name == *topic_name) {
+        if let Some((org_id, slug, spec)) = all_topics.iter().find(|(_, _, t)| t.name == *topic_name) {
             let addr = config.grpc_addr.clone();
+            let org_id = org_id.clone();
             let slug = slug.clone();
             let topic = spec.name.clone();
             let parts = spec.partitions;
@@ -163,7 +170,7 @@ async fn main() -> anyhow::Result<()> {
             let bs = 50;
             tasks.spawn(async move {
                 workloads::grpc_producer::run_grpc_producer(
-                    addr, slug, topic, parts, bs, rate, pc, rx,
+                    addr, org_id, slug, topic, parts, bs, rate, pc, rx,
                 )
                 .await;
             });

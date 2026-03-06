@@ -212,6 +212,12 @@ pub struct ProducerConfig {
     ///
     /// ## Phase 9+
     pub schema_registry_url: Option<String>,
+
+    /// Organization ID for multi-tenant metric labeling.
+    ///
+    /// Used to tag Prometheus metrics with `org_id` so Grafana dashboards
+    /// can filter by organization.
+    pub org_id: String,
 }
 
 impl Default for ProducerConfig {
@@ -973,13 +979,13 @@ impl Producer {
         // Record metrics (Phase 7)
         let duration = start.elapsed().as_secs_f64();
         streamhouse_observability::metrics::PRODUCER_RECORDS_TOTAL
-            .with_label_values(&[topic])
+            .with_label_values(&[&self.config.org_id, topic])
             .inc();
         streamhouse_observability::metrics::PRODUCER_BYTES_TOTAL
-            .with_label_values(&[topic])
+            .with_label_values(&[&self.config.org_id, topic])
             .inc_by(value.len() as u64);
         streamhouse_observability::metrics::PRODUCER_LATENCY
-            .with_label_values(&[topic])
+            .with_label_values(&[&self.config.org_id, topic])
             .observe(duration);
 
         // Return immediately with offset receiver (Phase 5.4)
@@ -1291,6 +1297,7 @@ impl Producer {
             };
 
             match Self::send_batch_to_agent(
+                &self.config.org_id,
                 &topic,
                 partition,
                 records,
@@ -1405,6 +1412,7 @@ impl Producer {
             };
 
             if let Err(e) = Self::send_batch_to_agent(
+                &self.config.org_id,
                 &topic,
                 partition,
                 records,
@@ -1959,6 +1967,7 @@ impl Producer {
     #[allow(clippy::too_many_arguments)]
     #[instrument(skip(records, connection_pool, metadata_store, agents, retry_policy), fields(topic, partition, record_count = records.len()))]
     async fn send_batch_to_agent(
+        org_id: &str,
         topic: &str,
         partition: u32,
         records: Vec<BatchRecord>,
@@ -2029,7 +2038,7 @@ impl Producer {
         .await
         .map_err(|e| {
             streamhouse_observability::metrics::PRODUCER_ERRORS_TOTAL
-                .with_label_values(&[topic, "agent_error"])
+                .with_label_values(&[org_id, topic, "agent_error"])
                 .inc();
             ClientError::AgentError(
                 agent.agent_id.clone(),
@@ -2040,10 +2049,10 @@ impl Producer {
         // Record batch flush metrics (Phase 7)
         let duration = start.elapsed().as_secs_f64();
         streamhouse_observability::metrics::PRODUCER_BATCH_SIZE
-            .with_label_values(&[topic])
+            .with_label_values(&[org_id, topic])
             .observe(record_count as f64);
         streamhouse_observability::metrics::PRODUCER_LATENCY
-            .with_label_values(&[topic])
+            .with_label_values(&[org_id, topic])
             .observe(duration);
         // Note: byte_count is calculated but PRODUCER_BYTES_TOTAL is already
         // updated in send() for each individual record, so we don't double-count here
@@ -2159,6 +2168,7 @@ impl Producer {
         producer_epoch: Arc<RwLock<u32>>,
         sequence_numbers: Arc<RwLock<HashMap<(String, u32), i64>>>,
         current_transaction_id: Arc<RwLock<Option<String>>>,
+        org_id: String,
     ) -> tokio::task::JoinHandle<()> {
         tokio::spawn(async move {
             let mut interval = tokio::time::interval(Duration::from_millis(50));
@@ -2190,6 +2200,7 @@ impl Producer {
 
                     // Send batch to agent
                     match Self::send_batch_to_agent(
+                        &org_id,
                         &topic,
                         partition,
                         records,
@@ -2904,6 +2915,7 @@ impl ProducerBuilder {
             max_retries: self.max_retries,
             retry_backoff: self.retry_backoff,
             schema_registry_url: self.schema_registry_url.clone(),
+            org_id: self.organization_id.clone().unwrap_or_else(|| streamhouse_metadata::DEFAULT_ORGANIZATION_ID.to_string()),
         };
 
         let agents = Arc::new(RwLock::new(HashMap::new()));
@@ -2981,6 +2993,7 @@ impl ProducerBuilder {
             Arc::clone(&producer_epoch),
             Arc::clone(&sequence_numbers),
             Arc::clone(&current_transaction_id),
+            config.org_id.clone(),
         ))));
 
         // Initialize schema registry client if URL provided

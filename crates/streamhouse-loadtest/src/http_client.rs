@@ -84,10 +84,6 @@ impl HttpClient {
 }
 
 impl OrgClient {
-    pub fn org_id(&self) -> &str {
-        &self.org_id
-    }
-
     pub async fn get_json<T: DeserializeOwned>(&self, path: &str) -> Result<T> {
         let url = format!("{}{}", self.inner.base_url, path);
         let resp = self

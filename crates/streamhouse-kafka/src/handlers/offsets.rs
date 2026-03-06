@@ -296,13 +296,13 @@ async fn find_offset_by_timestamp(
 
         // Try cache first, then S3
         let cache_key = format!("{}/{}/{}", topic, partition_id, segment_info.id);
-        let data = if let Ok(Some(cached)) = state.segment_cache.get(&cache_key).await {
+        let data = if let Ok(Some(cached)) = state.segment_cache.get(&cache_key, org_id).await {
             cached
         } else {
             let result = state.object_store.get(&path).await?;
             let data = result.bytes().await?;
             // Best-effort cache
-            let _ = state.segment_cache.put(&cache_key, data.clone()).await;
+            let _ = state.segment_cache.put(&cache_key, data.clone(), org_id).await;
             data
         };
 

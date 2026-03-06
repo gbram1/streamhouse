@@ -153,13 +153,15 @@ impl SegmentCache {
     ///
     /// Returns `Some(data)` if cached, `None` if not found.
     /// Updates LRU order (moves to front).
-    pub async fn get(&self, cache_key: &str) -> Result<Option<Bytes>> {
+    pub async fn get(&self, cache_key: &str, org_id: &str) -> Result<Option<Bytes>> {
         let path = self.cache_path(cache_key);
 
         if !path.exists() {
             self.misses.fetch_add(1, Ordering::Relaxed);
             // Record cache miss (Phase 7.1e)
-            streamhouse_observability::metrics::CACHE_MISSES_TOTAL.inc();
+            streamhouse_observability::metrics::CACHE_MISSES_TOTAL
+                .with_label_values(&[org_id])
+                .inc();
             return Ok(None);
         }
 
@@ -174,7 +176,9 @@ impl SegmentCache {
 
         self.hits.fetch_add(1, Ordering::Relaxed);
         // Record cache hit (Phase 7.1e)
-        streamhouse_observability::metrics::CACHE_HITS_TOTAL.inc();
+        streamhouse_observability::metrics::CACHE_HITS_TOTAL
+            .with_label_values(&[org_id])
+            .inc();
 
         tracing::debug!(
             cache_key = %cache_key,
@@ -189,7 +193,8 @@ impl SegmentCache {
     ///
     /// Evicts LRU segments if necessary to make room.
     /// Writes segment to disk and updates tracking.
-    pub async fn put(&self, cache_key: &str, data: Bytes) -> Result<()> {
+    pub async fn put(&self, cache_key: &str, data: Bytes, org_id: &str) -> Result<()> {
+        let _ = org_id; // org_id reserved for future per-org cache metrics
         let size = data.len() as u64;
 
         // Make room if needed (evict LRU segments)
@@ -344,7 +349,7 @@ mod tests {
     async fn test_cache_miss() {
         let temp_dir = tempfile::tempdir().unwrap();
         let cache = SegmentCache::new(temp_dir.path().join("cache"), 1024 * 1024).unwrap();
-        let result = cache.get("nonexistent-key").await.unwrap();
+        let result = cache.get("nonexistent-key", "test-org").await.unwrap();
         assert!(result.is_none());
     }
 
@@ -354,9 +359,9 @@ mod tests {
         let cache = SegmentCache::new(temp_dir.path().join("cache"), 1024 * 1024).unwrap();
 
         let data = Bytes::from(vec![1u8, 2, 3, 4, 5]);
-        cache.put("segment-1", data.clone()).await.unwrap();
+        cache.put("segment-1", data.clone(), "test-org").await.unwrap();
 
-        let retrieved = cache.get("segment-1").await.unwrap();
+        let retrieved = cache.get("segment-1", "test-org").await.unwrap();
         assert!(retrieved.is_some());
         assert_eq!(retrieved.unwrap(), data);
     }
@@ -367,11 +372,11 @@ mod tests {
         let cache = SegmentCache::new(temp_dir.path().join("cache"), 1024).unwrap();
 
         cache
-            .put("seg-a", Bytes::from(vec![0u8; 100]))
+            .put("seg-a", Bytes::from(vec![0u8; 100]), "test-org")
             .await
             .unwrap();
         cache
-            .put("seg-b", Bytes::from(vec![0u8; 200]))
+            .put("seg-b", Bytes::from(vec![0u8; 200]), "test-org")
             .await
             .unwrap();
 
@@ -388,27 +393,27 @@ mod tests {
 
         // Put 100 bytes
         cache
-            .put("seg-a", Bytes::from(vec![1u8; 100]))
+            .put("seg-a", Bytes::from(vec![1u8; 100]), "test-org")
             .await
             .unwrap();
         // Put 100 bytes
         cache
-            .put("seg-b", Bytes::from(vec![2u8; 100]))
+            .put("seg-b", Bytes::from(vec![2u8; 100]), "test-org")
             .await
             .unwrap();
         // Put 100 bytes — should evict seg-a (LRU)
         cache
-            .put("seg-c", Bytes::from(vec![3u8; 100]))
+            .put("seg-c", Bytes::from(vec![3u8; 100]), "test-org")
             .await
             .unwrap();
 
         // seg-a should have been evicted
-        let result = cache.get("seg-a").await.unwrap();
+        let result = cache.get("seg-a", "test-org").await.unwrap();
         assert!(result.is_none());
 
         // seg-b and seg-c should still be cached
-        assert!(cache.get("seg-b").await.unwrap().is_some());
-        assert!(cache.get("seg-c").await.unwrap().is_some());
+        assert!(cache.get("seg-b", "test-org").await.unwrap().is_some());
+        assert!(cache.get("seg-c", "test-org").await.unwrap().is_some());
     }
 
     #[tokio::test]
@@ -428,7 +433,7 @@ mod tests {
         let cache = SegmentCache::new(temp_dir.path().join("cache"), 1000).unwrap();
 
         cache
-            .put("seg-a", Bytes::from(vec![0u8; 500]))
+            .put("seg-a", Bytes::from(vec![0u8; 500]), "test-org")
             .await
             .unwrap();
         let stats = cache.stats().await;
@@ -443,7 +448,7 @@ mod tests {
 
         // Put 100 bytes — larger than max cache. Should not panic.
         cache
-            .put("big-seg", Bytes::from(vec![0u8; 100]))
+            .put("big-seg", Bytes::from(vec![0u8; 100]), "test-org")
             .await
             .unwrap();
 

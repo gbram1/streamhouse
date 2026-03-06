@@ -1167,6 +1167,7 @@ impl AgentCoordination for AgentCoordinationImpl {
         &self,
         request: Request<TransferLeaseRequest>,
     ) -> std::result::Result<Response<TransferLeaseResponse>, Status> {
+        let org_id = extract_org_id_from_request(&request);
         let req = request.into_inner();
 
         // Verify this request is from us (we're the outgoing leader)
@@ -1193,7 +1194,7 @@ impl AgentCoordination for AgentCoordinationImpl {
         );
 
         // Record metric
-        streamhouse_observability::metrics::LEADER_TRANSFERS_PENDING.inc();
+        streamhouse_observability::metrics::LEADER_TRANSFERS_PENDING.with_label_values(&[&org_id]).inc();
 
         match self
             .lease_manager
@@ -1228,9 +1229,9 @@ impl AgentCoordination for AgentCoordinationImpl {
                     "Failed to initiate lease transfer"
                 );
 
-                streamhouse_observability::metrics::LEADER_TRANSFERS_PENDING.dec();
+                streamhouse_observability::metrics::LEADER_TRANSFERS_PENDING.with_label_values(&[&org_id]).dec();
                 streamhouse_observability::metrics::LEADER_TRANSFERS_TOTAL
-                    .with_label_values(&["error"])
+                    .with_label_values(&[&org_id, "error"])
                     .inc();
 
                 Ok(Response::new(TransferLeaseResponse {
@@ -1385,15 +1386,16 @@ impl AgentCoordination for AgentCoordinationImpl {
                 );
 
                 // Record metrics
-                streamhouse_observability::metrics::LEADER_TRANSFERS_PENDING.dec();
+                streamhouse_observability::metrics::LEADER_TRANSFERS_PENDING.with_label_values(&[&org_id]).dec();
                 streamhouse_observability::metrics::LEADER_TRANSFERS_TOTAL
-                    .with_label_values(&["success"])
+                    .with_label_values(&[&org_id, "success"])
                     .inc();
                 streamhouse_observability::metrics::LEADER_HANDOFF_LATENCY
-                    .with_label_values(&[&req.topic, &req.partition.to_string()])
+                    .with_label_values(&[&org_id, &req.topic, &req.partition.to_string()])
                     .observe(duration.as_secs_f64());
                 streamhouse_observability::metrics::LEADER_CHANGES_TOTAL
                     .with_label_values(&[
+                        &org_id,
                         &req.topic,
                         &req.partition.to_string(),
                         "graceful_handoff",
@@ -1412,9 +1414,9 @@ impl AgentCoordination for AgentCoordinationImpl {
                     "Failed to complete lease transfer"
                 );
 
-                streamhouse_observability::metrics::LEADER_TRANSFERS_PENDING.dec();
+                streamhouse_observability::metrics::LEADER_TRANSFERS_PENDING.with_label_values(&[&org_id]).dec();
                 streamhouse_observability::metrics::LEADER_TRANSFERS_TOTAL
-                    .with_label_values(&["error"])
+                    .with_label_values(&[&org_id, "error"])
                     .inc();
 
                 Ok(Response::new(CompleteTransferResponse {

@@ -1239,7 +1239,8 @@ impl SqlExecutor {
 
         // Try to read from cache first
         let cache_key = &segment.id;
-        let data = if let Ok(Some(cached)) = self.segment_cache.get(cache_key).await {
+        let org_id_str = self.org_id.as_deref().unwrap_or(DEFAULT_ORGANIZATION_ID);
+        let data = if let Ok(Some(cached)) = self.segment_cache.get(cache_key, org_id_str).await {
             cached
         } else {
             // Fetch from object store
@@ -1255,7 +1256,7 @@ impl SqlExecutor {
                 .map_err(|e| SqlError::StorageError(e.to_string()))?;
 
             // Cache it for future use
-            let _ = self.segment_cache.put(cache_key, bytes.clone()).await;
+            let _ = self.segment_cache.put(cache_key, bytes.clone(), org_id_str).await;
 
             bytes
         };

@@ -501,7 +501,7 @@ async fn chaos_cache_lru_eviction_under_pressure() {
     for i in 0..10 {
         let key = format!("segment-{}", i);
         let data = Bytes::from(vec![i as u8; 100]);
-        cache.put(&key, data).await.unwrap();
+        cache.put(&key, data, "test-org").await.unwrap();
     }
 
     let stats = cache.stats().await;
@@ -513,12 +513,12 @@ async fn chaos_cache_lru_eviction_under_pressure() {
     );
 
     // Most recent entries should still be present
-    assert!(cache.get("segment-9").await.unwrap().is_some());
-    assert!(cache.get("segment-8").await.unwrap().is_some());
+    assert!(cache.get("segment-9", "test-org").await.unwrap().is_some());
+    assert!(cache.get("segment-8", "test-org").await.unwrap().is_some());
 
     // Oldest entries should have been evicted
-    assert!(cache.get("segment-0").await.unwrap().is_none());
-    assert!(cache.get("segment-1").await.unwrap().is_none());
+    assert!(cache.get("segment-0", "test-org").await.unwrap().is_none());
+    assert!(cache.get("segment-1", "test-org").await.unwrap().is_none());
 }
 
 /// Concurrent reads and writes should not corrupt cache state.
@@ -531,7 +531,7 @@ async fn chaos_cache_concurrent_reads_writes() {
     for i in 0..10 {
         let key = format!("pre-{}", i);
         cache
-            .put(&key, Bytes::from(vec![i as u8; 50]))
+            .put(&key, Bytes::from(vec![i as u8; 50]), "test-org")
             .await
             .unwrap();
     }
@@ -542,7 +542,7 @@ async fn chaos_cache_concurrent_reads_writes() {
         let mut hits = 0u64;
         for round in 0..50 {
             let key = format!("pre-{}", round % 10);
-            if c1.get(&key).await.unwrap().is_some() {
+            if c1.get(&key, "test-org").await.unwrap().is_some() {
                 hits += 1;
             }
         }
@@ -554,7 +554,7 @@ async fn chaos_cache_concurrent_reads_writes() {
     let write_handle = tokio::spawn(async move {
         for i in 0..50 {
             let key = format!("new-{}", i);
-            c2.put(&key, Bytes::from(vec![0u8; 50])).await.unwrap();
+            c2.put(&key, Bytes::from(vec![0u8; 50]), "test-org").await.unwrap();
         }
     });
 
@@ -579,15 +579,15 @@ async fn chaos_cache_oversized_entries() {
 
     // Put a normal entry first
     cache
-        .put("small", Bytes::from(vec![1u8; 50]))
+        .put("small", Bytes::from(vec![1u8; 50]), "test-org")
         .await
         .unwrap();
-    assert!(cache.get("small").await.unwrap().is_some());
+    assert!(cache.get("small", "test-org").await.unwrap().is_some());
 
     // Put an oversized entry (500 bytes > 200 byte max)
     // This should not panic
     cache
-        .put("huge", Bytes::from(vec![2u8; 500]))
+        .put("huge", Bytes::from(vec![2u8; 500]), "test-org")
         .await
         .unwrap();
 
@@ -608,13 +608,13 @@ async fn chaos_cache_concurrent_same_key_writes() {
         let c = c.clone();
         async move {
             let data = Bytes::from(vec![i as u8; 100]);
-            c.put("contested-key", data).await.unwrap();
+            c.put("contested-key", data, "test-org").await.unwrap();
         }
     })
     .await;
 
     // The key should exist and contain valid data (from one of the writers)
-    let result = cache.get("contested-key").await.unwrap();
+    let result = cache.get("contested-key", "test-org").await.unwrap();
     assert!(result.is_some());
     let data = result.unwrap();
     assert_eq!(data.len(), 100);
@@ -635,9 +635,9 @@ async fn chaos_cache_rapid_put_get_cycles() {
     for i in 0..100 {
         let key = format!("cycle-{}", i % 10);
         let data = Bytes::from(vec![i as u8; 50]);
-        cache.put(&key, data.clone()).await.unwrap();
+        cache.put(&key, data.clone(), "test-org").await.unwrap();
 
-        let retrieved = cache.get(&key).await.unwrap();
+        let retrieved = cache.get(&key, "test-org").await.unwrap();
         assert!(retrieved.is_some(), "Key {} missing right after put", key);
         assert_eq!(retrieved.unwrap(), data, "Data mismatch for key {}", key);
     }
@@ -937,7 +937,7 @@ async fn chaos_stress_cache_under_cb_flapping() {
             if b.allow_request().await {
                 let key = format!("stress-{}", i);
                 let data = Bytes::from(vec![(i % 256) as u8; 50]);
-                let _ = c.put(&key, data).await;
+                let _ = c.put(&key, data, "test-org").await;
                 b.report_success().await;
             } else {
                 // Circuit is open, report failure to keep it flapping
@@ -955,7 +955,7 @@ async fn chaos_stress_cache_under_cb_flapping() {
         let mut total_reads = 0u64;
         for i in 0..100 {
             let key = format!("stress-{}", i % 50);
-            let _ = c2.get(&key).await;
+            let _ = c2.get(&key, "test-org").await;
             total_reads += 1;
         }
         total_reads

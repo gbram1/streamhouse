@@ -532,7 +532,7 @@ impl PartitionWriter {
 
         // Record segment write metrics (Phase 7.1d)
         streamhouse_observability::metrics::SEGMENT_WRITES_TOTAL
-            .with_label_values(&[&self.topic, &self.partition_id.to_string()])
+            .with_label_values(&[&self.org_id, &self.topic, &self.partition_id.to_string()])
             .inc();
 
         // Upload to S3 with retries
@@ -541,7 +541,7 @@ impl PartitionWriter {
 
         // Record segment flush metrics (Phase 7.1d)
         streamhouse_observability::metrics::SEGMENT_FLUSHES_TOTAL
-            .with_label_values(&[&self.topic, &self.partition_id.to_string()])
+            .with_label_values(&[&self.org_id, &self.topic, &self.partition_id.to_string()])
             .inc();
 
         // Record segment in metadata
@@ -658,7 +658,7 @@ impl PartitionWriter {
 
             // Record S3 request metric (Phase 7.1d)
             streamhouse_observability::metrics::S3_REQUESTS_TOTAL
-                .with_label_values(&["PUT"])
+                .with_label_values(&[&self.org_id, "PUT"])
                 .inc();
 
             // Measure S3 latency
@@ -669,7 +669,7 @@ impl PartitionWriter {
                     // Record S3 latency on success (Phase 7.1d)
                     let duration = start.elapsed().as_secs_f64();
                     streamhouse_observability::metrics::S3_LATENCY
-                        .with_label_values(&["PUT"])
+                        .with_label_values(&[&self.org_id, "PUT"])
                         .observe(duration);
 
                     // Report success to throttle coordinator (Phase 12.4.2)
@@ -688,7 +688,7 @@ impl PartitionWriter {
                 Err(e) if attempt < self.config.s3_upload_retries - 1 => {
                     // Record S3 error metric (Phase 7.1d)
                     streamhouse_observability::metrics::S3_ERRORS_TOTAL
-                        .with_label_values(&["PUT", "retry"])
+                        .with_label_values(&[&self.org_id, "PUT", "retry"])
                         .inc();
 
                     // Check if this is a throttle error (503 SlowDown) (Phase 12.4.2)
@@ -716,7 +716,7 @@ impl PartitionWriter {
                 Err(e) => {
                     // Record S3 error metric (Phase 7.1d)
                     streamhouse_observability::metrics::S3_ERRORS_TOTAL
-                        .with_label_values(&["PUT", "failed"])
+                        .with_label_values(&[&self.org_id, "PUT", "failed"])
                         .inc();
 
                     // Check if this is a throttle error (503 SlowDown) (Phase 12.4.2)
@@ -812,7 +812,7 @@ impl PartitionWriter {
             Ok(_) => {
                 let duration = start.elapsed().as_secs_f64();
                 streamhouse_observability::metrics::S3_LATENCY
-                    .with_label_values(&["PUT_MULTIPART"])
+                    .with_label_values(&[&self.org_id, "PUT_MULTIPART"])
                     .observe(duration);
 
                 if let Some(ref throttle) = self.throttle {

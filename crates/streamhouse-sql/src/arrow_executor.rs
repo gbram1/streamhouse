@@ -386,7 +386,7 @@ impl ArrowExecutor {
         let path = Path::from(segment.s3_key.clone());
         let cache_key = &segment.id;
 
-        let data = if let Ok(Some(cached)) = self.segment_cache.get(cache_key).await {
+        let data = if let Ok(Some(cached)) = self.segment_cache.get(cache_key, DEFAULT_ORGANIZATION_ID).await {
             cached
         } else {
             let result = self
@@ -398,7 +398,7 @@ impl ArrowExecutor {
                 .bytes()
                 .await
                 .map_err(|e| SqlError::StorageError(e.to_string()))?;
-            let _ = self.segment_cache.put(cache_key, bytes.clone()).await;
+            let _ = self.segment_cache.put(cache_key, bytes.clone(), DEFAULT_ORGANIZATION_ID).await;
             bytes
         };
 

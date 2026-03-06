@@ -14,7 +14,7 @@ async fn create_cache(max_size: u64) -> (SegmentCache, TempDir) {
 async fn test_cache_miss_returns_none() {
     let (cache, _dir) = create_cache(1024 * 1024).await;
 
-    let result = cache.get("nonexistent-segment").await.unwrap();
+    let result = cache.get("nonexistent-segment", "test-org").await.unwrap();
     assert!(result.is_none());
 }
 
@@ -23,9 +23,9 @@ async fn test_put_then_get() {
     let (cache, _dir) = create_cache(1024 * 1024).await;
 
     let data = Bytes::from(b"hello segment data".to_vec());
-    cache.put("orders-0-00000", data.clone()).await.unwrap();
+    cache.put("orders-0-00000", data.clone(), "test-org").await.unwrap();
 
-    let result = cache.get("orders-0-00000").await.unwrap();
+    let result = cache.get("orders-0-00000", "test-org").await.unwrap();
     assert_eq!(result.unwrap(), data);
 }
 
@@ -41,7 +41,7 @@ async fn test_cache_stats_accurate() {
 
     // After one put
     cache
-        .put("seg-1", Bytes::from(vec![0u8; 1000]))
+        .put("seg-1", Bytes::from(vec![0u8; 1000]), "test-org")
         .await
         .unwrap();
     let stats = cache.stats().await;
@@ -51,7 +51,7 @@ async fn test_cache_stats_accurate() {
 
     // After second put
     cache
-        .put("seg-2", Bytes::from(vec![0u8; 4000]))
+        .put("seg-2", Bytes::from(vec![0u8; 4000]), "test-org")
         .await
         .unwrap();
     let stats = cache.stats().await;
@@ -67,29 +67,29 @@ async fn test_lru_eviction_order() {
 
     // Put A (200 bytes), B (200 bytes)
     cache
-        .put("seg-a", Bytes::from(vec![1u8; 200]))
+        .put("seg-a", Bytes::from(vec![1u8; 200]), "test-org")
         .await
         .unwrap();
     cache
-        .put("seg-b", Bytes::from(vec![2u8; 200]))
+        .put("seg-b", Bytes::from(vec![2u8; 200]), "test-org")
         .await
         .unwrap();
 
     // Access A to make it recently used
-    cache.get("seg-a").await.unwrap();
+    cache.get("seg-a", "test-org").await.unwrap();
 
     // Put C (200 bytes) — should evict B (LRU), not A
     cache
-        .put("seg-c", Bytes::from(vec![3u8; 200]))
+        .put("seg-c", Bytes::from(vec![3u8; 200]), "test-org")
         .await
         .unwrap();
 
     // B should be evicted
-    assert!(cache.get("seg-b").await.unwrap().is_none());
+    assert!(cache.get("seg-b", "test-org").await.unwrap().is_none());
     // A should still be present
-    assert!(cache.get("seg-a").await.unwrap().is_some());
+    assert!(cache.get("seg-a", "test-org").await.unwrap().is_some());
     // C should be present
-    assert!(cache.get("seg-c").await.unwrap().is_some());
+    assert!(cache.get("seg-c", "test-org").await.unwrap().is_some());
 }
 
 #[tokio::test]
@@ -99,21 +99,21 @@ async fn test_multiple_evictions() {
 
     // Fill cache
     cache
-        .put("seg-1", Bytes::from(vec![0u8; 100]))
+        .put("seg-1", Bytes::from(vec![0u8; 100]), "test-org")
         .await
         .unwrap();
     cache
-        .put("seg-2", Bytes::from(vec![0u8; 100]))
+        .put("seg-2", Bytes::from(vec![0u8; 100]), "test-org")
         .await
         .unwrap();
     cache
-        .put("seg-3", Bytes::from(vec![0u8; 100]))
+        .put("seg-3", Bytes::from(vec![0u8; 100]), "test-org")
         .await
         .unwrap();
 
     // Put 250 bytes — should evict multiple segments
     cache
-        .put("seg-big", Bytes::from(vec![0u8; 250]))
+        .put("seg-big", Bytes::from(vec![0u8; 250]), "test-org")
         .await
         .unwrap();
 
@@ -129,7 +129,7 @@ async fn test_cache_persists_to_disk() {
 
     let cache = SegmentCache::new(&cache_dir, 1024 * 1024).unwrap();
     cache
-        .put("persistent-seg", Bytes::from(b"data on disk".to_vec()))
+        .put("persistent-seg", Bytes::from(b"data on disk".to_vec()), "test-org")
         .await
         .unwrap();
 
@@ -161,18 +161,18 @@ async fn test_cache_put_overwrites_same_key() {
 
     // Put initial data
     cache
-        .put("seg-x", Bytes::from(b"version-1".to_vec()))
+        .put("seg-x", Bytes::from(b"version-1".to_vec()), "test-org")
         .await
         .unwrap();
 
     // Overwrite with new data
     cache
-        .put("seg-x", Bytes::from(b"version-2".to_vec()))
+        .put("seg-x", Bytes::from(b"version-2".to_vec()), "test-org")
         .await
         .unwrap();
 
     // Should get the latest value
-    let result = cache.get("seg-x").await.unwrap().unwrap();
+    let result = cache.get("seg-x", "test-org").await.unwrap().unwrap();
     assert_eq!(result.as_ref(), b"version-2");
 }
 
@@ -196,7 +196,7 @@ async fn test_cache_eviction_frees_disk_space() {
 
     // Put segment that fills most of cache
     cache
-        .put("seg-old", Bytes::from(vec![0u8; 100]))
+        .put("seg-old", Bytes::from(vec![0u8; 100]), "test-org")
         .await
         .unwrap();
 
@@ -206,7 +206,7 @@ async fn test_cache_eviction_frees_disk_space() {
 
     // Put another segment that causes eviction
     cache
-        .put("seg-new", Bytes::from(vec![0u8; 100]))
+        .put("seg-new", Bytes::from(vec![0u8; 100]), "test-org")
         .await
         .unwrap();
 

@@ -7,6 +7,7 @@ use serde_json::json;
 
 /// An organization with its API key and topic list.
 #[derive(Clone, Debug)]
+#[allow(dead_code)]
 pub struct OrgContext {
     pub id: String,
     pub name: String,
@@ -16,6 +17,7 @@ pub struct OrgContext {
 }
 
 #[derive(Clone, Debug)]
+#[allow(dead_code)]
 pub struct TopicSpec {
     pub name: String,
     pub partitions: u32,
@@ -54,12 +56,25 @@ pub async fn run_setup(client: &HttpClient) -> Result<Vec<OrgContext>> {
         org.topics = specs;
     }
 
-    // Register schemas
-    register_schemas(client).await?;
+    // Schema registration is handled by the schema_evolution workload.
+    // Registering schemas for topics with schema_subject would enable server-side
+    // validation that requires messages to conform to the schema format.
+
+    // Create Kafka-specific topics in the default org (unauthenticated Kafka connections
+    // use the default org). These are used by the Kafka wire protocol producers.
+    let default_org_id = "00000000-0000-0000-0000-000000000000";
+    let kafka_topics = vec![
+        TopicSpec { name: "kafka-orders".into(), partitions: 8, keyed: true, schema_subject: None, compacted: false },
+        TopicSpec { name: "kafka-market-data".into(), partitions: 16, keyed: true, schema_subject: None, compacted: false },
+    ];
+    for spec in &kafka_topics {
+        create_topic(client, default_org_id, spec).await?;
+    }
 
     tracing::info!(
         orgs = orgs.len(),
         topics = orgs.iter().map(|o| o.topics.len()).sum::<usize>(),
+        kafka_topics = kafka_topics.len(),
         "Setup complete"
     );
 
@@ -95,20 +110,27 @@ async fn create_org(client: &HttpClient, name: &str, slug: &str, plan: &str) -> 
         }
     };
 
-    // Create API key
+    // Create API key (unique name per run so it always succeeds)
+    let key_name = format!("loadtest-{slug}-{}", &uuid::Uuid::new_v4().to_string()[..8]);
     let api_key = match client
         .post_json::<serde_json::Value>(
             &format!("/api/v1/organizations/{org_id}/api-keys"),
             &json!({
-                "name": format!("loadtest-{slug}"),
+                "name": key_name,
                 "permissions": ["read", "write", "admin"]
             }),
         )
         .await
     {
-        Ok(resp) => resp.get("raw_key").and_then(|v| v.as_str()).map(|s| s.to_string()),
+        Ok(resp) => {
+            let raw = resp.get("key").and_then(|v| v.as_str()).map(|s| s.to_string());
+            if raw.is_some() {
+                tracing::info!(org = slug, name = %key_name, "Created API key for Kafka SASL");
+            }
+            raw
+        }
         Err(e) => {
-            tracing::warn!(org = slug, err = %e, "Failed to create API key (may already exist)");
+            tracing::warn!(org = slug, err = %e, "Failed to create API key");
             None
         }
     };
@@ -200,76 +222,3 @@ async fn create_topic(client: &HttpClient, org_id: &str, spec: &TopicSpec) -> Re
     Ok(())
 }
 
-async fn register_schemas(client: &HttpClient) -> Result<()> {
-    // Avro schema for ft-user-events
-    let user_events_schema = json!({
-        "type": "record",
-        "name": "UserEvent",
-        "namespace": "com.streamhouse.loadtest",
-        "fields": [
-            {"name": "user_id", "type": "string"},
-            {"name": "event_type", "type": "string"},
-            {"name": "timestamp", "type": "long"},
-            {"name": "seq", "type": "long"},
-            {"name": "metadata", "type": {"type": "map", "values": "string"}}
-        ]
-    });
-
-    register_schema(client, "ft-user-events-value", &user_events_schema.to_string(), "AVRO").await?;
-
-    // JSON Schema for ec-products
-    let products_schema = json!({
-        "type": "object",
-        "properties": {
-            "product_id": {"type": "string"},
-            "name": {"type": "string"},
-            "price": {"type": "number"},
-            "category": {"type": "string"},
-            "in_stock": {"type": "boolean"},
-            "seq": {"type": "integer"}
-        },
-        "required": ["product_id", "name", "price", "seq"]
-    });
-
-    register_schema(client, "ec-products-value", &products_schema.to_string(), "JSON").await?;
-
-    // JSON Schema for an-user-segments
-    let segments_schema = json!({
-        "type": "object",
-        "properties": {
-            "user_id": {"type": "string"},
-            "segments": {"type": "array", "items": {"type": "string"}},
-            "updated_at": {"type": "integer"},
-            "seq": {"type": "integer"}
-        },
-        "required": ["user_id", "segments", "seq"]
-    });
-
-    register_schema(client, "an-user-segments-value", &segments_schema.to_string(), "JSON").await?;
-
-    Ok(())
-}
-
-async fn register_schema(
-    client: &HttpClient,
-    subject: &str,
-    schema: &str,
-    schema_type: &str,
-) -> Result<()> {
-    let body = json!({
-        "schema": schema,
-        "schemaType": schema_type
-    });
-
-    let path = format!("/subjects/{subject}/versions");
-    match client.post_json::<serde_json::Value>(&path, &body).await {
-        Ok(resp) => {
-            let id = resp.get("id").and_then(|v| v.as_i64()).unwrap_or(-1);
-            tracing::info!(subject, id, schema_type, "Registered schema");
-        }
-        Err(e) => {
-            tracing::warn!(subject, err = %e, "Schema registration failed (may already exist)");
-        }
-    }
-    Ok(())
-}

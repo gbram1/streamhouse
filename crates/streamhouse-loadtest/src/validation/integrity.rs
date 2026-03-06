@@ -34,10 +34,12 @@ pub async fn run_integrity_checker(
 
         for (topic, produced_counter) in produced_counts.iter() {
             let produced = produced_counter.load(Ordering::Relaxed);
-            let consumed = consumed_counts
-                .get(topic)
-                .map(|c| c.load(Ordering::Relaxed))
-                .unwrap_or(0);
+
+            // Skip topics that don't have consumers (e.g. kafka default-org topics)
+            let consumed = match consumed_counts.get(topic) {
+                Some(c) => c.load(Ordering::Relaxed),
+                None => continue,
+            };
 
             let org = topic_org_map.get(topic).map(|s| s.as_str()).unwrap_or("unknown");
 

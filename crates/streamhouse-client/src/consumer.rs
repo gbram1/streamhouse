@@ -195,6 +195,9 @@ pub struct Consumer {
     // Observability
     last_lag_update: tokio::time::Instant,
 
+    // Organization ID for metrics labeling
+    org_id: String,
+
     // Schema Registry (Phase 9+)
     /// Optional schema registry client for resolving schemas
     schema_registry: Option<Arc<crate::schema_registry_client::SchemaRegistryClient>>,
@@ -595,6 +598,7 @@ impl ConsumerBuilder {
             auto_commit_interval: self.auto_commit_interval,
             last_commit: tokio::time::Instant::now(),
             last_lag_update: tokio::time::Instant::now(),
+            org_id: streamhouse_metadata::DEFAULT_ORGANIZATION_ID.to_string(),
             schema_registry,
             schema_cache,
         };
@@ -872,7 +876,7 @@ impl Consumer {
 
         for (topic, count) in topic_stats {
             streamhouse_observability::metrics::CONSUMER_RECORDS_TOTAL
-                .with_label_values(&[&topic, self.group_id.as_deref().unwrap_or("default")])
+                .with_label_values(&[&self.org_id, &topic, self.group_id.as_deref().unwrap_or("default")])
                 .inc_by(count as u64);
         }
 
@@ -1043,7 +1047,7 @@ impl Consumer {
             // Get partition metadata
             if let Ok(Some(partition_meta)) = self
                 .metadata_store
-                .get_partition(streamhouse_metadata::DEFAULT_ORGANIZATION_ID, &key.topic, key.partition_id)
+                .get_partition(&self.org_id, &key.topic, key.partition_id)
                 .await
             {
                 let current = partition_consumer.current_offset as i64;
@@ -1052,7 +1056,7 @@ impl Consumer {
 
                 // Update lag metric
                 streamhouse_observability::metrics::CONSUMER_LAG
-                    .with_label_values(&[&key.topic, &key.partition_id.to_string(), group_id])
+                    .with_label_values(&[&self.org_id, &key.topic, &key.partition_id.to_string(), group_id])
                     .set(lag_records);
             }
         }

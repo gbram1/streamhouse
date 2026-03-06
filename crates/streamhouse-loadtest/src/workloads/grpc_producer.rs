@@ -13,6 +13,7 @@ use tokio::sync::watch;
 
 pub async fn run_grpc_producer(
     grpc_addr: String,
+    org_id: String,
     org_slug: String,
     topic: String,
     partitions: u32,
@@ -89,12 +90,15 @@ pub async fn run_grpc_producer(
             })
             .collect();
 
-        let request = ProduceBatchRequest {
+        let mut request = tonic::Request::new(ProduceBatchRequest {
             topic: topic.clone(),
             partition,
             records,
             ..Default::default()
-        };
+        });
+        request
+            .metadata_mut()
+            .insert("x-organization-id", org_id.parse().unwrap());
 
         let start = Instant::now();
         match client.produce_batch(request).await {
