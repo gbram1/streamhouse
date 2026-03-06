@@ -373,12 +373,51 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         metadata.clone(),
         Duration::from_secs(reconcile_grace),
     ));
-    let _reconciler_handle = reconciler.start_background(Duration::from_secs(reconcile_interval));
+    let _reconciler_handle = reconciler.clone().start_background(Duration::from_secs(reconcile_interval));
     tracing::info!(
         "🧹 S3 orphan reconciler started ({}s interval, {}s grace)",
         reconcile_interval,
         reconcile_grace
     );
+
+    // Reconcile-from-S3 admin mode: re-register S3 segments missing from metadata
+    // Set RECONCILE_FROM_S3=1 to run once at startup, then exit.
+    if std::env::var("RECONCILE_FROM_S3")
+        .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
+        .unwrap_or(false)
+    {
+        tracing::info!("🔄 RECONCILE_FROM_S3 mode: re-registering segments from S3...");
+        match reconciler.reconcile_from_s3().await {
+            Ok(stats) => {
+                tracing::info!(
+                    segments_found = stats.segments_found,
+                    segments_registered = stats.segments_registered,
+                    segments_failed = stats.segments_failed,
+                    "Reconcile-from-S3 complete"
+                );
+            }
+            Err(e) => {
+                tracing::error!(error = %e, "Reconcile-from-S3 failed");
+            }
+        }
+        tracing::info!("Reconcile-from-S3 finished, exiting.");
+        std::process::exit(0);
+    }
+
+    // Start background metadata snapshot loop (configurable via SNAPSHOT_INTERVAL_SECS)
+    let snapshot_interval_secs: u64 = std::env::var("SNAPSHOT_INTERVAL_SECS")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(3600);
+    if snapshot_interval_secs > 0 {
+        let _snapshot_handle = writer_pool
+            .clone()
+            .start_background_snapshot(Duration::from_secs(snapshot_interval_secs));
+        tracing::info!(
+            "📸 Background metadata snapshot started ({}s interval)",
+            snapshot_interval_secs
+        );
+    }
 
     // Start Kafka protocol server
     tracing::info!("📡 Initializing Kafka protocol server");
@@ -400,6 +439,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         segment_cache: cache.clone(),
         object_store: object_store.clone(),
         group_coordinator: Arc::new(GroupCoordinator::new(metadata.clone())),
+        tenant_resolver: None,
     });
 
     let kafka_server = KafkaServer::new(kafka_state);

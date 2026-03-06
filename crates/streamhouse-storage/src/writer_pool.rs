@@ -369,6 +369,90 @@ impl WriterPool {
         })
     }
 
+    /// Flush all writers to S3, then take a metadata snapshot and upload it.
+    ///
+    /// This enforces **snapshot ordering**: all buffered data reaches S3 *before*
+    /// the metadata snapshot is taken, guaranteeing that the snapshot is always
+    /// a subset of what exists in S3. On recovery, restoring the snapshot and
+    /// running `reconcile_from_s3` fills any gap.
+    ///
+    /// The snapshot is uploaded to `_snapshots/{timestamp}.json.gz` in the object store.
+    pub async fn flush_all_and_snapshot(&self) -> Result<()> {
+        // Step 1: Push all buffered data to S3
+        self.flush_all().await?;
+
+        // Step 2: Take metadata snapshot
+        let backup = streamhouse_metadata::backup::MetadataBackup::from_store(&*self.metadata_store)
+            .await
+            .map_err(|e| crate::error::Error::SegmentError(format!("Snapshot metadata export failed: {}", e)))?;
+
+        let json = backup.to_json_compact()
+            .map_err(|e| crate::error::Error::SegmentError(format!("Snapshot serialization failed: {}", e)))?;
+
+        // Step 3: Gzip compress
+        use std::io::Write;
+        let mut encoder = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::default());
+        encoder.write_all(json.as_bytes())
+            .map_err(|e| crate::error::Error::SegmentError(format!("Snapshot compression failed: {}", e)))?;
+        let compressed = encoder.finish()
+            .map_err(|e| crate::error::Error::SegmentError(format!("Snapshot compression finalize failed: {}", e)))?;
+
+        // Step 4: Upload to _snapshots/{timestamp}.json.gz
+        let timestamp = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis();
+        let path = object_store::path::Path::from(format!("_snapshots/{}.json.gz", timestamp));
+
+        self.object_store
+            .put(&path, bytes::Bytes::from(compressed).into())
+            .await
+            .map_err(|e| crate::error::Error::SegmentError(format!("Snapshot upload failed: {}", e)))?;
+
+        tracing::info!(
+            snapshot_path = %path,
+            topics = backup.topic_count(),
+            orgs = backup.organization_count(),
+            "Metadata snapshot uploaded"
+        );
+
+        Ok(())
+    }
+
+    /// Start a background loop that periodically calls `flush_all_and_snapshot()`.
+    ///
+    /// This is separate from the 5-second flush loop — snapshots are expensive
+    /// (full metadata export + S3 upload) and run at a longer interval (default 1 hour).
+    ///
+    /// Configurable via `SNAPSHOT_INTERVAL_SECS` env var.
+    pub fn start_background_snapshot(
+        self: Arc<Self>,
+        interval: Duration,
+    ) -> tokio::task::JoinHandle<()> {
+        tokio::spawn(async move {
+            let mut ticker = time::interval(interval);
+            ticker.set_missed_tick_behavior(time::MissedTickBehavior::Skip);
+            // Skip the initial immediate tick
+            ticker.tick().await;
+
+            loop {
+                ticker.tick().await;
+
+                tracing::debug!("Snapshot tick");
+
+                match self.flush_all_and_snapshot().await {
+                    Ok(()) => {}
+                    Err(e) => {
+                        tracing::error!(
+                            error = %e,
+                            "Background snapshot failed"
+                        );
+                    }
+                }
+            }
+        })
+    }
+
     /// Get count of active writers (for monitoring)
     ///
     /// Returns the number of partition writers currently in the pool.

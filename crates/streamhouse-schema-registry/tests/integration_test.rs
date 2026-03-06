@@ -216,15 +216,8 @@ async fn test_compatibility_modes() {
         .await
         .unwrap();
 
-    // Note: With placeholder storage, this won't persist
-    // Verify it returns default mode for now
     let mode = registry.get_global_compatibility().await.unwrap();
-    // TODO: Enable once storage is fully implemented
-    // assert_eq!(mode, CompatibilityMode::Full);
-    assert!(matches!(
-        mode,
-        CompatibilityMode::Backward | CompatibilityMode::Full
-    ));
+    assert_eq!(mode, CompatibilityMode::Full);
 
     // Set subject-specific compatibility
     registry

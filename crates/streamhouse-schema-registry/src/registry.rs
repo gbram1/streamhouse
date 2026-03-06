@@ -296,9 +296,7 @@ mod tests {
             .register_schema("test-subject", request2)
             .await
             .unwrap();
-        // TODO: Enable this assertion once storage is fully implemented
-        // assert_eq!(id, id2);
-        assert!(id2 > 0);
+        assert_eq!(id, id2);
     }
 
     #[tokio::test]

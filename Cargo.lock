@@ -5638,6 +5638,7 @@ dependencies = [
  "chrono",
  "crc32fast",
  "criterion",
+ "flate2",
  "futures",
  "lru",
  "lz4_flex",

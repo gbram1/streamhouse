@@ -149,7 +149,7 @@ impl MetadataBackup {
     pub async fn restore_to(&self, store: &dyn MetadataStore) -> Result<RestoreStats> {
         let mut stats = RestoreStats::default();
 
-        // Restore topics
+        // Restore topics and their segments
         for topic_backup in &self.topics {
             let config = TopicConfig {
                 name: topic_backup.topic.name.clone(),
@@ -161,6 +161,17 @@ impl MetadataBackup {
             match store.create_topic(config).await {
                 Ok(_) => stats.topics_created += 1,
                 Err(_) => stats.topics_skipped += 1,
+            }
+
+            // Restore segments for this topic
+            for segment in &topic_backup.segments {
+                match store
+                    .add_segment(crate::DEFAULT_ORGANIZATION_ID, segment.clone())
+                    .await
+                {
+                    Ok(_) => stats.segments_restored += 1,
+                    Err(_) => stats.segments_skipped += 1,
+                }
             }
         }
 
@@ -221,6 +232,8 @@ impl Default for MetadataBackup {
 pub struct RestoreStats {
     pub topics_created: usize,
     pub topics_skipped: usize,
+    pub segments_restored: usize,
+    pub segments_skipped: usize,
     pub offsets_restored: usize,
     pub offsets_failed: usize,
     pub organizations_created: usize,
@@ -230,7 +243,7 @@ pub struct RestoreStats {
 impl RestoreStats {
     /// Check if restore had any failures
     pub fn has_failures(&self) -> bool {
-        self.offsets_failed > 0
+        self.offsets_failed > 0 || self.segments_skipped > 0
     }
 }
 

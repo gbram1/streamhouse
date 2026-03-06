@@ -125,16 +125,21 @@ pub struct SegmentReader {
     index_position: u64,
 }
 
+/// Parsed segment header (first 64 bytes of a .seg file).
+///
+/// Contains metadata about the segment: offset range, record count,
+/// compression type, and block count. Used by the reconciler to
+/// re-register segments from S3 without downloading the full file.
 #[derive(Debug, Clone)]
-struct SegmentHeader {
+pub struct SegmentHeader {
     #[allow(dead_code)]
-    version: u16,
-    compression: Compression,
-    base_offset: u64,
-    end_offset: u64,
-    record_count: u32,
+    pub version: u16,
+    pub compression: Compression,
+    pub base_offset: u64,
+    pub end_offset: u64,
+    pub record_count: u32,
     #[allow(dead_code)]
-    block_count: u32,
+    pub block_count: u32,
 }
 
 #[derive(Debug, Clone)]
@@ -169,8 +174,12 @@ impl SegmentReader {
         })
     }
 
-    /// Read and validate the segment header
-    fn read_header(data: &Bytes) -> Result<SegmentHeader> {
+    /// Read and validate the segment header (first 64 bytes).
+    ///
+    /// Can be used standalone to parse just the header without full CRC validation.
+    /// The reconciler uses this to extract offset range and record count from
+    /// S3 objects without downloading the entire segment.
+    pub fn read_header(data: &Bytes) -> Result<SegmentHeader> {
         let mut cursor = &data[..HEADER_SIZE];
 
         // Check magic bytes

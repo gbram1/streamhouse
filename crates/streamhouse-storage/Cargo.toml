@@ -26,6 +26,7 @@ lru = { workspace = true }
 futures = { workspace = true }
 chrono = { workspace = true }
 bloomfilter = "1.0"
+flate2 = "1"
 
 [dev-dependencies]
 criterion = { workspace = true }

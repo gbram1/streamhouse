@@ -114,7 +114,7 @@
 mod reader;
 mod writer;
 
-pub use reader::SegmentReader;
+pub use reader::{SegmentHeader, SegmentReader};
 pub use writer::SegmentWriter;
 
 /// Magic bytes for segment files: "STRM"
