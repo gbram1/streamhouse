@@ -12,6 +12,7 @@ mod init_producer_id;
 mod metadata;
 mod offsets;
 mod produce;
+pub(crate) mod sasl;
 mod topics;
 mod txn_offset_commit;
 
@@ -28,5 +29,6 @@ pub use init_producer_id::handle_init_producer_id;
 pub use metadata::handle_metadata;
 pub use offsets::{handle_list_offsets, handle_offset_commit, handle_offset_fetch};
 pub use produce::handle_produce;
+pub use sasl::{handle_sasl_authenticate, handle_sasl_handshake};
 pub use topics::{handle_create_topics, handle_delete_topics};
 pub use txn_offset_commit::handle_txn_offset_commit;

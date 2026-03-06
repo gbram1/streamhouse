@@ -294,6 +294,143 @@ async fn main() -> anyhow::Result<()> {
     );
 
     println!("\n=== All checks passed! ===");
+
+    // ── 6. SASL Authentication Test ─────────────────────────────────────
+    println!("\n=== SASL Authentication Test ===");
+
+    // Create an organization and API key
+    let org = metadata
+        .create_organization(streamhouse_metadata::CreateOrganization {
+            name: "Test Org".to_string(),
+            slug: "test-org".to_string(),
+            plan: streamhouse_metadata::OrganizationPlan::default(),
+            settings: Default::default(),
+            clerk_id: None,
+        })
+        .await?;
+    println!("[sasl] Created org: id={}", org.id);
+
+    let (raw_key, key_hash, key_prefix) =
+        streamhouse_metadata::tenant::generate_api_key("sk_test");
+    let _api_key = metadata
+        .create_api_key(
+            &org.id,
+            streamhouse_metadata::CreateApiKey {
+                name: "smoke-test-key".to_string(),
+                permissions: vec!["read".to_string(), "write".to_string()],
+                scopes: vec![],
+                expires_in_ms: None,
+            },
+            &key_hash,
+            &key_prefix,
+        )
+        .await?;
+    println!("[sasl] Created API key: prefix={}", key_prefix);
+
+    // Create a topic scoped to this org
+    let sasl_topic = "sasl-test-topic";
+    metadata
+        .create_topic_for_org(
+            &org.id,
+            TopicConfig {
+                name: sasl_topic.to_string(),
+                partition_count: 1,
+                retention_ms: Some(86_400_000),
+                cleanup_policy: Default::default(),
+                config: Default::default(),
+            },
+        )
+        .await?;
+    println!("[sasl] Created org-scoped topic: {sasl_topic}");
+
+    // Connect with SASL authentication flow
+    {
+        let mut stream = TcpStream::connect(addr).await?;
+
+        // Step 1: ApiVersions
+        let req = build_api_versions_request(0);
+        send_request(&mut stream, &req).await?;
+        let resp = recv_response(&mut stream).await?;
+        println!("[sasl] ApiVersions OK (response {} bytes)", resp.len());
+
+        // Step 2: SaslHandshake — request PLAIN mechanism
+        let req = build_sasl_handshake_request(1, "PLAIN");
+        send_request(&mut stream, &req).await?;
+        let resp = recv_response(&mut stream).await?;
+        let handshake_error = parse_sasl_handshake_error(&resp);
+        assert_eq!(handshake_error, 0, "SaslHandshake should succeed for PLAIN");
+        println!("[sasl] SaslHandshake OK (PLAIN accepted)");
+
+        // Step 3: SaslAuthenticate — send API key as SASL/PLAIN credentials
+        let req = build_sasl_authenticate_request(2, &raw_key, &raw_key);
+        send_request(&mut stream, &req).await?;
+        let resp = recv_response(&mut stream).await?;
+        let auth_error = parse_sasl_authenticate_error(&resp);
+        assert_eq!(auth_error, 0, "SaslAuthenticate should succeed with valid key");
+        println!("[sasl] SaslAuthenticate OK (authenticated as org={})", org.id);
+
+        // Step 4: Produce a message (should use the authenticated org context)
+        let records: Vec<(Vec<u8>, Vec<u8>)> = vec![(
+            b"sasl-key".to_vec(),
+            b"sasl-value".to_vec(),
+        )];
+        let req = build_batched_produce_request(3, sasl_topic, 0, &records);
+        send_request(&mut stream, &req).await?;
+        let resp = recv_response(&mut stream).await?;
+        let produce_err = parse_produce_error(&resp);
+        assert_eq!(produce_err, 0, "Produce with SASL auth should succeed");
+        println!("[sasl] Produce OK (1 message to {sasl_topic})");
+
+        // Step 5: Flush and fetch back
+        writer_pool.flush_all().await?;
+
+        let req = build_fetch_request(4, sasl_topic, 0, 0);
+        send_request(&mut stream, &req).await?;
+        let resp = recv_response(&mut stream).await?;
+        let records = parse_fetch_response(&resp);
+        assert_eq!(records.len(), 1, "Should fetch 1 record back");
+        let (ref key, ref value) = records[0];
+        assert_eq!(key.as_deref(), Some(b"sasl-key".as_ref()));
+        assert_eq!(value, b"sasl-value");
+        println!("[sasl] Fetch OK (1 record verified)");
+    }
+
+    // Test unsupported SASL mechanism
+    {
+        let mut stream = TcpStream::connect(addr).await?;
+        let req = build_api_versions_request(0);
+        send_request(&mut stream, &req).await?;
+        let _ = recv_response(&mut stream).await?;
+
+        let req = build_sasl_handshake_request(1, "SCRAM-SHA-256");
+        send_request(&mut stream, &req).await?;
+        let resp = recv_response(&mut stream).await?;
+        let err = parse_sasl_handshake_error(&resp);
+        assert_eq!(err, 33, "Should get UnsupportedSaslMechanism (33) for SCRAM");
+        println!("[sasl] Unsupported mechanism rejected correctly");
+    }
+
+    // Test invalid credentials
+    {
+        let mut stream = TcpStream::connect(addr).await?;
+        let req = build_api_versions_request(0);
+        send_request(&mut stream, &req).await?;
+        let _ = recv_response(&mut stream).await?;
+
+        let req = build_sasl_handshake_request(1, "PLAIN");
+        send_request(&mut stream, &req).await?;
+        let _ = recv_response(&mut stream).await?;
+
+        let req = build_sasl_authenticate_request(2, "sk_test_invalid_key_000000000000000000000000000000000000", "sk_test_invalid_key_000000000000000000000000000000000000");
+        send_request(&mut stream, &req).await?;
+        let resp = recv_response(&mut stream).await?;
+        let err = parse_sasl_authenticate_error(&resp);
+        assert_eq!(err, 58, "Should get SaslAuthenticationFailed (58) for bad key");
+        println!("[sasl] Invalid credentials rejected correctly");
+    }
+
+    println!("\n=== SASL Auth: All checks passed! ===");
+
     Ok(())
 }
 
@@ -581,4 +718,62 @@ fn read_varint(buf: &mut BytesMut) -> i64 {
         shift += 7;
     }
     (result >> 1) ^ -(result & 1)
+}
+
+// ─── SASL protocol helpers ──────────────────────────────────────────────────
+
+/// Build a SaslHandshake request (API Key 17, version 0)
+fn build_sasl_handshake_request(correlation_id: i32, mechanism: &str) -> Vec<u8> {
+    let mut buf = BytesMut::new();
+    buf.put_i16(17); // api_key = SaslHandshake
+    buf.put_i16(0); // api_version = 0
+    buf.put_i32(correlation_id);
+    buf.put_i16(6);
+    buf.extend_from_slice(b"smoke1"); // client_id
+
+    // mechanism string
+    buf.put_i16(mechanism.len() as i16);
+    buf.extend_from_slice(mechanism.as_bytes());
+
+    buf.to_vec()
+}
+
+/// Build a SaslAuthenticate request (API Key 36, version 0)
+fn build_sasl_authenticate_request(
+    correlation_id: i32,
+    username: &str,
+    password: &str,
+) -> Vec<u8> {
+    let mut buf = BytesMut::new();
+    buf.put_i16(36); // api_key = SaslAuthenticate
+    buf.put_i16(0); // api_version = 0
+    buf.put_i32(correlation_id);
+    buf.put_i16(6);
+    buf.extend_from_slice(b"smoke1"); // client_id
+
+    // SASL/PLAIN auth_bytes: \0username\0password
+    let mut auth_bytes = Vec::new();
+    auth_bytes.push(0); // empty authzid
+    auth_bytes.extend_from_slice(username.as_bytes());
+    auth_bytes.push(0);
+    auth_bytes.extend_from_slice(password.as_bytes());
+
+    buf.put_i32(auth_bytes.len() as i32);
+    buf.extend_from_slice(&auth_bytes);
+
+    buf.to_vec()
+}
+
+/// Parse error_code from SaslHandshake response
+fn parse_sasl_handshake_error(resp: &[u8]) -> i16 {
+    let mut buf = BytesMut::from(resp);
+    let _correlation_id = buf.get_i32();
+    buf.get_i16() // error_code
+}
+
+/// Parse error_code from SaslAuthenticate response
+fn parse_sasl_authenticate_error(resp: &[u8]) -> i16 {
+    let mut buf = BytesMut::from(resp);
+    let _correlation_id = buf.get_i32();
+    buf.get_i16() // error_code
 }

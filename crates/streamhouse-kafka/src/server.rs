@@ -19,6 +19,7 @@ use crate::codec::{KafkaCodec, RequestHeader, ResponseHeader};
 use crate::coordinator::GroupCoordinator;
 use crate::error::{KafkaError, KafkaResult};
 use crate::handlers;
+use crate::tenant::KafkaTenantResolver;
 use crate::types::ApiKey;
 
 /// Kafka server configuration
@@ -59,6 +60,8 @@ pub struct KafkaServerState {
     pub object_store: Arc<dyn ObjectStore>,
     /// Consumer group coordinator
     pub group_coordinator: Arc<GroupCoordinator>,
+    /// Tenant resolver for SASL and client_id-based authentication
+    pub tenant_resolver: Option<KafkaTenantResolver<dyn MetadataStore>>,
 }
 
 impl KafkaServerState {
@@ -70,6 +73,7 @@ impl KafkaServerState {
         object_store: Arc<dyn ObjectStore>,
     ) -> Self {
         let group_coordinator = Arc::new(GroupCoordinator::new(metadata.clone()));
+        let tenant_resolver = Some(KafkaTenantResolver::new(metadata.clone()));
         Self {
             config,
             metadata,
@@ -77,6 +81,7 @@ impl KafkaServerState {
             segment_cache,
             object_store,
             group_coordinator,
+            tenant_resolver,
         }
     }
 }
@@ -239,13 +244,25 @@ async fn handle_connection(
             conn_state.client_id = Some(client_id.clone());
         }
 
+        // Try client_id-based tenant resolution on first request with a client_id
+        if conn_state.tenant.is_none() {
+            if let Some(ref client_id) = conn_state.client_id {
+                if let Some(ref resolver) = state.tenant_resolver {
+                    if let Ok(Some(ctx)) = resolver.try_resolve_from_client_id(client_id).await {
+                        debug!("Resolved tenant from client_id: org={}", ctx.tenant.organization.id);
+                        conn_state.tenant = Some(ctx);
+                    }
+                }
+            }
+        }
+
         debug!(
             "Request: api_key={}, version={}, correlation_id={}, client_id={:?}",
             header.api_key, header.api_version, header.correlation_id, header.client_id
         );
 
         // Handle the request
-        let response = handle_request(&state, &conn_state, &header, &mut frame).await?;
+        let response = handle_request(&state, &mut conn_state, &header, &mut frame).await?;
 
         // Send response
         framed.send(response).await?;
@@ -257,11 +274,26 @@ async fn handle_connection(
 /// Route request to appropriate handler
 async fn handle_request(
     state: &Arc<KafkaServerState>,
-    conn_state: &ConnectionState,
+    conn_state: &mut ConnectionState,
     header: &RequestHeader,
     body: &mut BytesMut,
 ) -> KafkaResult<BytesMut> {
     let api_key = ApiKey::from_i16(header.api_key);
+
+    // Handle SASL APIs first (they can mutate connection state)
+    if let Some(ApiKey::SaslHandshake) = api_key {
+        let response_body = handlers::handle_sasl_handshake(state, header, body).await?;
+        return build_response(header, response_body);
+    }
+    if let Some(ApiKey::SaslAuthenticate) = api_key {
+        let (response_body, tenant_ctx) =
+            handlers::handle_sasl_authenticate(state, header, body).await?;
+        if let Some(ctx) = tenant_ctx {
+            debug!("SASL auth success: org={}", ctx.tenant.organization.id);
+            conn_state.tenant = Some(ctx);
+        }
+        return build_response(header, response_body);
+    }
 
     // Extract org_id from tenant context (default for unauthenticated connections)
     let org_id = conn_state
@@ -324,6 +356,9 @@ async fn handle_request(
         Some(ApiKey::TxnOffsetCommit) => {
             handlers::handle_txn_offset_commit(state, org_id, header, body).await?
         }
+        Some(ApiKey::SaslHandshake) | Some(ApiKey::SaslAuthenticate) => {
+            unreachable!("SASL APIs handled above")
+        }
         None => {
             warn!("Unsupported API key: {}", header.api_key);
             return Err(KafkaError::UnsupportedApi(
@@ -333,7 +368,11 @@ async fn handle_request(
         }
     };
 
-    // Build full response with header.
+    build_response(header, response_body)
+}
+
+/// Build a full Kafka response with the appropriate header format.
+fn build_response(header: &RequestHeader, response_body: BytesMut) -> KafkaResult<BytesMut> {
     // ApiVersions always uses response header v0 (just correlation_id).
     // Other flexible-version APIs use response header v1 (correlation_id + tagged fields).
     let mut response = BytesMut::new();

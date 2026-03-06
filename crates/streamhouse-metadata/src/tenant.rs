@@ -259,6 +259,13 @@ impl<S: MetadataStore> ApiKeyValidator<S> {
     }
 }
 
+/// Hash an API key using SHA-256 (standalone, no generic parameter needed).
+pub fn hash_api_key(key: &str) -> String {
+    let mut hasher = Sha256::new();
+    hasher.update(key.as_bytes());
+    format!("{:x}", hasher.finalize())
+}
+
 /// Generate a new API key
 ///
 /// Returns a tuple of (raw_key, key_hash, key_prefix)

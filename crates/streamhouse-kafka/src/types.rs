@@ -25,6 +25,8 @@ pub enum ApiKey {
     AddOffsetsToTxn = 25,
     EndTxn = 26,
     TxnOffsetCommit = 28,
+    SaslHandshake = 17,
+    SaslAuthenticate = 36,
 }
 
 impl ApiKey {
@@ -51,6 +53,8 @@ impl ApiKey {
             25 => Some(ApiKey::AddOffsetsToTxn),
             26 => Some(ApiKey::EndTxn),
             28 => Some(ApiKey::TxnOffsetCommit),
+            17 => Some(ApiKey::SaslHandshake),
+            36 => Some(ApiKey::SaslAuthenticate),
             _ => None,
         }
     }
@@ -85,7 +89,9 @@ pub fn is_flexible_version(api_key: i16, api_version: i16) -> bool {
         24 => 3, // AddPartitionsToTxn
         25 => 3, // AddOffsetsToTxn
         26 => 3, // EndTxn
-        28 => 3, // TxnOffsetCommit
+        28 => 3,  // TxnOffsetCommit
+        17 => i16::MAX, // SaslHandshake — never flexible
+        36 => 2,  // SaslAuthenticate
         _ => return false,
     };
     api_version >= flex_start
@@ -205,6 +211,16 @@ pub fn supported_api_versions() -> Vec<ApiVersionRange> {
             api_key: ApiKey::TxnOffsetCommit as i16,
             min_version: 0,
             max_version: 3,
+        },
+        ApiVersionRange {
+            api_key: ApiKey::SaslHandshake as i16,
+            min_version: 0,
+            max_version: 1,
+        },
+        ApiVersionRange {
+            api_key: ApiKey::SaslAuthenticate as i16,
+            min_version: 0,
+            max_version: 2,
         },
     ]
 }
@@ -348,6 +364,8 @@ mod tests {
             (25, ApiKey::AddOffsetsToTxn),
             (26, ApiKey::EndTxn),
             (28, ApiKey::TxnOffsetCommit),
+            (17, ApiKey::SaslHandshake),
+            (36, ApiKey::SaslAuthenticate),
         ];
 
         for (raw, expected) in cases {
@@ -365,7 +383,7 @@ mod tests {
     #[test]
     fn test_api_key_from_i16_invalid_values() {
         // Gaps in the enum
-        for invalid in [4, 5, 6, 7, 17, 21, 23, 27] {
+        for invalid in [4, 5, 6, 7, 21, 23, 27] {
             assert_eq!(
                 ApiKey::from_i16(invalid),
                 None,
@@ -406,6 +424,8 @@ mod tests {
             ApiKey::AddOffsetsToTxn,
             ApiKey::EndTxn,
             ApiKey::TxnOffsetCommit,
+            ApiKey::SaslHandshake,
+            ApiKey::SaslAuthenticate,
         ];
 
         for key in keys {
@@ -442,6 +462,8 @@ mod tests {
         assert_eq!(ApiKey::AddOffsetsToTxn.as_i16(), 25);
         assert_eq!(ApiKey::EndTxn.as_i16(), 26);
         assert_eq!(ApiKey::TxnOffsetCommit.as_i16(), 28);
+        assert_eq!(ApiKey::SaslHandshake.as_i16(), 17);
+        assert_eq!(ApiKey::SaslAuthenticate.as_i16(), 36);
     }
 
     #[test]
@@ -479,8 +501,8 @@ mod tests {
     #[test]
     fn test_supported_api_versions_count() {
         let versions = supported_api_versions();
-        // Should have one entry per ApiKey variant (21 variants)
-        assert_eq!(versions.len(), 21);
+        // Should have one entry per ApiKey variant (23 variants)
+        assert_eq!(versions.len(), 23);
     }
 
     #[test]

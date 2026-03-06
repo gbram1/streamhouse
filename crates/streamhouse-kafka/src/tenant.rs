@@ -101,13 +101,13 @@ impl KafkaTenantContext {
 /// Kafka tenant resolver.
 ///
 /// Resolves tenant context from various authentication methods.
-pub struct KafkaTenantResolver<S: MetadataStore> {
+pub struct KafkaTenantResolver<S: MetadataStore + ?Sized> {
     store: Arc<S>,
     /// Whether to allow anonymous connections
     allow_anonymous: bool,
 }
 
-impl<S: MetadataStore> KafkaTenantResolver<S> {
+impl<S: MetadataStore + ?Sized> KafkaTenantResolver<S> {
     /// Create a new tenant resolver.
     pub fn new(store: Arc<S>) -> Self {
         Self {
@@ -138,7 +138,7 @@ impl<S: MetadataStore> KafkaTenantResolver<S> {
         _password: &str, // Not used for now; we validate by key lookup
     ) -> KafkaResult<KafkaTenantContext> {
         // Hash the API key and look it up
-        let key_hash = streamhouse_metadata::tenant::ApiKeyValidator::<S>::hash_key(username);
+        let key_hash = streamhouse_metadata::tenant::hash_api_key(username);
 
         // Find the API key
         let api_key = self
@@ -284,7 +284,7 @@ impl<S: MetadataStore> KafkaTenantResolver<S> {
     }
 }
 
-impl<S: MetadataStore> Clone for KafkaTenantResolver<S> {
+impl<S: MetadataStore + ?Sized> Clone for KafkaTenantResolver<S> {
     fn clone(&self) -> Self {
         Self {
             store: self.store.clone(),
