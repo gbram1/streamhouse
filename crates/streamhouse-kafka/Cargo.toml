@@ -56,3 +56,8 @@ postgres = ["streamhouse-metadata/postgres"]
 
 [dev-dependencies]
 tempfile = { workspace = true }
+tracing-subscriber = { workspace = true, features = ["env-filter"] }
+
+[[example]]
+name = "kafka_smoke_test"
+required-features = []
