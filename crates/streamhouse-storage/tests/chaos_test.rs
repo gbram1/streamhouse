@@ -912,8 +912,8 @@ async fn chaos_stress_combined_cb_and_rl() {
 
     let (put_rate, get_rate, _) = limiter.current_rates().await;
     assert!(put_rate >= 10.0, "PUT rate should be above floor");
-    // GET was not touched, should be at default
-    assert_eq!(get_rate, 5000.0);
+    // GET was not touched, should be at default (BucketConfig::default().rate = 3000.0)
+    assert_eq!(get_rate, 3000.0);
 }
 
 /// Stress test: concurrent cache operations under memory pressure
