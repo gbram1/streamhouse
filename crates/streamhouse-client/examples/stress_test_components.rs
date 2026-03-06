@@ -306,6 +306,7 @@ async fn run_full_write_path(value: &Bytes) -> anyhow::Result<FullRunStats> {
     for pid in 0..PARTITION_COUNT {
         writers.push(
             PartitionWriter::new(
+                DEFAULT_ORGANIZATION_ID.to_string(),
                 topic.to_string(),
                 pid,
                 object_store.clone(),

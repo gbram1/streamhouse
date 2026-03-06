@@ -404,6 +404,155 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         std::process::exit(0);
     }
 
+    // ── Automatic startup recovery (org-scoped) ────────────────────────────
+    // If metadata is empty but S3 has snapshots, restore automatically.
+    // Discovery: scan S3 for default org snapshots (_snapshots/) and per-org
+    // snapshots (org-{uuid}/_snapshots/). Each snapshot is org-scoped.
+    // Flow: discover orgs → restore each org's latest snapshot → reconcile-from-s3.
+    {
+        let topics = metadata.list_topics().await.unwrap_or_default();
+        if topics.is_empty() {
+            tracing::info!("No topics in metadata — checking S3 for snapshots...");
+            use futures::TryStreamExt;
+
+            // Discover org prefixes from S3 top-level listing
+            // Default org: _snapshots/*.json.gz
+            // Non-default: org-{uuid}/_snapshots/*.json.gz
+            let mut org_snapshot_prefixes: Vec<(String, String)> = vec![(
+                streamhouse_metadata::DEFAULT_ORGANIZATION_ID.to_string(),
+                "_snapshots/".to_string(),
+            )];
+
+            if let Ok(list_result) = object_store.list_with_delimiter(None).await {
+                for prefix in &list_result.common_prefixes {
+                    let prefix_str = prefix.to_string();
+                    if let Some(org_id) = prefix_str
+                        .strip_prefix("org-")
+                        .and_then(|s| s.strip_suffix('/'))
+                    {
+                        org_snapshot_prefixes.push((
+                            org_id.to_string(),
+                            format!("org-{}/_snapshots/", org_id),
+                        ));
+                    }
+                }
+            }
+
+            let mut any_restored = false;
+
+            for (org_id, snapshot_prefix) in &org_snapshot_prefixes {
+                let prefix_path =
+                    object_store::path::Path::from(snapshot_prefix.as_str());
+                let mut snapshots: Vec<object_store::ObjectMeta> = Vec::new();
+                let mut list_stream = object_store.list(Some(&prefix_path));
+                while let Some(meta) =
+                    list_stream.try_next().await.unwrap_or(None)
+                {
+                    if meta.location.to_string().ends_with(".json.gz") {
+                        snapshots.push(meta);
+                    }
+                }
+
+                if snapshots.is_empty() {
+                    continue;
+                }
+
+                // Sort by path (timestamp in filename) and pick latest
+                snapshots.sort_by(|a, b| a.location.cmp(&b.location));
+                let latest = snapshots.last().unwrap();
+                tracing::info!(
+                    snapshot = %latest.location,
+                    org_id = %org_id,
+                    size = latest.size,
+                    "Found snapshot — restoring"
+                );
+
+                // Download, decompress, parse, restore
+                let restore_result: std::result::Result<(), Box<dyn std::error::Error>> = async {
+                    let result = object_store.get(&latest.location).await?;
+                    let compressed = result.bytes().await?;
+                    use std::io::Read;
+                    let mut decoder =
+                        flate2::read::GzDecoder::new(&compressed[..]);
+                    let mut json = String::new();
+                    decoder.read_to_string(&mut json)?;
+
+                    let backup =
+                        streamhouse_metadata::backup::MetadataBackup::from_json(
+                            &json,
+                        )
+                        .map_err(|e| format!("Parse error: {}", e))?;
+
+                    tracing::info!(
+                        org_id = %org_id,
+                        topics = backup.topic_count(),
+                        "Restoring snapshot..."
+                    );
+
+                    let stats = backup
+                        .restore_to(&*metadata)
+                        .await
+                        .map_err(|e| format!("Restore error: {}", e))?;
+
+                    tracing::info!(
+                        org_id = %org_id,
+                        topics_created = stats.topics_created,
+                        segments_restored = stats.segments_restored,
+                        orgs_created = stats.organizations_created,
+                        "Snapshot restored"
+                    );
+                    Ok(())
+                }
+                .await;
+
+                match restore_result {
+                    Ok(()) => {
+                        any_restored = true;
+                    }
+                    Err(e) => {
+                        tracing::error!(
+                            org_id = %org_id,
+                            error = %e,
+                            "Failed to restore snapshot"
+                        );
+                    }
+                }
+            }
+
+            // After all snapshots restored, reconcile to fill gaps
+            if any_restored {
+                tracing::info!(
+                    "Running reconcile-from-s3 to fill gaps..."
+                );
+                match reconciler.reconcile_from_s3().await {
+                    Ok(stats) => {
+                        if stats.segments_registered > 0 {
+                            tracing::info!(
+                                segments_registered = stats.segments_registered,
+                                "Reconcile filled in {} additional segment(s)",
+                                stats.segments_registered
+                            );
+                        } else {
+                            tracing::info!(
+                                "Reconcile complete — snapshots were up to date"
+                            );
+                        }
+                    }
+                    Err(e) => {
+                        tracing::warn!(
+                            error = %e,
+                            "Post-snapshot reconcile failed (non-fatal)"
+                        );
+                    }
+                }
+            } else {
+                tracing::debug!(
+                    "No snapshots found in S3 — fresh deployment"
+                );
+            }
+        }
+    }
+
     // Start background metadata snapshot loop (configurable via SNAPSHOT_INTERVAL_SECS)
     let snapshot_interval_secs: u64 = std::env::var("SNAPSHOT_INTERVAL_SECS")
         .ok()

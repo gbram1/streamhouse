@@ -313,8 +313,8 @@ mod tests {
         // Hash should be 64 characters
         assert_eq!(hash.len(), 64);
 
-        // Prefix should be 16 characters
-        assert_eq!(prefix.len(), 16);
+        // Prefix should be 12 characters (first 12 of the raw key)
+        assert_eq!(prefix.len(), 12);
 
         // Generated key should hash to the same value
         let computed_hash = ApiKeyValidator::<crate::SqliteMetadataStore>::hash_key(&raw_key);

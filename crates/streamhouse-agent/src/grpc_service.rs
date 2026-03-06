@@ -40,7 +40,7 @@
 //! Target: 50K+ records/sec per agent with p99 latency < 10ms
 
 use std::sync::Arc;
-use streamhouse_metadata::{LeaderChangeReason, MetadataStore, ProducerState};
+use streamhouse_metadata::{LeaderChangeReason, MetadataStore, ProducerState, DEFAULT_ORGANIZATION_ID};
 use streamhouse_proto::producer::{
     producer_service_server::ProducerService, AbortTransactionRequest, AbortTransactionResponse,
     BeginTransactionRequest, BeginTransactionResponse, CommitTransactionRequest,
@@ -56,6 +56,17 @@ use streamhouse_storage::writer_pool::WriterPool;
 use tokio::sync::RwLock;
 use tonic::{Request, Response, Status};
 use tracing::{debug, error, info, warn};
+
+/// Extract organization ID from gRPC request metadata.
+fn extract_org_id_from_request<T>(request: &Request<T>) -> String {
+    request
+        .metadata()
+        .get("x-organization-id")
+        .and_then(|v| v.to_str().ok())
+        .filter(|s| !s.is_empty())
+        .map(|s| s.to_string())
+        .unwrap_or_else(|| DEFAULT_ORGANIZATION_ID.to_string())
+}
 
 use crate::LeaseManager;
 
@@ -549,6 +560,7 @@ impl ProducerService for ProducerServiceImpl {
             return Err(Status::unavailable("Agent is shutting down"));
         }
 
+        let org_id = extract_org_id_from_request(&request);
         let req = request.into_inner();
 
         // Validate request
@@ -615,8 +627,7 @@ impl ProducerService for ProducerServiceImpl {
         }
 
         // Get writer for partition
-        // TODO: thread org_id from request context
-        let writer = match self.writer_pool.get_writer(streamhouse_metadata::DEFAULT_ORGANIZATION_ID, &req.topic, req.partition).await {
+        let writer = match self.writer_pool.get_writer(&org_id, &req.topic, req.partition).await {
             Ok(writer) => writer,
             Err(e) => {
                 error!(
@@ -704,10 +715,9 @@ impl ProducerService for ProducerServiceImpl {
                 "ACK_DURABLE mode - queuing for batched S3 flush"
             );
 
-            // TODO: thread org_id from request context
             if let Err(e) = self
                 .writer_pool
-                .request_durable_flush(streamhouse_metadata::DEFAULT_ORGANIZATION_ID, &req.topic, req.partition)
+                .request_durable_flush(&org_id, &req.topic, req.partition)
                 .await
             {
                 error!(
@@ -1318,6 +1328,7 @@ impl AgentCoordination for AgentCoordinationImpl {
         &self,
         request: Request<CompleteTransferRequest>,
     ) -> std::result::Result<Response<CompleteTransferResponse>, Status> {
+        let org_id = extract_org_id_from_request(&request);
         let req = request.into_inner();
 
         // Verify we're the source agent
@@ -1344,8 +1355,7 @@ impl AgentCoordination for AgentCoordinationImpl {
         );
 
         // Flush the writer to ensure all data is persisted
-        // TODO: thread org_id from request context
-        if let Ok(writer) = self.writer_pool.get_writer(streamhouse_metadata::DEFAULT_ORGANIZATION_ID, &req.topic, req.partition).await {
+        if let Ok(writer) = self.writer_pool.get_writer(&org_id, &req.topic, req.partition).await {
             let mut writer_guard = writer.lock().await;
             if let Err(e) = writer_guard.flush_durable().await {
                 warn!(
@@ -1451,10 +1461,23 @@ impl AgentCoordination for AgentCoordinationImpl {
 
 #[cfg(test)]
 mod tests {
-    // TODO: Add unit tests for ProducerServiceImpl
-    // - test_produce_success
-    // - test_produce_no_lease
-    // - test_produce_expired_lease
-    // - test_produce_shutting_down
-    // - test_produce_empty_batch
+    use super::*;
+
+    #[test]
+    fn test_extract_org_id_from_metadata() {
+        let mut request = Request::new(());
+        request
+            .metadata_mut()
+            .insert("x-organization-id", "org-123".parse().unwrap());
+        assert_eq!(extract_org_id_from_request(&request), "org-123");
+    }
+
+    #[test]
+    fn test_extract_org_id_default() {
+        let request = Request::new(());
+        assert_eq!(
+            extract_org_id_from_request(&request),
+            DEFAULT_ORGANIZATION_ID
+        );
+    }
 }

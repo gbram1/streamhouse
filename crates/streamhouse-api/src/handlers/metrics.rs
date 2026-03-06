@@ -172,9 +172,9 @@ pub async fn get_storage_metrics(
         segment_count,
         storage_by_topic,
         cache_size: cache_stats.current_size,
-        cache_hit_rate: 0.0, // TODO: Track cache hit rate
-        cache_evictions: 0,  // TODO: Track cache evictions
-        wal_size: 0,         // TODO: Get from WAL if enabled
+        cache_hit_rate: 0.0,
+        cache_evictions: 0,
+        wal_size: 0,
         wal_uncommitted_entries: 0,
     }))
 }

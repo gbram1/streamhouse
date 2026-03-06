@@ -5573,6 +5573,8 @@ dependencies = [
  "axum 0.7.9",
  "bytes",
  "chrono",
+ "flate2",
+ "futures",
  "jsonschema 0.27.1",
  "object_store 0.9.1",
  "prost 0.12.6",

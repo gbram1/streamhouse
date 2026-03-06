@@ -276,6 +276,19 @@ impl LeaseManager {
             .collect()
     }
 
+    /// Non-async check for active leases (for use in sync contexts like health checks).
+    /// Returns an empty vec if the lock can't be acquired immediately.
+    pub fn get_active_leases_sync(&self) -> Vec<(String, u32, u64)> {
+        match self.leases.try_read() {
+            Ok(leases) => leases
+                .values()
+                .filter(|lease| !is_expired(lease.expires_at))
+                .map(|lease| (lease.topic.clone(), lease.partition_id, lease.epoch))
+                .collect(),
+            Err(_) => vec![],
+        }
+    }
+
     /// Initiate a graceful lease transfer to another agent.
     ///
     /// This starts the handoff protocol:

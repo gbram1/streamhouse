@@ -9,6 +9,20 @@ use tokio::sync::{Notify, RwLock};
 use tonic::{Request, Response, Status};
 use tracing::{debug, error, info, warn};
 
+/// Extract organization ID from gRPC request metadata.
+///
+/// Checks for `x-organization-id` metadata key, falling back to
+/// `DEFAULT_ORGANIZATION_ID` when not present (backwards-compatible).
+fn extract_org_id_from_request<T>(request: &Request<T>) -> String {
+    request
+        .metadata()
+        .get("x-organization-id")
+        .and_then(|v| v.to_str().ok())
+        .filter(|s| !s.is_empty())
+        .map(|s| s.to_string())
+        .unwrap_or_else(|| DEFAULT_ORGANIZATION_ID.to_string())
+}
+
 /// StreamHouse gRPC service implementation
 ///
 /// Unified service combining admin, producer (with ack modes, idempotent dedup,
@@ -382,12 +396,12 @@ impl StreamHouse for StreamHouseService {
         &self,
         request: Request<GetTopicRequest>,
     ) -> Result<Response<GetTopicResponse>, Status> {
+        let org_id = extract_org_id_from_request(&request);
         let req = request.into_inner();
 
-        // TODO: thread org_id from request context
         let topic = self
             .metadata
-            .get_topic_for_org(DEFAULT_ORGANIZATION_ID, &req.name)
+            .get_topic_for_org(&org_id, &req.name)
             .await
             .map_err(|e| Status::internal(format!("Metadata error: {}", e)))?
             .ok_or_else(|| Status::not_found(format!("Topic not found: {}", req.name)))?;
@@ -403,15 +417,15 @@ impl StreamHouse for StreamHouseService {
         }))
     }
 
-    #[tracing::instrument(skip(self, _request))]
+    #[tracing::instrument(skip(self, request))]
     async fn list_topics(
         &self,
-        _request: Request<ListTopicsRequest>,
+        request: Request<ListTopicsRequest>,
     ) -> Result<Response<ListTopicsResponse>, Status> {
-        // TODO: thread org_id from request context
+        let org_id = extract_org_id_from_request(&request);
         let topics = self
             .metadata
-            .list_topics_for_org(DEFAULT_ORGANIZATION_ID)
+            .list_topics_for_org(&org_id)
             .await
             .map_err(|e| Status::internal(format!("Metadata error: {}", e)))?;
 
@@ -457,13 +471,13 @@ impl StreamHouse for StreamHouseService {
         &self,
         request: Request<ProduceRequest>,
     ) -> Result<Response<ProduceResponse>, Status> {
+        let org_id = extract_org_id_from_request(&request);
         let req = request.into_inner();
 
         // Validate value against schema
         self.validate_schema(&req.topic, &req.value).await?;
 
-        // TODO: thread org_id from request context
-        let writer = self.get_writer(DEFAULT_ORGANIZATION_ID, &req.topic, req.partition).await?;
+        let writer = self.get_writer(&org_id, &req.topic, req.partition).await?;
         let mut writer_guard = writer.lock().await;
 
         let timestamp = chrono::Utc::now().timestamp_millis() as u64;
@@ -490,6 +504,7 @@ impl StreamHouse for StreamHouseService {
         &self,
         request: Request<ProduceBatchRequest>,
     ) -> Result<Response<ProduceBatchResponse>, Status> {
+        let org_id = extract_org_id_from_request(&request);
         let req = request.into_inner();
 
         // Check if shutting down
@@ -551,8 +566,7 @@ impl StreamHouse for StreamHouseService {
         }
 
         // Get writer for partition
-        // TODO: thread org_id from request context
-        let writer = self.get_writer(DEFAULT_ORGANIZATION_ID, &req.topic, req.partition).await?;
+        let writer = self.get_writer(&org_id, &req.topic, req.partition).await?;
 
         // Batch append — single WAL write for the entire produce request
         let timestamp = chrono::Utc::now().timestamp_millis() as u64;
@@ -635,10 +649,9 @@ impl StreamHouse for StreamHouseService {
                 "ACK_DURABLE mode - queuing for batched S3 flush"
             );
 
-            // TODO: thread org_id from request context
             if let Err(e) = self
                 .writer_pool
-                .request_durable_flush(DEFAULT_ORGANIZATION_ID, &req.topic, req.partition)
+                .request_durable_flush(&org_id, &req.topic, req.partition)
                 .await
             {
                 error!(
@@ -714,26 +727,25 @@ impl StreamHouse for StreamHouseService {
         &self,
         request: Request<ConsumeRequest>,
     ) -> Result<Response<ConsumeResponse>, Status> {
+        let org_id = extract_org_id_from_request(&request);
         let req = request.into_inner();
         let max_records = req.max_records as usize;
 
-        // TODO: thread org_id from request context
-        let reader = self.get_reader(DEFAULT_ORGANIZATION_ID, &req.topic, req.partition).await?;
+        let reader = self.get_reader(&org_id, &req.topic, req.partition).await?;
 
         // First try reading from S3 segments
         let result = match reader.read(req.offset, max_records).await {
             Ok(r) => r,
             Err(streamhouse_storage::Error::OffsetNotFound(_)) => {
                 // Offset not in any S3 segment yet — try the in-memory buffer directly
-                // TODO: thread org_id from request context
                 let buffered = self
                     .writer_pool
-                    .read_buffered(DEFAULT_ORGANIZATION_ID, &req.topic, req.partition, req.offset, max_records)
+                    .read_buffered(&org_id, &req.topic, req.partition, req.offset, max_records)
                     .await;
 
                 let partition = self
                     .metadata
-                    .get_partition(DEFAULT_ORGANIZATION_ID, &req.topic, req.partition)
+                    .get_partition(&org_id, &req.topic, req.partition)
                     .await
                     .map_err(|e| Status::internal(format!("Metadata error: {}", e)))?
                     .ok_or_else(|| Status::not_found("Partition not found"))?;
@@ -767,10 +779,9 @@ impl StreamHouse for StreamHouseService {
                 req.offset
             };
             let remaining = max_records - records.len();
-            // TODO: thread org_id from request context
             let buffered = self
                 .writer_pool
-                .read_buffered(DEFAULT_ORGANIZATION_ID, &req.topic, req.partition, next_offset, remaining)
+                .read_buffered(&org_id, &req.topic, req.partition, next_offset, remaining)
                 .await;
 
             records.extend(buffered.into_iter().map(|r| ConsumedRecord {

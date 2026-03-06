@@ -88,6 +88,7 @@ use bytes::Bytes;
 use lru::LruCache;
 use std::num::NonZeroUsize;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use tokio::sync::Mutex;
 
@@ -105,6 +106,15 @@ pub struct SegmentCache {
     /// LRU tracker: maps cache_key → size
     /// Automatically tracks access order
     lru: Arc<Mutex<LruCache<String, u64>>>,
+
+    /// Cache hit counter (lock-free)
+    hits: AtomicU64,
+
+    /// Cache miss counter (lock-free)
+    misses: AtomicU64,
+
+    /// Cache eviction counter (lock-free)
+    evictions: AtomicU64,
 }
 
 impl SegmentCache {
@@ -133,6 +143,9 @@ impl SegmentCache {
             max_size_bytes,
             current_size: Arc::new(Mutex::new(0)),
             lru,
+            hits: AtomicU64::new(0),
+            misses: AtomicU64::new(0),
+            evictions: AtomicU64::new(0),
         })
     }
 
@@ -144,6 +157,7 @@ impl SegmentCache {
         let path = self.cache_path(cache_key);
 
         if !path.exists() {
+            self.misses.fetch_add(1, Ordering::Relaxed);
             // Record cache miss (Phase 7.1e)
             streamhouse_observability::metrics::CACHE_MISSES_TOTAL.inc();
             return Ok(None);
@@ -158,6 +172,7 @@ impl SegmentCache {
             lru.get(cache_key);
         }
 
+        self.hits.fetch_add(1, Ordering::Relaxed);
         // Record cache hit (Phase 7.1e)
         streamhouse_observability::metrics::CACHE_HITS_TOTAL.inc();
 
@@ -227,6 +242,7 @@ impl SegmentCache {
                 }
 
                 *current_size = current_size.saturating_sub(size);
+                self.evictions.fetch_add(1, Ordering::Relaxed);
 
                 // Record cache size metric after eviction (Phase 7.1e)
                 streamhouse_observability::metrics::CACHE_SIZE_BYTES.set(*current_size as i64);
@@ -260,12 +276,23 @@ impl SegmentCache {
     pub async fn stats(&self) -> CacheStats {
         let current_size = *self.current_size.lock().await;
         let entry_count = self.lru.lock().await.len();
+        let hits = self.hits.load(Ordering::Relaxed);
+        let misses = self.misses.load(Ordering::Relaxed);
+        let total = hits + misses;
 
         CacheStats {
             current_size,
             max_size: self.max_size_bytes,
             entry_count,
             utilization_pct: (current_size as f64 / self.max_size_bytes as f64 * 100.0),
+            hits,
+            misses,
+            evictions: self.evictions.load(Ordering::Relaxed),
+            hit_rate: if total > 0 {
+                hits as f64 / total as f64
+            } else {
+                0.0
+            },
         }
     }
 }
@@ -284,6 +311,18 @@ pub struct CacheStats {
 
     /// Cache utilization percentage (0-100)
     pub utilization_pct: f64,
+
+    /// Total cache hits
+    pub hits: u64,
+
+    /// Total cache misses
+    pub misses: u64,
+
+    /// Total cache evictions
+    pub evictions: u64,
+
+    /// Cache hit rate (0.0 - 1.0)
+    pub hit_rate: f64,
 }
 
 #[cfg(test)]

@@ -249,29 +249,27 @@ impl PostgresSinkConnector {
             ),
         };
 
-        // TODO: Execute the SQL via sqlx when the postgres feature is enabled.
-        // For now, log the generated SQL.
         #[cfg(feature = "postgres")]
         {
-            if let Some(_pool) = &self.pool {
-                // In a full implementation, we would bind parameters and execute:
-                // let mut query = sqlx::query(&_sql);
-                // for row in &all_rows {
-                //     for (_, val) in row {
-                //         query = query.bind(val.to_string());
-                //     }
-                // }
-                // query.execute(pool).await.map_err(|e| {
-                //     ConnectorError::SinkError(format!("Postgres execute error: {}", e))
-                // })?;
+            if let Some(pool) = &self.pool {
+                let mut query = sqlx::query(&_sql);
+                for row in &all_rows {
+                    for (_, val) in row {
+                        query = query.bind(val.to_string());
+                    }
+                }
+                query.execute(pool).await.map_err(|e| {
+                    ConnectorError::SinkError(format!("Postgres execute error: {}", e))
+                })?;
                 tracing::debug!(connector = %self.name, rows = batch.len(), "executed batch");
             }
         }
 
+        #[cfg(not(feature = "postgres"))]
         tracing::debug!(
             connector = %self.name,
             rows = batch.len(),
-            "batch prepared (SQL generated)"
+            "batch prepared (SQL generated, postgres feature not enabled)"
         );
 
         Ok(())

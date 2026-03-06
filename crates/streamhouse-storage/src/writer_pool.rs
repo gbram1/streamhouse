@@ -369,52 +369,106 @@ impl WriterPool {
         })
     }
 
-    /// Flush all writers to S3, then take a metadata snapshot and upload it.
+    /// Flush all writers to S3, then take per-org metadata snapshots and upload them.
     ///
     /// This enforces **snapshot ordering**: all buffered data reaches S3 *before*
     /// the metadata snapshot is taken, guaranteeing that the snapshot is always
     /// a subset of what exists in S3. On recovery, restoring the snapshot and
     /// running `reconcile_from_s3` fills any gap.
     ///
-    /// The snapshot is uploaded to `_snapshots/{timestamp}.json.gz` in the object store.
+    /// Snapshots are org-scoped:
+    /// - Default org → `_snapshots/{timestamp}.json.gz`
+    /// - Non-default orgs → `org-{uuid}/_snapshots/{timestamp}.json.gz`
     pub async fn flush_all_and_snapshot(&self) -> Result<()> {
         // Step 1: Push all buffered data to S3
         self.flush_all().await?;
 
-        // Step 2: Take metadata snapshot
-        let backup = streamhouse_metadata::backup::MetadataBackup::from_store(&*self.metadata_store)
-            .await
-            .map_err(|e| crate::error::Error::SegmentError(format!("Snapshot metadata export failed: {}", e)))?;
+        // Step 2: Enumerate all organizations
+        let default_org = streamhouse_metadata::DEFAULT_ORGANIZATION_ID.to_string();
+        let mut org_prefixes: Vec<(String, String)> =
+            vec![(default_org.clone(), "_snapshots".to_string())];
+        if let Ok(orgs) = self.metadata_store.list_organizations().await {
+            for org in orgs {
+                if org.id != default_org {
+                    org_prefixes.push((
+                        org.id.clone(),
+                        format!("org-{}/_snapshots", org.id),
+                    ));
+                }
+            }
+        }
 
-        let json = backup.to_json_compact()
-            .map_err(|e| crate::error::Error::SegmentError(format!("Snapshot serialization failed: {}", e)))?;
-
-        // Step 3: Gzip compress
-        use std::io::Write;
-        let mut encoder = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::default());
-        encoder.write_all(json.as_bytes())
-            .map_err(|e| crate::error::Error::SegmentError(format!("Snapshot compression failed: {}", e)))?;
-        let compressed = encoder.finish()
-            .map_err(|e| crate::error::Error::SegmentError(format!("Snapshot compression finalize failed: {}", e)))?;
-
-        // Step 4: Upload to _snapshots/{timestamp}.json.gz
         let timestamp = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap_or_default()
             .as_millis();
-        let path = object_store::path::Path::from(format!("_snapshots/{}.json.gz", timestamp));
 
-        self.object_store
-            .put(&path, bytes::Bytes::from(compressed).into())
+        // Step 3: Create per-org snapshots
+        for (org_id, snapshot_prefix) in &org_prefixes {
+            let backup = streamhouse_metadata::backup::MetadataBackup::from_store_for_org(
+                &*self.metadata_store,
+                org_id,
+            )
             .await
-            .map_err(|e| crate::error::Error::SegmentError(format!("Snapshot upload failed: {}", e)))?;
+            .map_err(|e| {
+                crate::error::Error::SegmentError(format!(
+                    "Snapshot metadata export failed for org {}: {}",
+                    org_id, e
+                ))
+            })?;
 
-        tracing::info!(
-            snapshot_path = %path,
-            topics = backup.topic_count(),
-            orgs = backup.organization_count(),
-            "Metadata snapshot uploaded"
-        );
+            // Skip orgs with no topics
+            if backup.topic_count() == 0 {
+                continue;
+            }
+
+            let json = backup.to_json_compact().map_err(|e| {
+                crate::error::Error::SegmentError(format!(
+                    "Snapshot serialization failed: {}",
+                    e
+                ))
+            })?;
+
+            // Gzip compress
+            use std::io::Write;
+            let mut encoder =
+                flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::default());
+            encoder.write_all(json.as_bytes()).map_err(|e| {
+                crate::error::Error::SegmentError(format!(
+                    "Snapshot compression failed: {}",
+                    e
+                ))
+            })?;
+            let compressed = encoder.finish().map_err(|e| {
+                crate::error::Error::SegmentError(format!(
+                    "Snapshot compression finalize failed: {}",
+                    e
+                ))
+            })?;
+
+            // Upload to {snapshot_prefix}/{timestamp}.json.gz
+            let path = object_store::path::Path::from(format!(
+                "{}/{}.json.gz",
+                snapshot_prefix, timestamp
+            ));
+
+            self.object_store
+                .put(&path, bytes::Bytes::from(compressed).into())
+                .await
+                .map_err(|e| {
+                    crate::error::Error::SegmentError(format!(
+                        "Snapshot upload failed: {}",
+                        e
+                    ))
+                })?;
+
+            tracing::info!(
+                snapshot_path = %path,
+                org_id = %org_id,
+                topics = backup.topic_count(),
+                "Metadata snapshot uploaded"
+            );
+        }
 
         Ok(())
     }

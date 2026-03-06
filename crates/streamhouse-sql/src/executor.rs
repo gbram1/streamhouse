@@ -1393,7 +1393,7 @@ impl SqlExecutor {
             source_topic: query.source_topic.clone(),
             query_sql: query.query_sql.clone(),
             refresh_mode: Self::convert_refresh_mode(&query.refresh_mode),
-            organization_id: None, // TODO: Get from context when multi-tenancy is enabled
+            organization_id: self.org_id.clone(),
         };
 
         let view = self.metadata.create_materialized_view(config).await?;

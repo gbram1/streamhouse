@@ -21,6 +21,9 @@ pub struct MetadataBackup {
     pub created_at: i64,
     /// Human-readable description
     pub description: Option<String>,
+    /// Organization ID this backup belongs to (None = legacy global backup)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub organization_id: Option<String>,
     /// Topics
     pub topics: Vec<TopicBackup>,
     /// Consumer group offsets
@@ -59,6 +62,7 @@ impl MetadataBackup {
             version: BACKUP_VERSION,
             created_at: chrono::Utc::now().timestamp_millis(),
             description: None,
+            organization_id: None,
             topics: Vec::new(),
             consumer_offsets: Vec::new(),
             organizations: Vec::new(),
@@ -71,17 +75,33 @@ impl MetadataBackup {
         self
     }
 
-    /// Export metadata from a store
+    /// Export metadata from a store (all organizations).
+    ///
+    /// This creates a global backup. For per-org snapshots, use `from_store_for_org()`.
     pub async fn from_store(store: &dyn MetadataStore) -> Result<Self> {
         let mut backup = Self::new();
 
-        // Export topics and their segments
+        // Collect all org IDs so we can fetch segments per-org
+        let orgs = store.list_organizations().await?;
+        let mut org_ids: Vec<String> =
+            vec![crate::DEFAULT_ORGANIZATION_ID.to_string()];
+        for org in &orgs {
+            if org.id != crate::DEFAULT_ORGANIZATION_ID {
+                org_ids.push(org.id.clone());
+            }
+        }
+
+        // Export topics and their segments across all orgs
         let topics = store.list_topics().await?;
         for topic in topics {
             let mut all_segments = Vec::new();
-            for partition in 0..topic.partition_count {
-                if let Ok(segments) = store.get_segments(crate::DEFAULT_ORGANIZATION_ID, &topic.name, partition).await {
-                    all_segments.extend(segments);
+            for org_id in &org_ids {
+                for partition in 0..topic.partition_count {
+                    if let Ok(segments) =
+                        store.get_segments(org_id, &topic.name, partition).await
+                    {
+                        all_segments.extend(segments);
+                    }
                 }
             }
             backup.topics.push(TopicBackup {
@@ -106,9 +126,59 @@ impl MetadataBackup {
         }
 
         // Export organizations
-        let orgs = store.list_organizations().await?;
         for org in orgs {
             let quota = store.get_organization_quota(&org.id).await.ok();
+            backup.organizations.push(OrganizationBackup {
+                organization: org,
+                quota,
+            });
+        }
+
+        Ok(backup)
+    }
+
+    /// Export metadata for a single organization.
+    ///
+    /// Unlike `from_store()` which exports everything, this creates a backup
+    /// scoped to one org — only that org's topics, segments, and consumer offsets.
+    /// The `organization_id` field is set so `restore_to()` uses the correct org.
+    pub async fn from_store_for_org(store: &dyn MetadataStore, org_id: &str) -> Result<Self> {
+        let mut backup = Self::new();
+        backup.organization_id = Some(org_id.to_string());
+
+        // Export topics and segments for this org
+        let topics = store.list_topics_for_org(org_id).await?;
+        for topic in topics {
+            let mut all_segments = Vec::new();
+            for partition in 0..topic.partition_count {
+                if let Ok(segments) = store.get_segments(org_id, &topic.name, partition).await {
+                    all_segments.extend(segments);
+                }
+            }
+            backup.topics.push(TopicBackup {
+                topic,
+                segments: all_segments,
+            });
+        }
+
+        // Export consumer group offsets (global — not org-scoped)
+        let groups = store.list_consumer_groups().await?;
+        for group_id in groups {
+            if let Ok(offsets) = store.get_consumer_offsets(&group_id).await {
+                for offset in offsets {
+                    backup.consumer_offsets.push(ConsumerOffsetBackup {
+                        group_id: offset.group_id.clone(),
+                        topic: offset.topic.clone(),
+                        partition: offset.partition_id,
+                        offset: offset.committed_offset,
+                    });
+                }
+            }
+        }
+
+        // Export this organization's info
+        if let Ok(Some(org)) = store.get_organization(org_id).await {
+            let quota = store.get_organization_quota(org_id).await.ok();
             backup.organizations.push(OrganizationBackup {
                 organization: org,
                 quota,
@@ -145,9 +215,31 @@ impl MetadataBackup {
         Ok(backup)
     }
 
-    /// Restore backup to a metadata store
+    /// Restore backup to a metadata store.
+    ///
+    /// Uses the backup's `organization_id` to scope segment/topic restoration.
+    /// Falls back to `DEFAULT_ORGANIZATION_ID` for legacy backups without org info.
     pub async fn restore_to(&self, store: &dyn MetadataStore) -> Result<RestoreStats> {
         let mut stats = RestoreStats::default();
+        let org_id = self
+            .organization_id
+            .as_deref()
+            .unwrap_or(crate::DEFAULT_ORGANIZATION_ID);
+
+        // Restore organizations first (org must exist before creating topics under it)
+        for org_backup in &self.organizations {
+            let config = CreateOrganization {
+                name: org_backup.organization.name.clone(),
+                slug: org_backup.organization.slug.clone(),
+                plan: org_backup.organization.plan,
+                settings: HashMap::new(),
+                clerk_id: org_backup.organization.clerk_id.clone(),
+            };
+            match store.create_organization(config).await {
+                Ok(_) => stats.organizations_created += 1,
+                Err(_) => stats.organizations_skipped += 1,
+            }
+        }
 
         // Restore topics and their segments
         for topic_backup in &self.topics {
@@ -158,17 +250,14 @@ impl MetadataBackup {
                 cleanup_policy: topic_backup.topic.cleanup_policy,
                 config: HashMap::new(),
             };
-            match store.create_topic(config).await {
+            match store.create_topic_for_org(org_id, config).await {
                 Ok(_) => stats.topics_created += 1,
                 Err(_) => stats.topics_skipped += 1,
             }
 
-            // Restore segments for this topic
+            // Restore segments with the correct org_id
             for segment in &topic_backup.segments {
-                match store
-                    .add_segment(crate::DEFAULT_ORGANIZATION_ID, segment.clone())
-                    .await
-                {
+                match store.add_segment(org_id, segment.clone()).await {
                     Ok(_) => stats.segments_restored += 1,
                     Err(_) => stats.segments_skipped += 1,
                 }
@@ -189,21 +278,6 @@ impl MetadataBackup {
             {
                 Ok(_) => stats.offsets_restored += 1,
                 Err(_) => stats.offsets_failed += 1,
-            }
-        }
-
-        // Restore organizations
-        for org_backup in &self.organizations {
-            let config = CreateOrganization {
-                name: org_backup.organization.name.clone(),
-                slug: org_backup.organization.slug.clone(),
-                plan: org_backup.organization.plan,
-                settings: HashMap::new(),
-                clerk_id: org_backup.organization.clerk_id.clone(),
-            };
-            match store.create_organization(config).await {
-                Ok(_) => stats.organizations_created += 1,
-                Err(_) => stats.organizations_skipped += 1,
             }
         }
 

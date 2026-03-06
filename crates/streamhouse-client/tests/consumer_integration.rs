@@ -10,7 +10,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 use streamhouse_client::{Consumer, OffsetReset};
-use streamhouse_metadata::{CleanupPolicy, MetadataStore, SqliteMetadataStore, TopicConfig};
+use streamhouse_metadata::{CleanupPolicy, MetadataStore, SqliteMetadataStore, TopicConfig, DEFAULT_ORGANIZATION_ID};
 use streamhouse_storage::{PartitionWriter, WriteConfig};
 use tempfile::TempDir;
 
@@ -90,6 +90,7 @@ async fn test_consumer_read_after_produce() {
 
     // Write records using storage layer directly
     let mut writer = PartitionWriter::new(
+        DEFAULT_ORGANIZATION_ID.to_string(),
         "topic_read_after_produce".to_string(),
         0,
         object_store.clone(),
@@ -159,6 +160,7 @@ async fn test_consumer_offset_commit() {
 
     // Write records
     let mut writer = PartitionWriter::new(
+        DEFAULT_ORGANIZATION_ID.to_string(),
         "topic_offset_commit".to_string(),
         0,
         object_store.clone(),
@@ -234,6 +236,7 @@ async fn test_consumer_auto_commit() {
 
     // Write records
     let mut writer = PartitionWriter::new(
+        DEFAULT_ORGANIZATION_ID.to_string(),
         "topic_auto_commit".to_string(),
         0,
         object_store.clone(),
@@ -298,6 +301,7 @@ async fn test_consumer_multiple_partitions() {
     // Write to both partitions
     for partition_id in 0..2 {
         let mut writer = PartitionWriter::new(
+            DEFAULT_ORGANIZATION_ID.to_string(),
             "topic_multi_part".to_string(),
             partition_id,
             object_store.clone(),
@@ -357,6 +361,7 @@ async fn test_consumer_offset_reset_earliest() {
 
     // Write records
     let mut writer = PartitionWriter::new(
+        DEFAULT_ORGANIZATION_ID.to_string(),
         "topic_reset_earliest".to_string(),
         0,
         object_store.clone(),
@@ -411,6 +416,7 @@ async fn test_consumer_offset_reset_latest() {
 
     // Write records
     let mut writer = PartitionWriter::new(
+        DEFAULT_ORGANIZATION_ID.to_string(),
         "topic_reset_latest".to_string(),
         0,
         object_store.clone(),
@@ -465,6 +471,7 @@ async fn test_consumer_throughput() {
 
     // Write many records
     let mut writer = PartitionWriter::new(
+        DEFAULT_ORGANIZATION_ID.to_string(),
         "topic_throughput".to_string(),
         0,
         object_store.clone(),

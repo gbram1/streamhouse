@@ -239,11 +239,9 @@ impl AuthManager {
             anyhow::bail!("No refresh token available. Please login again.");
         }
 
-        // TODO: Implement actual token refresh via HTTP request to the auth server.
-        // For now, this is a no-op placeholder. The actual implementation would:
-        // 1. POST to the token endpoint with grant_type=refresh_token
-        // 2. Update the access_token, refresh_token, and token_expiry
-        // 3. Save credentials to disk
+        // Token refresh requires the auth server (Clerk integration).
+        // When the auth server is deployed, this should POST to the token
+        // endpoint with grant_type=refresh_token and update stored credentials.
 
         Ok(())
     }

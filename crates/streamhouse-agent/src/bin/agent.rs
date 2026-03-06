@@ -323,11 +323,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
         let registry = Arc::new(prometheus_client::registry::Registry::default());
 
-        // Create a function to check if agent has active leases
+        // Check if agent has active leases via the lease manager
+        let agent_for_leases = Arc::clone(&agent);
         let has_active_leases = Arc::new(move || {
-            // For now, always return true if agent is started
-            // TODO: Add Agent::has_active_leases() method
-            true
+            let agent = Arc::clone(&agent_for_leases);
+            !agent.lease_manager().get_active_leases_sync().is_empty()
         });
 
         let metrics_server = streamhouse_agent::MetricsServer::new(
