@@ -178,7 +178,7 @@ impl SqlExecutor {
         timeout_ms: u64,
     ) -> Result<QueryResult> {
         // Validate topic exists; if not, check if it's a materialized view
-        let topic = match self.metadata.get_topic(&query.topic).await? {
+        let topic = match self.metadata.get_topic_for_org(self.org_id.as_deref().unwrap_or(DEFAULT_ORGANIZATION_ID), &query.topic).await? {
             Some(t) => t,
             None => {
                 // Check if this is a materialized view name
@@ -590,7 +590,7 @@ impl SqlExecutor {
         // Validate topic exists
         let topic = self
             .metadata
-            .get_topic(&query.topic)
+            .get_topic_for_org(self.org_id.as_deref().unwrap_or(DEFAULT_ORGANIZATION_ID), &query.topic)
             .await?
             .ok_or_else(|| SqlError::TopicNotFound(query.topic.clone()))?;
 
@@ -708,7 +708,7 @@ impl SqlExecutor {
 
         let topic = self
             .metadata
-            .get_topic(topic_name)
+            .get_topic_for_org(self.org_id.as_deref().unwrap_or(DEFAULT_ORGANIZATION_ID), topic_name)
             .await?
             .ok_or_else(|| SqlError::TopicNotFound(topic_name.to_string()))?;
 
@@ -808,7 +808,7 @@ impl SqlExecutor {
         // Validate topic exists
         let topic = self
             .metadata
-            .get_topic(&query.topic)
+            .get_topic_for_org(self.org_id.as_deref().unwrap_or(DEFAULT_ORGANIZATION_ID), &query.topic)
             .await?
             .ok_or_else(|| SqlError::TopicNotFound(query.topic.clone()))?;
 
@@ -934,7 +934,7 @@ impl SqlExecutor {
 
         let topic = self
             .metadata
-            .get_topic(&query.topic)
+            .get_topic_for_org(self.org_id.as_deref().unwrap_or(DEFAULT_ORGANIZATION_ID), &query.topic)
             .await?
             .ok_or_else(|| SqlError::TopicNotFound(query.topic.clone()))?;
 
@@ -1037,13 +1037,13 @@ impl SqlExecutor {
         // Validate both topics exist
         let _left_topic = self
             .metadata
-            .get_topic(&query.left.topic)
+            .get_topic_for_org(self.org_id.as_deref().unwrap_or(DEFAULT_ORGANIZATION_ID), &query.left.topic)
             .await?
             .ok_or_else(|| SqlError::TopicNotFound(query.left.topic.clone()))?;
 
         let _right_topic = self
             .metadata
-            .get_topic(&query.right.topic)
+            .get_topic_for_org(self.org_id.as_deref().unwrap_or(DEFAULT_ORGANIZATION_ID), &query.right.topic)
             .await?
             .ok_or_else(|| SqlError::TopicNotFound(query.right.topic.clone()))?;
 
@@ -1207,7 +1207,7 @@ impl SqlExecutor {
     ) -> Result<Vec<MessageRow>> {
         let topic = self
             .metadata
-            .get_topic(topic_name)
+            .get_topic_for_org(self.org_id.as_deref().unwrap_or(DEFAULT_ORGANIZATION_ID), topic_name)
             .await?
             .ok_or_else(|| SqlError::TopicNotFound(topic_name.to_string()))?;
 
@@ -1373,7 +1373,7 @@ impl SqlExecutor {
         // Validate source topic exists
         let _topic = self
             .metadata
-            .get_topic(&query.source_topic)
+            .get_topic_for_org(self.org_id.as_deref().unwrap_or(DEFAULT_ORGANIZATION_ID), &query.source_topic)
             .await?
             .ok_or_else(|| SqlError::TopicNotFound(query.source_topic.clone()))?;
 

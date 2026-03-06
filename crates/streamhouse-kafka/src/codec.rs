@@ -684,11 +684,16 @@ mod tests {
 
     #[test]
     fn test_request_header_parse_empty_client_id() {
+        // ApiVersions v3 uses flexible (v2) header format, so client_id
+        // is encoded as a compact nullable string (unsigned varint length).
+        // For compact strings: varint 0 = null, varint N = N-1 bytes of content.
+        // An empty string is varint 1 (1-1 = 0 bytes of content).
         let mut buf = BytesMut::new();
         buf.put_i16(18); // api_key = ApiVersions
         buf.put_i16(3); // api_version = 3
         buf.put_i32(99); // correlation_id = 99
-        buf.put_i16(0); // empty string client_id (length = 0)
+        buf.put_u8(1); // compact nullable string: length+1 = 1, so 0 bytes = empty string
+        buf.put_u8(0); // tagged fields: 0 = no tagged fields
 
         let header = RequestHeader::parse(&mut buf).unwrap();
         assert_eq!(header.api_key, 18);
