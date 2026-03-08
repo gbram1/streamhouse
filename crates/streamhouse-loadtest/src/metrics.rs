@@ -10,32 +10,28 @@ pub static REGISTRY: LazyLock<Registry> = LazyLock::new(Registry::new);
 // ─── Production counters ────────────────────────────────────────────────────
 
 pub static PRODUCED_TOTAL: LazyLock<IntCounterVec> = LazyLock::new(|| {
-    let opts = Opts::new("loadtest_produced_total", "Total records produced")
-        .namespace("loadtest");
+    let opts = Opts::new("loadtest_produced_total", "Total records produced");
     let counter = IntCounterVec::new(opts, &["org", "topic", "protocol"]).unwrap();
     REGISTRY.register(Box::new(counter.clone())).unwrap();
     counter
 });
 
 pub static CONSUMED_TOTAL: LazyLock<IntCounterVec> = LazyLock::new(|| {
-    let opts = Opts::new("loadtest_consumed_total", "Total records consumed")
-        .namespace("loadtest");
+    let opts = Opts::new("loadtest_consumed_total", "Total records consumed");
     let counter = IntCounterVec::new(opts, &["org", "topic", "group"]).unwrap();
     REGISTRY.register(Box::new(counter.clone())).unwrap();
     counter
 });
 
 pub static PRODUCE_ERRORS: LazyLock<IntCounterVec> = LazyLock::new(|| {
-    let opts = Opts::new("loadtest_produce_errors_total", "Total produce errors")
-        .namespace("loadtest");
+    let opts = Opts::new("loadtest_produce_errors_total", "Total produce errors");
     let counter = IntCounterVec::new(opts, &["org", "topic", "protocol"]).unwrap();
     REGISTRY.register(Box::new(counter.clone())).unwrap();
     counter
 });
 
 pub static CONSUME_ERRORS: LazyLock<IntCounterVec> = LazyLock::new(|| {
-    let opts = Opts::new("loadtest_consume_errors_total", "Total consume errors")
-        .namespace("loadtest");
+    let opts = Opts::new("loadtest_consume_errors_total", "Total consume errors");
     let counter = IntCounterVec::new(opts, &["org", "topic"]).unwrap();
     REGISTRY.register(Box::new(counter.clone())).unwrap();
     counter

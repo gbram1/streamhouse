@@ -56,9 +56,9 @@ pub async fn run_setup(client: &HttpClient) -> Result<Vec<OrgContext>> {
         org.topics = specs;
     }
 
-    // Schema registration is handled by the schema_evolution workload.
-    // Registering schemas for topics with schema_subject would enable server-side
-    // validation that requires messages to conform to the schema format.
+    // Register initial (v1) schemas so validation is active from the start.
+    // The schema_evolution workload will later evolve these with backward-compatible changes.
+    register_initial_schemas(client).await?;
 
     // Create Kafka-specific topics in the default org (unauthenticated Kafka connections
     // use the default org). These are used by the Kafka wire protocol producers.
@@ -189,6 +189,75 @@ fn topic_specs_for_org(org_slug: &str) -> Vec<TopicSpec> {
             TopicSpec { name: "an-user-segments".into(), partitions: 8, keyed: true, schema_subject: Some("an-user-segments-value".into()), compacted: false },
         ],
         _ => vec![],
+    }
+}
+
+async fn register_initial_schemas(client: &HttpClient) -> Result<()> {
+    // ft-user-events-value v1 (Avro) — matches what the REST producer sends
+    let avro_schema = json!({
+        "type": "record",
+        "name": "UserEvent",
+        "namespace": "com.streamhouse.loadtest",
+        "fields": [
+            {"name": "user_id", "type": "string"},
+            {"name": "event_type", "type": "string"},
+            {"name": "timestamp", "type": "long"},
+            {"name": "seq", "type": "long"},
+            {"name": "metadata", "type": {"type": "map", "values": "string"}}
+        ]
+    });
+    register_schema(client, "ft-user-events-value", &avro_schema, "AVRO").await;
+
+    // ec-products-value v1 (JSON Schema)
+    let json_schema = json!({
+        "type": "object",
+        "properties": {
+            "product_id": {"type": "string"},
+            "name": {"type": "string"},
+            "price": {"type": "number"},
+            "category": {"type": "string"}
+        },
+        "required": ["product_id", "name", "price", "category"]
+    });
+    register_schema(client, "ec-products-value", &json_schema, "JSON").await;
+
+    // an-user-segments-value v1 (JSON Schema)
+    let segments_schema = json!({
+        "type": "object",
+        "properties": {
+            "user_id": {"type": "string"},
+            "segments": {"type": "array", "items": {"type": "string"}},
+            "updated_at": {"type": "integer"}
+        },
+        "required": ["user_id", "segments", "updated_at"]
+    });
+    register_schema(client, "an-user-segments-value", &segments_schema, "JSON").await;
+
+    Ok(())
+}
+
+async fn register_schema(client: &HttpClient, subject: &str, schema: &serde_json::Value, schema_type: &str) {
+    let body = json!({
+        "schema": schema.to_string(),
+        "schemaType": schema_type
+    });
+
+    match client
+        .post_json::<serde_json::Value>(&format!("/schemas/subjects/{subject}/versions"), &body)
+        .await
+    {
+        Ok(resp) => {
+            let id = resp.get("id").and_then(|v| v.as_i64()).unwrap_or(-1);
+            tracing::info!(subject, schema_id = id, "Registered initial schema");
+        }
+        Err(e) => {
+            let err_str = e.to_string();
+            if err_str.contains("409") || err_str.contains("already") {
+                tracing::debug!(subject, "Schema already registered");
+            } else {
+                tracing::warn!(subject, err = %e, "Failed to register initial schema");
+            }
+        }
     }
 }
 

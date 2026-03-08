@@ -53,16 +53,57 @@ pub async fn run_rest_producer(
         let records: Vec<serde_json::Value> = (0..batch_size)
             .map(|_| {
                 seq += 1;
-                let value_size: usize = rng.gen_range(100..2000);
-                let payload: String = (0..value_size).map(|_| 'x').collect();
 
-                let value = json!({
-                    "seq": seq,
-                    "ts": chrono::Utc::now().timestamp_millis(),
-                    "producer_id": producer_id,
-                    "org": org_slug,
-                    "payload": payload
-                });
+                let value = match topic.schema_subject.as_deref() {
+                    Some("ft-user-events-value") => {
+                        // Must conform to Avro schema: user_id, event_type, timestamp, seq, metadata
+                        let events = ["click", "purchase", "login", "logout", "view", "signup"];
+                        json!({
+                            "user_id": format!("user-{}", rng.gen_range(0u32..10000)),
+                            "event_type": events[rng.gen_range(0..events.len())],
+                            "timestamp": chrono::Utc::now().timestamp_millis(),
+                            "seq": seq,
+                            "metadata": {
+                                "producer_id": producer_id,
+                                "org": org_slug.clone(),
+                                "source": "loadtest"
+                            }
+                        })
+                    }
+                    Some("ec-products-value") => {
+                        // JSON Schema: product_id, name, price, category
+                        let categories = ["electronics", "clothing", "food", "toys", "books"];
+                        json!({
+                            "product_id": format!("prod-{}", rng.gen_range(0u32..50000)),
+                            "name": format!("Product {seq}"),
+                            "price": rng.gen_range(1.0f64..999.99),
+                            "category": categories[rng.gen_range(0..categories.len())]
+                        })
+                    }
+                    Some("an-user-segments-value") => {
+                        // JSON Schema: user_id, segments[], updated_at
+                        let all_segments = ["power_user", "premium", "new", "churned", "active", "trial"];
+                        let n = rng.gen_range(1..=3);
+                        let segments: Vec<&str> = (0..n).map(|_| all_segments[rng.gen_range(0..all_segments.len())]).collect();
+                        json!({
+                            "user_id": format!("user-{}", rng.gen_range(0u32..10000)),
+                            "segments": segments,
+                            "updated_at": chrono::Utc::now().timestamp_millis()
+                        })
+                    }
+                    _ => {
+                        // Generic payload for non-schema topics
+                        let value_size: usize = rng.gen_range(100..2000);
+                        let payload: String = (0..value_size).map(|_| 'x').collect();
+                        json!({
+                            "seq": seq,
+                            "ts": chrono::Utc::now().timestamp_millis(),
+                            "producer_id": producer_id,
+                            "org": org_slug,
+                            "payload": payload
+                        })
+                    }
+                };
 
                 let mut record = json!({
                     "value": value.to_string(),
