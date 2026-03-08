@@ -11,6 +11,7 @@ use std::collections::HashMap;
 use crate::auth::AuthenticatedKey;
 use crate::handlers::topics::extract_org_id;
 use crate::{models::*, AppState};
+use streamhouse_observability::metrics;
 
 /// Validate a value against the schema registered for `{topic}-value`.
 /// Returns Ok(()) if no schema is registered or validation passes.
@@ -116,12 +117,18 @@ pub async fn produce(
     auth_key: Option<Extension<AuthenticatedKey>>,
     Json(req): Json<ProduceRequest>,
 ) -> Result<Json<ProduceResponse>, StatusCode> {
+    let start = std::time::Instant::now();
     let org_id = extract_org_id(&headers, auth_key.as_ref().map(|e| &e.0));
+    let topic_name = req.topic.clone();
+    let value_bytes = req.value.len() as u64;
 
     // Verify topic belongs to org and get its metadata
     let topic = match state.metadata.get_topic_for_org(&org_id, &req.topic).await {
         Ok(Some(t)) => t,
-        Ok(None) => return Err(StatusCode::NOT_FOUND),
+        Ok(None) => {
+            metrics::PRODUCER_ERRORS_TOTAL.with_label_values(&[&org_id, &topic_name, "topic_not_found"]).inc();
+            return Err(StatusCode::NOT_FOUND);
+        }
         Err(e) => {
             tracing::error!(
                 "get_topic_for_org failed: org={}, topic={}, err={:?}",
@@ -129,6 +136,7 @@ pub async fn produce(
                 req.topic,
                 e
             );
+            metrics::PRODUCER_ERRORS_TOTAL.with_label_values(&[&org_id, &topic_name, "metadata_error"]).inc();
             return Err(StatusCode::INTERNAL_SERVER_ERROR);
         }
     };
@@ -139,6 +147,7 @@ pub async fn produce(
             validate_value_against_schema(registry, &req.topic, &req.value).await
         {
             tracing::warn!("Schema validation failed: topic={}, err={}", req.topic, msg);
+            metrics::PRODUCER_ERRORS_TOTAL.with_label_values(&[&org_id, &topic_name, "schema_validation"]).inc();
             return Err(status);
         }
     }
@@ -150,6 +159,7 @@ pub async fn produce(
 
         // Validate partition exists
         if partition >= topic.partition_count {
+            metrics::PRODUCER_ERRORS_TOTAL.with_label_values(&[&org_id, &topic_name, "invalid_partition"]).inc();
             return Err(StatusCode::BAD_REQUEST);
         }
 
@@ -163,6 +173,7 @@ pub async fn produce(
                     partition,
                     e
                 );
+                metrics::PRODUCER_ERRORS_TOTAL.with_label_values(&[&org_id, &topic_name, "writer_error"]).inc();
                 return Err(StatusCode::INTERNAL_SERVER_ERROR);
             }
         };
@@ -187,10 +198,16 @@ pub async fn produce(
                         partition,
                         e
                     );
+                    metrics::PRODUCER_ERRORS_TOTAL.with_label_values(&[&org_id, &topic_name, "append_error"]).inc();
                     return Err(StatusCode::INTERNAL_SERVER_ERROR);
                 }
             }
         };
+
+        metrics::PRODUCER_RECORDS_TOTAL.with_label_values(&[&org_id, &topic_name]).inc();
+        metrics::PRODUCER_BYTES_TOTAL.with_label_values(&[&org_id, &topic_name]).inc_by(value_bytes);
+        metrics::PRODUCER_BATCH_SIZE.with_label_values(&[&org_id, &topic_name]).observe(1.0);
+        metrics::PRODUCER_LATENCY.with_label_values(&[&org_id, &topic_name]).observe(start.elapsed().as_secs_f64());
 
         return Ok(Json(ProduceResponse { offset, partition }));
     }
@@ -205,19 +222,33 @@ pub async fn produce(
                 req.partition,
             )
             .await
-            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+            .map_err(|_| {
+                metrics::PRODUCER_ERRORS_TOTAL.with_label_values(&[&org_id, &topic_name, "send_error"]).inc();
+                StatusCode::INTERNAL_SERVER_ERROR
+            })?;
 
         // Immediately flush to send the batch and get the offset
         producer
             .flush()
             .await
-            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+            .map_err(|_| {
+                metrics::PRODUCER_ERRORS_TOTAL.with_label_values(&[&org_id, &topic_name, "flush_error"]).inc();
+                StatusCode::INTERNAL_SERVER_ERROR
+            })?;
 
         // Wait for the offset to be assigned (should be immediate after flush)
         let offset = result
             .wait_offset()
             .await
-            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+            .map_err(|_| {
+                metrics::PRODUCER_ERRORS_TOTAL.with_label_values(&[&org_id, &topic_name, "offset_error"]).inc();
+                StatusCode::INTERNAL_SERVER_ERROR
+            })?;
+
+        metrics::PRODUCER_RECORDS_TOTAL.with_label_values(&[&org_id, &topic_name]).inc();
+        metrics::PRODUCER_BYTES_TOTAL.with_label_values(&[&org_id, &topic_name]).inc_by(value_bytes);
+        metrics::PRODUCER_BATCH_SIZE.with_label_values(&[&org_id, &topic_name]).observe(1.0);
+        metrics::PRODUCER_LATENCY.with_label_values(&[&org_id, &topic_name]).observe(start.elapsed().as_secs_f64());
 
         return Ok(Json(ProduceResponse {
             offset,
@@ -225,6 +256,7 @@ pub async fn produce(
         }));
     }
 
+    metrics::PRODUCER_ERRORS_TOTAL.with_label_values(&[&org_id, &topic_name, "no_writer"]).inc();
     Err(StatusCode::INTERNAL_SERVER_ERROR)
 }
 
@@ -247,15 +279,25 @@ pub async fn produce_batch(
     auth_key: Option<Extension<AuthenticatedKey>>,
     Json(req): Json<BatchProduceRequest>,
 ) -> Result<Json<BatchProduceResponse>, StatusCode> {
+    let start = std::time::Instant::now();
     let org_id = extract_org_id(&headers, auth_key.as_ref().map(|e| &e.0));
+    let topic_name = req.topic.clone();
+    let total_bytes: u64 = req.records.iter().map(|r| r.value.len() as u64).sum();
+    let record_count = req.records.len();
 
     // Verify topic belongs to org and get its metadata
     let topic = state
         .metadata
         .get_topic_for_org(&org_id, &req.topic)
         .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
-        .ok_or(StatusCode::NOT_FOUND)?;
+        .map_err(|_| {
+            metrics::PRODUCER_ERRORS_TOTAL.with_label_values(&[&org_id, &topic_name, "metadata_error"]).inc();
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?
+        .ok_or_else(|| {
+            metrics::PRODUCER_ERRORS_TOTAL.with_label_values(&[&org_id, &topic_name, "topic_not_found"]).inc();
+            StatusCode::NOT_FOUND
+        })?;
 
     // Validate all record values against schema (if schema registry is available)
     if let Some(registry) = &state.schema_registry {
@@ -269,6 +311,7 @@ pub async fn produce_batch(
                     idx,
                     msg
                 );
+                metrics::PRODUCER_ERRORS_TOTAL.with_label_values(&[&org_id, &topic_name, "schema_validation"]).inc();
                 return Err(status);
             }
         }
@@ -285,6 +328,7 @@ pub async fn produce_batch(
                 .partition
                 .unwrap_or(idx as u32 % topic.partition_count);
             if partition >= topic.partition_count {
+                metrics::PRODUCER_ERRORS_TOTAL.with_label_values(&[&org_id, &topic_name, "invalid_partition"]).inc();
                 return Err(StatusCode::BAD_REQUEST);
             }
             by_partition
@@ -298,7 +342,10 @@ pub async fn produce_batch(
             let writer = writer_pool
                 .get_writer(&org_id, &req.topic, partition)
                 .await
-                .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+                .map_err(|_| {
+                    metrics::PRODUCER_ERRORS_TOTAL.with_label_values(&[&org_id, &topic_name, "writer_error"]).inc();
+                    StatusCode::INTERNAL_SERVER_ERROR
+                })?;
 
             let mut writer_guard = writer.lock().await;
             let timestamp = std::time::SystemTime::now()
@@ -313,11 +360,19 @@ pub async fn produce_batch(
                 let offset = writer_guard
                     .append(key, value, timestamp)
                     .await
-                    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+                    .map_err(|_| {
+                        metrics::PRODUCER_ERRORS_TOTAL.with_label_values(&[&org_id, &topic_name, "append_error"]).inc();
+                        StatusCode::INTERNAL_SERVER_ERROR
+                    })?;
 
                 results.push(BatchRecordResult { partition, offset });
             }
         }
+
+        metrics::PRODUCER_RECORDS_TOTAL.with_label_values(&[&org_id, &topic_name]).inc_by(record_count as u64);
+        metrics::PRODUCER_BYTES_TOTAL.with_label_values(&[&org_id, &topic_name]).inc_by(total_bytes);
+        metrics::PRODUCER_BATCH_SIZE.with_label_values(&[&org_id, &topic_name]).observe(record_count as f64);
+        metrics::PRODUCER_LATENCY.with_label_values(&[&org_id, &topic_name]).observe(start.elapsed().as_secs_f64());
 
         return Ok(Json(BatchProduceResponse {
             count: results.len(),
@@ -325,5 +380,6 @@ pub async fn produce_batch(
         }));
     }
 
+    metrics::PRODUCER_ERRORS_TOTAL.with_label_values(&[&org_id, &topic_name, "no_writer"]).inc();
     Err(StatusCode::INTERNAL_SERVER_ERROR)
 }

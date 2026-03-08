@@ -75,6 +75,7 @@ streamhouse-client = { path = "../streamhouse-client" }
 streamhouse-storage = { path = "../streamhouse-storage" }
 streamhouse-sql = { path = "../streamhouse-sql" }
 streamhouse-schema-registry = { path = "../streamhouse-schema-registry" }
+streamhouse-observability = { path = "../streamhouse-observability" }
 object_store = { workspace = true }
 
 [features]

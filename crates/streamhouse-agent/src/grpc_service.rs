@@ -52,6 +52,7 @@ use streamhouse_proto::streamhouse::{
     CompleteTransferRequest, CompleteTransferResponse, HealthCheckRequest, HealthCheckResponse,
     TransferLeaseRequest, TransferLeaseResponse, TransferReason,
 };
+use streamhouse_observability::metrics;
 use streamhouse_storage::writer_pool::WriterPool;
 use tokio::sync::RwLock;
 use tonic::{Request, Response, Status};
@@ -552,7 +553,6 @@ impl ProducerService for ProducerServiceImpl {
         &self,
         request: Request<ProduceRequest>,
     ) -> std::result::Result<Response<ProduceResponse>, Status> {
-        #[cfg(feature = "metrics")]
         let start = std::time::Instant::now();
 
         // Check if shutting down
@@ -636,11 +636,14 @@ impl ProducerService for ProducerServiceImpl {
                     error = %e,
                     "Failed to get writer"
                 );
+                metrics::PRODUCER_ERRORS_TOTAL.with_label_values(&[&org_id, &req.topic, "writer_error"]).inc();
                 return Err(Status::internal(format!("Failed to get writer: {}", e)));
             }
         };
 
         // Batch append — single WAL write for the entire produce request
+        let batch_record_count = req.records.len();
+        let batch_bytes: u64 = req.records.iter().map(|r| r.value.len() as u64).sum();
         let batch: Vec<(Option<bytes::Bytes>, bytes::Bytes, u64)> = req
             .records
             .into_iter()
@@ -671,6 +674,7 @@ impl ProducerService for ProducerServiceImpl {
                             partition = req.partition,
                             "S3 rate limited - rejecting produce request with backpressure"
                         );
+                        metrics::PRODUCER_ERRORS_TOTAL.with_label_values(&[&org_id, &req.topic, "s3_rate_limited"]).inc();
                         return Err(Status::resource_exhausted(
                             "S3 rate limit exceeded - please slow down",
                         ));
@@ -680,6 +684,7 @@ impl ProducerService for ProducerServiceImpl {
                             partition = req.partition,
                             "S3 circuit breaker open - rejecting produce request"
                         );
+                        metrics::PRODUCER_ERRORS_TOTAL.with_label_values(&[&org_id, &req.topic, "s3_circuit_breaker"]).inc();
                         return Err(Status::unavailable(
                             "S3 service is temporarily unavailable - circuit breaker open",
                         ));
@@ -691,6 +696,7 @@ impl ProducerService for ProducerServiceImpl {
                         error = %e,
                         "Failed to append batch"
                     );
+                    metrics::PRODUCER_ERRORS_TOTAL.with_label_values(&[&org_id, &req.topic, "append_error"]).inc();
                     return Err(Status::internal(format!("Failed to append batch: {}", e)));
                 }
             }
@@ -778,12 +784,18 @@ impl ProducerService for ProducerServiceImpl {
             }
         }
 
-        // Record metrics (Phase 7)
+        // Record Prometheus metrics
+        metrics::PRODUCER_RECORDS_TOTAL.with_label_values(&[&org_id, &req.topic]).inc_by(batch_record_count as u64);
+        metrics::PRODUCER_BYTES_TOTAL.with_label_values(&[&org_id, &req.topic]).inc_by(batch_bytes);
+        metrics::PRODUCER_BATCH_SIZE.with_label_values(&[&org_id, &req.topic]).observe(batch_record_count as f64);
+        metrics::PRODUCER_LATENCY.with_label_values(&[&org_id, &req.topic]).observe(start.elapsed().as_secs_f64());
+
+        // Record agent-specific metrics (Phase 7)
         #[cfg(feature = "metrics")]
-        if let Some(ref metrics) = self.metrics {
+        if let Some(ref m) = self.metrics {
             let duration = start.elapsed().as_secs_f64();
-            metrics.record_write(record_count as u64, duration);
-            metrics.record_grpc_request(duration);
+            m.record_write(record_count as u64, duration);
+            m.record_grpc_request(duration);
         }
 
         Ok(Response::new(ProduceResponse {

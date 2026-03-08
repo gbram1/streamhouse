@@ -42,7 +42,7 @@
       },
       "targets": [
         {
-          "expr": "rate(streamhouse_producer_records_total{topic=\"$topic\"}[5m])",
+          "expr": "rate(streamhouse_producer_records_total{topic=~\"$topic\"}[5m])",
           "legendFormat": "{{topic}}",
           "refId": "A"
         }
@@ -68,7 +68,7 @@
       "id": 2,
       "targets": [
         {
-          "expr": "rate(streamhouse_producer_bytes_total{topic=\"$topic\"}[5m])",
+          "expr": "rate(streamhouse_producer_bytes_total{topic=~\"$topic\"}[5m])",
           "legendFormat": "{{topic}}",
           "refId": "A"
         }
@@ -94,17 +94,17 @@
       "id": 3,
       "targets": [
         {
-          "expr": "histogram_quantile(0.50, rate(streamhouse_producer_latency_seconds_bucket{topic=\"$topic\"}[5m]))",
+          "expr": "histogram_quantile(0.50, rate(streamhouse_producer_latency_seconds_bucket{topic=~\"$topic\"}[5m]))",
           "legendFormat": "p50",
           "refId": "A"
         },
         {
-          "expr": "histogram_quantile(0.95, rate(streamhouse_producer_latency_seconds_bucket{topic=\"$topic\"}[5m]))",
+          "expr": "histogram_quantile(0.95, rate(streamhouse_producer_latency_seconds_bucket{topic=~\"$topic\"}[5m]))",
           "legendFormat": "p95",
           "refId": "B"
         },
         {
-          "expr": "histogram_quantile(0.99, rate(streamhouse_producer_latency_seconds_bucket{topic=\"$topic\"}[5m]))",
+          "expr": "histogram_quantile(0.99, rate(streamhouse_producer_latency_seconds_bucket{topic=~\"$topic\"}[5m]))",
           "legendFormat": "p99",
           "refId": "C"
         }
@@ -130,12 +130,12 @@
       "id": 4,
       "targets": [
         {
-          "expr": "histogram_quantile(0.50, rate(streamhouse_producer_batch_size{topic=\"$topic\"}[5m]))",
+          "expr": "histogram_quantile(0.50, rate(streamhouse_producer_batch_size{topic=~\"$topic\"}[5m]))",
           "legendFormat": "p50 batch size",
           "refId": "A"
         },
         {
-          "expr": "histogram_quantile(0.95, rate(streamhouse_producer_batch_size{topic=\"$topic\"}[5m]))",
+          "expr": "histogram_quantile(0.95, rate(streamhouse_producer_batch_size{topic=~\"$topic\"}[5m]))",
           "legendFormat": "p95 batch size",
           "refId": "B"
         }
@@ -164,7 +164,7 @@
       "id": 5,
       "targets": [
         {
-          "expr": "rate(streamhouse_producer_errors_total{topic=\"$topic\"}[5m])",
+          "expr": "rate(streamhouse_producer_errors_total{topic=~\"$topic\"}[5m])",
           "legendFormat": "{{topic}} - {{error_type}}",
           "refId": "A"
         }

@@ -11,6 +11,7 @@ use crate::auth::AuthenticatedKey;
 use crate::handlers::topics::extract_org_id;
 use crate::models::{ConsumeResponse, ConsumedRecord};
 use crate::AppState;
+use streamhouse_observability::metrics;
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -51,17 +52,25 @@ pub async fn consume(
     axum::extract::Query(req): axum::extract::Query<ConsumeRequest>,
 ) -> Result<Json<ConsumeResponse>, StatusCode> {
     let org_id = extract_org_id(&headers, auth_key.as_ref().map(|e| &e.0));
+    let topic_name = req.topic.clone();
 
     // Verify topic belongs to org and get its metadata
     let topic = state
         .metadata
         .get_topic_for_org(&org_id, &req.topic)
         .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
-        .ok_or(StatusCode::NOT_FOUND)?;
+        .map_err(|_| {
+            metrics::CONSUMER_ERRORS_TOTAL.with_label_values(&[&org_id, &topic_name, "rest-api", "metadata_error"]).inc();
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?
+        .ok_or_else(|| {
+            metrics::CONSUMER_ERRORS_TOTAL.with_label_values(&[&org_id, &topic_name, "rest-api", "topic_not_found"]).inc();
+            StatusCode::NOT_FOUND
+        })?;
 
     // Validate partition exists
     if req.partition >= topic.partition_count {
+        metrics::CONSUMER_ERRORS_TOTAL.with_label_values(&[&org_id, &topic_name, "rest-api", "invalid_partition"]).inc();
         return Err(StatusCode::NOT_FOUND);
     }
 
@@ -97,7 +106,10 @@ pub async fn consume(
                 next_offset,
             }));
         }
-        Err(_) => return Err(StatusCode::INTERNAL_SERVER_ERROR),
+        Err(_) => {
+            metrics::CONSUMER_ERRORS_TOTAL.with_label_values(&[&org_id, &topic_name, "rest-api", "read_error"]).inc();
+            return Err(StatusCode::INTERNAL_SERVER_ERROR);
+        }
     };
 
     // Convert to API records
@@ -118,6 +130,10 @@ pub async fn consume(
         .collect();
 
     let next_offset = req.offset + records.len() as u64;
+
+    if !records.is_empty() {
+        metrics::CONSUMER_RECORDS_TOTAL.with_label_values(&[&org_id, &topic_name, "rest-api"]).inc_by(records.len() as u64);
+    }
 
     Ok(Json(ConsumeResponse {
         records,

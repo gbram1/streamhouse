@@ -14,6 +14,7 @@ use crate::codec::{
 };
 use crate::error::{ErrorCode, KafkaResult};
 use crate::server::KafkaServerState;
+use streamhouse_observability::metrics;
 
 /// Handle Fetch request
 pub async fn handle_fetch(
@@ -325,6 +326,7 @@ async fn fetch_partition(
     let partition_info = match state.metadata.get_partition(org_id, topic_name, partition_id).await {
         Ok(Some(info)) => info,
         Ok(None) => {
+            metrics::CONSUMER_ERRORS_TOTAL.with_label_values(&[org_id, topic_name, "kafka", "unknown_partition"]).inc();
             return FetchPartitionResponse {
                 partition_index: partition_id as i32,
                 error_code: ErrorCode::UnknownTopicOrPartition,
@@ -335,6 +337,7 @@ async fn fetch_partition(
             };
         }
         Err(_) => {
+            metrics::CONSUMER_ERRORS_TOTAL.with_label_values(&[org_id, topic_name, "kafka", "metadata_error"]).inc();
             return FetchPartitionResponse {
                 partition_index: partition_id as i32,
                 error_code: ErrorCode::UnknownServerError,
@@ -381,6 +384,17 @@ async fn fetch_partition(
     } else {
         records
     };
+
+    // Count records from the Kafka RecordBatch for metrics
+    // The record count is at offset 57 (4 bytes, big-endian i32) in the batch
+    if let Some(ref data) = records {
+        if data.len() >= 61 {
+            let record_count = i32::from_be_bytes([data[57], data[58], data[59], data[60]]);
+            if record_count > 0 {
+                metrics::CONSUMER_RECORDS_TOTAL.with_label_values(&[org_id, topic_name, "kafka"]).inc_by(record_count as u64);
+            }
+        }
+    }
 
     FetchPartitionResponse {
         partition_index: partition_id as i32,
