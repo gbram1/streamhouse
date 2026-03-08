@@ -54,7 +54,7 @@
       },
       "targets": [
         {
-          "expr": "streamhouse_circuit_breaker_state",
+          "expr": "streamhouse_circuit_breaker_state{org_id=~\"$org_id\"}",
           "legendFormat": "Circuit Breaker",
           "refId": "A"
         }
@@ -95,7 +95,7 @@
       },
       "targets": [
         {
-          "expr": "streamhouse_circuit_breaker_failures",
+          "expr": "streamhouse_circuit_breaker_failures{org_id=~\"$org_id\"}",
           "legendFormat": "Consecutive Failures",
           "refId": "A"
         }
@@ -136,7 +136,7 @@
       },
       "targets": [
         {
-          "expr": "sum(rate(streamhouse_throttle_decisions_total{decision=\"rate_limited\"}[5m])) / (sum(rate(streamhouse_throttle_decisions_total[5m])) + 0.0001)",
+          "expr": "sum(rate(streamhouse_throttle_decisions_total{org_id=~\"$org_id\",decision=\"rate_limited\"}[5m])) / (sum(rate(streamhouse_throttle_decisions_total{org_id=~\"$org_id\"}[5m])) + 0.0001)",
           "legendFormat": "Throttle Rate",
           "refId": "A"
         }
@@ -175,7 +175,7 @@
       },
       "targets": [
         {
-          "expr": "streamhouse_throttle_rate_current{operation=\"put\"}",
+          "expr": "streamhouse_throttle_rate_current{org_id=~\"$org_id\",operation=\"put\"}",
           "legendFormat": "PUT Rate Limit",
           "refId": "A"
         }
@@ -201,7 +201,7 @@
       "id": 5,
       "targets": [
         {
-          "expr": "rate(streamhouse_s3_requests_total[5m])",
+          "expr": "rate(streamhouse_s3_requests_total{org_id=~\"$org_id\"}[5m])",
           "legendFormat": "{{operation}}",
           "refId": "A"
         }
@@ -227,17 +227,17 @@
       "id": 6,
       "targets": [
         {
-          "expr": "histogram_quantile(0.50, rate(streamhouse_s3_latency_seconds_bucket[5m]))",
+          "expr": "histogram_quantile(0.50, rate(streamhouse_s3_latency_seconds_bucket{org_id=~\"$org_id\"}[5m]))",
           "legendFormat": "p50",
           "refId": "A"
         },
         {
-          "expr": "histogram_quantile(0.95, rate(streamhouse_s3_latency_seconds_bucket[5m]))",
+          "expr": "histogram_quantile(0.95, rate(streamhouse_s3_latency_seconds_bucket{org_id=~\"$org_id\"}[5m]))",
           "legendFormat": "p95",
           "refId": "B"
         },
         {
-          "expr": "histogram_quantile(0.99, rate(streamhouse_s3_latency_seconds_bucket[5m]))",
+          "expr": "histogram_quantile(0.99, rate(streamhouse_s3_latency_seconds_bucket{org_id=~\"$org_id\"}[5m]))",
           "legendFormat": "p99",
           "refId": "C"
         }
@@ -264,12 +264,12 @@
       "id": 7,
       "targets": [
         {
-          "expr": "rate(streamhouse_throttle_decisions_total{decision=\"allow\"}[5m])",
+          "expr": "rate(streamhouse_throttle_decisions_total{org_id=~\"$org_id\",decision=\"allow\"}[5m])",
           "legendFormat": "Allowed",
           "refId": "A"
         },
         {
-          "expr": "rate(streamhouse_throttle_decisions_total{decision=\"rate_limited\"}[5m])",
+          "expr": "rate(streamhouse_throttle_decisions_total{org_id=~\"$org_id\",decision=\"rate_limited\"}[5m])",
           "legendFormat": "Rate Limited",
           "refId": "B"
         }
@@ -303,7 +303,7 @@
       "id": 8,
       "targets": [
         {
-          "expr": "rate(streamhouse_s3_errors_total[5m])",
+          "expr": "rate(streamhouse_s3_errors_total{org_id=~\"$org_id\"}[5m])",
           "legendFormat": "{{operation}} - {{error_type}}",
           "refId": "A"
         }
@@ -329,7 +329,7 @@
       "id": 9,
       "targets": [
         {
-          "expr": "streamhouse_throttle_rate_current",
+          "expr": "streamhouse_throttle_rate_current{org_id=~\"$org_id\"}",
           "legendFormat": "{{operation}}",
           "refId": "A"
         }
@@ -355,7 +355,7 @@
       "id": 10,
       "targets": [
         {
-          "expr": "increase(streamhouse_circuit_breaker_transitions_total[1h])",
+          "expr": "increase(streamhouse_circuit_breaker_transitions_total{org_id=~\"$org_id\"}[1h])",
           "legendFormat": "{{from}} -> {{to}}",
           "refId": "A"
         }
@@ -369,7 +369,26 @@
   "style": "dark",
   "tags": ["streamhouse", "s3", "throttling", "circuit-breaker"],
   "templating": {
-    "list": []
+    "list": [
+      {
+        "allValue": ".*",
+        "current": {"selected": false, "text": "All", "value": "$__all"},
+        "datasource": "Prometheus",
+        "definition": "label_values(streamhouse_s3_requests_total, org_id)",
+        "hide": 0,
+        "includeAll": true,
+        "label": "Organization",
+        "multi": false,
+        "name": "org_id",
+        "options": [],
+        "query": "label_values(streamhouse_s3_requests_total, org_id)",
+        "refresh": 1,
+        "regex": "",
+        "skipUrlSync": false,
+        "sort": 1,
+        "type": "query"
+      }
+    ]
   },
   "time": {"from": "now-1h", "to": "now"},
   "timepicker": {},

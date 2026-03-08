@@ -53,7 +53,7 @@
       "pluginVersion": "8.0.0",
       "targets": [
         {
-          "expr": "rate(streamhouse_cache_hits_total[5m]) / (rate(streamhouse_cache_hits_total[5m]) + rate(streamhouse_cache_misses_total[5m]))",
+          "expr": "rate(streamhouse_cache_hits_total{org_id=~\"$org_id\"}[5m]) / (rate(streamhouse_cache_hits_total{org_id=~\"$org_id\"}[5m]) + rate(streamhouse_cache_misses_total{org_id=~\"$org_id\"}[5m]))",
           "refId": "A"
         }
       ],
@@ -104,12 +104,12 @@
       "id": 3,
       "targets": [
         {
-          "expr": "rate(streamhouse_cache_hits_total[5m])",
+          "expr": "rate(streamhouse_cache_hits_total{org_id=~\"$org_id\"}[5m])",
           "legendFormat": "Hits",
           "refId": "A"
         },
         {
-          "expr": "rate(streamhouse_cache_misses_total[5m])",
+          "expr": "rate(streamhouse_cache_misses_total{org_id=~\"$org_id\"}[5m])",
           "legendFormat": "Misses",
           "refId": "B"
         }
@@ -135,12 +135,12 @@
       "id": 4,
       "targets": [
         {
-          "expr": "increase(streamhouse_cache_hits_total[1h])",
+          "expr": "increase(streamhouse_cache_hits_total{org_id=~\"$org_id\"}[1h])",
           "legendFormat": "Hits (hourly)",
           "refId": "A"
         },
         {
-          "expr": "increase(streamhouse_cache_misses_total[1h])",
+          "expr": "increase(streamhouse_cache_misses_total{org_id=~\"$org_id\"}[1h])",
           "legendFormat": "Misses (hourly)",
           "refId": "B"
         }
@@ -221,7 +221,7 @@
       "pluginVersion": "8.0.0",
       "targets": [
         {
-          "expr": "increase(streamhouse_cache_hits_total[24h])",
+          "expr": "increase(streamhouse_cache_hits_total{org_id=~\"$org_id\"}[24h])",
           "legendFormat": "S3 GETs Saved (24h)",
           "refId": "A"
         }
@@ -236,6 +236,24 @@
   "tags": ["streamhouse", "cache"],
   "templating": {
     "list": [
+      {
+        "allValue": ".*",
+        "current": {"selected": false, "text": "All", "value": "$__all"},
+        "datasource": "Prometheus",
+        "definition": "label_values(streamhouse_cache_hits_total, org_id)",
+        "hide": 0,
+        "includeAll": true,
+        "label": "Organization",
+        "multi": false,
+        "name": "org_id",
+        "options": [],
+        "query": "label_values(streamhouse_cache_hits_total, org_id)",
+        "refresh": 1,
+        "regex": "",
+        "skipUrlSync": false,
+        "sort": 1,
+        "type": "query"
+      },
       {
         "current": {"selected": false, "text": "1073741824", "value": "1073741824"},
         "hide": 0,

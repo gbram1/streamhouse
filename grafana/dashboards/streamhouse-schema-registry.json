@@ -49,7 +49,7 @@
       },
       "targets": [
         {
-          "expr": "streamhouse_schemas_total",
+          "expr": "streamhouse_schemas_total{org_id=~\"$org_id\"}",
           "legendFormat": "Total Schemas",
           "refId": "A"
         }
@@ -88,7 +88,7 @@
       },
       "targets": [
         {
-          "expr": "streamhouse_subjects_total",
+          "expr": "streamhouse_subjects_total{org_id=~\"$org_id\"}",
           "legendFormat": "Total Subjects",
           "refId": "A"
         }
@@ -127,7 +127,7 @@
       },
       "targets": [
         {
-          "expr": "streamhouse_schema_cache_entries",
+          "expr": "streamhouse_schema_cache_entries{org_id=~\"$org_id\"}",
           "legendFormat": "Cache Entries",
           "refId": "A"
         }
@@ -168,7 +168,7 @@
       },
       "targets": [
         {
-          "expr": "sum(rate(streamhouse_schema_lookups_total{result=\"hit\"}[5m])) / (sum(rate(streamhouse_schema_lookups_total[5m])) + 0.0001)",
+          "expr": "sum(rate(streamhouse_schema_lookups_total{org_id=~\"$org_id\",result=\"hit\"}[5m])) / (sum(rate(streamhouse_schema_lookups_total{org_id=~\"$org_id\"}[5m])) + 0.0001)",
           "legendFormat": "Cache Hit Rate",
           "refId": "A"
         }
@@ -194,7 +194,7 @@
       "id": 5,
       "targets": [
         {
-          "expr": "rate(streamhouse_schema_registrations_total[5m])",
+          "expr": "rate(streamhouse_schema_registrations_total{org_id=~\"$org_id\"}[5m])",
           "legendFormat": "{{result}}",
           "refId": "A"
         }
@@ -220,7 +220,7 @@
       "id": 6,
       "targets": [
         {
-          "expr": "rate(streamhouse_schema_lookups_total[5m])",
+          "expr": "rate(streamhouse_schema_lookups_total{org_id=~\"$org_id\"}[5m])",
           "legendFormat": "{{result}}",
           "refId": "A"
         }
@@ -246,7 +246,7 @@
       "id": 7,
       "targets": [
         {
-          "expr": "rate(streamhouse_schema_compatibility_checks_total[5m])",
+          "expr": "rate(streamhouse_schema_compatibility_checks_total{org_id=~\"$org_id\"}[5m])",
           "legendFormat": "{{result}}",
           "refId": "A"
         }
@@ -280,7 +280,7 @@
       "id": 8,
       "targets": [
         {
-          "expr": "rate(streamhouse_schema_registry_errors_total[5m])",
+          "expr": "rate(streamhouse_schema_registry_errors_total{org_id=~\"$org_id\"}[5m])",
           "legendFormat": "{{error_type}}",
           "refId": "A"
         }
@@ -322,7 +322,7 @@
       },
       "targets": [
         {
-          "expr": "increase(streamhouse_schema_compatibility_checks_total{result=\"incompatible\"}[1h])",
+          "expr": "increase(streamhouse_schema_compatibility_checks_total{org_id=~\"$org_id\",result=\"incompatible\"}[1h])",
           "legendFormat": "Incompatible",
           "refId": "A"
         }
@@ -364,7 +364,7 @@
       },
       "targets": [
         {
-          "expr": "increase(streamhouse_schema_registry_errors_total{error_type=\"not_found\"}[1h])",
+          "expr": "increase(streamhouse_schema_registry_errors_total{org_id=~\"$org_id\",error_type=\"not_found\"}[1h])",
           "legendFormat": "Not Found",
           "refId": "A"
         }
@@ -406,7 +406,7 @@
       },
       "targets": [
         {
-          "expr": "increase(streamhouse_schema_registrations_total{result=\"failure\"}[1h])",
+          "expr": "increase(streamhouse_schema_registrations_total{org_id=~\"$org_id\",result=\"failure\"}[1h])",
           "legendFormat": "Registration Failures",
           "refId": "A"
         }
@@ -420,7 +420,26 @@
   "style": "dark",
   "tags": ["streamhouse", "schema-registry"],
   "templating": {
-    "list": []
+    "list": [
+      {
+        "allValue": ".*",
+        "current": {"selected": false, "text": "All", "value": "$__all"},
+        "datasource": "Prometheus",
+        "definition": "label_values(streamhouse_schemas_total, org_id)",
+        "hide": 0,
+        "includeAll": true,
+        "label": "Organization",
+        "multi": false,
+        "name": "org_id",
+        "options": [],
+        "query": "label_values(streamhouse_schemas_total, org_id)",
+        "refresh": 1,
+        "regex": "",
+        "skipUrlSync": false,
+        "sort": 1,
+        "type": "query"
+      }
+    ]
   },
   "time": {"from": "now-1h", "to": "now"},
   "timepicker": {},

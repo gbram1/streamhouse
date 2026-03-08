@@ -36,7 +36,7 @@
       "id": 1,
       "targets": [
         {
-          "expr": "rate(streamhouse_segment_writes_total{topic=\"$topic\"}[5m])",
+          "expr": "rate(streamhouse_segment_writes_total{org_id=~\"$org_id\",topic=~\"$topic\"}[5m])",
           "legendFormat": "{{topic}}/p{{partition}}",
           "refId": "A"
         }
@@ -62,7 +62,7 @@
       "id": 2,
       "targets": [
         {
-          "expr": "rate(streamhouse_segment_flushes_total{topic=\"$topic\"}[5m])",
+          "expr": "rate(streamhouse_segment_flushes_total{org_id=~\"$org_id\",topic=~\"$topic\"}[5m])",
           "legendFormat": "{{topic}}/p{{partition}}",
           "refId": "A"
         }
@@ -87,7 +87,7 @@
       "id": 3,
       "targets": [
         {
-          "expr": "rate(streamhouse_segment_flushes_total{topic=\"$topic\"}[5m]) / rate(streamhouse_segment_writes_total{topic=\"$topic\"}[5m])",
+          "expr": "rate(streamhouse_segment_flushes_total{org_id=~\"$org_id\",topic=~\"$topic\"}[5m]) / rate(streamhouse_segment_writes_total{org_id=~\"$org_id\",topic=~\"$topic\"}[5m])",
           "legendFormat": "{{topic}}/p{{partition}}",
           "refId": "A"
         }
@@ -112,17 +112,17 @@
       "id": 4,
       "targets": [
         {
-          "expr": "histogram_quantile(0.50, rate(streamhouse_s3_latency_seconds_bucket{operation=\"PUT\"}[5m]))",
+          "expr": "histogram_quantile(0.50, rate(streamhouse_s3_latency_seconds_bucket{org_id=~\"$org_id\",operation=\"PUT\"}[5m]))",
           "legendFormat": "p50",
           "refId": "A"
         },
         {
-          "expr": "histogram_quantile(0.95, rate(streamhouse_s3_latency_seconds_bucket{operation=\"PUT\"}[5m]))",
+          "expr": "histogram_quantile(0.95, rate(streamhouse_s3_latency_seconds_bucket{org_id=~\"$org_id\",operation=\"PUT\"}[5m]))",
           "legendFormat": "p95",
           "refId": "B"
         },
         {
-          "expr": "histogram_quantile(0.99, rate(streamhouse_s3_latency_seconds_bucket{operation=\"PUT\"}[5m]))",
+          "expr": "histogram_quantile(0.99, rate(streamhouse_s3_latency_seconds_bucket{org_id=~\"$org_id\",operation=\"PUT\"}[5m]))",
           "legendFormat": "p99",
           "refId": "C"
         }
@@ -143,12 +143,12 @@
       "id": 5,
       "targets": [
         {
-          "expr": "rate(streamhouse_s3_requests_total{operation=\"PUT\"}[5m])",
+          "expr": "rate(streamhouse_s3_requests_total{org_id=~\"$org_id\",operation=\"PUT\"}[5m])",
           "legendFormat": "PUT",
           "refId": "A"
         },
         {
-          "expr": "rate(streamhouse_s3_requests_total{operation=\"GET\"}[5m])",
+          "expr": "rate(streamhouse_s3_requests_total{org_id=~\"$org_id\",operation=\"GET\"}[5m])",
           "legendFormat": "GET",
           "refId": "B"
         }
@@ -177,12 +177,12 @@
       "id": 6,
       "targets": [
         {
-          "expr": "rate(streamhouse_s3_errors_total{error_type=\"retry\"}[5m])",
+          "expr": "rate(streamhouse_s3_errors_total{org_id=~\"$org_id\",error_type=\"retry\"}[5m])",
           "legendFormat": "{{operation}} - retry",
           "refId": "A"
         },
         {
-          "expr": "rate(streamhouse_s3_errors_total{error_type=\"failed\"}[5m])",
+          "expr": "rate(streamhouse_s3_errors_total{org_id=~\"$org_id\",error_type=\"failed\"}[5m])",
           "legendFormat": "{{operation}} - FAILED",
           "refId": "B"
         }
@@ -201,18 +201,36 @@
         "allValue": ".*",
         "current": {"selected": false, "text": "All", "value": "$__all"},
         "datasource": "Prometheus",
-        "definition": "label_values(streamhouse_segment_writes_total, topic)",
+        "definition": "label_values(streamhouse_segment_writes_total, org_id)",
+        "hide": 0,
+        "includeAll": true,
+        "label": "Organization",
+        "multi": false,
+        "name": "org_id",
+        "options": [],
+        "query": "label_values(streamhouse_segment_writes_total, org_id)",
+        "refresh": 1,
+        "regex": "",
+        "skipUrlSync": false,
+        "sort": 1,
+        "type": "query"
+      },
+      {
+        "allValue": ".*",
+        "current": {"selected": false, "text": "All", "value": "$__all"},
+        "datasource": "Prometheus",
+        "definition": "label_values(streamhouse_segment_writes_total{org_id=~\"$org_id\"}, topic)",
         "hide": 0,
         "includeAll": true,
         "label": "Topic",
         "multi": false,
         "name": "topic",
         "options": [],
-        "query": "label_values(streamhouse_segment_writes_total, topic)",
+        "query": "label_values(streamhouse_segment_writes_total{org_id=~\"$org_id\"}, topic)",
         "refresh": 1,
         "regex": "",
         "skipUrlSync": false,
-        "sort": 0,
+        "sort": 1,
         "type": "query"
       }
     ]

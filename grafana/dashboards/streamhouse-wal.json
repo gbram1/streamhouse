@@ -36,7 +36,7 @@
       "id": 1,
       "targets": [
         {
-          "expr": "rate(streamhouse_wal_appends_total{topic=\"$topic\"}[5m])",
+          "expr": "rate(streamhouse_wal_appends_total{org_id=~\"$org_id\",topic=~\"$topic\"}[5m])",
           "legendFormat": "{{topic}}-{{partition}}",
           "refId": "A"
         }
@@ -62,7 +62,7 @@
       "id": 2,
       "targets": [
         {
-          "expr": "streamhouse_wal_size_bytes{topic=\"$topic\"}",
+          "expr": "streamhouse_wal_size_bytes{org_id=~\"$org_id\",topic=~\"$topic\"}",
           "legendFormat": "{{topic}}-{{partition}}",
           "refId": "A"
         }
@@ -103,7 +103,7 @@
       },
       "targets": [
         {
-          "expr": "increase(streamhouse_wal_recoveries_total{result=\"failure\"}[1h])",
+          "expr": "increase(streamhouse_wal_recoveries_total{org_id=~\"$org_id\",result=\"failure\"}[1h])",
           "legendFormat": "Failures",
           "refId": "A"
         }
@@ -142,7 +142,7 @@
       },
       "targets": [
         {
-          "expr": "sum(increase(streamhouse_wal_records_recovered[1h]))",
+          "expr": "sum(increase(streamhouse_wal_records_recovered{org_id=~\"$org_id\"}[1h]))",
           "legendFormat": "Recovered",
           "refId": "A"
         }
@@ -183,7 +183,7 @@
       },
       "targets": [
         {
-          "expr": "sum(increase(streamhouse_wal_records_skipped[1h]))",
+          "expr": "sum(increase(streamhouse_wal_records_skipped{org_id=~\"$org_id\"}[1h]))",
           "legendFormat": "Skipped (Corrupted)",
           "refId": "A"
         }
@@ -209,7 +209,7 @@
       "id": 6,
       "targets": [
         {
-          "expr": "rate(streamhouse_wal_truncates_total{topic=\"$topic\"}[5m])",
+          "expr": "rate(streamhouse_wal_truncates_total{org_id=~\"$org_id\",topic=~\"$topic\"}[5m])",
           "legendFormat": "{{topic}}-{{partition}}",
           "refId": "A"
         }
@@ -235,7 +235,7 @@
       "id": 7,
       "targets": [
         {
-          "expr": "sum(streamhouse_wal_size_bytes) by (topic)",
+          "expr": "sum(streamhouse_wal_size_bytes{org_id=~\"$org_id\"}) by (topic)",
           "legendFormat": "{{topic}} total",
           "refId": "A"
         }
@@ -254,18 +254,36 @@
         "allValue": ".*",
         "current": {"selected": false, "text": "All", "value": "$__all"},
         "datasource": "Prometheus",
-        "definition": "label_values(streamhouse_wal_appends_total, topic)",
+        "definition": "label_values(streamhouse_wal_appends_total, org_id)",
+        "hide": 0,
+        "includeAll": true,
+        "label": "Organization",
+        "multi": false,
+        "name": "org_id",
+        "options": [],
+        "query": "label_values(streamhouse_wal_appends_total, org_id)",
+        "refresh": 1,
+        "regex": "",
+        "skipUrlSync": false,
+        "sort": 1,
+        "type": "query"
+      },
+      {
+        "allValue": ".*",
+        "current": {"selected": false, "text": "All", "value": "$__all"},
+        "datasource": "Prometheus",
+        "definition": "label_values(streamhouse_wal_appends_total{org_id=~\"$org_id\"}, topic)",
         "hide": 0,
         "includeAll": true,
         "label": "Topic",
         "multi": false,
         "name": "topic",
         "options": [],
-        "query": "label_values(streamhouse_wal_appends_total, topic)",
+        "query": "label_values(streamhouse_wal_appends_total{org_id=~\"$org_id\"}, topic)",
         "refresh": 1,
         "regex": "",
         "skipUrlSync": false,
-        "sort": 0,
+        "sort": 1,
         "type": "query"
       }
     ]

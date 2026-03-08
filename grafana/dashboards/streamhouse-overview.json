@@ -31,7 +31,7 @@
       },
       "targets": [
         {
-          "expr": "sum(streamhouse_segment_writes_total)",
+          "expr": "sum(streamhouse_segment_writes_total{org_id=~\"$org_id\"})",
           "legendFormat": "Total",
           "refId": "A"
         }
@@ -62,7 +62,7 @@
       },
       "targets": [
         {
-          "expr": "sum(streamhouse_s3_requests_total)",
+          "expr": "sum(streamhouse_s3_requests_total{org_id=~\"$org_id\"})",
           "legendFormat": "Total",
           "refId": "A"
         }
@@ -124,7 +124,7 @@
       },
       "targets": [
         {
-          "expr": "streamhouse_schemas_total",
+          "expr": "streamhouse_schemas_total{org_id=~\"$org_id\"}",
           "legendFormat": "Schemas",
           "refId": "A"
         }
@@ -161,7 +161,7 @@
       },
       "targets": [
         {
-          "expr": "rate(streamhouse_segment_writes_total[1m])",
+          "expr": "rate(streamhouse_segment_writes_total{org_id=~\"$org_id\"}[1m])",
           "legendFormat": "{{topic}}/{{partition}}",
           "refId": "A"
         }
@@ -198,7 +198,7 @@
       },
       "targets": [
         {
-          "expr": "rate(streamhouse_s3_requests_total[1m])",
+          "expr": "rate(streamhouse_s3_requests_total{org_id=~\"$org_id\"}[1m])",
           "legendFormat": "{{operation}}",
           "refId": "A"
         }
@@ -242,17 +242,17 @@
       },
       "targets": [
         {
-          "expr": "histogram_quantile(0.50, rate(streamhouse_s3_latency_seconds_bucket[5m]))",
+          "expr": "histogram_quantile(0.50, rate(streamhouse_s3_latency_seconds_bucket{org_id=~\"$org_id\"}[5m]))",
           "legendFormat": "P50 - {{operation}}",
           "refId": "A"
         },
         {
-          "expr": "histogram_quantile(0.95, rate(streamhouse_s3_latency_seconds_bucket[5m]))",
+          "expr": "histogram_quantile(0.95, rate(streamhouse_s3_latency_seconds_bucket{org_id=~\"$org_id\"}[5m]))",
           "legendFormat": "P95 - {{operation}}",
           "refId": "B"
         },
         {
-          "expr": "histogram_quantile(0.99, rate(streamhouse_s3_latency_seconds_bucket[5m]))",
+          "expr": "histogram_quantile(0.99, rate(streamhouse_s3_latency_seconds_bucket{org_id=~\"$org_id\"}[5m]))",
           "legendFormat": "P99 - {{operation}}",
           "refId": "C"
         }
@@ -289,12 +289,12 @@
       },
       "targets": [
         {
-          "expr": "rate(streamhouse_cache_hits_total[5m])",
+          "expr": "rate(streamhouse_cache_hits_total{org_id=~\"$org_id\"}[5m])",
           "legendFormat": "Hits/sec",
           "refId": "A"
         },
         {
-          "expr": "rate(streamhouse_cache_misses_total[5m])",
+          "expr": "rate(streamhouse_cache_misses_total{org_id=~\"$org_id\"}[5m])",
           "legendFormat": "Misses/sec",
           "refId": "B"
         }
@@ -332,7 +332,7 @@
       },
       "targets": [
         {
-          "expr": "streamhouse_segment_writes_total",
+          "expr": "streamhouse_segment_writes_total{org_id=~\"$org_id\"}",
           "legendFormat": "{{topic}}/{{partition}}",
           "refId": "A"
         }
@@ -344,7 +344,28 @@
   "refresh": "10s",
   "schemaVersion": 38,
   "tags": ["streamhouse", "monitoring"],
-  "templating": { "list": [] },
+  "templating": {
+    "list": [
+      {
+        "allValue": ".*",
+        "current": {"selected": false, "text": "All", "value": "$__all"},
+        "datasource": "Prometheus",
+        "definition": "label_values(streamhouse_segment_writes_total, org_id)",
+        "hide": 0,
+        "includeAll": true,
+        "label": "Organization",
+        "multi": false,
+        "name": "org_id",
+        "options": [],
+        "query": "label_values(streamhouse_segment_writes_total, org_id)",
+        "refresh": 1,
+        "regex": "",
+        "skipUrlSync": false,
+        "sort": 1,
+        "type": "query"
+      }
+    ]
+  },
   "time": { "from": "now-1h", "to": "now" },
   "timepicker": {},
   "timezone": "",
