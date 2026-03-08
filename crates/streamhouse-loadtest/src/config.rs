@@ -28,11 +28,11 @@ pub struct Config {
     pub topics_per_org: usize,
 
     /// Target messages/second per producer
-    #[arg(long, default_value_t = 100)]
+    #[arg(long, default_value_t = 1000)]
     pub produce_rate: usize,
 
     /// Records per batch produce
-    #[arg(long, default_value_t = 50)]
+    #[arg(long, default_value_t = 200)]
     pub batch_size: usize,
 
     /// Duration in seconds (omit for infinite)

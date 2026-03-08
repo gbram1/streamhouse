@@ -130,45 +130,25 @@ Set `DISABLE_EMBEDDED_AGENT=1` on the unified server to use standalone mode. The
 
 ---
 
-## Partition Assignment (Consistent Hashing)
+## Partition Assignment (Round-Robin)
 
-The **PartitionAssigner** runs on each agent every 30 seconds. It determines which agent owns which partition using consistent hashing with virtual nodes. All agents compute the same result independently — no central coordinator required.
+The **PartitionAssigner** runs on each agent every 30 seconds. It distributes partitions evenly across live agents using deterministic round-robin — all agents compute the same result independently, no central coordinator required.
 
-### How Consistent Hashing Works
+### How It Works
 
-Each agent gets **150 virtual nodes (vnodes)** placed on a hash ring. Each partition hashes to a point on the ring and is assigned to the nearest agent vnode clockwise.
+Agents are sorted by ID. Partitions are assigned in round-robin order:
 
 ```
-                         Hash Ring (0 ──────────────► u64::MAX)
+3 agents, 6 partitions:
 
-    agent-1:vn0    agent-2:vn42        agent-3:vn87    agent-1:vn149
-         │              │                    │              │
-         ▼              ▼                    ▼              ▼
-    ─────●──────────────●────────────────────●──────────────●──────
-              ▲                   ▲                   ▲
-         orders:0            orders:1            orders:2
-         → agent-2           → agent-3           → agent-1
+  agent-1: [0, 3]     (partitions 0, 3)
+  agent-2: [1, 4]     (partitions 1, 4)
+  agent-3: [2, 5]     (partitions 2, 5)
 
-    (Each partition is assigned to the nearest vnode clockwise)
+  Each agent gets exactly partition_count / agent_count partitions.
 ```
 
-### Hash Function
-
-StreamHouse uses **FNV-1a with a Murmur3 finalizer** for hashing. This is critical:
-
-- **Deterministic** — All agents compute the same hash for the same input, so they agree on assignments without coordination
-- **Good avalanche** — Similar inputs (`agent-1:vn0`, `agent-1:vn1`) produce well-distributed hashes
-- **Cross-process safe** — Unlike Rust's `DefaultHasher` (SipHash), which is randomly seeded per process
-
-### Why Consistent Hashing?
-
-| Scenario | Partitions moved |
-|----------|-----------------|
-| Add 1 agent to 3 | ~1/4 of partitions (only those that hash to new agent) |
-| Remove 1 agent from 3 | ~1/3 of partitions (only the dead agent's) |
-| No change | 0 partitions moved |
-
-Compare this to modulo hashing (`partition % N`), where changing N reshuffles almost everything.
+Round-robin guarantees perfectly even distribution. Every agent gets the same number of partitions (±1 when not evenly divisible).
 
 ### The Rebalance Loop
 
@@ -182,15 +162,16 @@ Every 30 seconds on each agent:
   │     ├── No  → skip (optimization)               │
   │     └── Yes → recalculate                       │
   │                                                 │
-  │  3. For each (topic, partition):                │
-  │     winner = consistent_hash(topic, part, agents)│
+  │  3. Sort agents by ID                           │
+  │  4. For each (topic, partition):                │
+  │     owner = agents[partition_index % agent_count]│
   │                                                 │
-  │  4. Diff against current assignments:           │
+  │  5. Diff against current assignments:           │
   │     to_acquire = [should own, don't yet]        │
   │     to_release = [own now, shouldn't]           │
   │                                                 │
-  │  5. Release old leases                          │
-  │  6. Acquire new leases                          │
+  │  6. Release old leases                          │
+  │  7. Acquire new leases                          │
   └─────────────────────────────────────────────────┘
 ```
 
@@ -474,6 +455,53 @@ agent-1 shutting down, transferring orders/0 to agent-2:
    → Atomically transfers lease to agent-2 with new epoch
 6. agent-2 is now the leader for orders/0
 ```
+
+---
+
+## Disaster Recovery
+
+StreamHouse is built around a key principle: **S3 is the source of truth**. Metadata snapshots taken after S3 flushes are always a subset of S3. This makes recovery straightforward.
+
+### Snapshot Ordering
+
+```
+  Write data ──→ Upload segment to S3 ──→ Take metadata snapshot
+                                              │
+                                              ▼
+                                    _snapshots/{timestamp}.json.gz
+                                    (per-org, gzip compressed)
+```
+
+Snapshots are taken automatically on a configurable interval (`SNAPSHOT_INTERVAL_SECS`, default 3600). Each org gets its own snapshot path:
+- Default org: `_snapshots/{timestamp}.json.gz`
+- Per-org: `org-{uuid}/_snapshots/{timestamp}.json.gz`
+
+### Automatic Recovery
+
+On startup, if metadata is empty, the server self-heals:
+
+```
+  1. Discover orgs from S3 (list org-* prefixes)
+  2. For each org, find latest snapshot
+  3. Download, decompress, restore snapshot
+  4. Run reconcile-from-s3 to fill gaps
+  5. Server is fully recovered — no manual intervention
+```
+
+### Manual Recovery
+
+```bash
+# Run reverse reconciliation (scans S3, registers missing segments)
+RECONCILE_FROM_S3=1 ./target/release/unified-server
+```
+
+### S3 Reconciler
+
+Two modes:
+- **Orphan cleanup** (`reconcile()`): Deletes S3 segments with no metadata entry
+- **Reverse reconciliation** (`reconcile_from_s3()`): Registers S3 segments missing from metadata
+
+Both scan all org prefixes automatically.
 
 ---
 

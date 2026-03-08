@@ -26,7 +26,7 @@ pub async fn run_consumer(
         offsets.insert(p, 0);
     }
 
-    let mut interval = tokio::time::interval(Duration::from_millis(500));
+    let mut interval = tokio::time::interval(Duration::from_millis(200));
 
     loop {
         tokio::select! {
@@ -42,7 +42,7 @@ pub async fn run_consumer(
             let offset = offsets.get(&partition).copied().unwrap_or(0);
 
             let path = format!(
-                "/api/v1/consume?topic={}&partition={}&offset={}&maxRecords=100",
+                "/api/v1/consume?topic={}&partition={}&offset={}&maxRecords=1000",
                 topic, partition, offset
             );
 

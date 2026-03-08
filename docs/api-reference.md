@@ -1,267 +1,319 @@
 # API Reference
 
-StreamHouse exposes three wire protocols: REST, gRPC, and Kafka protocol.
+StreamHouse exposes three protocols: REST, Kafka, and gRPC. All three access the same data.
+
+When authentication is enabled, include your API key:
+- **REST**: `Authorization: Bearer sk_live_...`
+- **Kafka**: SASL/PLAIN with API key as username + password
+- **gRPC**: `authorization` metadata header
+
+---
 
 ## REST API
 
 Base URL: `http://localhost:8080`
 
-### Endpoints
+### Topics
 
-| Endpoint | Method | Description |
-|----------|--------|-------------|
-| `/health` | GET | Health check |
-| `/api/v1/topics` | GET | List all topics |
-| `/api/v1/topics` | POST | Create a topic |
-| `/api/v1/topics/{name}` | GET | Get topic details |
-| `/api/v1/topics/{name}` | DELETE | Delete a topic |
-| `/api/v1/produce` | POST | Produce a single message |
-| `/api/v1/produce/batch` | POST | Produce a batch of messages |
-| `/api/v1/consume` | GET | Consume messages from a partition |
-| `/api/v1/consumer-groups` | GET | List consumer groups |
-| `/api/v1/consumer-groups` | POST | Create consumer group |
-| `/api/v1/sql` | POST | Execute SQL query over streams |
-| `/schemas/subjects` | GET | List schema subjects |
-| `/schemas/subjects/{subject}/versions` | GET | List schema versions |
-| `/schemas/subjects/{subject}/versions` | POST | Register a new schema |
-| `/schemas/subjects/{subject}/versions/latest` | GET | Get latest schema |
-| `/schemas/subjects/{subject}/versions/{version}` | GET | Get specific schema version |
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `GET` | `/api/v1/topics` | List all topics |
+| `POST` | `/api/v1/topics` | Create a topic |
+| `GET` | `/api/v1/topics/{name}` | Get topic details |
+| `DELETE` | `/api/v1/topics/{name}` | Delete a topic |
+| `GET` | `/api/v1/topics/{name}/partitions` | List partitions with offsets |
 
-### Examples
-
-#### Health Check
-
-```bash
-curl http://localhost:8080/health
-```
-
-**Response:**
-```json
-{"status": "ok"}
-```
-
-#### Create Topic
-
+**Create topic:**
 ```bash
 curl -X POST http://localhost:8080/api/v1/topics \
   -H "Content-Type: application/json" \
-  -d '{"name": "events", "partitions": 4}'
+  -d '{"name": "events", "partition_count": 4}'
 ```
 
-**Response:**
-```json
-{
-  "name": "events",
-  "partitions": 4,
-  "replication_factor": 1
-}
-```
-
-#### Produce Message
-
+**Create topic with config:**
 ```bash
-curl -X POST http://localhost:8080/api/v1/produce \
+curl -X POST http://localhost:8080/api/v1/topics \
   -H "Content-Type: application/json" \
   -d '{
-    "topic": "events",
-    "key": "user-123",
-    "value": "{\"event\": \"signup\", \"user\": \"alice\"}"
+    "name": "events",
+    "partition_count": 4,
+    "config": {
+      "retention_ms": 604800000,
+      "cleanup_policy": "delete"
+    }
   }'
 ```
 
-**Response:**
-```json
-{
-  "topic": "events",
-  "partition": 2,
-  "offset": 42
-}
-```
+### Produce
 
-#### Produce Batch
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `POST` | `/api/v1/produce` | Produce a single message |
+| `POST` | `/api/v1/produce/batch` | Produce a batch of messages |
 
 ```bash
+# Single
+curl -X POST http://localhost:8080/api/v1/produce \
+  -d '{"topic": "events", "key": "user-1", "value": "{\"action\":\"signup\"}"}'
+
+# Batch
 curl -X POST http://localhost:8080/api/v1/produce/batch \
-  -H "Content-Type: application/json" \
   -d '{
     "topic": "events",
     "records": [
-      {"key": "user-1", "value": "{\"event\": \"login\"}"},
-      {"key": "user-2", "value": "{\"event\": \"logout\"}"}
+      {"key": "user-1", "value": "{\"action\":\"login\"}"},
+      {"key": "user-2", "value": "{\"action\":\"purchase\"}"}
     ]
   }'
 ```
 
-**Response:**
-```json
-{
-  "results": [
-    {"partition": 0, "offset": 10},
-    {"partition": 1, "offset": 5}
-  ]
-}
-```
+### Consume
 
-#### Consume Messages
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `GET` | `/api/v1/consume` | Consume messages from a partition |
+
+Query params: `topic`, `partition`, `offset`, `maxRecords` (default 100).
 
 ```bash
-curl "http://localhost:8080/api/v1/consume?topic=events&partition=0&offset=0&limit=10"
+curl "http://localhost:8080/api/v1/consume?topic=events&partition=0&offset=0&maxRecords=50"
 ```
 
-**Response:**
-```json
-{
-  "topic": "events",
-  "partition": 0,
-  "records": [
-    {
-      "offset": 0,
-      "key": "user-123",
-      "value": "{\"event\": \"signup\", \"user\": \"alice\"}",
-      "timestamp": 1678886400000
-    }
-  ]
-}
-```
+### Consumer Groups
 
-#### List Topics
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `GET` | `/api/v1/consumer-groups` | List consumer groups |
+| `POST` | `/api/v1/consumer-groups` | Create consumer group |
+| `GET` | `/api/v1/consumer-groups/{id}` | Get group details |
+| `POST` | `/api/v1/consumer-groups/commit` | Commit offsets |
+| `GET` | `/api/v1/consumer-groups/{id}/offsets` | Get committed offsets |
 
 ```bash
-curl http://localhost:8080/api/v1/topics
+# Commit offset
+curl -X POST http://localhost:8080/api/v1/consumer-groups/commit \
+  -d '{"group_id": "my-group", "topic": "events", "partition": 0, "offset": 42}'
 ```
 
-**Response:**
-```json
-{
-  "topics": [
-    {"name": "events", "partitions": 4},
-    {"name": "orders", "partitions": 8}
-  ]
-}
-```
+### SQL
 
-#### Get Topic
-
-```bash
-curl http://localhost:8080/api/v1/topics/events
-```
-
-**Response:**
-```json
-{
-  "name": "events",
-  "partitions": 4,
-  "replication_factor": 1,
-  "config": {
-    "retention_ms": 604800000,
-    "segment_max_size": 1048576
-  }
-}
-```
-
-#### Delete Topic
-
-```bash
-curl -X DELETE http://localhost:8080/api/v1/topics/events
-```
-
-**Response:**
-```json
-{"status": "deleted"}
-```
-
-#### SQL Query
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `POST` | `/api/v1/sql` | Execute SQL query |
 
 ```bash
 curl -X POST http://localhost:8080/api/v1/sql \
-  -H "Content-Type: application/json" \
-  -d '{"query": "SELECT * FROM events WHERE value->>\"event\" = \"signup\" LIMIT 5"}'
+  -d '{"query": "SELECT * FROM events WHERE value->>\"action\" = \"signup\" LIMIT 10"}'
 ```
 
-**Response:**
-```json
-{
-  "columns": ["offset", "key", "value", "timestamp"],
-  "rows": [
-    [0, "user-123", "{\"event\":\"signup\",\"user\":\"alice\"}", 1678886400000]
-  ]
-}
-```
+Supported: `SELECT`, `WHERE`, `GROUP BY`, `ORDER BY`, `LIMIT`, `OFFSET`, `COUNT`, `SUM`, `AVG`, `MIN`, `MAX`, `SHOW TOPICS`, JSON operators (`->`, `->>`).
 
-#### Register Schema
+### Schema Registry
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `GET` | `/schemas/subjects` | List all subjects |
+| `GET` | `/schemas/subjects/{subject}/versions` | List versions |
+| `POST` | `/schemas/subjects/{subject}/versions` | Register schema |
+| `GET` | `/schemas/subjects/{subject}/versions/latest` | Get latest |
+| `GET` | `/schemas/subjects/{subject}/versions/{version}` | Get specific version |
+| `DELETE` | `/schemas/subjects/{subject}` | Delete subject |
+
+Supported schema types: `JSON`, `AVRO`, `PROTOBUF`.
 
 ```bash
 curl -X POST http://localhost:8080/schemas/subjects/events-value/versions \
   -H 'Content-Type: application/json' \
   -d '{
-    "schema": "{\"type\":\"object\",\"properties\":{\"event\":{\"type\":\"string\"},\"user\":{\"type\":\"string\"}},\"required\":[\"event\",\"user\"]}",
+    "schema": "{\"type\":\"object\",\"properties\":{\"action\":{\"type\":\"string\"}},\"required\":[\"action\"]}",
     "schemaType": "JSON"
   }'
 ```
 
-**Response:**
-```json
-{"id": 1}
+### Metrics
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `GET` | `/api/v1/metrics` | General metrics |
+| `GET` | `/api/v1/metrics/storage` | Storage metrics per topic |
+| `GET` | `/api/v1/metrics/throughput` | Produce/consume rates |
+| `GET` | `/api/v1/metrics/latency` | p50/p95/p99 latency |
+| `GET` | `/api/v1/metrics/errors` | Error counts |
+| `GET` | `/metrics` | Prometheus scrape endpoint |
+
+All metrics endpoints are org-scoped when auth is enabled.
+
+### Organizations & API Keys
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `GET` | `/api/v1/organizations` | List organizations |
+| `POST` | `/api/v1/organizations` | Create organization |
+| `POST` | `/api/v1/organizations/{id}/api-keys` | Create API key |
+| `GET` | `/api/v1/organizations/{id}/api-keys` | List API keys |
+| `DELETE` | `/api/v1/organizations/{id}/api-keys/{key_id}` | Revoke key |
+
+### Connectors
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `GET` | `/api/v1/connectors` | List connectors |
+| `POST` | `/api/v1/connectors` | Create connector |
+| `GET` | `/api/v1/connectors/{name}` | Get connector |
+| `PUT` | `/api/v1/connectors/{name}` | Update connector |
+| `DELETE` | `/api/v1/connectors/{name}` | Delete connector |
+| `POST` | `/api/v1/connectors/{name}/restart` | Restart connector |
+
+### Agents (Admin)
+
+Requires `X-Admin-Key` header matching `STREAMHOUSE_ADMIN_KEY` env var.
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `GET` | `/api/v1/agents` | List agents |
+| `GET` | `/api/v1/agents/{id}` | Get agent details |
+| `GET` | `/api/v1/agents/{id}/metrics` | Agent metrics |
+
+### Other
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `GET` | `/health` | Health check |
+| `POST` | `/api/v1/query/ask` | AI-powered natural language query |
+| `POST` | `/api/v1/query/estimate` | Query cost estimation |
+
+### Error Codes
+
+| Status | Meaning |
+|--------|---------|
+| `200` | Success |
+| `201` | Created |
+| `400` | Invalid input |
+| `401` | Unauthorized (missing or invalid API key) |
+| `403` | Forbidden (insufficient permissions) |
+| `404` | Not found |
+| `409` | Already exists |
+| `422` | Schema validation failure |
+| `500` | Server error |
+
+---
+
+## Kafka Protocol
+
+Port: `9092` (default)
+
+StreamHouse implements the Kafka wire protocol — use any Kafka client without code changes.
+
+### 23 Supported APIs
+
+| API Key | Name | Description |
+|---------|------|-------------|
+| 0 | Produce | Produce messages (v3, v7, v9) |
+| 1 | Fetch | Consume messages (v4, v11) |
+| 2 | ListOffsets | Get earliest/latest offsets |
+| 3 | Metadata | Cluster and topic metadata |
+| 8 | OffsetCommit | Commit consumer group offsets |
+| 9 | OffsetFetch | Fetch committed offsets |
+| 10 | FindCoordinator | Find group coordinator |
+| 11 | JoinGroup | Join consumer group |
+| 12 | Heartbeat | Consumer group heartbeat |
+| 13 | LeaveGroup | Leave consumer group |
+| 14 | SyncGroup | Sync consumer group state |
+| 15 | DescribeGroups | Get group details |
+| 16 | ListGroups | List all groups |
+| 17 | SaslHandshake | SASL mechanism negotiation |
+| 18 | ApiVersions | List supported API versions |
+| 19 | CreateTopics | Create topics |
+| 20 | DeleteTopics | Delete topics |
+| 22 | InitProducerId | Initialize idempotent/transactional producer |
+| 24 | AddPartitionsToTxn | Add partitions to transaction |
+| 25 | AddOffsetsToTxn | Add offsets to transaction |
+| 26 | EndTxn | Commit or abort transaction |
+| 28 | TxnOffsetCommit | Commit offsets within transaction |
+| 36 | SaslAuthenticate | SASL/PLAIN authentication |
+
+### Authentication
+
+```python
+# confluent-kafka
+producer = Producer({
+    'bootstrap.servers': 'localhost:9092',
+    'security.protocol': 'SASL_PLAINTEXT',
+    'sasl.mechanism': 'PLAIN',
+    'sasl.username': 'sk_live_abc123...',
+    'sasl.password': 'sk_live_abc123...',
+})
 ```
 
-#### Get Latest Schema
+### Transactions
 
-```bash
-curl http://localhost:8080/schemas/subjects/events-value/versions/latest
+```python
+producer = Producer({
+    'bootstrap.servers': 'localhost:9092',
+    'transactional.id': 'my-txn-producer',
+})
+producer.init_transactions()
+producer.begin_transaction()
+producer.produce('events', value=b'...')
+producer.commit_transaction()
 ```
 
-**Response:**
-```json
-{
-  "subject": "events-value",
-  "version": 1,
-  "id": 1,
-  "schema": "{\"type\":\"object\",\"properties\":{\"event\":{\"type\":\"string\"},\"user\":{\"type\":\"string\"}},\"required\":[\"event\",\"user\"]}",
-  "schemaType": "JSON"
-}
+### Consumer Groups
+
+Full consumer group rebalancing is supported:
+
+```python
+consumer = Consumer({
+    'bootstrap.servers': 'localhost:9092',
+    'group.id': 'my-group',
+    'auto.offset.reset': 'earliest',
+})
+consumer.subscribe(['events'])
 ```
+
+### Compatibility Notes
+
+- **Compression**: None, GZIP, Snappy, LZ4 (internally uses LZ4)
+- **Record format**: Translates Kafka RecordBatch on the wire to StreamHouse's STRM segment format internally
+- **Consumer rebalancing**: Fully implemented
+- **Idempotent producer**: Supported via InitProducerId
+- **Transactions**: Full exactly-once semantics (InitProducerId, AddPartitionsToTxn, AddOffsetsToTxn, EndTxn, TxnOffsetCommit)
+
+### Not Yet Supported
+
+| API Key | Name | Notes |
+|---------|------|-------|
+| 32/33/44 | DescribeConfigs / AlterConfigs | Needed for admin tools |
+| 37 | CreatePartitions | Partition scaling |
+| 42 | DeleteGroups | Group cleanup |
+| 29-31 | ACL APIs | Blocked on ACL implementation |
+
+---
 
 ## gRPC API
 
 Service: `streamhouse.StreamHouse`
 Port: `50051` (default)
 
-### Service Methods
-
-#### Topics
+### Methods
 
 ```protobuf
+// Topics
 rpc CreateTopic(CreateTopicRequest) returns (CreateTopicResponse);
 rpc GetTopic(GetTopicRequest) returns (GetTopicResponse);
 rpc ListTopics(ListTopicsRequest) returns (ListTopicsResponse);
 rpc DeleteTopic(DeleteTopicRequest) returns (DeleteTopicResponse);
-```
 
-#### Produce
-
-```protobuf
+// Produce
 rpc Produce(ProduceRequest) returns (ProduceResponse);
 rpc ProduceBatch(ProduceBatchRequest) returns (ProduceBatchResponse);
-```
 
-**AckMode options:**
-- `ACK_NONE` — Fire-and-forget, no durability guarantee
-- `ACK_BUFFERED` — Acknowledged when written to in-memory buffer (default)
-- `ACK_DURABLE` — Acknowledged when flushed to S3 (synchronous durability)
-
-When using `ACK_DURABLE`, the RPC blocks until the segment is uploaded to S3. Your data is durable when the RPC returns.
-
-#### Consume
-
-```protobuf
+// Consume
 rpc Consume(ConsumeRequest) returns (ConsumeResponse);
 rpc CommitOffset(CommitOffsetRequest) returns (CommitOffsetResponse);
 rpc GetOffset(GetOffsetRequest) returns (GetOffsetResponse);
-```
 
-#### Producer Lifecycle
-
-```protobuf
+// Producer lifecycle & transactions
 rpc InitProducer(InitProducerRequest) returns (InitProducerResponse);
 rpc BeginTransaction(BeginTransactionRequest) returns (BeginTransactionResponse);
 rpc CommitTransaction(CommitTransactionRequest) returns (CommitTransactionResponse);
@@ -269,39 +321,34 @@ rpc AbortTransaction(AbortTransactionRequest) returns (AbortTransactionResponse)
 rpc Heartbeat(HeartbeatRequest) returns (HeartbeatResponse);
 ```
 
-### Example (Rust gRPC Client)
+### AckMode
+
+| Mode | Behavior | Use case |
+|------|----------|----------|
+| `ACK_NONE` | Fire-and-forget | Metrics, logs where loss is acceptable |
+| `ACK_BUFFERED` | Acked when buffered in RAM (default) | General use |
+| `ACK_DURABLE` | Acked when flushed to S3 | Financial data, critical events |
+
+### Example (Rust)
 
 ```rust
-use streamhouse_proto::streamhouse::{
-    stream_house_client::StreamHouseClient,
-    ProduceBatchRequest, ProduceRecord, AckMode,
+let mut client = StreamHouseClient::connect("http://localhost:50051").await?;
+
+let request = ProduceBatchRequest {
+    topic: "events".to_string(),
+    records: vec![ProduceRecord {
+        key: Some("user-1".to_string()),
+        value: b"{\"action\":\"signup\"}".to_vec(),
+        ..Default::default()
+    }],
+    ack_mode: AckMode::AckDurable as i32,
+    ..Default::default()
 };
 
-#[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let mut client = StreamHouseClient::connect("http://localhost:50051").await?;
-
-    let request = ProduceBatchRequest {
-        topic: "events".to_string(),
-        records: vec![
-            ProduceRecord {
-                key: Some("user-1".to_string()),
-                value: r#"{"event":"signup"}"#.as_bytes().to_vec(),
-                ..Default::default()
-            },
-        ],
-        ack_mode: AckMode::AckDurable as i32,
-        ..Default::default()
-    };
-
-    let response = client.produce_batch(request).await?;
-    println!("Produced: {:?}", response.into_inner());
-
-    Ok(())
-}
+let response = client.produce_batch(request).await?;
 ```
 
-### Example (Python gRPC Client)
+### Example (Python)
 
 ```python
 import grpc
@@ -313,142 +360,8 @@ client = StreamHouseStub(channel)
 
 request = ProduceBatchRequest(
     topic='events',
-    records=[
-        ProduceRecord(key='user-1', value=b'{"event":"signup"}')
-    ],
-    ack_mode=ACK_DURABLE
+    records=[ProduceRecord(key='user-1', value=b'{"action":"signup"}')],
+    ack_mode=ACK_DURABLE,
 )
-
 response = client.ProduceBatch(request)
-print(f"Produced: {response}")
 ```
-
-## Kafka Protocol
-
-Port: `9092` (default)
-
-StreamHouse implements the Kafka wire protocol for compatibility with existing Kafka clients and tools.
-
-### Supported APIs
-
-StreamHouse implements **14 Kafka APIs**:
-
-| API | Version | Description |
-|-----|---------|-------------|
-| `Produce` | v3, v7, v9 | Produce messages |
-| `Fetch` | v4, v11 | Fetch messages (consume) |
-| `ListOffsets` | v1 | Get earliest/latest offsets |
-| `Metadata` | v1, v9 | Cluster and topic metadata |
-| `OffsetCommit` | v2 | Commit consumer group offsets |
-| `OffsetFetch` | v1 | Fetch consumer group offsets |
-| `FindCoordinator` | v0, v1 | Find group coordinator |
-| `JoinGroup` | v0, v5 | Join consumer group |
-| `Heartbeat` | v0, v3 | Consumer group heartbeat |
-| `LeaveGroup` | v0, v3 | Leave consumer group |
-| `SyncGroup` | v0, v3 | Sync consumer group state |
-| `DescribeGroups` | v0 | Get consumer group details |
-| `ListGroups` | v0 | List all consumer groups |
-| `ApiVersions` | v0, v3 | List supported API versions |
-
-### Example (kafka-python)
-
-```python
-from kafka import KafkaProducer, KafkaConsumer
-
-# Produce
-producer = KafkaProducer(bootstrap_servers='localhost:9092')
-producer.send('events', key=b'user-1', value=b'{"event":"signup"}')
-producer.flush()
-
-# Consume
-consumer = KafkaConsumer(
-    'events',
-    bootstrap_servers='localhost:9092',
-    auto_offset_reset='earliest',
-    group_id='my-group'
-)
-
-for message in consumer:
-    print(f"offset={message.offset} key={message.key} value={message.value}")
-```
-
-### Example (kafkacat / kcat)
-
-```bash
-# Produce
-echo '{"event":"signup","user":"alice"}' | kcat -P -b localhost:9092 -t events -k user-1
-
-# Consume
-kcat -C -b localhost:9092 -t events -o beginning
-```
-
-### Example (Kafka CLI Tools)
-
-```bash
-# Produce
-kafka-console-producer.sh --broker-list localhost:9092 --topic events
-
-# Consume
-kafka-console-consumer.sh --bootstrap-server localhost:9092 --topic events --from-beginning
-
-# List topics
-kafka-topics.sh --list --bootstrap-server localhost:9092
-```
-
-### Compatibility Notes
-
-- **Idempotent producer** and **transactions** are supported via producer lifecycle RPCs
-- **Consumer group rebalancing** is fully implemented (sticky assignor)
-- **Compression codecs**: None, GZIP, Snappy, LZ4 (StreamHouse internally uses LZ4 for segment compression)
-- **Record batching**: StreamHouse uses custom segment format internally but translates to/from Kafka's RecordBatch format on the wire
-
-## Authentication & Authorization
-
-**Current status:** StreamHouse does not yet implement authentication or ACLs. All endpoints are unauthenticated.
-
-**Planned:**
-- SASL/SCRAM for Kafka protocol
-- API keys for REST/gRPC
-- Organization-scoped access control (currently in progress)
-
-## Rate Limiting
-
-StreamHouse has a built-in circuit breaker for S3 uploads (`THROTTLE_ENABLED=true` by default). On 503/429 errors from S3, it backs off exponentially.
-
-gRPC backpressure can be configured with `GRPC_MAX_CONCURRENT_STREAMS`.
-
-## Error Codes
-
-### REST API
-
-Standard HTTP status codes:
-
-- `200 OK` — Success
-- `201 Created` — Resource created (topic, schema)
-- `400 Bad Request` — Invalid input (e.g., missing required field)
-- `404 Not Found` — Topic or resource not found
-- `409 Conflict` — Resource already exists (e.g., topic name collision)
-- `422 Unprocessable Entity` — Schema validation failure
-- `500 Internal Server Error` — Server-side error (check logs)
-
-### gRPC API
-
-Standard gRPC status codes:
-
-- `OK` — Success
-- `INVALID_ARGUMENT` — Invalid input
-- `NOT_FOUND` — Topic or partition not found
-- `ALREADY_EXISTS` — Resource already exists
-- `FAILED_PRECONDITION` — Schema validation failure
-- `UNAVAILABLE` — Service unavailable (transient, retry)
-- `INTERNAL` — Server-side error (check logs)
-
-### Kafka Protocol
-
-Kafka error codes (returned in protocol responses):
-
-- `NONE (0)` — Success
-- `OFFSET_OUT_OF_RANGE (1)` — Requested offset does not exist
-- `UNKNOWN_TOPIC_OR_PARTITION (3)` — Topic or partition not found
-- `INVALID_REQUEST (42)` — Malformed request
-- `UNSUPPORTED_VERSION (35)` — API version not supported

@@ -145,7 +145,7 @@ async fn main() -> anyhow::Result<()> {
         let pc = Arc::clone(&produced_counts);
         let rx = shutdown_rx.clone();
         let rate = config.produce_rate * 5; // Higher rate for Kafka
-        let bs = 100;
+        let bs = 500;
         // Add to produced_counts tracking (these topics aren't in all_topics)
         tasks.spawn(async move {
             workloads::kafka_producer::run_kafka_producer(
@@ -167,7 +167,7 @@ async fn main() -> anyhow::Result<()> {
             let pc = Arc::clone(&produced_counts);
             let rx = shutdown_rx.clone();
             let rate = config.produce_rate * 2;
-            let bs = 50;
+            let bs = 200;
             tasks.spawn(async move {
                 workloads::grpc_producer::run_grpc_producer(
                     addr, org_id, slug, topic, parts, bs, rate, pc, rx,
