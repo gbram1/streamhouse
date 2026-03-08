@@ -36,7 +36,7 @@
       "id": 1,
       "targets": [
         {
-          "expr": "rate(streamhouse_consumer_records_total{topic=~\"$topic\",consumer_group=~\"$consumer_group\"}[5m])",
+          "expr": "rate(streamhouse_consumer_records_total{org_id=~\"$org_id\",topic=~\"$topic\",consumer_group=~\"$consumer_group\"}[5m])",
           "legendFormat": "{{topic}} - {{consumer_group}}",
           "refId": "A"
         }
@@ -70,7 +70,7 @@
       "id": 2,
       "targets": [
         {
-          "expr": "streamhouse_consumer_lag{topic=~\"$topic\",consumer_group=~\"$consumer_group\"}",
+          "expr": "streamhouse_consumer_lag{org_id=~\"$org_id\",topic=~\"$topic\",consumer_group=~\"$consumer_group\"}",
           "legendFormat": "{{topic}}/p{{partition}} - {{consumer_group}}",
           "refId": "A"
         }
@@ -111,7 +111,7 @@
       "pluginVersion": "8.0.0",
       "targets": [
         {
-          "expr": "max(streamhouse_consumer_lag{topic=~\"$topic\",consumer_group=~\"$consumer_group\"}) by (consumer_group)",
+          "expr": "max(streamhouse_consumer_lag{org_id=~\"$org_id\",topic=~\"$topic\",consumer_group=~\"$consumer_group\"}) by (consumer_group)",
           "legendFormat": "{{consumer_group}}",
           "refId": "A"
         }
@@ -136,7 +136,7 @@
       "id": 4,
       "targets": [
         {
-          "expr": "streamhouse_consumer_rebalances_total{consumer_group=~\"$consumer_group\"}",
+          "expr": "streamhouse_consumer_rebalances_total{org_id=~\"$org_id\",consumer_group=~\"$consumer_group\"}",
           "legendFormat": "{{consumer_group}}",
           "refId": "A"
         }
@@ -157,7 +157,7 @@
       "id": 5,
       "targets": [
         {
-          "expr": "rate(streamhouse_consumer_errors_total{topic=~\"$topic\",consumer_group=~\"$consumer_group\"}[5m])",
+          "expr": "rate(streamhouse_consumer_errors_total{org_id=~\"$org_id\",topic=~\"$topic\",consumer_group=~\"$consumer_group\"}[5m])",
           "legendFormat": "{{topic}} - {{consumer_group}} - {{error_type}}",
           "refId": "A"
         }
@@ -176,36 +176,54 @@
         "allValue": ".*",
         "current": {"selected": false, "text": "All", "value": "$__all"},
         "datasource": "Prometheus",
-        "definition": "label_values(streamhouse_consumer_records_total, topic)",
+        "definition": "label_values(streamhouse_consumer_records_total, org_id)",
         "hide": 0,
         "includeAll": true,
-        "label": "Topic",
+        "label": "Organization",
         "multi": false,
-        "name": "topic",
+        "name": "org_id",
         "options": [],
-        "query": "label_values(streamhouse_consumer_records_total, topic)",
+        "query": "label_values(streamhouse_consumer_records_total, org_id)",
         "refresh": 1,
         "regex": "",
         "skipUrlSync": false,
-        "sort": 0,
+        "sort": 1,
         "type": "query"
       },
       {
         "allValue": ".*",
         "current": {"selected": false, "text": "All", "value": "$__all"},
         "datasource": "Prometheus",
-        "definition": "label_values(streamhouse_consumer_records_total, consumer_group)",
+        "definition": "label_values(streamhouse_consumer_records_total{org_id=~\"$org_id\"}, topic)",
+        "hide": 0,
+        "includeAll": true,
+        "label": "Topic",
+        "multi": false,
+        "name": "topic",
+        "options": [],
+        "query": "label_values(streamhouse_consumer_records_total{org_id=~\"$org_id\"}, topic)",
+        "refresh": 1,
+        "regex": "",
+        "skipUrlSync": false,
+        "sort": 1,
+        "type": "query"
+      },
+      {
+        "allValue": ".*",
+        "current": {"selected": false, "text": "All", "value": "$__all"},
+        "datasource": "Prometheus",
+        "definition": "label_values(streamhouse_consumer_records_total{org_id=~\"$org_id\",topic=~\"$topic\"}, consumer_group)",
         "hide": 0,
         "includeAll": true,
         "label": "Consumer Group",
         "multi": false,
         "name": "consumer_group",
         "options": [],
-        "query": "label_values(streamhouse_consumer_records_total, consumer_group)",
+        "query": "label_values(streamhouse_consumer_records_total{org_id=~\"$org_id\",topic=~\"$topic\"}, consumer_group)",
         "refresh": 1,
         "regex": "",
         "skipUrlSync": false,
-        "sort": 0,
+        "sort": 1,
         "type": "query"
       }
     ]
