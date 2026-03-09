@@ -11,7 +11,66 @@ use std::collections::HashMap;
 use crate::auth::AuthenticatedKey;
 use crate::handlers::topics::extract_org_id;
 use crate::{models::*, AppState};
+use std::sync::atomic::{AtomicU32, Ordering};
 use streamhouse_observability::metrics;
+
+/// Round-robin counter for keyless partition assignment
+static ROUND_ROBIN_COUNTER: AtomicU32 = AtomicU32::new(0);
+
+/// Select partition: explicit > key hash > round-robin
+fn select_partition(partition: Option<u32>, key: Option<&str>, partition_count: u32) -> u32 {
+    if let Some(p) = partition {
+        return p;
+    }
+    if let Some(k) = key {
+        // Murmur2-style hash (matches Kafka's default partitioner)
+        let hash = murmur2_hash(k.as_bytes());
+        return hash % partition_count;
+    }
+    // Round-robin for keyless messages
+    ROUND_ROBIN_COUNTER.fetch_add(1, Ordering::Relaxed) % partition_count
+}
+
+/// Murmur2 hash (compatible with Kafka's default partitioner)
+fn murmur2_hash(data: &[u8]) -> u32 {
+    let seed: u32 = 0x9747b28c;
+    let m: u32 = 0x5bd1e995;
+    let r: u32 = 24;
+    let len = data.len() as u32;
+    let mut h: u32 = seed ^ len;
+    let chunks = data.chunks_exact(4);
+    let remainder = chunks.remainder();
+    for chunk in chunks {
+        let mut k = u32::from_le_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]);
+        k = k.wrapping_mul(m);
+        k ^= k >> r;
+        k = k.wrapping_mul(m);
+        h = h.wrapping_mul(m);
+        h ^= k;
+    }
+    match remainder.len() {
+        3 => {
+            h ^= (remainder[2] as u32) << 16;
+            h ^= (remainder[1] as u32) << 8;
+            h ^= remainder[0] as u32;
+            h = h.wrapping_mul(m);
+        }
+        2 => {
+            h ^= (remainder[1] as u32) << 8;
+            h ^= remainder[0] as u32;
+            h = h.wrapping_mul(m);
+        }
+        1 => {
+            h ^= remainder[0] as u32;
+            h = h.wrapping_mul(m);
+        }
+        _ => {}
+    }
+    h ^= h >> 13;
+    h = h.wrapping_mul(m);
+    h ^= h >> 15;
+    h
+}
 
 /// Validate a value against the schema registered for `{topic}-value`.
 /// Returns Ok(()) if no schema is registered or validation passes.
@@ -154,8 +213,8 @@ pub async fn produce(
 
     // If WriterPool is available, write directly (unified server mode)
     if let Some(writer_pool) = &state.writer_pool {
-        // Determine partition
-        let partition = req.partition.unwrap_or(0);
+        // Determine partition: explicit > key hash > round-robin
+        let partition = select_partition(req.partition, req.key.as_deref(), topic.partition_count);
 
         // Validate partition exists
         if partition >= topic.partition_count {
@@ -324,9 +383,7 @@ pub async fn produce_batch(
         // Group records by partition for efficient batching
         let mut by_partition: HashMap<u32, Vec<(usize, &BatchRecord)>> = HashMap::new();
         for (idx, record) in req.records.iter().enumerate() {
-            let partition = record
-                .partition
-                .unwrap_or(idx as u32 % topic.partition_count);
+            let partition = select_partition(record.partition, record.key.as_deref(), topic.partition_count);
             if partition >= topic.partition_count {
                 metrics::PRODUCER_ERRORS_TOTAL.with_label_values(&[&org_id, &topic_name, "invalid_partition"]).inc();
                 return Err(StatusCode::BAD_REQUEST);
