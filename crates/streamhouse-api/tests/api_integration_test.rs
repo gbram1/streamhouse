@@ -40,6 +40,7 @@ async fn test_app() -> axum::Router {
             enabled: false,
             ..Default::default()
         },
+        clerk_auth: None,
         topic_changed: None,
         schema_registry: None,
     };

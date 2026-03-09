@@ -19,6 +19,7 @@ pub mod active_active;
 pub mod audit;
 pub mod audit_store;
 pub mod auth;
+pub mod clerk;
 pub mod cluster;
 pub mod compliance;
 pub mod discovery;
@@ -64,6 +65,7 @@ pub use audit_store::{
 pub use auth::{
     AuthConfig, AuthError, AuthLayer, AuthenticatedKey, RequiredPermission, SmartAuthLayer,
 };
+pub use clerk::ClerkAuth;
 pub use compliance::{
     ComplianceError, ComplianceReport, ComplianceReporter, Finding, FindingSeverity, Framework,
     ReportConfig, ReportFormat, ReportMetadata,
@@ -126,6 +128,8 @@ pub struct AppState {
     pub prometheus: Option<Arc<PrometheusClient>>,
     /// Authentication configuration
     pub auth_config: AuthConfig,
+    /// Clerk JWT authentication (None = Clerk auth disabled)
+    pub clerk_auth: Option<Arc<ClerkAuth>>,
     /// Notified when topics are created or deleted so the partition assigner
     /// can immediately discover them.
     pub topic_changed: Option<Arc<Notify>>,
@@ -137,6 +141,7 @@ pub struct AppState {
 pub fn create_router(state: AppState) -> Router {
     let auth_enabled = state.auth_config.enabled;
     let metadata = state.metadata.clone();
+    let clerk_auth = state.clerk_auth.clone();
 
     // API v1 routes (original structure)
     let api_routes = Router::new()
@@ -289,13 +294,22 @@ pub fn create_router(state: AppState) -> Router {
 
     // Apply authentication layers based on configuration
     let api_routes = if auth_enabled {
-        tracing::info!("🔐 API authentication enabled");
-        // Use SmartAuthLayer that determines permissions based on method + path
+        if clerk_auth.is_some() {
+            tracing::info!("API authentication enabled (API keys + Clerk JWT)");
+        } else {
+            tracing::info!("API authentication enabled (API keys only)");
+        }
         Router::new()
-            .merge(api_routes.layer(auth::SmartAuthLayer::new(metadata.clone())))
-            .merge(admin_routes.layer(AuthLayer::admin(metadata.clone())))
+            .merge(
+                api_routes
+                    .layer(auth::SmartAuthLayer::new_with_clerk(metadata.clone(), clerk_auth.clone())),
+            )
+            .merge(
+                admin_routes
+                    .layer(AuthLayer::admin_with_clerk(metadata.clone(), clerk_auth.clone())),
+            )
     } else {
-        tracing::warn!("⚠️  API authentication DISABLED - all endpoints are public");
+        tracing::warn!("API authentication DISABLED - all endpoints are public");
         Router::new().merge(api_routes).merge(admin_routes)
     };
 

@@ -50,6 +50,7 @@ jsonschema = { workspace = true }
 apache-avro = { workspace = true }
 futures = { workspace = true }
 flate2 = "1"
+sha2 = "0.10"
 
 [dev-dependencies]
 tempfile = { workspace = true }

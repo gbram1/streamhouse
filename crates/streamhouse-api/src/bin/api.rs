@@ -124,6 +124,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let auth_enabled = std::env::var("STREAMHOUSE_AUTH_ENABLED")
         .map(|v| v == "true" || v == "1")
         .unwrap_or(false);
+    let clerk_auth = streamhouse_api::ClerkAuth::from_env().map(Arc::new);
     let state = AppState {
         metadata,
         producer: Some(Arc::new(producer)),
@@ -135,6 +136,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             enabled: auth_enabled,
             ..Default::default()
         },
+        clerk_auth,
         topic_changed: None,
         schema_registry: None,
     };

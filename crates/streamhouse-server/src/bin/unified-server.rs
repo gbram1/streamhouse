@@ -857,6 +857,56 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let auth_enabled = std::env::var("STREAMHOUSE_AUTH_ENABLED")
         .map(|v| v == "true" || v == "1")
         .unwrap_or(false);
+
+    // Seed admin API key from STREAMHOUSE_ADMIN_KEY env var (if set)
+    if let Ok(admin_key) = std::env::var("STREAMHOUSE_ADMIN_KEY") {
+        if !admin_key.is_empty() {
+            use sha2::{Digest, Sha256};
+            let key_hash = format!("{:x}", Sha256::new().chain_update(admin_key.as_bytes()).finalize());
+            let key_prefix = admin_key.chars().take(12).collect::<String>();
+
+            // Check if already seeded
+            match metadata.validate_api_key(&key_hash).await {
+                Ok(Some(_)) => {
+                    tracing::debug!("Admin API key already exists in metadata store");
+                }
+                _ => {
+                    // Ensure default org exists
+                    let org_id = streamhouse_metadata::DEFAULT_ORGANIZATION_ID;
+                    if metadata.get_organization(org_id).await.ok().flatten().is_none() {
+                        let _ = metadata.create_organization(
+                            streamhouse_metadata::CreateOrganization {
+                                name: "Default".to_string(),
+                                slug: "default".to_string(),
+                                plan: Default::default(),
+                                settings: Default::default(),
+                                clerk_id: None,
+                            },
+                        ).await;
+                        tracing::info!("Created default organization");
+                    }
+
+                    let config = streamhouse_metadata::CreateApiKey {
+                        name: "admin".to_string(),
+                        permissions: vec!["admin".to_string()],
+                        scopes: vec![],
+                        expires_in_ms: None,
+                    };
+                    match metadata.create_api_key(org_id, config, &key_hash, &key_prefix).await {
+                        Ok(_) => tracing::info!("Seeded admin API key from STREAMHOUSE_ADMIN_KEY"),
+                        Err(e) => tracing::warn!(error = %e, "Failed to seed admin API key"),
+                    }
+                }
+            }
+        }
+    }
+
+    // Initialize Clerk JWT auth if CLERK_ISSUER_URL is set
+    let clerk_auth = streamhouse_api::ClerkAuth::from_env().map(std::sync::Arc::new);
+    if clerk_auth.is_some() {
+        tracing::info!("Clerk JWT authentication enabled");
+    }
+
     let api_state = streamhouse_api::AppState {
         metadata: metadata.clone(),
         producer: None,
@@ -868,6 +918,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             enabled: auth_enabled,
             ..Default::default()
         },
+        clerk_auth,
         topic_changed: Some(grpc_service.topic_change_notify()),
         schema_registry: schema_registry_for_validation.clone(),
     };

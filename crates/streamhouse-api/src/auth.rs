@@ -36,6 +36,8 @@ use std::task::{Context, Poll};
 use streamhouse_metadata::MetadataStore;
 use tower::{Layer, Service};
 
+use crate::clerk::{looks_like_jwt, ClerkAuth};
+
 /// Required permission level for a route
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RequiredPermission {
@@ -105,6 +107,7 @@ impl AuthenticatedKey {
 pub struct AuthLayer {
     metadata: Arc<dyn MetadataStore>,
     required_permission: RequiredPermission,
+    clerk_auth: Option<Arc<ClerkAuth>>,
 }
 
 impl AuthLayer {
@@ -113,6 +116,20 @@ impl AuthLayer {
         Self {
             metadata,
             required_permission,
+            clerk_auth: None,
+        }
+    }
+
+    /// Create a new authentication layer with Clerk JWT support
+    pub fn new_with_clerk(
+        metadata: Arc<dyn MetadataStore>,
+        required_permission: RequiredPermission,
+        clerk_auth: Option<Arc<ClerkAuth>>,
+    ) -> Self {
+        Self {
+            metadata,
+            required_permission,
+            clerk_auth,
         }
     }
 
@@ -130,6 +147,14 @@ impl AuthLayer {
     pub fn admin(metadata: Arc<dyn MetadataStore>) -> Self {
         Self::new(metadata, RequiredPermission::Admin)
     }
+
+    /// Create an admin layer with Clerk JWT support
+    pub fn admin_with_clerk(
+        metadata: Arc<dyn MetadataStore>,
+        clerk_auth: Option<Arc<ClerkAuth>>,
+    ) -> Self {
+        Self::new_with_clerk(metadata, RequiredPermission::Admin, clerk_auth)
+    }
 }
 
 /// Smart authentication layer that determines required permission based on HTTP method
@@ -139,11 +164,25 @@ impl AuthLayer {
 #[derive(Clone)]
 pub struct SmartAuthLayer {
     metadata: Arc<dyn MetadataStore>,
+    clerk_auth: Option<Arc<ClerkAuth>>,
 }
 
 impl SmartAuthLayer {
     pub fn new(metadata: Arc<dyn MetadataStore>) -> Self {
-        Self { metadata }
+        Self {
+            metadata,
+            clerk_auth: None,
+        }
+    }
+
+    pub fn new_with_clerk(
+        metadata: Arc<dyn MetadataStore>,
+        clerk_auth: Option<Arc<ClerkAuth>>,
+    ) -> Self {
+        Self {
+            metadata,
+            clerk_auth,
+        }
     }
 }
 
@@ -154,6 +193,7 @@ impl<S> Layer<S> for SmartAuthLayer {
         SmartAuthMiddleware {
             inner,
             metadata: self.metadata.clone(),
+            clerk_auth: self.clerk_auth.clone(),
         }
     }
 }
@@ -163,6 +203,7 @@ impl<S> Layer<S> for SmartAuthLayer {
 pub struct SmartAuthMiddleware<S> {
     inner: S,
     metadata: Arc<dyn MetadataStore>,
+    clerk_auth: Option<Arc<ClerkAuth>>,
 }
 
 impl<S> Service<Request> for SmartAuthMiddleware<S>
@@ -180,6 +221,7 @@ where
 
     fn call(&mut self, mut request: Request) -> Self::Future {
         let metadata = self.metadata.clone();
+        let clerk_auth = self.clerk_auth.clone();
         let mut inner = self.inner.clone();
 
         // Determine required permission based on HTTP method
@@ -197,7 +239,7 @@ where
                 .get(header::AUTHORIZATION)
                 .and_then(|v| v.to_str().ok());
 
-            let api_key = match auth_header {
+            let bearer_token = match auth_header {
                 Some(header) if header.starts_with("Bearer ") => {
                     &header[7..] // Skip "Bearer "
                 }
@@ -206,20 +248,40 @@ where
                 }
             };
 
-            // Validate the API key is not empty
-            if api_key.is_empty() {
+            if bearer_token.is_empty() {
                 return Ok(AuthError::MissingApiKey.into_response());
             }
 
-            // Hash the API key
-            let key_hash = hash_api_key(api_key);
+            // Try Clerk JWT auth if token looks like a JWT and Clerk is configured
+            if let Some(ref clerk) = clerk_auth {
+                if looks_like_jwt(bearer_token) {
+                    let org_header = request.headers().get("x-organization-id")
+                            .and_then(|v| v.to_str().ok())
+                            .map(|s| s.to_string());
+                    match authenticate_clerk_jwt(clerk, bearer_token, org_header).await {
+                        Ok(auth_key) => {
+                            if !required_permission.is_satisfied_by(&auth_key.permissions) {
+                                return Ok(AuthError::InsufficientPermissions.into_response());
+                            }
+                            request.extensions_mut().insert(auth_key);
+                            return inner.call(request).await;
+                        }
+                        Err(e) => {
+                            tracing::debug!(error = %e, "Clerk JWT validation failed");
+                            return Ok(AuthError::InvalidApiKey.into_response());
+                        }
+                    }
+                }
+            }
 
-            // Validate against metadata store
+            // Fall through to API key authentication
+            let key_hash = hash_api_key(bearer_token);
+
             let api_key_record = match metadata.validate_api_key(&key_hash).await {
                 Ok(Some(key)) => key,
                 Ok(None) => {
                     tracing::warn!(
-                        key_prefix = %api_key.chars().take(16).collect::<String>(),
+                        key_prefix = %bearer_token.chars().take(16).collect::<String>(),
                         "Invalid API key"
                     );
                     return Ok(AuthError::InvalidApiKey.into_response());
@@ -260,7 +322,6 @@ where
                 }
             });
 
-            // Continue to the inner service
             inner.call(request).await
         })
     }
@@ -274,6 +335,7 @@ impl<S> Layer<S> for AuthLayer {
             inner,
             metadata: self.metadata.clone(),
             required_permission: self.required_permission,
+            clerk_auth: self.clerk_auth.clone(),
         }
     }
 }
@@ -284,6 +346,7 @@ pub struct AuthMiddleware<S> {
     inner: S,
     metadata: Arc<dyn MetadataStore>,
     required_permission: RequiredPermission,
+    clerk_auth: Option<Arc<ClerkAuth>>,
 }
 
 impl<S> Service<Request> for AuthMiddleware<S>
@@ -307,6 +370,7 @@ where
         }
 
         let metadata = self.metadata.clone();
+        let clerk_auth = self.clerk_auth.clone();
         let required_permission = self.required_permission;
         let mut inner = self.inner.clone();
 
@@ -317,7 +381,7 @@ where
                 .get(header::AUTHORIZATION)
                 .and_then(|v| v.to_str().ok());
 
-            let api_key = match auth_header {
+            let bearer_token = match auth_header {
                 Some(header) if header.starts_with("Bearer ") => {
                     &header[7..] // Skip "Bearer "
                 }
@@ -326,20 +390,40 @@ where
                 }
             };
 
-            // Validate the API key is not empty
-            if api_key.is_empty() {
+            if bearer_token.is_empty() {
                 return Ok(AuthError::MissingApiKey.into_response());
             }
 
-            // Hash the API key
-            let key_hash = hash_api_key(api_key);
+            // Try Clerk JWT auth if token looks like a JWT and Clerk is configured
+            if let Some(ref clerk) = clerk_auth {
+                if looks_like_jwt(bearer_token) {
+                    let org_header = request.headers().get("x-organization-id")
+                            .and_then(|v| v.to_str().ok())
+                            .map(|s| s.to_string());
+                    match authenticate_clerk_jwt(clerk, bearer_token, org_header).await {
+                        Ok(auth_key) => {
+                            if !required_permission.is_satisfied_by(&auth_key.permissions) {
+                                return Ok(AuthError::InsufficientPermissions.into_response());
+                            }
+                            request.extensions_mut().insert(auth_key);
+                            return inner.call(request).await;
+                        }
+                        Err(e) => {
+                            tracing::debug!(error = %e, "Clerk JWT validation failed");
+                            return Ok(AuthError::InvalidApiKey.into_response());
+                        }
+                    }
+                }
+            }
 
-            // Validate against metadata store
+            // Fall through to API key authentication
+            let key_hash = hash_api_key(bearer_token);
+
             let api_key_record = match metadata.validate_api_key(&key_hash).await {
                 Ok(Some(key)) => key,
                 Ok(None) => {
                     tracing::warn!(
-                        key_prefix = %api_key.chars().take(16).collect::<String>(),
+                        key_prefix = %bearer_token.chars().take(16).collect::<String>(),
                         "Invalid API key"
                     );
                     return Ok(AuthError::InvalidApiKey.into_response());
@@ -379,10 +463,47 @@ where
                 }
             });
 
-            // Continue to the inner service
             inner.call(request).await
         })
     }
+}
+
+/// Authenticate a bearer token as a Clerk JWT.
+///
+/// On success, returns an `AuthenticatedKey` with:
+/// - `key_id`: `"clerk:<user_id>"` (no DB touch needed)
+/// - `organization_id`: from `org_id_header` (set by web UI via `X-Organization-Id`)
+/// - `permissions`: `["admin"]` (Clerk users are trusted admins)
+/// - `scopes`: empty (full access)
+async fn authenticate_clerk_jwt(
+    clerk: &ClerkAuth,
+    token: &str,
+    org_id_header: Option<String>,
+) -> Result<AuthenticatedKey, String> {
+    let claims = clerk
+        .validate_token(token)
+        .await
+        .map_err(|e| format!("{}", e))?;
+
+    // Organization ID: prefer X-Organization-Id header (set by the web UI's OrgProvider),
+    // then fall back to the org_id claim in the JWT itself.
+    let organization_id = org_id_header
+        .filter(|s| !s.is_empty())
+        .or(claims.org_id.clone())
+        .unwrap_or_else(|| streamhouse_metadata::DEFAULT_ORGANIZATION_ID.to_string());
+
+    tracing::debug!(
+        user_id = %claims.sub,
+        org_id = %organization_id,
+        "Clerk JWT authenticated"
+    );
+
+    Ok(AuthenticatedKey {
+        key_id: format!("clerk:{}", claims.sub),
+        organization_id,
+        permissions: vec!["admin".to_string()],
+        scopes: vec![], // full access
+    })
 }
 
 /// Hash an API key using SHA-256
