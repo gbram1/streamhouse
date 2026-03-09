@@ -46,8 +46,9 @@
 //! | Consumer groups       | 50      | 500      | Unlimited  |
 
 use crate::tenant::TenantContext;
-use crate::{MetadataStore, OrganizationPlan, OrganizationQuota, OrganizationStatus, Result};
+use crate::{ApiKey, MetadataStore, OrganizationPlan, OrganizationQuota, OrganizationStatus, Result};
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicI64, AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::sync::RwLock;
@@ -83,108 +84,273 @@ impl QuotaCheck {
     }
 }
 
-/// Rate limiter using sliding window algorithm.
-struct RateLimiter {
-    /// Window duration.
-    window: Duration,
-    /// Maximum count per window.
-    max_count: i64,
-    /// Current count in window.
-    count: i64,
-    /// Window start time.
-    window_start: Instant,
+// ============================================================================
+// Token Bucket Rate Limiter (lock-free, CAS-based)
+// ============================================================================
+
+/// Precision multiplier: store tokens as integer with 1000x precision.
+const TOKEN_PRECISION: u64 = 1000;
+
+/// Token bucket rate limiter using atomic CAS for lock-free operation.
+///
+/// Tokens are stored with 1000x precision as u64 to enable atomic operations.
+/// Refill happens lazily on each acquire/query call.
+struct TokenBucket {
+    /// Current tokens (stored as amount * TOKEN_PRECISION)
+    tokens: AtomicU64,
+    /// Last refill time in microseconds (Instant-based offset)
+    last_refill_us: AtomicU64,
+    /// Rate in tokens per second
+    rate: AtomicI64,
+    /// Burst capacity (max tokens)
+    burst: AtomicI64,
+    /// Reference instant for computing elapsed time
+    epoch: Instant,
 }
 
-impl RateLimiter {
-    fn new(window: Duration, max_count: i64) -> Self {
+impl TokenBucket {
+    /// Create a new token bucket.
+    /// `rate` = tokens per second, `burst` = max tokens (defaults to 2x rate).
+    fn new(rate: i64) -> Self {
+        let burst = rate * 2;
         Self {
-            window,
-            max_count,
-            count: 0,
-            window_start: Instant::now(),
+            tokens: AtomicU64::new((burst as u64) * TOKEN_PRECISION),
+            last_refill_us: AtomicU64::new(0),
+            rate: AtomicI64::new(rate),
+            burst: AtomicI64::new(burst),
+            epoch: Instant::now(),
         }
     }
 
-    /// Try to acquire a permit for the given amount.
-    fn try_acquire(&mut self, amount: i64) -> bool {
-        let now = Instant::now();
-
-        // Reset window if expired
-        if now.duration_since(self.window_start) >= self.window {
-            self.count = 0;
-            self.window_start = now;
-        }
-
-        // Check if we can add the amount
-        if self.count + amount <= self.max_count {
-            self.count += amount;
-            true
-        } else {
-            false
+    #[cfg(test)]
+    fn with_burst(rate: i64, burst: i64) -> Self {
+        Self {
+            tokens: AtomicU64::new((burst as u64) * TOKEN_PRECISION),
+            last_refill_us: AtomicU64::new(0),
+            rate: AtomicI64::new(rate),
+            burst: AtomicI64::new(burst),
+            epoch: Instant::now(),
         }
     }
 
-    /// Get current usage percentage.
+    /// Get current time as microseconds since epoch Instant.
+    fn now_us(&self) -> u64 {
+        self.epoch.elapsed().as_micros() as u64
+    }
+
+    /// Refill tokens based on elapsed time (CAS loop).
+    fn refill(&self) {
+        let now = self.now_us();
+        let last = self.last_refill_us.load(Ordering::Acquire);
+        let elapsed_us = now.saturating_sub(last);
+        if elapsed_us == 0 {
+            return;
+        }
+
+        let rate = self.rate.load(Ordering::Acquire);
+        let burst = self.burst.load(Ordering::Acquire);
+        if rate <= 0 || burst <= 0 {
+            return;
+        }
+
+        let tokens_to_add =
+            ((rate as f64) * (elapsed_us as f64 / 1_000_000.0) * TOKEN_PRECISION as f64) as u64;
+        if tokens_to_add == 0 {
+            return;
+        }
+
+        let max_tokens = (burst as u64) * TOKEN_PRECISION;
+
+        // CAS loop to add tokens
+        loop {
+            let current = self.tokens.load(Ordering::Acquire);
+            let new_tokens = std::cmp::min(current.saturating_add(tokens_to_add), max_tokens);
+            match self.tokens.compare_exchange_weak(
+                current,
+                new_tokens,
+                Ordering::Release,
+                Ordering::Acquire,
+            ) {
+                Ok(_) => break,
+                Err(_) => continue,
+            }
+        }
+
+        // Update last refill time
+        self.last_refill_us.store(now, Ordering::Release);
+    }
+
+    /// Try to acquire `amount` tokens. Returns true if acquired.
+    fn try_acquire(&self, amount: i64) -> bool {
+        if amount <= 0 {
+            return true;
+        }
+        self.refill();
+
+        let required = (amount as u64) * TOKEN_PRECISION;
+        loop {
+            let current = self.tokens.load(Ordering::Acquire);
+            if current < required {
+                return false;
+            }
+            match self.tokens.compare_exchange_weak(
+                current,
+                current - required,
+                Ordering::Release,
+                Ordering::Acquire,
+            ) {
+                Ok(_) => return true,
+                Err(_) => continue,
+            }
+        }
+    }
+
+    /// Compute how long until `amount` tokens are available.
+    /// Returns Duration::ZERO if tokens are already available.
+    fn time_until_available(&self, amount: i64) -> Duration {
+        if amount <= 0 {
+            return Duration::ZERO;
+        }
+        self.refill();
+
+        let required = (amount as u64) * TOKEN_PRECISION;
+        let current = self.tokens.load(Ordering::Acquire);
+        if current >= required {
+            return Duration::ZERO;
+        }
+
+        let deficit = required - current;
+        let rate = self.rate.load(Ordering::Acquire);
+        if rate <= 0 {
+            return Duration::from_secs(3600); // Effectively blocked
+        }
+
+        let seconds = (deficit as f64) / ((rate as u64 * TOKEN_PRECISION) as f64);
+        Duration::from_secs_f64(seconds)
+    }
+
+    /// Get current usage as a percentage of burst capacity.
     fn usage_percent(&self) -> f64 {
-        if self.max_count == 0 {
+        self.refill();
+        let burst = self.burst.load(Ordering::Acquire);
+        if burst <= 0 {
             return 100.0;
         }
-        (self.count as f64 / self.max_count as f64) * 100.0
+        let max_tokens = (burst as u64) * TOKEN_PRECISION;
+        let current = self.tokens.load(Ordering::Acquire);
+        // usage = how much of the burst has been consumed
+        let used = max_tokens.saturating_sub(current);
+        (used as f64 / max_tokens as f64) * 100.0
     }
 
-    /// Get remaining capacity.
-    #[allow(dead_code)]
-    fn remaining(&self) -> i64 {
-        self.max_count - self.count
+    /// Update the rate (e.g., when quota changes).
+    fn update_rate(&self, new_rate: i64) {
+        let new_burst = new_rate * 2;
+        self.rate.store(new_rate, Ordering::Release);
+        self.burst.store(new_burst, Ordering::Release);
     }
 }
+
+// ============================================================================
+// Rate Limit State
+// ============================================================================
 
 /// In-memory rate limiter state for an organization.
 struct OrgRateLimitState {
     /// Produce bytes per second limiter.
-    produce_limiter: RateLimiter,
+    produce_limiter: TokenBucket,
     /// Consume bytes per second limiter.
-    consume_limiter: RateLimiter,
+    consume_limiter: TokenBucket,
     /// Requests per second limiter.
-    request_limiter: RateLimiter,
+    request_limiter: TokenBucket,
+    /// Last time this org had activity (for eviction).
+    last_activity: AtomicU64,
 }
 
 impl OrgRateLimitState {
     fn new(quota: &OrganizationQuota) -> Self {
         Self {
-            produce_limiter: RateLimiter::new(
-                Duration::from_secs(1),
-                quota.max_produce_bytes_per_sec,
-            ),
-            consume_limiter: RateLimiter::new(
-                Duration::from_secs(1),
-                quota.max_consume_bytes_per_sec,
-            ),
-            request_limiter: RateLimiter::new(
-                Duration::from_secs(1),
-                quota.max_requests_per_sec as i64,
+            produce_limiter: TokenBucket::new(quota.max_produce_bytes_per_sec),
+            consume_limiter: TokenBucket::new(quota.max_consume_bytes_per_sec),
+            request_limiter: TokenBucket::new(quota.max_requests_per_sec as i64),
+            last_activity: AtomicU64::new(
+                std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap()
+                    .as_secs(),
             ),
         }
     }
+
+    fn touch(&self) {
+        self.last_activity.store(
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_secs(),
+            Ordering::Release,
+        );
+    }
+
+    fn last_activity_secs(&self) -> u64 {
+        self.last_activity.load(Ordering::Acquire)
+    }
+
+    /// Update rates if quota changed.
+    fn update_rates(&self, quota: &OrganizationQuota) {
+        self.produce_limiter.update_rate(quota.max_produce_bytes_per_sec);
+        self.consume_limiter.update_rate(quota.max_consume_bytes_per_sec);
+        self.request_limiter.update_rate(quota.max_requests_per_sec as i64);
+    }
 }
+
+/// Per-API-key rate limiter state.
+struct KeyRateLimitState {
+    produce_limiter: Option<TokenBucket>,
+    consume_limiter: Option<TokenBucket>,
+    request_limiter: Option<TokenBucket>,
+}
+
+impl KeyRateLimitState {
+    fn from_api_key(key: &ApiKey) -> Option<Self> {
+        let has_limits = key.max_requests_per_sec.is_some()
+            || key.max_produce_bytes_per_sec.is_some()
+            || key.max_consume_bytes_per_sec.is_some();
+        if !has_limits {
+            return None;
+        }
+        Some(Self {
+            produce_limiter: key.max_produce_bytes_per_sec.map(|r| TokenBucket::new(r as i64)),
+            consume_limiter: key.max_consume_bytes_per_sec.map(|r| TokenBucket::new(r as i64)),
+            request_limiter: key.max_requests_per_sec.map(|r| TokenBucket::new(r as i64)),
+        })
+    }
+}
+
+// ============================================================================
+// QuotaEnforcer
+// ============================================================================
 
 /// Quota enforcer for multi-tenant operations.
 ///
 /// Enforces resource limits based on organization plans and tracks usage.
 /// Uses a combination of in-memory rate limiting (for high-frequency checks)
 /// and persistent storage (for durable limits like topic count).
-pub struct QuotaEnforcer<S: MetadataStore> {
+pub struct QuotaEnforcer<S: MetadataStore + ?Sized> {
     store: Arc<S>,
     /// In-memory rate limiters per organization.
     rate_limiters: RwLock<HashMap<String, OrgRateLimitState>>,
+    /// Per-API-key rate limiters, keyed by (org_id, key_id).
+    key_limiters: RwLock<HashMap<(String, String), KeyRateLimitState>>,
 }
 
-impl<S: MetadataStore> QuotaEnforcer<S> {
+impl<S: MetadataStore + ?Sized + 'static> QuotaEnforcer<S> {
     /// Create a new quota enforcer.
     pub fn new(store: Arc<S>) -> Self {
         Self {
             store,
             rate_limiters: RwLock::new(HashMap::new()),
+            key_limiters: RwLock::new(HashMap::new()),
         }
     }
 
@@ -209,18 +375,31 @@ impl<S: MetadataStore> QuotaEnforcer<S> {
         Ok(())
     }
 
+    /// Ensure per-key limiter exists (if the key has custom limits).
+    async fn ensure_key_limiter(&self, org_id: &str, key: &ApiKey) {
+        let map_key = (org_id.to_string(), key.id.clone());
+
+        // Fast path
+        {
+            let limiters = self.key_limiters.read().await;
+            if limiters.contains_key(&map_key) {
+                return;
+            }
+        }
+
+        // Slow path
+        if let Some(state) = KeyRateLimitState::from_api_key(key) {
+            let mut limiters = self.key_limiters.write().await;
+            limiters.entry(map_key).or_insert(state);
+        }
+    }
+
     /// Check if a topic can be created.
-    ///
-    /// Verifies:
-    /// - Organization is active
-    /// - Topic count is within quota
-    /// - Partition count is within quota
     pub async fn check_topic_creation(
         &self,
         ctx: &TenantContext,
         partition_count: u32,
     ) -> Result<QuotaCheck> {
-        // Check organization status
         if ctx.organization.status != OrganizationStatus::Active {
             return Ok(QuotaCheck::Denied(format!(
                 "Organization is {}",
@@ -228,11 +407,9 @@ impl<S: MetadataStore> QuotaEnforcer<S> {
             )));
         }
 
-        // Get current topic count
         let topics = self.store.list_topics().await?;
         let current_topics = topics.len() as i32;
 
-        // Check topic count
         if current_topics >= ctx.quota.max_topics {
             return Ok(QuotaCheck::Denied(format!(
                 "Topic limit reached ({}/{})",
@@ -240,7 +417,6 @@ impl<S: MetadataStore> QuotaEnforcer<S> {
             )));
         }
 
-        // Check partitions per topic
         if partition_count as i32 > ctx.quota.max_partitions_per_topic {
             return Ok(QuotaCheck::Denied(format!(
                 "Partition count {} exceeds limit of {}",
@@ -248,7 +424,6 @@ impl<S: MetadataStore> QuotaEnforcer<S> {
             )));
         }
 
-        // Warning if approaching limit
         let usage_percent = (current_topics as f64 / ctx.quota.max_topics as f64) * 100.0;
         if usage_percent > 80.0 {
             return Ok(QuotaCheck::Warning(format!(
@@ -262,9 +437,13 @@ impl<S: MetadataStore> QuotaEnforcer<S> {
 
     /// Check if produce bytes can be written.
     ///
-    /// Uses in-memory rate limiting for fast checks.
-    pub async fn check_produce(&self, ctx: &TenantContext, bytes: i64) -> Result<QuotaCheck> {
-        // Check organization status
+    /// Checks org-level limit first, then optional per-key limit.
+    pub async fn check_produce(
+        &self,
+        ctx: &TenantContext,
+        bytes: i64,
+        api_key: Option<&ApiKey>,
+    ) -> Result<QuotaCheck> {
         if ctx.organization.status != OrganizationStatus::Active {
             return Ok(QuotaCheck::Denied(format!(
                 "Organization is {}",
@@ -272,43 +451,64 @@ impl<S: MetadataStore> QuotaEnforcer<S> {
             )));
         }
 
-        // Ensure limiter exists
         self.get_or_create_limiter(ctx).await?;
 
-        let mut limiters = self.rate_limiters.write().await;
-        let state = limiters.get_mut(&ctx.organization.id).unwrap();
+        // Org-level check
+        {
+            let limiters = self.rate_limiters.read().await;
+            let state = limiters.get(&ctx.organization.id).unwrap();
+            state.touch();
 
-        // Try to acquire produce capacity
-        if !state.produce_limiter.try_acquire(bytes) {
-            return Ok(QuotaCheck::Denied(format!(
-                "Produce rate limit exceeded ({} bytes/s)",
-                ctx.quota.max_produce_bytes_per_sec
-            )));
+            if !state.produce_limiter.try_acquire(bytes) {
+                return Ok(QuotaCheck::Denied(format!(
+                    "Produce rate limit exceeded ({} bytes/s)",
+                    ctx.quota.max_produce_bytes_per_sec
+                )));
+            }
         }
 
-        // Also check request rate
-        if !state.request_limiter.try_acquire(1) {
-            return Ok(QuotaCheck::Denied(format!(
-                "Request rate limit exceeded ({}/s)",
-                ctx.quota.max_requests_per_sec
-            )));
+        // Per-key check
+        if let Some(key) = api_key {
+            if key.max_produce_bytes_per_sec.is_some() {
+                self.ensure_key_limiter(&ctx.organization.id, key).await;
+                let map_key = (ctx.organization.id.clone(), key.id.clone());
+                let limiters = self.key_limiters.read().await;
+                if let Some(state) = limiters.get(&map_key) {
+                    if let Some(ref limiter) = state.produce_limiter {
+                        if !limiter.try_acquire(bytes) {
+                            return Ok(QuotaCheck::Denied(format!(
+                                "API key produce rate limit exceeded ({} bytes/s)",
+                                key.max_produce_bytes_per_sec.unwrap()
+                            )));
+                        }
+                    }
+                }
+            }
         }
 
-        // Warning if approaching limit
-        let usage_percent = state.produce_limiter.usage_percent();
-        if usage_percent > 80.0 {
-            return Ok(QuotaCheck::Warning(format!(
-                "Produce rate at {:.0}% of limit",
-                usage_percent
-            )));
+        // Warning if approaching org limit
+        {
+            let limiters = self.rate_limiters.read().await;
+            let state = limiters.get(&ctx.organization.id).unwrap();
+            let usage_percent = state.produce_limiter.usage_percent();
+            if usage_percent > 80.0 {
+                return Ok(QuotaCheck::Warning(format!(
+                    "Produce rate at {:.0}% of limit",
+                    usage_percent
+                )));
+            }
         }
 
         Ok(QuotaCheck::Allowed)
     }
 
     /// Check if consume bytes can be read.
-    pub async fn check_consume(&self, ctx: &TenantContext, bytes: i64) -> Result<QuotaCheck> {
-        // Check organization status
+    pub async fn check_consume(
+        &self,
+        ctx: &TenantContext,
+        bytes: i64,
+        api_key: Option<&ApiKey>,
+    ) -> Result<QuotaCheck> {
         if ctx.organization.status != OrganizationStatus::Active {
             return Ok(QuotaCheck::Denied(format!(
                 "Organization is {}",
@@ -316,43 +516,63 @@ impl<S: MetadataStore> QuotaEnforcer<S> {
             )));
         }
 
-        // Ensure limiter exists
         self.get_or_create_limiter(ctx).await?;
 
-        let mut limiters = self.rate_limiters.write().await;
-        let state = limiters.get_mut(&ctx.organization.id).unwrap();
+        // Org-level check
+        {
+            let limiters = self.rate_limiters.read().await;
+            let state = limiters.get(&ctx.organization.id).unwrap();
+            state.touch();
 
-        // Try to acquire consume capacity
-        if !state.consume_limiter.try_acquire(bytes) {
-            return Ok(QuotaCheck::Denied(format!(
-                "Consume rate limit exceeded ({} bytes/s)",
-                ctx.quota.max_consume_bytes_per_sec
-            )));
+            if !state.consume_limiter.try_acquire(bytes) {
+                return Ok(QuotaCheck::Denied(format!(
+                    "Consume rate limit exceeded ({} bytes/s)",
+                    ctx.quota.max_consume_bytes_per_sec
+                )));
+            }
         }
 
-        // Also check request rate
-        if !state.request_limiter.try_acquire(1) {
-            return Ok(QuotaCheck::Denied(format!(
-                "Request rate limit exceeded ({}/s)",
-                ctx.quota.max_requests_per_sec
-            )));
+        // Per-key check
+        if let Some(key) = api_key {
+            if key.max_consume_bytes_per_sec.is_some() {
+                self.ensure_key_limiter(&ctx.organization.id, key).await;
+                let map_key = (ctx.organization.id.clone(), key.id.clone());
+                let limiters = self.key_limiters.read().await;
+                if let Some(state) = limiters.get(&map_key) {
+                    if let Some(ref limiter) = state.consume_limiter {
+                        if !limiter.try_acquire(bytes) {
+                            return Ok(QuotaCheck::Denied(format!(
+                                "API key consume rate limit exceeded ({} bytes/s)",
+                                key.max_consume_bytes_per_sec.unwrap()
+                            )));
+                        }
+                    }
+                }
+            }
         }
 
-        // Warning if approaching limit
-        let usage_percent = state.consume_limiter.usage_percent();
-        if usage_percent > 80.0 {
-            return Ok(QuotaCheck::Warning(format!(
-                "Consume rate at {:.0}% of limit",
-                usage_percent
-            )));
+        // Warning
+        {
+            let limiters = self.rate_limiters.read().await;
+            let state = limiters.get(&ctx.organization.id).unwrap();
+            let usage_percent = state.consume_limiter.usage_percent();
+            if usage_percent > 80.0 {
+                return Ok(QuotaCheck::Warning(format!(
+                    "Consume rate at {:.0}% of limit",
+                    usage_percent
+                )));
+            }
         }
 
         Ok(QuotaCheck::Allowed)
     }
 
     /// Check if a request can be made (generic request rate check).
-    pub async fn check_request(&self, ctx: &TenantContext) -> Result<QuotaCheck> {
-        // Check organization status
+    pub async fn check_request(
+        &self,
+        ctx: &TenantContext,
+        api_key: Option<&ApiKey>,
+    ) -> Result<QuotaCheck> {
         if ctx.organization.status != OrganizationStatus::Active {
             return Ok(QuotaCheck::Denied(format!(
                 "Organization is {}",
@@ -360,27 +580,82 @@ impl<S: MetadataStore> QuotaEnforcer<S> {
             )));
         }
 
-        // Ensure limiter exists
         self.get_or_create_limiter(ctx).await?;
 
-        let mut limiters = self.rate_limiters.write().await;
-        let state = limiters.get_mut(&ctx.organization.id).unwrap();
+        // Org-level check
+        {
+            let limiters = self.rate_limiters.read().await;
+            let state = limiters.get(&ctx.organization.id).unwrap();
+            state.touch();
 
-        if !state.request_limiter.try_acquire(1) {
-            return Ok(QuotaCheck::Denied(format!(
-                "Request rate limit exceeded ({}/s)",
-                ctx.quota.max_requests_per_sec
-            )));
+            if !state.request_limiter.try_acquire(1) {
+                return Ok(QuotaCheck::Denied(format!(
+                    "Request rate limit exceeded ({}/s)",
+                    ctx.quota.max_requests_per_sec
+                )));
+            }
+        }
+
+        // Per-key check
+        if let Some(key) = api_key {
+            if key.max_requests_per_sec.is_some() {
+                self.ensure_key_limiter(&ctx.organization.id, key).await;
+                let map_key = (ctx.organization.id.clone(), key.id.clone());
+                let limiters = self.key_limiters.read().await;
+                if let Some(state) = limiters.get(&map_key) {
+                    if let Some(ref limiter) = state.request_limiter {
+                        if !limiter.try_acquire(1) {
+                            return Ok(QuotaCheck::Denied(format!(
+                                "API key request rate limit exceeded ({}/s)",
+                                key.max_requests_per_sec.unwrap()
+                            )));
+                        }
+                    }
+                }
+            }
         }
 
         Ok(QuotaCheck::Allowed)
     }
 
+    /// Compute throttle time for Kafka protocol (how long client should wait).
+    /// Returns 0 if not throttled.
+    pub async fn throttle_time_ms(
+        &self,
+        ctx: &TenantContext,
+        api_key: Option<&ApiKey>,
+    ) -> i32 {
+        self.get_or_create_limiter(ctx).await.ok();
+
+        let limiters = self.rate_limiters.read().await;
+        if let Some(state) = limiters.get(&ctx.organization.id) {
+            let request_wait = state.request_limiter.time_until_available(1);
+            if !request_wait.is_zero() {
+                return request_wait.as_millis() as i32;
+            }
+        }
+
+        // Also check per-key
+        if let Some(key) = api_key {
+            if key.max_requests_per_sec.is_some() {
+                let map_key = (ctx.organization.id.clone(), key.id.clone());
+                let key_limiters = self.key_limiters.read().await;
+                if let Some(state) = key_limiters.get(&map_key) {
+                    if let Some(ref limiter) = state.request_limiter {
+                        let wait = limiter.time_until_available(1);
+                        if !wait.is_zero() {
+                            return wait.as_millis() as i32;
+                        }
+                    }
+                }
+            }
+        }
+
+        0
+    }
+
     /// Check storage usage.
-    ///
-    /// This queries the persistent storage to check total bytes stored.
     pub async fn check_storage(&self, ctx: &TenantContext) -> Result<QuotaCheck> {
-        // Check organization status
         if ctx.organization.status != OrganizationStatus::Active {
             return Ok(QuotaCheck::Denied(format!(
                 "Organization is {}",
@@ -388,7 +663,6 @@ impl<S: MetadataStore> QuotaEnforcer<S> {
             )));
         }
 
-        // Get current storage usage from metadata
         let usage = self
             .store
             .get_organization_usage(&ctx.organization.id)
@@ -406,7 +680,6 @@ impl<S: MetadataStore> QuotaEnforcer<S> {
             )));
         }
 
-        // Warning if approaching limit
         let usage_percent = (storage_bytes as f64 / ctx.quota.max_storage_bytes as f64) * 100.0;
         if usage_percent > 80.0 {
             return Ok(QuotaCheck::Warning(format!(
@@ -419,8 +692,6 @@ impl<S: MetadataStore> QuotaEnforcer<S> {
     }
 
     /// Track produce bytes for billing and monitoring.
-    ///
-    /// Updates the persistent usage counters.
     pub async fn track_produce_bytes(&self, ctx: &TenantContext, bytes: i64) -> Result<()> {
         self.store
             .increment_organization_usage(&ctx.organization.id, "produce_bytes", bytes)
@@ -532,6 +803,112 @@ impl<S: MetadataStore> QuotaEnforcer<S> {
             },
         }
     }
+
+    /// Resolve a TenantContext for quota checking by looking up the real org from the store.
+    /// Falls back to Free plan defaults if the org is not found.
+    pub async fn resolve_tenant_context(
+        &self,
+        org_id: &str,
+    ) -> TenantContext {
+        match self.store.get_organization(org_id).await {
+            Ok(Some(org)) => {
+                let quota = self
+                    .store
+                    .get_organization_quota(org_id)
+                    .await
+                    .unwrap_or_else(|_| Self::default_quotas_for_plan(org.plan, org_id));
+                TenantContext {
+                    organization: org,
+                    api_key: None,
+                    quota,
+                    is_default: org_id == crate::DEFAULT_ORGANIZATION_ID,
+                }
+            }
+            _ => {
+                // Org not found — use Free plan defaults
+                TenantContext {
+                    organization: crate::Organization {
+                        id: org_id.to_string(),
+                        name: String::new(),
+                        slug: String::new(),
+                        plan: OrganizationPlan::Free,
+                        status: OrganizationStatus::Active,
+                        created_at: 0,
+                        settings: std::collections::HashMap::new(),
+                        clerk_id: None,
+                    },
+                    api_key: None,
+                    quota: Self::default_quotas_for_plan(OrganizationPlan::Free, org_id),
+                    is_default: false,
+                }
+            }
+        }
+    }
+
+    /// Spawn a background task that periodically refreshes quotas and evicts
+    /// idle org limiters. Returns a JoinHandle that can be dropped to stop.
+    pub fn spawn_quota_refresh_task(
+        self: &Arc<Self>,
+        interval: Duration,
+    ) -> tokio::task::JoinHandle<()> {
+        let enforcer = Arc::clone(self);
+        tokio::spawn(async move {
+            let mut ticker = tokio::time::interval(interval);
+            loop {
+                ticker.tick().await;
+
+                // Collect active org IDs
+                let org_ids: Vec<String> = {
+                    let limiters = enforcer.rate_limiters.read().await;
+                    limiters.keys().cloned().collect()
+                };
+
+                let now_secs = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap()
+                    .as_secs();
+
+                let mut to_evict = Vec::new();
+
+                for org_id in &org_ids {
+                    // Check if inactive for >5 minutes
+                    let last_activity = {
+                        let limiters = enforcer.rate_limiters.read().await;
+                        limiters
+                            .get(org_id)
+                            .map(|s| s.last_activity_secs())
+                            .unwrap_or(0)
+                    };
+
+                    if now_secs.saturating_sub(last_activity) > 300 {
+                        to_evict.push(org_id.clone());
+                        continue;
+                    }
+
+                    // Reload quota from store and update rates
+                    if let Ok(quota) = enforcer.store.get_organization_quota(org_id).await {
+                        let limiters = enforcer.rate_limiters.read().await;
+                        if let Some(state) = limiters.get(org_id) {
+                            state.update_rates(&quota);
+                        }
+                    }
+                }
+
+                // Evict inactive orgs
+                if !to_evict.is_empty() {
+                    let mut limiters = enforcer.rate_limiters.write().await;
+                    for org_id in &to_evict {
+                        limiters.remove(org_id);
+                    }
+                    // Also evict per-key limiters for those orgs
+                    let mut key_limiters = enforcer.key_limiters.write().await;
+                    key_limiters.retain(|(org_id, _), _| !to_evict.contains(org_id));
+
+                    tracing::debug!("Evicted {} inactive org rate limiters", to_evict.len());
+                }
+            }
+        })
+    }
 }
 
 /// Summary of quota usage for an organization.
@@ -565,7 +942,7 @@ pub struct QuotaSummary {
 ///
 /// Usage:
 /// ```ignore
-/// enforce_quota!(enforcer.check_produce(&ctx, bytes).await)?;
+/// enforce_quota!(enforcer.check_produce(&ctx, bytes, None).await)?;
 /// ```
 #[macro_export]
 macro_rules! enforce_quota {
@@ -621,28 +998,57 @@ mod tests {
     }
 
     #[test]
-    fn test_rate_limiter_basic() {
-        let mut limiter = RateLimiter::new(Duration::from_secs(1), 100);
+    fn test_token_bucket_basic() {
+        let bucket = TokenBucket::with_burst(100, 100);
 
         // Should allow acquiring within limit
-        assert!(limiter.try_acquire(50));
-        assert_eq!(limiter.count, 50);
-
-        // Should allow another acquire within limit
-        assert!(limiter.try_acquire(30));
-        assert_eq!(limiter.count, 80);
-
+        assert!(bucket.try_acquire(50));
+        assert!(bucket.try_acquire(30));
         // Should deny when exceeding limit
-        assert!(!limiter.try_acquire(30));
-        assert_eq!(limiter.count, 80);
+        assert!(!bucket.try_acquire(30));
     }
 
     #[test]
-    fn test_rate_limiter_usage_percent() {
-        let mut limiter = RateLimiter::new(Duration::from_secs(1), 100);
+    fn test_token_bucket_burst() {
+        // Default burst = 2x rate
+        let bucket = TokenBucket::new(100);
+        // Should allow up to 200 (2x burst)
+        assert!(bucket.try_acquire(200));
+        assert!(!bucket.try_acquire(1));
+    }
 
-        limiter.try_acquire(80);
-        assert!((limiter.usage_percent() - 80.0).abs() < 0.01);
+    #[test]
+    fn test_token_bucket_time_until_available() {
+        let bucket = TokenBucket::with_burst(1000, 100);
+        // Drain all tokens
+        assert!(bucket.try_acquire(100));
+        // Should need to wait
+        let wait = bucket.time_until_available(10);
+        assert!(wait > Duration::ZERO);
+        assert!(wait <= Duration::from_millis(15)); // ~10ms at 1000/s
+    }
+
+    #[test]
+    fn test_token_bucket_zero_amount() {
+        let bucket = TokenBucket::new(100);
+        assert!(bucket.try_acquire(0));
+        assert_eq!(bucket.time_until_available(0), Duration::ZERO);
+    }
+
+    #[test]
+    fn test_token_bucket_usage_percent() {
+        let bucket = TokenBucket::with_burst(100, 100);
+        assert!(bucket.try_acquire(80));
+        let usage = bucket.usage_percent();
+        assert!(usage > 70.0 && usage < 90.0);
+    }
+
+    #[test]
+    fn test_token_bucket_update_rate() {
+        let bucket = TokenBucket::new(100);
+        bucket.update_rate(200);
+        assert_eq!(bucket.rate.load(Ordering::Acquire), 200);
+        assert_eq!(bucket.burst.load(Ordering::Acquire), 400);
     }
 
     #[test]
@@ -684,5 +1090,48 @@ mod tests {
             "test",
         );
         assert_eq!(enterprise.max_topics, 10_000);
+    }
+
+    #[test]
+    fn test_key_rate_limit_state_none_when_no_limits() {
+        let key = ApiKey {
+            id: "k1".to_string(),
+            organization_id: "org1".to_string(),
+            name: "test".to_string(),
+            key_prefix: "sk_live_".to_string(),
+            permissions: vec![],
+            scopes: vec![],
+            expires_at: None,
+            last_used_at: None,
+            created_at: 0,
+            created_by: None,
+            max_requests_per_sec: None,
+            max_produce_bytes_per_sec: None,
+            max_consume_bytes_per_sec: None,
+        };
+        assert!(KeyRateLimitState::from_api_key(&key).is_none());
+    }
+
+    #[test]
+    fn test_key_rate_limit_state_some_when_limits() {
+        let key = ApiKey {
+            id: "k1".to_string(),
+            organization_id: "org1".to_string(),
+            name: "test".to_string(),
+            key_prefix: "sk_live_".to_string(),
+            permissions: vec![],
+            scopes: vec![],
+            expires_at: None,
+            last_used_at: None,
+            created_at: 0,
+            created_by: None,
+            max_requests_per_sec: Some(50),
+            max_produce_bytes_per_sec: Some(500_000),
+            max_consume_bytes_per_sec: None,
+        };
+        let state = KeyRateLimitState::from_api_key(&key).unwrap();
+        assert!(state.request_limiter.is_some());
+        assert!(state.produce_limiter.is_some());
+        assert!(state.consume_limiter.is_none());
     }
 }

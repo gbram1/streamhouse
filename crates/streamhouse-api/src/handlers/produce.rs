@@ -181,6 +181,19 @@ pub async fn produce(
     let topic_name = req.topic.clone();
     let value_bytes = req.value.len() as u64;
 
+    // Check produce byte-rate quota
+    if let Some(ref enforcer) = state.quota_enforcer {
+        let tenant_ctx = crate::rate_limit::build_tenant_context(&org_id, enforcer).await;
+        if let Some(ctx) = tenant_ctx {
+            let check = enforcer.check_produce(&ctx, value_bytes as i64, None).await;
+            if let Ok(streamhouse_metadata::QuotaCheck::Denied(reason)) = check {
+                metrics::RATE_LIMIT_TOTAL.with_label_values(&[&org_id, "denied", "rest"]).inc();
+                tracing::warn!("Produce rate limit denied: org={}, reason={}", org_id, reason);
+                return Err(StatusCode::TOO_MANY_REQUESTS);
+            }
+        }
+    }
+
     // Verify topic belongs to org and get its metadata
     let topic = match state.metadata.get_topic_for_org(&org_id, &req.topic).await {
         Ok(Some(t)) => t,
@@ -343,6 +356,19 @@ pub async fn produce_batch(
     let topic_name = req.topic.clone();
     let total_bytes: u64 = req.records.iter().map(|r| r.value.len() as u64).sum();
     let record_count = req.records.len();
+
+    // Check produce byte-rate quota
+    if let Some(ref enforcer) = state.quota_enforcer {
+        let tenant_ctx = crate::rate_limit::build_tenant_context(&org_id, enforcer).await;
+        if let Some(ctx) = tenant_ctx {
+            let check = enforcer.check_produce(&ctx, total_bytes as i64, None).await;
+            if let Ok(streamhouse_metadata::QuotaCheck::Denied(reason)) = check {
+                metrics::RATE_LIMIT_TOTAL.with_label_values(&[&org_id, "denied", "rest"]).inc();
+                tracing::warn!("Produce batch rate limit denied: org={}, reason={}", org_id, reason);
+                return Err(StatusCode::TOO_MANY_REQUESTS);
+            }
+        }
+    }
 
     // Verify topic belongs to org and get its metadata
     let topic = state

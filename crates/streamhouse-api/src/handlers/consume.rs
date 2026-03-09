@@ -131,7 +131,24 @@ pub async fn consume(
 
     let next_offset = req.offset + records.len() as u64;
 
+    // Check consume byte-rate quota (after reading, since we need the size)
     if !records.is_empty() {
+        let consume_bytes: u64 = records.iter().map(|r| r.value.len() as u64).sum();
+
+        if let Some(ref enforcer) = state.quota_enforcer {
+            let tenant_ctx = crate::rate_limit::build_tenant_context(&org_id, enforcer).await;
+            if let Some(ctx) = tenant_ctx {
+                let check = enforcer.check_consume(&ctx, consume_bytes as i64, None).await;
+                if let Ok(streamhouse_metadata::QuotaCheck::Denied(reason)) = check {
+                    streamhouse_observability::metrics::RATE_LIMIT_TOTAL
+                        .with_label_values(&[&org_id, "denied", "rest"])
+                        .inc();
+                    tracing::warn!("Consume rate limit denied: org={}, reason={}", org_id, reason);
+                    return Err(StatusCode::TOO_MANY_REQUESTS);
+                }
+            }
+        }
+
         metrics::CONSUMER_RECORDS_TOTAL.with_label_values(&[&org_id, &topic_name, "rest-api"]).inc_by(records.len() as u64);
     }
 

@@ -1671,6 +1671,9 @@ impl MetadataStore for PostgresMetadataStore {
             last_used_at: None,
             created_at: now_ms,
             created_by: None,
+            max_requests_per_sec: None,
+            max_produce_bytes_per_sec: None,
+            max_consume_bytes_per_sec: None,
         })
     }
 
@@ -1680,7 +1683,8 @@ impl MetadataStore for PostgresMetadataStore {
                     EXTRACT(EPOCH FROM expires_at)::BIGINT * 1000 as expires_at_ms,
                     EXTRACT(EPOCH FROM last_used_at)::BIGINT * 1000 as last_used_at_ms,
                     EXTRACT(EPOCH FROM created_at)::BIGINT * 1000 as created_at_ms,
-                    created_by
+                    created_by,
+                    max_requests_per_sec, max_produce_bytes_per_sec, max_consume_bytes_per_sec
              FROM api_keys WHERE id = $1::UUID"
         )
         .bind(id)
@@ -1702,6 +1706,9 @@ impl MetadataStore for PostgresMetadataStore {
                 last_used_at: r.get("last_used_at_ms"),
                 created_at: r.get::<i64, _>("created_at_ms"),
                 created_by: r.get("created_by"),
+                max_requests_per_sec: r.get("max_requests_per_sec"),
+                max_produce_bytes_per_sec: r.get("max_produce_bytes_per_sec"),
+                max_consume_bytes_per_sec: r.get("max_consume_bytes_per_sec"),
             }
         }))
     }
@@ -1712,7 +1719,8 @@ impl MetadataStore for PostgresMetadataStore {
                     EXTRACT(EPOCH FROM expires_at)::BIGINT * 1000 as expires_at_ms,
                     EXTRACT(EPOCH FROM last_used_at)::BIGINT * 1000 as last_used_at_ms,
                     EXTRACT(EPOCH FROM created_at)::BIGINT * 1000 as created_at_ms,
-                    created_by
+                    created_by,
+                    max_requests_per_sec, max_produce_bytes_per_sec, max_consume_bytes_per_sec
              FROM api_keys WHERE key_hash = $1 AND (expires_at IS NULL OR expires_at > NOW())"
         )
         .bind(key_hash)
@@ -1734,6 +1742,9 @@ impl MetadataStore for PostgresMetadataStore {
                 last_used_at: r.get("last_used_at_ms"),
                 created_at: r.get::<i64, _>("created_at_ms"),
                 created_by: r.get("created_by"),
+                max_requests_per_sec: r.get("max_requests_per_sec"),
+                max_produce_bytes_per_sec: r.get("max_produce_bytes_per_sec"),
+                max_consume_bytes_per_sec: r.get("max_consume_bytes_per_sec"),
             }
         }))
     }
@@ -1744,7 +1755,8 @@ impl MetadataStore for PostgresMetadataStore {
                     EXTRACT(EPOCH FROM expires_at)::BIGINT * 1000 as expires_at_ms,
                     EXTRACT(EPOCH FROM last_used_at)::BIGINT * 1000 as last_used_at_ms,
                     EXTRACT(EPOCH FROM created_at)::BIGINT * 1000 as created_at_ms,
-                    created_by
+                    created_by,
+                    max_requests_per_sec, max_produce_bytes_per_sec, max_consume_bytes_per_sec
              FROM api_keys WHERE organization_id = $1::UUID ORDER BY created_at DESC"
         )
         .bind(organization_id)
@@ -1769,6 +1781,9 @@ impl MetadataStore for PostgresMetadataStore {
                     last_used_at: r.get("last_used_at_ms"),
                     created_at: r.get::<i64, _>("created_at_ms"),
                     created_by: r.get("created_by"),
+                    max_requests_per_sec: r.get("max_requests_per_sec"),
+                    max_produce_bytes_per_sec: r.get("max_produce_bytes_per_sec"),
+                    max_consume_bytes_per_sec: r.get("max_consume_bytes_per_sec"),
                 }
             })
             .collect())

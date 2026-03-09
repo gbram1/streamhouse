@@ -33,6 +33,7 @@ pub mod oauth;
 pub mod opa;
 pub mod pitr;
 pub mod prometheus;
+pub mod rate_limit;
 pub mod rbac;
 pub mod replication;
 pub mod sasl;
@@ -135,6 +136,8 @@ pub struct AppState {
     pub topic_changed: Option<Arc<Notify>>,
     /// Schema registry for produce-time validation (None = validation disabled)
     pub schema_registry: Option<Arc<streamhouse_schema_registry::SchemaRegistry>>,
+    /// Quota enforcer for rate limiting (None = rate limiting disabled)
+    pub quota_enforcer: Option<Arc<streamhouse_metadata::QuotaEnforcer<dyn MetadataStore>>>,
 }
 
 /// Create the API router with all endpoints
@@ -292,18 +295,28 @@ pub fn create_router(state: AppState) -> Router {
         )
         .with_state(state.clone());
 
-    // Apply authentication layers based on configuration
+    // Apply authentication and rate limiting layers based on configuration
     let api_routes = if auth_enabled {
         if clerk_auth.is_some() {
             tracing::info!("API authentication enabled (API keys + Clerk JWT)");
         } else {
             tracing::info!("API authentication enabled (API keys only)");
         }
+
+        // Build api routes with auth. If quota enforcer is available, add rate limiting
+        // Layer order: Auth runs first (sets AuthenticatedKey), then RateLimit checks it
+        let api_with_auth = if let Some(ref enforcer) = state.quota_enforcer {
+            tracing::info!("REST rate limiting enabled");
+            api_routes
+                .layer(rate_limit::RateLimitLayer::new(enforcer.clone()))
+                .layer(auth::SmartAuthLayer::new_with_clerk(metadata.clone(), clerk_auth.clone()))
+        } else {
+            api_routes
+                .layer(auth::SmartAuthLayer::new_with_clerk(metadata.clone(), clerk_auth.clone()))
+        };
+
         Router::new()
-            .merge(
-                api_routes
-                    .layer(auth::SmartAuthLayer::new_with_clerk(metadata.clone(), clerk_auth.clone())),
-            )
+            .merge(api_with_auth)
             .merge(
                 admin_routes
                     .layer(AuthLayer::admin_with_clerk(metadata.clone(), clerk_auth.clone())),

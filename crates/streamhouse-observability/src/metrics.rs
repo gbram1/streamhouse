@@ -461,6 +461,23 @@ lazy_static! {
             .buckets(vec![0.01, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0, 30.0]),
         &["org_id", "topic", "partition"]
     ).expect("metric can be created");
+
+    // ============================================================================
+    // Rate Limiting Metrics
+    // ============================================================================
+
+    /// Rate limit decisions (allowed, denied, warning) by protocol (rest, kafka)
+    pub static ref RATE_LIMIT_TOTAL: IntCounterVec = IntCounterVec::new(
+        Opts::new("streamhouse_rate_limit_total", "Total rate limit decisions"),
+        &["org_id", "decision", "protocol"] // decision=allowed/denied/warning, protocol=rest/kafka
+    ).expect("metric can be created");
+
+    /// Kafka throttle time applied to clients
+    pub static ref THROTTLE_TIME_MS: HistogramVec = HistogramVec::new(
+        HistogramOpts::new("streamhouse_throttle_time_ms", "Kafka throttle time in milliseconds")
+            .buckets(vec![0.0, 10.0, 50.0, 100.0, 250.0, 500.0, 1000.0, 2500.0, 5000.0]),
+        &["org_id", "protocol"]
+    ).expect("metric can be created");
 }
 
 /// Initialize metrics registry
@@ -687,6 +704,14 @@ pub fn init() {
         REGISTRY
             .register(Box::new(S3_FLUSH_LATENCY.clone()))
             .expect("s3_flush_latency can be registered");
+
+        // Rate Limiting metrics
+        REGISTRY
+            .register(Box::new(RATE_LIMIT_TOTAL.clone()))
+            .expect("rate_limit_total can be registered");
+        REGISTRY
+            .register(Box::new(THROTTLE_TIME_MS.clone()))
+            .expect("throttle_time_ms can be registered");
     });
 }
 

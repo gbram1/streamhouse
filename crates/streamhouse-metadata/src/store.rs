@@ -1650,12 +1650,16 @@ impl MetadataStore for SqliteMetadataStore {
             last_used_at: None,
             created_at: now,
             created_by: None,
+            max_requests_per_sec: None,
+            max_produce_bytes_per_sec: None,
+            max_consume_bytes_per_sec: None,
         })
     }
 
     async fn get_api_key(&self, id: &str) -> Result<Option<ApiKey>> {
         let query = format!(
-            "SELECT id, organization_id, name, key_prefix, permissions, scopes, expires_at, last_used_at, created_at, created_by \
+            "SELECT id, organization_id, name, key_prefix, permissions, scopes, expires_at, last_used_at, created_at, created_by, \
+             max_requests_per_sec, max_produce_bytes_per_sec, max_consume_bytes_per_sec \
              FROM api_keys WHERE id = '{}'",
             id
         );
@@ -1671,6 +1675,9 @@ impl MetadataStore for SqliteMetadataStore {
             Option<i64>,
             i64,
             Option<String>,
+            Option<i32>,
+            Option<i64>,
+            Option<i64>,
         )> = sqlx::query_as(&query).fetch_optional(&self.pool).await?;
 
         Ok(row.map(
@@ -1685,6 +1692,9 @@ impl MetadataStore for SqliteMetadataStore {
                 last_used_at,
                 created_at,
                 created_by,
+                max_requests_per_sec,
+                max_produce_bytes_per_sec,
+                max_consume_bytes_per_sec,
             )| {
                 ApiKey {
                     id,
@@ -1697,6 +1707,9 @@ impl MetadataStore for SqliteMetadataStore {
                     last_used_at,
                     created_at,
                     created_by,
+                    max_requests_per_sec,
+                    max_produce_bytes_per_sec,
+                    max_consume_bytes_per_sec,
                 }
             },
         ))
@@ -1706,7 +1719,8 @@ impl MetadataStore for SqliteMetadataStore {
         let now = Self::now_ms();
 
         let query = format!(
-            "SELECT id, organization_id, name, key_prefix, permissions, scopes, expires_at, last_used_at, created_at, created_by \
+            "SELECT id, organization_id, name, key_prefix, permissions, scopes, expires_at, last_used_at, created_at, created_by, \
+             max_requests_per_sec, max_produce_bytes_per_sec, max_consume_bytes_per_sec \
              FROM api_keys \
              WHERE key_hash = '{}' AND (expires_at IS NULL OR expires_at > {})",
             key_hash, now
@@ -1723,6 +1737,9 @@ impl MetadataStore for SqliteMetadataStore {
             Option<i64>,
             i64,
             Option<String>,
+            Option<i32>,
+            Option<i64>,
+            Option<i64>,
         )> = sqlx::query_as(&query).fetch_optional(&self.pool).await?;
 
         Ok(row.map(
@@ -1737,6 +1754,9 @@ impl MetadataStore for SqliteMetadataStore {
                 last_used_at,
                 created_at,
                 created_by,
+                max_requests_per_sec,
+                max_produce_bytes_per_sec,
+                max_consume_bytes_per_sec,
             )| {
                 ApiKey {
                     id,
@@ -1749,6 +1769,9 @@ impl MetadataStore for SqliteMetadataStore {
                     last_used_at,
                     created_at,
                     created_by,
+                    max_requests_per_sec,
+                    max_produce_bytes_per_sec,
+                    max_consume_bytes_per_sec,
                 }
             },
         ))
@@ -1756,7 +1779,8 @@ impl MetadataStore for SqliteMetadataStore {
 
     async fn list_api_keys(&self, organization_id: &str) -> Result<Vec<ApiKey>> {
         let query = format!(
-            "SELECT id, organization_id, name, key_prefix, permissions, scopes, expires_at, last_used_at, created_at, created_by \
+            "SELECT id, organization_id, name, key_prefix, permissions, scopes, expires_at, last_used_at, created_at, created_by, \
+             max_requests_per_sec, max_produce_bytes_per_sec, max_consume_bytes_per_sec \
              FROM api_keys WHERE organization_id = '{}' ORDER BY created_at DESC",
             organization_id
         );
@@ -1772,6 +1796,9 @@ impl MetadataStore for SqliteMetadataStore {
             Option<i64>,
             i64,
             Option<String>,
+            Option<i32>,
+            Option<i64>,
+            Option<i64>,
         )> = sqlx::query_as(&query).fetch_all(&self.pool).await?;
 
         Ok(rows
@@ -1788,6 +1815,9 @@ impl MetadataStore for SqliteMetadataStore {
                     last_used_at,
                     created_at,
                     created_by,
+                    max_requests_per_sec,
+                    max_produce_bytes_per_sec,
+                    max_consume_bytes_per_sec,
                 )| {
                     ApiKey {
                         id,
@@ -1800,6 +1830,9 @@ impl MetadataStore for SqliteMetadataStore {
                         last_used_at,
                         created_at,
                         created_by,
+                        max_requests_per_sec,
+                        max_produce_bytes_per_sec,
+                        max_consume_bytes_per_sec,
                     }
                 },
             )

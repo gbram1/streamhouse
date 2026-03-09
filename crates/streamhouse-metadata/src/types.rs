@@ -746,6 +746,15 @@ pub struct ApiKey {
 
     /// User ID who created the key
     pub created_by: Option<String>,
+
+    /// Per-key max requests per second (None = use org default)
+    pub max_requests_per_sec: Option<i32>,
+
+    /// Per-key max produce bytes per second (None = use org default)
+    pub max_produce_bytes_per_sec: Option<i64>,
+
+    /// Per-key max consume bytes per second (None = use org default)
+    pub max_consume_bytes_per_sec: Option<i64>,
 }
 
 /// Configuration for creating a new API key.
@@ -3310,6 +3319,9 @@ mod tests {
             last_used_at: Some(1700000000000),
             created_at: 1699999999000,
             created_by: Some("user-001".to_string()),
+            max_requests_per_sec: None,
+            max_produce_bytes_per_sec: None,
+            max_consume_bytes_per_sec: None,
         };
 
         let json = serde_json::to_string(&api_key).unwrap();

@@ -22,6 +22,7 @@ pub async fn handle_fetch(
     org_id: &str,
     header: &RequestHeader,
     body: &mut BytesMut,
+    throttle_time_ms: i32,
 ) -> KafkaResult<BytesMut> {
     // Parse request
     let (max_wait_ms, min_bytes, max_bytes, isolation_level, topics) = if header.api_version >= 12 {
@@ -170,6 +171,37 @@ pub async fn handle_fetch(
         });
     }
 
+    // Check consume byte-rate quota after reading
+    let mut throttle_time_ms = throttle_time_ms;
+    let total_consume_bytes: usize = topic_responses
+        .iter()
+        .flat_map(|t| t.partitions.iter())
+        .filter_map(|p| p.records.as_ref())
+        .map(|data| data.len())
+        .sum();
+
+    if total_consume_bytes > 0 {
+        if let Some(ref enforcer) = state.quota_enforcer {
+            let tenant_ctx = state.resolve_tenant_context(org_id).await;
+
+            let check = enforcer
+                .check_consume(&tenant_ctx, total_consume_bytes as i64, None)
+                .await;
+
+            if let Ok(streamhouse_metadata::QuotaCheck::Denied(_)) = check {
+                let byte_throttle_ms = enforcer.throttle_time_ms(&tenant_ctx, None).await;
+                throttle_time_ms = std::cmp::max(throttle_time_ms, byte_throttle_ms);
+
+                streamhouse_observability::metrics::RATE_LIMIT_TOTAL
+                    .with_label_values(&[org_id, "denied", "kafka"])
+                    .inc();
+                streamhouse_observability::metrics::THROTTLE_TIME_MS
+                    .with_label_values(&[org_id, "kafka"])
+                    .observe(throttle_time_ms as f64);
+            }
+        }
+    }
+
     // Build response
     let mut response = BytesMut::new();
 
@@ -177,7 +209,7 @@ pub async fn handle_fetch(
         // Compact protocol
 
         // Throttle time
-        response.put_i32(0);
+        response.put_i32(throttle_time_ms);
 
         // Error code
         response.put_i16(ErrorCode::None.as_i16());
@@ -239,7 +271,7 @@ pub async fn handle_fetch(
 
         // Throttle time (v1+)
         if header.api_version >= 1 {
-            response.put_i32(0);
+            response.put_i32(throttle_time_ms);
         }
 
         // Error code (v7+)

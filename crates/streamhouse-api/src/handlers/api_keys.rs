@@ -56,6 +56,15 @@ pub struct CreateApiKeyRequest {
     /// Optional expiration duration in milliseconds from now
     #[serde(default)]
     pub expires_in_ms: Option<i64>,
+    /// Max requests per second for this key (None = use org default)
+    #[serde(default)]
+    pub max_requests_per_sec: Option<i32>,
+    /// Max produce bytes per second for this key (None = use org default)
+    #[serde(default)]
+    pub max_produce_bytes_per_sec: Option<i64>,
+    /// Max consume bytes per second for this key (None = use org default)
+    #[serde(default)]
+    pub max_consume_bytes_per_sec: Option<i64>,
 }
 
 fn default_permissions() -> Vec<String> {

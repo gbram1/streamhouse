@@ -163,6 +163,7 @@ pub enum ErrorCode {
     GroupSubscribedToTopic = 86,
     InvalidRecord = 87,
     UnstableOffsetCommit = 88,
+    ThrottlingQuotaExceeded = 89,
 }
 
 impl ErrorCode {

@@ -370,6 +370,9 @@ mod tests {
             last_used_at: None,
             created_at: 0,
             created_by: None,
+            max_requests_per_sec: None,
+            max_produce_bytes_per_sec: None,
+            max_consume_bytes_per_sec: None,
         };
 
         let ctx = TenantContext {

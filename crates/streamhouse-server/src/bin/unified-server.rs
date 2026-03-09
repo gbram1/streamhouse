@@ -568,6 +568,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         );
     }
 
+    // Create quota enforcer for rate limiting
+    let quota_enforcer: Arc<streamhouse_metadata::QuotaEnforcer<dyn MetadataStore>> =
+        Arc::new(streamhouse_metadata::QuotaEnforcer::new(metadata.clone()));
+    let _quota_refresh_handle = quota_enforcer.spawn_quota_refresh_task(Duration::from_secs(60));
+    tracing::info!("🚦 Quota enforcer initialized (60s refresh interval)");
+
     // Start Kafka protocol server
     tracing::info!("📡 Initializing Kafka protocol server");
     let kafka_config = KafkaServerConfig {
@@ -589,6 +595,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         object_store: object_store.clone(),
         group_coordinator: Arc::new(GroupCoordinator::new(metadata.clone())),
         tenant_resolver: Some(KafkaTenantResolver::new(metadata.clone())),
+        quota_enforcer: Some(quota_enforcer.clone()),
     });
 
     let kafka_server = KafkaServer::new(kafka_state);
@@ -921,6 +928,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         clerk_auth,
         topic_changed: Some(grpc_service.topic_change_notify()),
         schema_registry: schema_registry_for_validation.clone(),
+        quota_enforcer: Some(quota_enforcer.clone()),
     };
 
     // Create REST API router

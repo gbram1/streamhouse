@@ -139,6 +139,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         clerk_auth,
         topic_changed: None,
         schema_registry: None,
+        quota_enforcer: None,
     };
 
     // Create router

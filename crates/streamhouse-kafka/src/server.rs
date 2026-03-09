@@ -62,6 +62,8 @@ pub struct KafkaServerState {
     pub group_coordinator: Arc<GroupCoordinator>,
     /// Tenant resolver for SASL and client_id-based authentication
     pub tenant_resolver: Option<KafkaTenantResolver<dyn MetadataStore>>,
+    /// Quota enforcer for rate limiting (None = rate limiting disabled)
+    pub quota_enforcer: Option<Arc<streamhouse_metadata::QuotaEnforcer<dyn MetadataStore>>>,
 }
 
 impl KafkaServerState {
@@ -82,6 +84,38 @@ impl KafkaServerState {
             object_store,
             group_coordinator,
             tenant_resolver,
+            quota_enforcer: None,
+        }
+    }
+
+    /// Build a TenantContext for quota checking by looking up the real org from metadata.
+    /// Falls back to Free plan defaults if the org is not found.
+    pub async fn resolve_tenant_context(
+        &self,
+        org_id: &str,
+    ) -> streamhouse_metadata::tenant::TenantContext {
+        if let Some(ref enforcer) = self.quota_enforcer {
+            enforcer.resolve_tenant_context(org_id).await
+        } else {
+            // No enforcer — build minimal context with Free defaults
+            streamhouse_metadata::tenant::TenantContext {
+                organization: streamhouse_metadata::Organization {
+                    id: org_id.to_string(),
+                    name: String::new(),
+                    slug: String::new(),
+                    plan: streamhouse_metadata::OrganizationPlan::Free,
+                    status: streamhouse_metadata::OrganizationStatus::Active,
+                    created_at: 0,
+                    settings: std::collections::HashMap::new(),
+                    clerk_id: None,
+                },
+                api_key: None,
+                quota: streamhouse_metadata::QuotaEnforcer::<dyn MetadataStore>::default_quotas_for_plan(
+                    streamhouse_metadata::OrganizationPlan::Free,
+                    org_id,
+                ),
+                is_default: org_id == streamhouse_metadata::DEFAULT_ORGANIZATION_ID,
+            }
         }
     }
 }
@@ -202,6 +236,15 @@ impl BoundKafkaServer {
     }
 }
 
+/// Handle a single Kafka client connection (public API for embedding/testing).
+pub async fn handle_connection_public(
+    stream: TcpStream,
+    addr: SocketAddr,
+    state: Arc<KafkaServerState>,
+) -> KafkaResult<()> {
+    handle_connection(stream, addr, state).await
+}
+
 /// Per-connection state
 pub(crate) struct ConnectionState {
     _addr: SocketAddr,
@@ -302,11 +345,39 @@ async fn handle_request(
         .map(|t| t.tenant.organization.id.as_str())
         .unwrap_or(streamhouse_metadata::DEFAULT_ORGANIZATION_ID);
 
+    // Compute throttle_time_ms for Kafka backpressure
+    let throttle_time_ms = if let Some(ref enforcer) = state.quota_enforcer {
+        // Use real org plan from metadata (or SASL-resolved tenant context)
+        let tenant_ctx = match conn_state.tenant {
+            Some(ref t) => t.tenant.clone(),
+            None => state.resolve_tenant_context(org_id).await,
+        };
+
+        // Check request rate and get throttle time
+        let _ = enforcer.check_request(&tenant_ctx, None).await;
+        let ms = enforcer.throttle_time_ms(&tenant_ctx, None).await;
+        if ms > 0 {
+            streamhouse_observability::metrics::RATE_LIMIT_TOTAL
+                .with_label_values(&[org_id, "denied", "kafka"])
+                .inc();
+            streamhouse_observability::metrics::THROTTLE_TIME_MS
+                .with_label_values(&[org_id, "kafka"])
+                .observe(ms as f64);
+        } else {
+            streamhouse_observability::metrics::RATE_LIMIT_TOTAL
+                .with_label_values(&[org_id, "allowed", "kafka"])
+                .inc();
+        }
+        ms
+    } else {
+        0
+    };
+
     let response_body = match api_key {
         Some(ApiKey::ApiVersions) => handlers::handle_api_versions(state, header, body).await?,
         Some(ApiKey::Metadata) => handlers::handle_metadata(state, org_id, header, body).await?,
-        Some(ApiKey::Produce) => handlers::handle_produce(state, org_id, header, body).await?,
-        Some(ApiKey::Fetch) => handlers::handle_fetch(state, org_id, header, body).await?,
+        Some(ApiKey::Produce) => handlers::handle_produce(state, org_id, header, body, throttle_time_ms).await?,
+        Some(ApiKey::Fetch) => handlers::handle_fetch(state, org_id, header, body, throttle_time_ms).await?,
         Some(ApiKey::ListOffsets) => {
             handlers::handle_list_offsets(state, org_id, header, body).await?
         }
