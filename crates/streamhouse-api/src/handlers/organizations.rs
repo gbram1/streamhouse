@@ -190,6 +190,7 @@ pub async fn list_organizations(
 
     let responses: Vec<OrganizationResponse> = organizations
         .into_iter()
+        .filter(|org| org.id != streamhouse_metadata::DEFAULT_ORGANIZATION_ID)
         .map(|org| OrganizationResponse {
             id: org.id,
             name: org.name,
