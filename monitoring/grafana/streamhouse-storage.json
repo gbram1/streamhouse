@@ -351,6 +351,23 @@
         "legend": {"show": true, "alignAsTable": true, "total": true}
       },
       {
+        "id": 16,
+        "title": "Segment Buffer Records (unflushed)",
+        "type": "graph",
+        "gridPos": {"h": 8, "w": 12, "x": 0, "y": 52},
+        "targets": [
+          {
+            "expr": "streamhouse_segment_buffer_records",
+            "legendFormat": "{{topic}}-p{{partition}}"
+          }
+        ],
+        "yaxes": [
+          {"label": "Records", "show": true},
+          {"show": false}
+        ],
+        "legend": {"show": true, "alignAsTable": true, "max": true, "current": true}
+      },
+      {
         "id": 15,
         "title": "Adaptive Rate Adjustment",
         "type": "graph",

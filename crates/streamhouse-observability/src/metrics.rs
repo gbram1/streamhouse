@@ -90,6 +90,12 @@ lazy_static! {
         &["org_id", "topic", "partition"]
     ).expect("metric can be created");
 
+    /// Number of records currently buffered in the segment buffer (not yet flushed to S3)
+    pub static ref SEGMENT_BUFFER_RECORDS: IntGaugeVec = IntGaugeVec::new(
+        Opts::new("streamhouse_segment_buffer_records", "Records currently in segment buffer per partition"),
+        &["org_id", "topic", "partition"]
+    ).expect("metric can be created");
+
     /// S3 requests by operation type
     pub static ref S3_REQUESTS_TOTAL: IntCounterVec = IntCounterVec::new(
         Opts::new("streamhouse_s3_requests_total", "Total S3 requests"),
@@ -499,6 +505,9 @@ pub fn init() {
         REGISTRY
             .register(Box::new(SEGMENT_FLUSHES_TOTAL.clone()))
             .expect("segment_flushes_total can be registered");
+        REGISTRY
+            .register(Box::new(SEGMENT_BUFFER_RECORDS.clone()))
+            .expect("segment_buffer_records can be registered");
         REGISTRY
             .register(Box::new(S3_REQUESTS_TOTAL.clone()))
             .expect("s3_requests_total can be registered");

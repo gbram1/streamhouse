@@ -189,6 +189,32 @@
       ],
       "title": "S3 Error Rate (errors/sec)",
       "type": "timeseries"
+    },
+    {
+      "datasource": "Prometheus",
+      "fieldConfig": {
+        "defaults": {
+          "color": {"mode": "palette-classic"},
+          "custom": {
+            "axisPlacement": "auto",
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "lineWidth": 1
+          },
+          "unit": "short"
+        }
+      },
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 24},
+      "id": 7,
+      "targets": [
+        {
+          "expr": "streamhouse_segment_buffer_records{org_id=~\"$org_id\",topic=~\"$topic\"}",
+          "legendFormat": "{{topic}}/p{{partition}}",
+          "refId": "A"
+        }
+      ],
+      "title": "Segment Buffer Records (unflushed)",
+      "type": "timeseries"
     }
   ],
   "refresh": "10s",

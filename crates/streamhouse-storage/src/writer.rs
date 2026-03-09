@@ -410,6 +410,11 @@ impl PartitionWriter {
             self.roll_segment().await?;
         }
 
+        // Update segment buffer records gauge
+        streamhouse_observability::metrics::SEGMENT_BUFFER_RECORDS
+            .with_label_values(&[&self.org_id, &self.topic, &self.partition_id.to_string()])
+            .set(self.buffered_records.len() as i64);
+
         Ok(offset)
     }
 
@@ -454,6 +459,11 @@ impl PartitionWriter {
         if self.should_roll_segment() {
             self.roll_segment().await?;
         }
+
+        // Update segment buffer records gauge
+        streamhouse_observability::metrics::SEGMENT_BUFFER_RECORDS
+            .with_label_values(&[&self.org_id, &self.topic, &self.partition_id.to_string()])
+            .set(self.buffered_records.len() as i64);
 
         Ok(offsets)
     }
@@ -566,6 +576,11 @@ impl PartitionWriter {
 
         // Clear buffered records — they are now persisted in S3 and discoverable via metadata
         self.buffered_records.clear();
+
+        // Update segment buffer records gauge to reflect cleared buffer
+        streamhouse_observability::metrics::SEGMENT_BUFFER_RECORDS
+            .with_label_values(&[&self.org_id, &self.topic, &self.partition_id.to_string()])
+            .set(0);
 
         // Truncate WAL now that data is safely in S3
         if let Some(ref wal) = self.wal {
