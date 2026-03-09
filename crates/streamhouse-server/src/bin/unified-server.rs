@@ -56,7 +56,7 @@ use axum::Router;
 use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::Duration;
-use streamhouse_kafka::{GroupCoordinator, KafkaServer, KafkaServerConfig, KafkaServerState};
+use streamhouse_kafka::{GroupCoordinator, KafkaServer, KafkaServerConfig, KafkaServerState, KafkaTenantResolver};
 #[cfg(feature = "postgres")]
 use streamhouse_metadata::PostgresMetadataStore;
 use streamhouse_metadata::{MetadataStore, SqliteMetadataStore};
@@ -588,7 +588,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         segment_cache: cache.clone(),
         object_store: object_store.clone(),
         group_coordinator: Arc::new(GroupCoordinator::new(metadata.clone())),
-        tenant_resolver: None,
+        tenant_resolver: Some(KafkaTenantResolver::new(metadata.clone())),
     });
 
     let kafka_server = KafkaServer::new(kafka_state);
