@@ -305,7 +305,13 @@ async fn handle_connection(
         );
 
         // Handle the request
-        let response = handle_request(&state, &mut conn_state, &header, &mut frame).await?;
+        let (response, throttle_time_ms) = handle_request(&state, &mut conn_state, &header, &mut frame).await?;
+
+        // Enforce throttle delay — hold the response so the client physically
+        // cannot send the next request until the delay expires (same as Apache Kafka).
+        if throttle_time_ms > 0 {
+            tokio::time::sleep(std::time::Duration::from_millis(throttle_time_ms as u64)).await;
+        }
 
         // Send response
         framed.send(response).await?;
@@ -314,19 +320,20 @@ async fn handle_connection(
     Err(KafkaError::ConnectionClosed)
 }
 
-/// Route request to appropriate handler
+/// Route request to appropriate handler.
+/// Returns (response_bytes, throttle_time_ms) so the connection loop can delay the response.
 async fn handle_request(
     state: &Arc<KafkaServerState>,
     conn_state: &mut ConnectionState,
     header: &RequestHeader,
     body: &mut BytesMut,
-) -> KafkaResult<BytesMut> {
+) -> KafkaResult<(BytesMut, i32)> {
     let api_key = ApiKey::from_i16(header.api_key);
 
     // Handle SASL APIs first (they can mutate connection state)
     if let Some(ApiKey::SaslHandshake) = api_key {
         let response_body = handlers::handle_sasl_handshake(state, header, body).await?;
-        return build_response(header, response_body);
+        return Ok((build_response(header, response_body)?, 0));
     }
     if let Some(ApiKey::SaslAuthenticate) = api_key {
         let (response_body, tenant_ctx) =
@@ -335,7 +342,7 @@ async fn handle_request(
             debug!("SASL auth success: org={}", ctx.tenant.organization.id);
             conn_state.tenant = Some(ctx);
         }
-        return build_response(header, response_body);
+        return Ok((build_response(header, response_body)?, 0));
     }
 
     // Extract org_id from tenant context (default for unauthenticated connections)
@@ -439,7 +446,7 @@ async fn handle_request(
         }
     };
 
-    build_response(header, response_body)
+    Ok((build_response(header, response_body)?, throttle_time_ms))
 }
 
 /// Build a full Kafka response with the appropriate header format.

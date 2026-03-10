@@ -3,7 +3,7 @@
 //! Reads records from topic partitions.
 
 use bytes::{Buf, BufMut, BytesMut};
-use tracing::debug;
+use tracing::{debug, warn};
 
 use streamhouse_storage::PartitionReader;
 
@@ -189,11 +189,18 @@ pub async fn handle_fetch(
                 .await;
 
             if let Ok(streamhouse_metadata::QuotaCheck::Denied(_)) = check {
-                let byte_throttle_ms = enforcer.throttle_time_ms(&tenant_ctx, None).await;
+                let byte_throttle_ms = enforcer
+                    .throttle_time_ms_for(&tenant_ctx, None, None, Some(total_consume_bytes as i64))
+                    .await;
                 throttle_time_ms = std::cmp::max(throttle_time_ms, byte_throttle_ms);
 
+                warn!(
+                    "Consume byte-rate quota exceeded: org={}, bytes={}, throttle_time_ms={}",
+                    org_id, total_consume_bytes, throttle_time_ms
+                );
+
                 streamhouse_observability::metrics::RATE_LIMIT_TOTAL
-                    .with_label_values(&[org_id, "denied", "kafka"])
+                    .with_label_values(&[org_id, "throttled", "kafka"])
                     .inc();
                 streamhouse_observability::metrics::THROTTLE_TIME_MS
                     .with_label_values(&[org_id, "kafka"])

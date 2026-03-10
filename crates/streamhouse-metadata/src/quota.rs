@@ -625,13 +625,40 @@ impl<S: MetadataStore + ?Sized + 'static> QuotaEnforcer<S> {
         ctx: &TenantContext,
         api_key: Option<&ApiKey>,
     ) -> i32 {
+        self.throttle_time_ms_for(ctx, api_key, None, None).await
+    }
+
+    /// Compute throttle time considering request rate, produce bytes, and consume bytes.
+    pub async fn throttle_time_ms_for(
+        &self,
+        ctx: &TenantContext,
+        api_key: Option<&ApiKey>,
+        produce_bytes: Option<i64>,
+        consume_bytes: Option<i64>,
+    ) -> i32 {
         self.get_or_create_limiter(ctx).await.ok();
+
+        let mut max_wait = Duration::ZERO;
 
         let limiters = self.rate_limiters.read().await;
         if let Some(state) = limiters.get(&ctx.organization.id) {
             let request_wait = state.request_limiter.time_until_available(1);
-            if !request_wait.is_zero() {
-                return request_wait.as_millis() as i32;
+            if request_wait > max_wait {
+                max_wait = request_wait;
+            }
+
+            if let Some(bytes) = produce_bytes {
+                let produce_wait = state.produce_limiter.time_until_available(bytes);
+                if produce_wait > max_wait {
+                    max_wait = produce_wait;
+                }
+            }
+
+            if let Some(bytes) = consume_bytes {
+                let consume_wait = state.consume_limiter.time_until_available(bytes);
+                if consume_wait > max_wait {
+                    max_wait = consume_wait;
+                }
             }
         }
 
@@ -643,15 +670,15 @@ impl<S: MetadataStore + ?Sized + 'static> QuotaEnforcer<S> {
                 if let Some(state) = key_limiters.get(&map_key) {
                     if let Some(ref limiter) = state.request_limiter {
                         let wait = limiter.time_until_available(1);
-                        if !wait.is_zero() {
-                            return wait.as_millis() as i32;
+                        if wait > max_wait {
+                            max_wait = wait;
                         }
                     }
                 }
             }
         }
 
-        0
+        max_wait.as_millis() as i32
     }
 
     /// Check storage usage.

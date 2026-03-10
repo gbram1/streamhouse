@@ -107,11 +107,13 @@ pub async fn handle_produce(
                 .await;
 
             if let Ok(streamhouse_metadata::QuotaCheck::Denied(_reason)) = check {
-                // Compute throttle_time_ms to signal backpressure
-                let byte_throttle_ms = enforcer.throttle_time_ms(&tenant_ctx, None).await;
+                // Compute throttle_time_ms from byte-rate deficit
+                let byte_throttle_ms = enforcer
+                    .throttle_time_ms_for(&tenant_ctx, None, Some(total_bytes as i64), None)
+                    .await;
                 throttle_time_ms = std::cmp::max(throttle_time_ms, byte_throttle_ms);
 
-                debug!(
+                warn!(
                     "Produce byte-rate quota exceeded: org={}, bytes={}, throttle_time_ms={}",
                     org_id, total_bytes, throttle_time_ms
                 );
