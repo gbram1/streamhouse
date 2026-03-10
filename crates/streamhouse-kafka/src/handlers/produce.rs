@@ -94,11 +94,12 @@ pub async fn handle_produce(
         .map(|data| data.len())
         .sum();
 
-    // Check produce byte-rate quota before processing any records
+    // Check produce byte-rate quota — Kafka protocol uses throttle_time_ms for
+    // backpressure rather than rejection. Let the request through but tell the client
+    // to slow down (matches Apache Kafka behavior).
     let mut throttle_time_ms = throttle_time_ms;
     if total_bytes > 0 {
         if let Some(ref enforcer) = state.quota_enforcer {
-            // Use real org plan from metadata (not hardcoded Free)
             let tenant_ctx = state.resolve_tenant_context(org_id).await;
 
             let check = enforcer
@@ -106,29 +107,21 @@ pub async fn handle_produce(
                 .await;
 
             if let Ok(streamhouse_metadata::QuotaCheck::Denied(_reason)) = check {
-                // Byte-rate quota exceeded — reject all partitions without processing
-                warn!(
-                    "Produce byte-rate quota exceeded: org={}, bytes={}, limit={}/s",
-                    org_id, total_bytes, tenant_ctx.quota.max_produce_bytes_per_sec
-                );
-
-                // Compute throttle_time_ms from byte-rate deficit
+                // Compute throttle_time_ms to signal backpressure
                 let byte_throttle_ms = enforcer.throttle_time_ms(&tenant_ctx, None).await;
                 throttle_time_ms = std::cmp::max(throttle_time_ms, byte_throttle_ms);
 
+                debug!(
+                    "Produce byte-rate quota exceeded: org={}, bytes={}, throttle_time_ms={}",
+                    org_id, total_bytes, throttle_time_ms
+                );
+
                 metrics::RATE_LIMIT_TOTAL
-                    .with_label_values(&[org_id, "denied", "kafka"])
+                    .with_label_values(&[org_id, "throttled", "kafka"])
                     .inc();
                 metrics::THROTTLE_TIME_MS
                     .with_label_values(&[org_id, "kafka"])
                     .observe(throttle_time_ms as f64);
-
-                // Build error response for all partitions
-                return build_quota_exceeded_response(
-                    header,
-                    &topics,
-                    throttle_time_ms,
-                );
             }
         }
     }
@@ -569,80 +562,6 @@ fn parse_varint(buf: &mut BytesMut) -> KafkaResult<i64> {
 
     // ZigZag decode
     Ok((result >> 1) ^ -(result & 1))
-}
-
-/// Build an error response for all partitions when produce byte-rate quota is exceeded.
-/// Returns ThrottlingQuotaExceeded (89) for every partition without processing records.
-fn build_quota_exceeded_response(
-    header: &RequestHeader,
-    topics: &[(String, Vec<(i32, Option<Vec<u8>>)>)],
-    throttle_time_ms: i32,
-) -> KafkaResult<BytesMut> {
-    let mut response = BytesMut::new();
-
-    if header.api_version >= 9 {
-        // Compact protocol
-        encode_unsigned_varint(&mut response, (topics.len() + 1) as u64);
-
-        for (topic_name, partitions) in topics {
-            encode_compact_string(&mut response, topic_name);
-            encode_unsigned_varint(&mut response, (partitions.len() + 1) as u64);
-
-            for (partition_index, _) in partitions {
-                response.put_i32(*partition_index);
-                response.put_i16(ErrorCode::ThrottlingQuotaExceeded.as_i16());
-                response.put_i64(-1); // base_offset
-                response.put_i64(-1); // log_append_time
-                response.put_i64(0);  // log_start_offset
-
-                // Record errors (empty array)
-                encode_unsigned_varint(&mut response, 1);
-
-                encode_empty_tagged_fields(&mut response);
-            }
-
-            encode_empty_tagged_fields(&mut response);
-        }
-
-        // Throttle time
-        response.put_i32(throttle_time_ms);
-
-        encode_empty_tagged_fields(&mut response);
-    } else {
-        // Legacy protocol
-        response.put_i32(topics.len() as i32);
-
-        for (topic_name, partitions) in topics {
-            encode_string(&mut response, topic_name);
-            response.put_i32(partitions.len() as i32);
-
-            for (partition_index, _) in partitions {
-                response.put_i32(*partition_index);
-                response.put_i16(ErrorCode::ThrottlingQuotaExceeded.as_i16());
-                response.put_i64(-1); // base_offset
-
-                if header.api_version >= 2 {
-                    response.put_i64(-1); // log_append_time
-                }
-
-                if header.api_version >= 5 {
-                    response.put_i64(0); // log_start_offset
-                }
-
-                // Record errors (v8+)
-                if header.api_version >= 8 {
-                    response.put_i32(0);
-                }
-            }
-        }
-
-        // Throttle time (v1+)
-        if header.api_version >= 1 {
-            response.put_i32(throttle_time_ms);
-        }
-    }
-
-    Ok(response)
 }
 
 fn decompress(data: &BytesMut, compression: CompressionType) -> KafkaResult<Vec<u8>> {

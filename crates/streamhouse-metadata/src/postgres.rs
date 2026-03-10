@@ -1811,7 +1811,7 @@ impl MetadataStore for PostgresMetadataStore {
 
     async fn get_organization_quota(&self, organization_id: &str) -> Result<OrganizationQuota> {
         let row = sqlx::query(
-            "SELECT organization_id, max_topics, max_partitions_per_topic, max_total_partitions,
+            "SELECT organization_id::TEXT, max_topics, max_partitions_per_topic, max_total_partitions,
                     max_storage_bytes, max_retention_days, max_produce_bytes_per_sec, max_consume_bytes_per_sec,
                     max_requests_per_sec, max_consumer_groups, max_schemas, max_schema_versions_per_subject, max_connections
              FROM organization_quotas WHERE organization_id = $1::UUID"
@@ -1886,7 +1886,7 @@ impl MetadataStore for PostgresMetadataStore {
         organization_id: &str,
     ) -> Result<Vec<OrganizationUsage>> {
         let rows = sqlx::query(
-            "SELECT organization_id, metric, value, period_start
+            "SELECT organization_id::TEXT, metric, value, period_start
              FROM organization_usage WHERE organization_id = $1::UUID ORDER BY metric",
         )
         .bind(organization_id)
