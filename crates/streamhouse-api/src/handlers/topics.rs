@@ -229,6 +229,18 @@ pub async fn create_topic(
         return Err(StatusCode::CONFLICT);
     }
 
+    // Check topic creation quota
+    if let Some(ref enforcer) = state.quota_enforcer {
+        let tenant_ctx = crate::rate_limit::build_tenant_context(&org_id, enforcer).await;
+        if let Some(ctx) = tenant_ctx {
+            let check = enforcer.check_topic_creation(&ctx, req.partitions).await;
+            if let Ok(streamhouse_metadata::QuotaCheck::Denied(reason)) = check {
+                tracing::warn!("Topic creation denied: org={}, reason={}", org_id, reason);
+                return Err(StatusCode::TOO_MANY_REQUESTS);
+            }
+        }
+    }
+
     // Create topic
     let config = TopicConfig {
         name: req.name.clone(),

@@ -407,7 +407,7 @@ impl<S: MetadataStore + ?Sized + 'static> QuotaEnforcer<S> {
             )));
         }
 
-        let topics = self.store.list_topics().await?;
+        let topics = self.store.list_topics_for_org(&ctx.organization.id).await?;
         let current_topics = topics.len() as i32;
 
         if current_topics >= ctx.quota.max_topics {
@@ -429,6 +429,70 @@ impl<S: MetadataStore + ?Sized + 'static> QuotaEnforcer<S> {
             return Ok(QuotaCheck::Warning(format!(
                 "Topic usage at {:.0}% ({}/{})",
                 usage_percent, current_topics, ctx.quota.max_topics
+            )));
+        }
+
+        Ok(QuotaCheck::Allowed)
+    }
+
+    /// Check if a consumer group can be created.
+    pub async fn check_consumer_group_creation(
+        &self,
+        ctx: &TenantContext,
+    ) -> Result<QuotaCheck> {
+        if ctx.organization.status != OrganizationStatus::Active {
+            return Ok(QuotaCheck::Denied(format!(
+                "Organization is {}",
+                ctx.organization.status
+            )));
+        }
+
+        let groups = self.store.list_consumer_groups_for_org(&ctx.organization.id).await?;
+        let current_groups = groups.len() as i32;
+
+        if current_groups >= ctx.quota.max_consumer_groups {
+            return Ok(QuotaCheck::Denied(format!(
+                "Consumer group limit reached ({}/{})",
+                current_groups, ctx.quota.max_consumer_groups
+            )));
+        }
+
+        let usage_percent = (current_groups as f64 / ctx.quota.max_consumer_groups as f64) * 100.0;
+        if usage_percent > 80.0 {
+            return Ok(QuotaCheck::Warning(format!(
+                "Consumer group usage at {:.0}% ({}/{})",
+                usage_percent, current_groups, ctx.quota.max_consumer_groups
+            )));
+        }
+
+        Ok(QuotaCheck::Allowed)
+    }
+
+    /// Check if a new connection is allowed.
+    pub async fn check_connection(
+        &self,
+        ctx: &TenantContext,
+        current_connections: i32,
+    ) -> Result<QuotaCheck> {
+        if ctx.organization.status != OrganizationStatus::Active {
+            return Ok(QuotaCheck::Denied(format!(
+                "Organization is {}",
+                ctx.organization.status
+            )));
+        }
+
+        if current_connections >= ctx.quota.max_connections {
+            return Ok(QuotaCheck::Denied(format!(
+                "Connection limit reached ({}/{})",
+                current_connections, ctx.quota.max_connections
+            )));
+        }
+
+        let usage_percent = (current_connections as f64 / ctx.quota.max_connections as f64) * 100.0;
+        if usage_percent > 80.0 {
+            return Ok(QuotaCheck::Warning(format!(
+                "Connection usage at {:.0}% ({}/{})",
+                usage_percent, current_connections, ctx.quota.max_connections
             )));
         }
 
@@ -741,7 +805,7 @@ impl<S: MetadataStore + ?Sized + 'static> QuotaEnforcer<S> {
 
     /// Get quota summary for an organization.
     pub async fn get_quota_summary(&self, ctx: &TenantContext) -> Result<QuotaSummary> {
-        let topics = self.store.list_topics().await?;
+        let topics = self.store.list_topics_for_org(&ctx.organization.id).await?;
         let usage = self
             .store
             .get_organization_usage(&ctx.organization.id)

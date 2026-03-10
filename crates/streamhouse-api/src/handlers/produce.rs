@@ -181,7 +181,7 @@ pub async fn produce(
     let topic_name = req.topic.clone();
     let value_bytes = req.value.len() as u64;
 
-    // Check produce byte-rate quota
+    // Check produce byte-rate quota and storage quota
     if let Some(ref enforcer) = state.quota_enforcer {
         let tenant_ctx = crate::rate_limit::build_tenant_context(&org_id, enforcer).await;
         if let Some(ctx) = tenant_ctx {
@@ -189,6 +189,12 @@ pub async fn produce(
             if let Ok(streamhouse_metadata::QuotaCheck::Denied(reason)) = check {
                 metrics::RATE_LIMIT_TOTAL.with_label_values(&[&org_id, "denied", "rest"]).inc();
                 tracing::warn!("Produce rate limit denied: org={}, reason={}", org_id, reason);
+                return Err(StatusCode::TOO_MANY_REQUESTS);
+            }
+
+            let storage_check = enforcer.check_storage(&ctx).await;
+            if let Ok(streamhouse_metadata::QuotaCheck::Denied(reason)) = storage_check {
+                tracing::warn!("Storage limit denied: org={}, reason={}", org_id, reason);
                 return Err(StatusCode::TOO_MANY_REQUESTS);
             }
         }
@@ -357,7 +363,7 @@ pub async fn produce_batch(
     let total_bytes: u64 = req.records.iter().map(|r| r.value.len() as u64).sum();
     let record_count = req.records.len();
 
-    // Check produce byte-rate quota
+    // Check produce byte-rate quota and storage quota
     if let Some(ref enforcer) = state.quota_enforcer {
         let tenant_ctx = crate::rate_limit::build_tenant_context(&org_id, enforcer).await;
         if let Some(ctx) = tenant_ctx {
@@ -365,6 +371,12 @@ pub async fn produce_batch(
             if let Ok(streamhouse_metadata::QuotaCheck::Denied(reason)) = check {
                 metrics::RATE_LIMIT_TOTAL.with_label_values(&[&org_id, "denied", "rest"]).inc();
                 tracing::warn!("Produce batch rate limit denied: org={}, reason={}", org_id, reason);
+                return Err(StatusCode::TOO_MANY_REQUESTS);
+            }
+
+            let storage_check = enforcer.check_storage(&ctx).await;
+            if let Ok(streamhouse_metadata::QuotaCheck::Denied(reason)) = storage_check {
+                tracing::warn!("Storage limit denied: org={}, reason={}", org_id, reason);
                 return Err(StatusCode::TOO_MANY_REQUESTS);
             }
         }

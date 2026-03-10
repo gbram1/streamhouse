@@ -125,6 +125,85 @@ pub async fn handle_produce(
                     .with_label_values(&[org_id, "kafka"])
                     .observe(throttle_time_ms as f64);
             }
+
+            // Check storage quota
+            let storage_check = enforcer.check_storage(&tenant_ctx).await;
+            if let Ok(streamhouse_metadata::QuotaCheck::Denied(reason)) = storage_check {
+                warn!(
+                    "Storage limit exceeded: org={}, reason={}",
+                    org_id, reason
+                );
+
+                metrics::RATE_LIMIT_TOTAL
+                    .with_label_values(&[org_id, "denied_storage", "kafka"])
+                    .inc();
+
+                // Return immediate error for all topics/partitions
+                let mut topic_responses: Vec<TopicProduceResponse> = Vec::new();
+                for (topic_name, partitions) in &topics {
+                    let partition_responses: Vec<PartitionProduceResponse> = partitions
+                        .iter()
+                        .map(|(partition_index, _)| PartitionProduceResponse {
+                            partition_index: *partition_index,
+                            error_code: ErrorCode::PolicyViolation,
+                            base_offset: -1,
+                            log_append_time: -1,
+                            log_start_offset: 0,
+                        })
+                        .collect();
+                    topic_responses.push(TopicProduceResponse {
+                        name: topic_name.clone(),
+                        partitions: partition_responses,
+                    });
+                }
+
+                // Build error response
+                let mut response = BytesMut::new();
+                if header.api_version >= 9 {
+                    encode_unsigned_varint(&mut response, (topic_responses.len() + 1) as u64);
+                    for topic in &topic_responses {
+                        encode_compact_string(&mut response, &topic.name);
+                        encode_unsigned_varint(&mut response, (topic.partitions.len() + 1) as u64);
+                        for partition in &topic.partitions {
+                            response.put_i32(partition.partition_index);
+                            response.put_i16(partition.error_code.as_i16());
+                            response.put_i64(partition.base_offset);
+                            response.put_i64(partition.log_append_time);
+                            response.put_i64(partition.log_start_offset);
+                            encode_unsigned_varint(&mut response, 1); // empty record errors
+                            encode_empty_tagged_fields(&mut response);
+                        }
+                        encode_empty_tagged_fields(&mut response);
+                    }
+                    response.put_i32(throttle_time_ms);
+                    encode_empty_tagged_fields(&mut response);
+                } else {
+                    response.put_i32(topic_responses.len() as i32);
+                    for topic in &topic_responses {
+                        encode_string(&mut response, &topic.name);
+                        response.put_i32(topic.partitions.len() as i32);
+                        for partition in &topic.partitions {
+                            response.put_i32(partition.partition_index);
+                            response.put_i16(partition.error_code.as_i16());
+                            response.put_i64(partition.base_offset);
+                            if header.api_version >= 2 {
+                                response.put_i64(partition.log_append_time);
+                            }
+                            if header.api_version >= 5 {
+                                response.put_i64(partition.log_start_offset);
+                            }
+                            if header.api_version >= 8 {
+                                response.put_i32(0);
+                            }
+                        }
+                    }
+                    if header.api_version >= 1 {
+                        response.put_i32(throttle_time_ms);
+                    }
+                }
+
+                return Ok(response);
+            }
         }
     }
 

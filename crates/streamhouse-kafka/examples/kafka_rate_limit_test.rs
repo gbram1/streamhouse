@@ -156,6 +156,7 @@ async fn main() -> anyhow::Result<()> {
         group_coordinator,
         tenant_resolver: None, // No SASL for this test
         quota_enforcer: Some(enforcer.clone()),
+        active_connections: Arc::new(dashmap::DashMap::new()),
     });
 
     // Bind and run the server

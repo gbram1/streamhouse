@@ -39,6 +39,7 @@ sqlx = { workspace = true, features = ["postgres", "runtime-tokio"], optional = 
 
 # Utilities
 bytes = { workspace = true }
+dashmap = "6.0"
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
 anyhow = { workspace = true }

@@ -208,6 +208,22 @@ async fn create_topic(
         request.num_partitions
     };
 
+    // Check topic creation quota
+    if let Some(ref enforcer) = state.quota_enforcer {
+        let tenant_ctx = state.resolve_tenant_context(org_id).await;
+        if let Ok(streamhouse_metadata::QuotaCheck::Denied(reason)) =
+            enforcer.check_topic_creation(&tenant_ctx, num_partitions as u32).await
+        {
+            return CreateTopicResponse {
+                name: request.name.clone(),
+                error_code: ErrorCode::PolicyViolation,
+                error_message: Some(reason),
+                num_partitions: -1,
+                replication_factor: -1,
+            };
+        }
+    }
+
     // Create topic config
     let config = TopicConfig {
         name: request.name.clone(),

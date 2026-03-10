@@ -3,6 +3,7 @@
 //! TCP server that handles Kafka binary protocol connections.
 
 use std::net::SocketAddr;
+use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::Arc;
 
 use bytes::BytesMut;
@@ -64,6 +65,8 @@ pub struct KafkaServerState {
     pub tenant_resolver: Option<KafkaTenantResolver<dyn MetadataStore>>,
     /// Quota enforcer for rate limiting (None = rate limiting disabled)
     pub quota_enforcer: Option<Arc<streamhouse_metadata::QuotaEnforcer<dyn MetadataStore>>>,
+    /// Active connections per organization for connection quota enforcement
+    pub active_connections: Arc<dashmap::DashMap<String, AtomicU32>>,
 }
 
 impl KafkaServerState {
@@ -85,6 +88,7 @@ impl KafkaServerState {
             group_coordinator,
             tenant_resolver,
             quota_enforcer: None,
+            active_connections: Arc::new(dashmap::DashMap::new()),
         }
     }
 
@@ -245,12 +249,28 @@ pub async fn handle_connection_public(
     handle_connection(stream, addr, state).await
 }
 
+/// Drop guard that decrements the org connection counter when the connection closes.
+struct ConnectionGuard {
+    org_id: String,
+    active_connections: Arc<dashmap::DashMap<String, AtomicU32>>,
+}
+
+impl Drop for ConnectionGuard {
+    fn drop(&mut self) {
+        if let Some(counter) = self.active_connections.get(&self.org_id) {
+            counter.value().fetch_sub(1, Ordering::Relaxed);
+        }
+    }
+}
+
 /// Per-connection state
 pub(crate) struct ConnectionState {
     _addr: SocketAddr,
     client_id: Option<String>,
     /// Resolved tenant context after SASL authentication
     pub(crate) tenant: Option<crate::tenant::KafkaTenantContext>,
+    /// Guard that decrements connection count on drop
+    _connection_guard: Option<ConnectionGuard>,
 }
 
 /// Handle a single client connection
@@ -267,6 +287,7 @@ async fn handle_connection(
         _addr: addr,
         client_id: None,
         tenant: None,
+        _connection_guard: None,
     };
 
     use futures::StreamExt;
@@ -294,6 +315,42 @@ async fn handle_connection(
                     if let Ok(Some(ctx)) = resolver.try_resolve_from_client_id(client_id).await {
                         debug!("Resolved tenant from client_id: org={}", ctx.tenant.organization.id);
                         conn_state.tenant = Some(ctx);
+                    }
+                }
+            }
+        }
+
+        // Track connection and check quota once tenant is resolved (first time only)
+        if conn_state._connection_guard.is_none() {
+            if let Some(ref tenant) = conn_state.tenant {
+                let org_id = tenant.tenant.organization.id.clone();
+
+                // Increment connection count
+                let count = {
+                    let entry = state
+                        .active_connections
+                        .entry(org_id.clone())
+                        .or_insert_with(|| AtomicU32::new(0));
+                    entry.value().fetch_add(1, Ordering::Relaxed) + 1
+                };
+
+                // Set up drop guard to decrement on disconnect
+                conn_state._connection_guard = Some(ConnectionGuard {
+                    org_id: org_id.clone(),
+                    active_connections: state.active_connections.clone(),
+                });
+
+                // Check connection quota
+                if let Some(ref enforcer) = state.quota_enforcer {
+                    let tenant_ctx = &tenant.tenant;
+                    if let Ok(streamhouse_metadata::QuotaCheck::Denied(reason)) =
+                        enforcer.check_connection(tenant_ctx, count as i32).await
+                    {
+                        warn!(
+                            "Connection limit exceeded: org={}, count={}, reason={}",
+                            org_id, count, reason
+                        );
+                        return Err(KafkaError::ConnectionClosed);
                     }
                 }
             }

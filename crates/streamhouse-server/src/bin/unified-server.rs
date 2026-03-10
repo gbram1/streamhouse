@@ -596,6 +596,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         group_coordinator: Arc::new(GroupCoordinator::new(metadata.clone())),
         tenant_resolver: Some(KafkaTenantResolver::new(metadata.clone())),
         quota_enforcer: Some(quota_enforcer.clone()),
+        active_connections: Arc::new(dashmap::DashMap::new()),
     });
 
     let kafka_server = KafkaServer::new(kafka_state);

@@ -43,6 +43,7 @@ async fn test_app() -> axum::Router {
         clerk_auth: None,
         topic_changed: None,
         schema_registry: None,
+        quota_enforcer: None,
     };
 
     create_router(state)
@@ -438,4 +439,146 @@ async fn test_unknown_route_returns_404() {
         .unwrap();
 
     assert_eq!(resp.status(), StatusCode::NOT_FOUND);
+}
+
+// ---------------------------------------------------------------
+// Quota enforcement
+// ---------------------------------------------------------------
+
+/// Create a test app with quota enforcement enabled and a custom topic limit.
+async fn test_app_with_quota(max_topics: i32) -> axum::Router {
+    let metadata = Arc::new(SqliteMetadataStore::new_in_memory().await.unwrap())
+        as Arc<dyn streamhouse_metadata::MetadataStore>;
+
+    // Set up the organization and its quota
+    let org_id = "quota-test-org";
+    metadata.ensure_organization(org_id, "Quota Test Org").await.unwrap();
+    metadata
+        .set_organization_quota(streamhouse_metadata::OrganizationQuota {
+            organization_id: org_id.to_string(),
+            max_topics,
+            max_partitions_per_topic: 12,
+            max_total_partitions: 100,
+            max_storage_bytes: i64::MAX,
+            max_retention_days: 7,
+            max_produce_bytes_per_sec: 10_000_000,
+            max_consume_bytes_per_sec: 50_000_000,
+            max_requests_per_sec: 1000,
+            max_consumer_groups: 50,
+            max_schemas: 100,
+            max_schema_versions_per_subject: 100,
+            max_connections: 100,
+        })
+        .await
+        .unwrap();
+
+    let quota_enforcer = Arc::new(streamhouse_metadata::QuotaEnforcer::new(metadata.clone()));
+
+    let object_store =
+        Arc::new(object_store::memory::InMemory::new()) as Arc<dyn object_store::ObjectStore>;
+
+    let temp_dir = tempfile::tempdir().unwrap();
+    let cache_dir = temp_dir.path().join("cache");
+    std::fs::create_dir_all(&cache_dir).unwrap();
+    let segment_cache =
+        Arc::new(streamhouse_storage::SegmentCache::new(&cache_dir, 10 * 1024 * 1024).unwrap());
+
+    let state = AppState {
+        metadata,
+        producer: None,
+        writer_pool: None,
+        object_store,
+        segment_cache,
+        prometheus: None,
+        auth_config: AuthConfig {
+            enabled: false,
+            ..Default::default()
+        },
+        clerk_auth: None,
+        topic_changed: None,
+        schema_registry: None,
+        quota_enforcer: Some(quota_enforcer),
+    };
+
+    create_router(state)
+}
+
+#[tokio::test]
+async fn test_topic_creation_quota_enforcement() {
+    let max_topics = 2;
+    let app = test_app_with_quota(max_topics).await;
+    let org_id = "quota-test-org";
+
+    // Create topic 1 — should succeed
+    let resp = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/topics")
+                .header("content-type", "application/json")
+                .header("x-organization-id", org_id)
+                .body(Body::from(
+                    serde_json::to_string(&CreateTopicRequest {
+                        name: "quota-topic-1".to_string(),
+                        partitions: 1,
+                        replication_factor: 1,
+                    })
+                    .unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::CREATED, "First topic should succeed");
+
+    // Create topic 2 — should succeed
+    let resp = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/topics")
+                .header("content-type", "application/json")
+                .header("x-organization-id", org_id)
+                .body(Body::from(
+                    serde_json::to_string(&CreateTopicRequest {
+                        name: "quota-topic-2".to_string(),
+                        partitions: 1,
+                        replication_factor: 1,
+                    })
+                    .unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::CREATED, "Second topic should succeed");
+
+    // Create topic 3 — should be denied (429)
+    let resp = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/topics")
+                .header("content-type", "application/json")
+                .header("x-organization-id", org_id)
+                .body(Body::from(
+                    serde_json::to_string(&CreateTopicRequest {
+                        name: "quota-topic-3".to_string(),
+                        partitions: 1,
+                        replication_factor: 1,
+                    })
+                    .unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        resp.status(),
+        StatusCode::TOO_MANY_REQUESTS,
+        "Third topic should be denied by quota"
+    );
 }

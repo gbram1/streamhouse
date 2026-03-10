@@ -189,6 +189,47 @@ pub async fn handle_join_group(
         group_id, member_id, protocol_type
     );
 
+    // Check consumer group quota for new members (empty member_id = potentially new group)
+    if member_id.is_empty() {
+        if let Some(ref enforcer) = state.quota_enforcer {
+            let tenant_ctx = state.resolve_tenant_context(org_id).await;
+            if let Ok(streamhouse_metadata::QuotaCheck::Denied(reason)) =
+                enforcer.check_consumer_group_creation(&tenant_ctx).await
+            {
+                let mut response = BytesMut::new();
+                if header.api_version >= 6 {
+                    response.put_i32(0); // throttle time
+                    response.put_i16(ErrorCode::GroupAuthorizationFailed.as_i16());
+                    response.put_i32(-1); // generation_id
+                    encode_compact_nullable_string(&mut response, None); // protocol_type
+                    encode_compact_nullable_string(&mut response, None); // protocol_name
+                    encode_compact_string(&mut response, ""); // leader
+                    if header.api_version >= 7 {
+                        response.put_u8(0); // skip_assignment
+                    }
+                    encode_compact_string(&mut response, ""); // member_id
+                    encode_unsigned_varint(&mut response, 1); // empty members
+                    encode_empty_tagged_fields(&mut response);
+                } else {
+                    if header.api_version >= 2 {
+                        response.put_i32(0); // throttle time
+                    }
+                    response.put_i16(ErrorCode::GroupAuthorizationFailed.as_i16());
+                    response.put_i32(-1); // generation_id
+                    encode_string(&mut response, ""); // protocol_name
+                    encode_string(&mut response, ""); // leader
+                    encode_string(&mut response, ""); // member_id
+                    response.put_i32(0); // empty members
+                }
+                tracing::warn!(
+                    "Consumer group creation denied: org={}, reason={}",
+                    org_id, reason
+                );
+                return Ok(response);
+            }
+        }
+    }
+
     // Process join request
     let member_id_opt = if member_id.is_empty() {
         None

@@ -2000,11 +2000,11 @@ impl MetadataStore for SqliteMetadataStore {
 
         let query = format!(
             "INSERT INTO organization_usage (organization_id, metric, value, period_start, updated_at) \
-             VALUES ('{}', '{}', {}, {}, {}) \
-             ON CONFLICT(organization_id, metric) DO UPDATE SET \
+             VALUES ('{}', '{}', {}, 0, {}) \
+             ON CONFLICT(organization_id, metric, period_start) DO UPDATE SET \
                 value = excluded.value, \
                 updated_at = excluded.updated_at",
-            organization_id, metric, value, now, now
+            organization_id, metric, value, now
         );
         sqlx::query(&query).execute(&self.pool).await?;
 
@@ -2021,11 +2021,11 @@ impl MetadataStore for SqliteMetadataStore {
 
         let query = format!(
             "INSERT INTO organization_usage (organization_id, metric, value, period_start, updated_at) \
-             VALUES ('{}', '{}', {}, {}, {}) \
-             ON CONFLICT(organization_id, metric) DO UPDATE SET \
+             VALUES ('{}', '{}', {}, 0, {}) \
+             ON CONFLICT(organization_id, metric, period_start) DO UPDATE SET \
                 value = organization_usage.value + excluded.value, \
                 updated_at = excluded.updated_at",
-            organization_id, metric, delta, now, now
+            organization_id, metric, delta, now
         );
         sqlx::query(&query).execute(&self.pool).await?;
 
