@@ -91,7 +91,45 @@ curl -X POST http://localhost:8080/api/v1/sql \
   -d '{"query": "SELECT * FROM events LIMIT 10"}'
 ```
 
-SQL supports `SELECT`, `WHERE`, `GROUP BY`, `ORDER BY`, `COUNT`, `SUM`, `AVG`, `MIN`, `MAX`, and JSON operators (`->`, `->>`).
+SQL supports `SELECT`, `WHERE`, `GROUP BY`, `ORDER BY`, `COUNT`, `SUM`, `AVG`, `MIN`, `MAX`, JSON operators (`->`, `->>`), and window functions (`TUMBLE`, `HOP`, `SESSION`) for time-based aggregations.
+
+```bash
+# Window aggregation — count events per 5-minute window
+curl -X POST http://localhost:8080/api/v1/sql \
+  -d '{"query": "SELECT TUMBLE(timestamp, '\''5 minutes'\'') as window, COUNT(*) FROM events GROUP BY window"}'
+```
+
+---
+
+## Using gRPC
+
+gRPC is the highest-throughput protocol, supporting batched produce and configurable ack modes.
+
+```python
+import grpc
+from streamhouse_pb2 import ProduceBatchRequest, ProduceRecord, ACK_DURABLE
+from streamhouse_pb2_grpc import StreamHouseStub
+
+channel = grpc.insecure_channel('localhost:50051')
+client = StreamHouseStub(channel)
+
+request = ProduceBatchRequest(
+    topic='events',
+    records=[ProduceRecord(key='user-1', value=b'{"action":"signup"}')],
+    ack_mode=ACK_DURABLE,  # Wait for S3 flush before ack
+)
+response = client.ProduceBatch(request)
+```
+
+### Ack Modes
+
+| Mode | Latency | Durability |
+|------|---------|-----------|
+| `ACK_NONE` | Fire-and-forget | No guarantee |
+| `ACK_BUFFERED` (default) | ~1ms | Survives process crash (WAL) |
+| `ACK_DURABLE` | ~150ms | Survives disk loss (flushed to S3) |
+
+Choose the mode that matches your workload. Most use cases work well with `ACK_BUFFERED` + WAL enabled.
 
 ---
 
@@ -277,6 +315,10 @@ curl -X POST http://localhost:8080/api/v1/produce \
 
 Subject naming convention: `{topic}-value` (e.g., `orders-value`).
 
+Avro and Protobuf schemas are also supported — use `"schemaType": "AVRO"` or `"schemaType": "PROTOBUF"` when registering.
+
+Compatibility modes (BACKWARD, FORWARD, FULL, NONE) can be configured per subject to control schema evolution. See [API Reference](api-reference.md) for details.
+
 ---
 
 ## What's Next
@@ -294,5 +336,7 @@ Subject naming convention: `{topic}-value` (e.g., `orders-value`).
 **Server won't start** — Check port conflicts (8080, 50051, 9092). Check logs: `docker compose logs streamhouse-server` or `tail -f /tmp/streamhouse-quickstart.log`.
 
 **Messages not appearing** — StreamHouse buffers writes before uploading to S3. Wait 5-10 seconds, or set `SEGMENT_MAX_AGE_MS=1000` for faster flushes. For immediate durability, use gRPC with `ACK_DURABLE`.
+
+**Production setup** — Enable the WAL (`WAL_ENABLED=true`) for crash recovery. See [Configuration](configuration.md) for all production settings.
 
 **Docker services unhealthy** — `docker compose ps` to check status, `docker compose down && docker compose up -d` to restart.

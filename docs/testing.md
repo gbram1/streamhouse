@@ -230,6 +230,21 @@ cargo test --workspace
 
 ---
 
+## Known Test Issues
+
+The following tests have pre-existing issues and may fail:
+
+| Test | Issue |
+|------|-------|
+| `streamhouse-kafka::codec::tests::test_request_header_parse_empty_client_id` | Codec edge case |
+| `streamhouse-storage::chaos_test::chaos_stress_combined_cb_and_rl` | Flaky — timing-sensitive chaos test |
+| `tenant::tests::test_generate_api_key` | Key length assertion |
+| `chaos_failover_fencing_token_monotonic` | Fencing token assertion under high contention |
+
+These do not affect normal operation. If you see other test failures, please open an issue.
+
+---
+
 ## Troubleshooting
 
 **Server not starting**: Check `docker compose logs streamhouse-server`. Common: port conflict, missing data dirs (`mkdir -p data/storage data/cache data/wal`).

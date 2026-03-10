@@ -139,12 +139,16 @@ High-throughput: `DURABLE_BATCH_MAX_AGE_MS=500` (more batching).
 
 | Env Var | Default | Description |
 |---------|---------|-------------|
-| `WAL_ENABLED` | `false` | Enable crash recovery WAL |
+| `WAL_ENABLED` | `false` | Enable crash recovery WAL. **Recommended `true` for production.** |
 | `WAL_DIR` | `./data/wal` | WAL directory |
-| `WAL_SYNC_INTERVAL_MS` | `100` | fsync interval |
+| `WAL_SYNC_INTERVAL_MS` | `100` | fsync interval (only applies in interval mode) |
 | `WAL_MAX_SIZE` | `1073741824` (1 GB) | WAL rotation size |
 
-Enable WAL in production: if the server crashes before uploading a segment to S3, the WAL replays on restart.
+The WAL uses channel-based group commit — multiple producers share a single `fdatasync` call for high throughput (2.21M records/sec benchmarked).
+
+**Fsync policy**: The default interval mode (`WAL_SYNC_INTERVAL_MS=100`) fsyncs every 100ms. On a process crash the OS buffer cache survives, so nothing is lost. On a power failure, you lose at most ~100ms of writes. For zero-loss guarantees, use `ACK_DURABLE` mode which flushes to S3 before acking.
+
+Enable WAL in production: if the server crashes before uploading a segment to S3, the WAL replays on restart. Cross-agent WAL recovery is also supported when the disk is shared/accessible.
 
 ### S3 Upload
 
@@ -177,8 +181,12 @@ Increase cache size if consumers frequently re-read recent data.
 |---------|---------|-------------|
 | `SNAPSHOT_INTERVAL_SECS` | `3600` (1 hour) | Metadata snapshot interval. Set to `0` to disable. |
 | `RECONCILE_FROM_S3` | _(unset)_ | Set to `1` to run reverse reconciliation and exit. Admin mode. |
+| `RECONCILE_INTERVAL` | `3600` (1 hour) | How often the background orphan cleanup runs |
+| `RECONCILE_GRACE` | `3600` (1 hour) | Grace period before orphaned S3 segments are deleted. Prevents deleting in-flight uploads. |
 
 StreamHouse automatically takes metadata snapshots after S3 flushes. On startup with empty metadata, it auto-recovers by discovering orgs from S3, restoring the latest snapshot, and running reconcile-from-s3 to fill any gaps.
+
+The S3 reconciler runs in the background to clean up orphaned segments (S3 upload succeeded but metadata write failed). It uses mark-and-sweep with a grace period to avoid deleting segments that are still in-flight.
 
 ---
 
@@ -230,19 +238,24 @@ AWS_REGION=us-east-1
 STREAMHOUSE_BUCKET=my-streamhouse-prod
 
 # Metadata
+STREAMHOUSE_METADATA=postgres
 DATABASE_URL=postgres://user:pass@rds-host/streamhouse
 
 # Auth
 STREAMHOUSE_AUTH_ENABLED=true
 
-# Performance
-WAL_ENABLED=true
-SEGMENT_MAX_SIZE=5242880          # 5 MB segments
-DURABLE_BATCH_MAX_AGE_MS=200
+# Write path
+WAL_ENABLED=true                    # Crash recovery
+SEGMENT_MAX_SIZE=5242880            # 5 MB segments
+DURABLE_BATCH_MAX_AGE_MS=200       # Batched durable acks
+
+# Read path
 STREAMHOUSE_CACHE_SIZE=10737418240  # 10 GB
 
 # DR
-SNAPSHOT_INTERVAL_SECS=3600       # hourly snapshots
+SNAPSHOT_INTERVAL_SECS=3600         # Hourly metadata snapshots
+RECONCILE_INTERVAL=3600             # Hourly orphan cleanup
+RECONCILE_GRACE=3600                # 1 hour grace before deleting orphans
 
 # Logging
 RUST_LOG=info

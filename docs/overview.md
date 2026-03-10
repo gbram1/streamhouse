@@ -280,7 +280,7 @@ Every write operation validates the epoch before committing:
 │          │     │     LZ4 compress into blocks                         │
 │          │     │                                                      │
 │          │     │  5. Segment roll (when thresholds met)               │
-│          │     │     size > 1MB? OR age > 60s?                        │
+│          │     │     size > 1MB? OR age > 10s?                        │
 │          │     │     → Upload segment to S3                           │
 │          │     │     → Update high watermark in metadata              │
 └──────────┘     └──────────────────────────────────────────────────────┘
@@ -307,10 +307,10 @@ Segments are the on-disk/S3 storage unit. Each segment is a self-contained file:
 ┌────────────────────────────────┐
 │  Magic: STRM (4 bytes)        │
 ├────────────────────────────────┤
-│  Block 0 (LZ4 compressed)     │
+│  Block 0 (LZ4 or Zstd)        │
 │    record, record, record...  │
 ├────────────────────────────────┤
-│  Block 1 (LZ4 compressed)     │
+│  Block 1 (LZ4 or Zstd)        │
 │    record, record, record...  │
 ├────────────────────────────────┤
 │  ...                          │
@@ -328,6 +328,159 @@ Segments are the on-disk/S3 storage unit. Each segment is a self-contained file:
 
 ---
 
+## Write-Ahead Log (WAL)
+
+The WAL provides crash safety for the write path. When enabled, every record is written to the WAL on local disk before it enters the in-memory segment buffer.
+
+### Group Commit
+
+The WAL uses a channel-based group commit design for high throughput:
+
+```
+Producer threads → [mpsc channel] → WAL Writer Task → write_all → fdatasync
+                                          ↓
+                                   Notify all waiting producers
+```
+
+Multiple producers send records through an mpsc channel. A dedicated writer task collects a batch, writes all records in a single `write_all` call, then calls `fdatasync` once. All producers in the batch share the single fsync cost.
+
+### Fsync Policy
+
+| Policy | Behavior | Risk window |
+|--------|----------|-------------|
+| **Interval** (default) | fsync every `WAL_SYNC_INTERVAL_MS` (default 100ms) | Up to 100ms of writes lost on power failure |
+| **Always** | fsync after every batch | Zero loss, highest latency |
+| **None** | OS decides when to flush | Entire WAL could be lost on power failure |
+
+Process crashes (disk survives) lose nothing regardless of fsync policy — the OS buffer cache survives.
+
+### Recovery
+
+On startup, `wal.recover()` reads the WAL sequentially, validates CRC32 checksums, skips corrupted trailing records, and replays everything into the segment buffer. Cross-agent recovery is also supported: if agent-A dies and agent-B acquires the partition lease, agent-B can recover agent-A's WAL files if the disk is accessible.
+
+| Scenario | Data lost? |
+|----------|-----------|
+| Process crash, disk OK | No |
+| Agent dies, another takes over, disk readable | No (cross-agent WAL recovery) |
+| WAL disk destroyed | Yes — unflushed batch only |
+| `ACK_DURABLE` mode, any failure | No (already in S3) |
+
+### Batched Durable Acks
+
+When using `ACK_DURABLE` mode, StreamHouse batches multiple produce requests into a single S3 upload:
+
+```
+Producers → [mpsc channel] → DurableFlushTask → roll segment → S3
+                                    ↓
+                              Notify all waiters
+```
+
+The durable flush task waits up to `DURABLE_BATCH_MAX_AGE_MS` (default 200ms) collecting requests, then performs a single segment roll + S3 upload. All producers in the batch share the S3 round-trip cost.
+
+| Config | Default | Description |
+|--------|---------|-------------|
+| `DURABLE_BATCH_MAX_AGE_MS` | `200` | Max wait before flushing batch |
+| `DURABLE_BATCH_MAX_RECORDS` | `10000` | Flush after N records |
+| `DURABLE_BATCH_MAX_BYTES` | `16777216` (16 MB) | Flush after N bytes |
+
+---
+
+## Log Compaction
+
+Topics with `cleanup_policy: Compact` retain only the latest value per key. This is useful for changelogs, state tables, and CDC streams.
+
+### How It Works
+
+A background compaction thread periodically scans compactable topics:
+
+1. **Dirty ratio check**: If the ratio of duplicate keys exceeds the threshold (default 0.5), compaction triggers
+2. **Key scan**: Read all segments, build a map of `key → latest offset`
+3. **Rewrite**: Create new segments containing only the latest record per key
+4. **Tombstones**: Records with null values are tombstones — kept for a configurable period (default 24 hours) then expired
+
+| Config | Default | Description |
+|--------|---------|-------------|
+| `min_compaction_interval` | 600s | Min time between compaction runs |
+| `tombstone_retention` | 86400s (24h) | How long tombstones are retained |
+| `min_dirty_ratio` | 0.5 | Duplicate key ratio to trigger compaction |
+| `max_segment_size_bytes` | 1 GB | Max output segment size |
+| `compaction_threads` | 2 | Parallel compaction workers |
+
+---
+
+## Multi-Tenancy
+
+Every piece of data in StreamHouse is scoped to an **organization**. Organizations provide complete isolation:
+
+- **S3 paths**: `org-{uuid}/data/{topic}/{partition}/{base_offset}.seg`
+- **Metadata**: Topics, consumer groups, connectors, transactions, schemas — all org-scoped
+- **Cache**: Cache keys include `org_id` to prevent cross-org reads
+- **Metrics**: Prometheus metrics carry `org_id` as a label
+
+API keys are tied to organizations and support permissions (`read`, `write`, `admin`) and topic-level scopes with wildcard patterns (`orders-*`).
+
+See [Authentication](authentication.md) for details.
+
+---
+
+## SQL Query Engine
+
+StreamHouse includes a built-in SQL engine powered by Apache DataFusion and Apache Arrow for columnar execution.
+
+### Supported SQL
+
+- Standard: `SELECT`, `WHERE`, `GROUP BY`, `ORDER BY`, `LIMIT`, `OFFSET`
+- Aggregations: `COUNT`, `SUM`, `AVG`, `MIN`, `MAX`
+- JSON operators: `json_extract()`, `->`, `->>`
+- Window functions: `TUMBLE()`, `HOP()`, `SESSION()` for time-based windowed aggregations
+- Utility: `SHOW TOPICS`, `DESCRIBE <topic>`
+
+### Streaming Windows
+
+```sql
+-- 5-minute tumbling window: count events per window
+SELECT TUMBLE(timestamp, '5 minutes') as window, COUNT(*) as cnt
+FROM events
+GROUP BY window
+
+-- 1-hour hopping window with 15-minute slide
+SELECT HOP(timestamp, '15 minutes', '1 hour') as window, SUM(amount) as total
+FROM orders
+GROUP BY window
+```
+
+Window state is backed by RocksDB for durability across restarts.
+
+---
+
+## Observability
+
+### Prometheus Metrics
+
+StreamHouse exposes a Prometheus scrape endpoint at `/metrics`. Key metrics:
+
+- `streamhouse_produce_total` — Records produced (by org, topic, protocol)
+- `streamhouse_consume_total` — Records consumed
+- `streamhouse_segment_upload_duration_seconds` — S3 upload latency
+- `streamhouse_wal_records_total` — WAL throughput
+- `streamhouse_cache_hit_ratio` — Segment cache hit rate
+
+### Grafana Dashboards
+
+Pre-built dashboards are included at `grafana/dashboards/`:
+- Throughput and latency overview
+- Per-topic storage and partition distribution
+- Agent health and lease status
+- Load test dashboard
+
+### WebSocket Real-Time Metrics
+
+The REST API supports WebSocket connections for live metric streaming:
+- `/ws/metrics` — Real-time cluster metrics
+- `/ws/topics/{name}` — Live message stream for a topic
+
+---
+
 ## What Happens When Things Change
 
 ### Agent Joins
@@ -339,7 +492,7 @@ t=0s:    2 agents own 6 partitions (3 each)
 t=1s:    agent-3 registers, starts heartbeating
 
 t=30s:   Rebalance runs on all agents
-         Consistent hash recalculates → each agent gets ~2
+         Round-robin recalculates → each agent gets 2
 
          agent-1: releases [4]       → keeps [0, 2]
          agent-2: releases [5]       → keeps [1, 3]
@@ -367,7 +520,7 @@ t=65s:   agent-3 falls out of live agent list (60s timeout)
 
 t=90s:   Rebalance runs on agent-1 and agent-2
          agent-3's leases have expired (30s TTL)
-         Consistent hash redistributes:
+         Round-robin redistributes:
 
          agent-1: [0,2] + [4] = [0,2,4]
          agent-2: [1,3] + [5] = [1,3,5]
@@ -498,10 +651,16 @@ RECONCILE_FROM_S3=1 ./target/release/unified-server
 ### S3 Reconciler
 
 Two modes:
-- **Orphan cleanup** (`reconcile()`): Deletes S3 segments with no metadata entry
-- **Reverse reconciliation** (`reconcile_from_s3()`): Registers S3 segments missing from metadata
+- **Orphan cleanup** (`reconcile()`): Mark-and-sweep — deletes S3 segments with no metadata entry, but only if older than the grace period (default 1 hour). This prevents deleting segments that are in-flight (uploaded to S3 but metadata not yet committed).
+- **Reverse reconciliation** (`reconcile_from_s3()`): Scans S3, reads segment headers, and registers missing segments in metadata. Used for DR recovery.
 
 Both scan all org prefixes automatically.
+
+| Config | Default | Description |
+|--------|---------|-------------|
+| `RECONCILE_INTERVAL` | `3600` (1 hour) | How often the orphan cleanup runs |
+| `RECONCILE_GRACE` | `3600` (1 hour) | Grace period before orphan deletion |
+| `RECONCILE_FROM_S3` | _(unset)_ | Set to `1` to run reverse reconciliation and exit |
 
 ---
 
@@ -513,7 +672,7 @@ Both scan all org prefixes automatically.
 | **Partition** | Parallel shard of a topic | One leader at a time, high watermark tracking |
 | **Agent** | Process that writes data to S3 | Heartbeat every 20s, 60s liveness timeout |
 | **Lease** | Time-limited partition lock | 30s TTL, 10s renewal, epoch fencing |
-| **Assigner** | Distributes partitions to agents | Consistent hash, 150 vnodes, rebalance every 30s |
+| **Assigner** | Distributes partitions to agents | Deterministic round-robin, rebalance every 30s |
 | **WAL** | Crash recovery log | Channel-based group commit, fdatasync |
 | **Segment** | S3 data file | STRM format, LZ4, delta-encoded, block-based |
 | **Epoch** | Leadership generation counter | Prevents stale writes from old leaders |
@@ -528,7 +687,7 @@ Both scan all org prefixes automatically.
 | Lease renewal interval | 10 seconds |
 | Rebalance interval | 30 seconds |
 | WAL batch max age | 10 milliseconds |
-| Segment max age | 60 seconds (configurable) |
+| Segment max age | 10 seconds (configurable via `SEGMENT_MAX_AGE_MS`) |
 | Segment max size | 1 MB (configurable, up to 100 MB) |
 
 ## Docker Compose Services

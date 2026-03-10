@@ -106,7 +106,14 @@ curl -X POST http://localhost:8080/api/v1/sql \
   -d '{"query": "SELECT * FROM events WHERE value->>\"action\" = \"signup\" LIMIT 10"}'
 ```
 
-Supported: `SELECT`, `WHERE`, `GROUP BY`, `ORDER BY`, `LIMIT`, `OFFSET`, `COUNT`, `SUM`, `AVG`, `MIN`, `MAX`, `SHOW TOPICS`, JSON operators (`->`, `->>`).
+Supported: `SELECT`, `WHERE`, `GROUP BY`, `ORDER BY`, `LIMIT`, `OFFSET`, `COUNT`, `SUM`, `AVG`, `MIN`, `MAX`, `SHOW TOPICS`, `DESCRIBE <topic>`, JSON operators (`->`, `->>`), and window functions (`TUMBLE()`, `HOP()`, `SESSION()`) for time-based aggregations.
+
+### WebSocket
+
+| Endpoint | Description |
+|----------|-------------|
+| `ws://localhost:8080/ws/metrics` | Real-time cluster metrics stream |
+| `ws://localhost:8080/ws/topics/{name}` | Live message stream for a topic |
 
 ### Schema Registry
 
@@ -121,12 +128,23 @@ Supported: `SELECT`, `WHERE`, `GROUP BY`, `ORDER BY`, `LIMIT`, `OFFSET`, `COUNT`
 
 Supported schema types: `JSON`, `AVRO`, `PROTOBUF`.
 
+Compatibility modes: `BACKWARD`, `FORWARD`, `FULL`, `NONE`. Set per-subject to control schema evolution.
+
 ```bash
+# Register a JSON Schema
 curl -X POST http://localhost:8080/schemas/subjects/events-value/versions \
   -H 'Content-Type: application/json' \
   -d '{
     "schema": "{\"type\":\"object\",\"properties\":{\"action\":{\"type\":\"string\"}},\"required\":[\"action\"]}",
     "schemaType": "JSON"
+  }'
+
+# Register an Avro schema
+curl -X POST http://localhost:8080/schemas/subjects/orders-value/versions \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "schema": "{\"type\":\"record\",\"name\":\"Order\",\"fields\":[{\"name\":\"id\",\"type\":\"string\"},{\"name\":\"amount\",\"type\":\"double\"}]}",
+    "schemaType": "AVRO"
   }'
 ```
 
@@ -163,6 +181,18 @@ All metrics endpoints are org-scoped when auth is enabled.
 | `PUT` | `/api/v1/connectors/{name}` | Update connector |
 | `DELETE` | `/api/v1/connectors/{name}` | Delete connector |
 | `POST` | `/api/v1/connectors/{name}/restart` | Restart connector |
+| `POST` | `/api/v1/connectors/{name}/pause` | Pause connector |
+| `POST` | `/api/v1/connectors/{name}/resume` | Resume connector |
+
+**Connector types:**
+
+| Type | Direction | Description |
+|------|-----------|-------------|
+| `debezium` | Source | CDC from PostgreSQL/MySQL via Debezium |
+| `kafka` | Source | Read from an external Kafka cluster |
+| `s3` | Sink | Write to S3 (Parquet, JSON, or CSV format) |
+| `postgres` | Sink | Write to PostgreSQL tables |
+| `elasticsearch` | Sink | Index into Elasticsearch |
 
 ### Agents (Admin)
 
@@ -273,7 +303,7 @@ consumer.subscribe(['events'])
 
 ### Compatibility Notes
 
-- **Compression**: None, GZIP, Snappy, LZ4 (internally uses LZ4)
+- **Compression**: None, GZIP, Snappy, LZ4 on the wire (internally stores as LZ4 or Zstd)
 - **Record format**: Translates Kafka RecordBatch on the wire to StreamHouse's STRM segment format internally
 - **Consumer rebalancing**: Fully implemented
 - **Idempotent producer**: Supported via InitProducerId

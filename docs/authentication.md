@@ -57,6 +57,47 @@ Save the full key — it's only shown once. After creation, only the prefix is s
 | `scopes` | Topic patterns (wildcards supported) | `["*"]`, `["orders-*"]`, `["events", "logs"]` |
 | `expires_at` | Optional expiration (ISO 8601) | `"2026-12-31T23:59:59Z"` or `null` |
 
+### Permission Levels
+
+| Permission | Allows |
+|-----------|--------|
+| `read` | Consume messages, list topics, fetch offsets, SQL queries |
+| `write` | Produce messages, commit offsets, create topics |
+| `admin` | All of the above, plus: delete topics, manage consumer groups, manage connectors, manage API keys |
+
+### Scope Patterns
+
+Scopes use glob-style matching on topic names:
+
+- `["*"]` — All topics
+- `["orders-*"]` — Topics starting with `orders-` (e.g., `orders-us`, `orders-eu`)
+- `["events", "logs"]` — Exactly `events` and `logs`
+
+A request is allowed if the topic matches **any** scope in the key's scope list.
+
+### Bootstrapping
+
+When you first enable auth, use the `STREAMHOUSE_ADMIN_KEY` environment variable to create your initial organization and API keys:
+
+```bash
+# Start the server with an admin key
+STREAMHOUSE_AUTH_ENABLED=true STREAMHOUSE_ADMIN_KEY=my-bootstrap-key ./target/release/unified-server
+
+# Create an organization
+curl -X POST http://localhost:8080/api/v1/organizations \
+  -H "Authorization: Bearer my-bootstrap-key" \
+  -H "Content-Type: application/json" \
+  -d '{"name": "my-org", "slug": "my-org"}'
+
+# Create an API key for the org
+curl -X POST http://localhost:8080/api/v1/organizations/{org_id}/api-keys \
+  -H "Authorization: Bearer my-bootstrap-key" \
+  -H "Content-Type: application/json" \
+  -d '{"name": "production", "permissions": ["read", "write"], "scopes": ["*"]}'
+```
+
+The admin key has full access to all organizations and endpoints. Use it only for initial setup and management — create scoped API keys for application use.
+
 ### Manage Keys
 
 ```bash
