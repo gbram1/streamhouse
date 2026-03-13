@@ -7,10 +7,12 @@
 
 pub mod auth;
 pub mod consumer;
+pub mod pipeline;
 pub mod schema;
 pub mod sql;
 
 // Re-export for convenience
 pub use consumer::ConsumerCommands;
+pub use pipeline::PipelineCommands;
 pub use schema::SchemaCommands;
 pub use sql::SqlCommands;

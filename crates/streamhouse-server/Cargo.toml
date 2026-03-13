@@ -61,7 +61,7 @@ tempfile = { workspace = true }
 tonic-build = { workspace = true }
 
 [features]
-postgres = ["dep:sqlx", "streamhouse-metadata/postgres", "streamhouse-kafka/postgres"]
+postgres = ["dep:sqlx", "streamhouse-metadata/postgres", "streamhouse-kafka/postgres", "streamhouse-connectors/postgres"]
 
 [[bin]]
 name = "unified-server"

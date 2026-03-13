@@ -172,6 +172,11 @@ enum Commands {
         #[command(subcommand)]
         command: OffsetCommands,
     },
+    /// Pipeline management (targets, pipelines, transforms)
+    Pipeline {
+        #[command(subcommand)]
+        command: commands::PipelineCommands,
+    },
     /// Authentication management
     Auth {
         #[command(subcommand)]
@@ -317,6 +322,9 @@ async fn main() -> Result<()> {
             }
             Commands::Sql { command } => {
                 commands::sql::handle_sql_command(command, &cli.api_url).await?
+            }
+            Commands::Pipeline { command } => {
+                commands::pipeline::handle_pipeline_command(command, &cli.api_url).await?
             }
             Commands::Auth { command } => {
                 // Auth commands don't need gRPC connection

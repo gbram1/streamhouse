@@ -164,6 +164,37 @@ impl RestClient {
             .await
             .context("Failed to parse JSON response")
     }
+    /// PATCH request
+    pub async fn patch<T: Serialize, R: for<'de> Deserialize<'de>>(
+        &self,
+        path: &str,
+        body: &T,
+    ) -> Result<R> {
+        let url = format!("{}{}", self.base_url, path);
+        let response = self
+            .client
+            .patch(&url)
+            .json(body)
+            .send()
+            .await
+            .context("Failed to send PATCH request")?;
+
+        if !response.status().is_success() {
+            let status = response.status();
+            let error_text = response.text().await.unwrap_or_default();
+            anyhow::bail!(
+                "HTTP {} {}: {}",
+                status.as_u16(),
+                status.as_str(),
+                error_text
+            );
+        }
+
+        response
+            .json()
+            .await
+            .context("Failed to parse JSON response")
+    }
 }
 
 /// Schema Registry client (uses REST API)

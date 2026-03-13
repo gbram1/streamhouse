@@ -33,7 +33,8 @@ impl ClickHouseSinkConfig {
     /// Parse a ClickHouseSinkConfig from a string key-value map.
     pub fn from_config_map(config: &HashMap<String, String>) -> Result<Self> {
         let connection_url = config
-            .get("connection.url")
+            .get("connection_url")
+            .or_else(|| config.get("connection.url"))
             .cloned()
             .unwrap_or_else(|| "http://localhost:8123".to_string());
 

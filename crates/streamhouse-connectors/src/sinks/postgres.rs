@@ -59,27 +59,31 @@ impl PostgresSinkConfig {
     /// Parse a PostgresSinkConfig from a string key-value map.
     pub fn from_config_map(config: &HashMap<String, String>) -> Result<Self> {
         let connection_url = config
-            .get("connection.url")
+            .get("connection_url")
+            .or_else(|| config.get("connection.url"))
             .ok_or_else(|| {
-                ConnectorError::ConfigError("missing required 'connection.url'".to_string())
+                ConnectorError::ConfigError("missing required 'connection_url'".to_string())
             })?
             .clone();
 
         let table_name = config
-            .get("table.name")
+            .get("table_name")
+            .or_else(|| config.get("table.name"))
             .ok_or_else(|| {
-                ConnectorError::ConfigError("missing required 'table.name'".to_string())
+                ConnectorError::ConfigError("missing required 'table_name'".to_string())
             })?
             .clone();
 
         let insert_mode = config
-            .get("insert.mode")
+            .get("insert_mode")
+            .or_else(|| config.get("insert.mode"))
             .map(|s| InsertMode::from_str_config(s))
             .transpose()?
             .unwrap_or(InsertMode::Insert);
 
         let pk_fields: Vec<String> = config
-            .get("pk.fields")
+            .get("pk_fields")
+            .or_else(|| config.get("pk.fields"))
             .map(|s| {
                 s.split(',')
                     .map(|f| f.trim().to_string())
@@ -95,7 +99,8 @@ impl PostgresSinkConfig {
         }
 
         let batch_size = config
-            .get("batch.size")
+            .get("batch_size")
+            .or_else(|| config.get("batch.size"))
             .map(|s| {
                 s.parse::<usize>()
                     .map_err(|e| ConnectorError::ConfigError(format!("invalid batch.size: {}", e)))
@@ -121,6 +126,10 @@ pub struct PostgresSinkConnector {
     name: String,
     config: PostgresSinkConfig,
     buffer: Vec<SinkRecord>,
+    /// Cached set of column names that exist in the target table.
+    /// Populated on first batch execution. JSON fields not in this set are skipped.
+    #[cfg(feature = "postgres")]
+    table_columns: Option<std::collections::HashSet<String>>,
     // @Note, this would hold a sqlx::PgPool.
     // For compilation without the postgres feature, we keep the pool as Option.
     #[cfg(feature = "postgres")]
@@ -136,6 +145,8 @@ impl PostgresSinkConnector {
             config,
             buffer: Vec::new(),
             #[cfg(feature = "postgres")]
+            table_columns: None,
+            #[cfg(feature = "postgres")]
             pool: None,
         })
     }
@@ -146,6 +157,8 @@ impl PostgresSinkConnector {
             name: name.to_string(),
             config,
             buffer: Vec::new(),
+            #[cfg(feature = "postgres")]
+            table_columns: None,
             #[cfg(feature = "postgres")]
             pool: None,
         }
@@ -217,11 +230,38 @@ impl PostgresSinkConnector {
         }
     }
 
+    /// Fetch column names from the target table and cache them.
+    #[cfg(feature = "postgres")]
+    async fn fetch_table_columns(&mut self) -> Result<()> {
+        if self.table_columns.is_some() {
+            return Ok(());
+        }
+        if let Some(pool) = &self.pool {
+            let rows: Vec<(String,)> = sqlx::query_as(
+                "SELECT column_name FROM information_schema.columns WHERE table_name = $1"
+            )
+            .bind(&self.config.table_name)
+            .fetch_all(pool)
+            .await
+            .map_err(|e| {
+                ConnectorError::SinkError(format!("Failed to fetch table columns: {}", e))
+            })?;
+
+            let cols: std::collections::HashSet<String> = rows.into_iter().map(|(c,)| c).collect();
+            tracing::info!(connector = %self.name, table = %self.config.table_name, columns = ?cols, "cached target table columns");
+            self.table_columns = Some(cols);
+        }
+        Ok(())
+    }
+
     /// Execute the buffered batch of records.
     async fn execute_batch(&mut self) -> Result<()> {
         if self.buffer.is_empty() {
             return Ok(());
         }
+
+        #[cfg(feature = "postgres")]
+        self.fetch_table_columns().await?;
 
         let batch: Vec<SinkRecord> = self.buffer.drain(..).collect();
 
@@ -236,16 +276,47 @@ impl PostgresSinkConnector {
             return Ok(());
         }
 
+        // Filter columns to only those that exist in the target table
+        #[cfg(feature = "postgres")]
+        let columns: Vec<String> = if let Some(ref table_cols) = self.table_columns {
+            all_rows[0]
+                .iter()
+                .filter(|(k, _)| table_cols.contains(k))
+                .map(|(k, _)| k.clone())
+                .collect()
+        } else {
+            all_rows[0].iter().map(|(k, _)| k.clone()).collect()
+        };
+
+        #[cfg(not(feature = "postgres"))]
         let columns: Vec<String> = all_rows[0].iter().map(|(k, _)| k.clone()).collect();
+
+        if columns.is_empty() {
+            tracing::warn!(connector = %self.name, "no matching columns between record and target table, skipping batch");
+            return Ok(());
+        }
+
+        // Filter each row to only include the selected columns
+        let columns_set: std::collections::HashSet<&str> = columns.iter().map(|s| s.as_str()).collect();
+        let filtered_rows: Vec<Vec<&serde_json::Value>> = all_rows
+            .iter()
+            .map(|row| {
+                row.iter()
+                    .filter(|(k, _)| columns_set.contains(k.as_str()))
+                    .map(|(_, v)| v)
+                    .collect()
+            })
+            .collect();
+
         let _sql = match self.config.insert_mode {
             InsertMode::Insert => {
-                Self::build_insert_sql(&self.config.table_name, &columns, all_rows.len())
+                Self::build_insert_sql(&self.config.table_name, &columns, filtered_rows.len())
             }
             InsertMode::Upsert => Self::build_upsert_sql(
                 &self.config.table_name,
                 &columns,
                 &self.config.pk_fields,
-                all_rows.len(),
+                filtered_rows.len(),
             ),
         };
 
@@ -253,8 +324,8 @@ impl PostgresSinkConnector {
         {
             if let Some(pool) = &self.pool {
                 let mut query = sqlx::query(&_sql);
-                for row in &all_rows {
-                    for (_, val) in row {
+                for row in &filtered_rows {
+                    for val in row {
                         query = query.bind(val.to_string());
                     }
                 }

@@ -9,6 +9,8 @@ use std::time::Duration;
 use streamhouse_connectors::pipeline::{PipelineConsumeLoop, PipelineConsumeLoopConfig, TransformFn};
 use streamhouse_connectors::sinks::clickhouse::ClickHouseSinkConnector;
 use streamhouse_connectors::sinks::elasticsearch::ElasticsearchSinkConnector;
+#[cfg(feature = "postgres")]
+use streamhouse_connectors::sinks::postgres::PostgresSinkConnector;
 use streamhouse_connectors::sinks::s3::S3SinkConnector;
 use streamhouse_connectors::traits::SinkConnector;
 use streamhouse_metadata::MetadataStore;
@@ -147,6 +149,16 @@ impl PipelineMaintenance {
                         Ok(c) => Box::new(c),
                         Err(e) => {
                             tracing::warn!(pipeline = %pipeline.name, error = %e, "Failed to create S3 sink");
+                            continue;
+                        }
+                    }
+                }
+                #[cfg(feature = "postgres")]
+                "postgres" => {
+                    match PostgresSinkConnector::new(&pipeline.name, &target.connection_config) {
+                        Ok(c) => Box::new(c),
+                        Err(e) => {
+                            tracing::warn!(pipeline = %pipeline.name, error = %e, "Failed to create Postgres sink");
                             continue;
                         }
                     }
