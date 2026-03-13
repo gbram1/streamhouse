@@ -1519,6 +1519,36 @@ pub struct MaterializedViewData {
     pub updated_at: i64,
 }
 
+/// Pipeline target definition stored in metadata.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PipelineTarget {
+    pub id: String,
+    pub organization_id: String,
+    pub name: String,
+    pub target_type: String,
+    pub connection_config: HashMap<String, String>,
+    pub created_at: i64,
+    pub updated_at: i64,
+}
+
+/// Pipeline definition stored in metadata.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PipelineInfo {
+    pub id: String,
+    pub organization_id: String,
+    pub name: String,
+    pub source_topic: String,
+    pub consumer_group: String,
+    pub target_id: String,
+    pub transform_sql: Option<String>,
+    pub state: String,
+    pub error_message: Option<String>,
+    pub records_processed: i64,
+    pub last_offset: Option<i64>,
+    pub created_at: i64,
+    pub updated_at: i64,
+}
+
 /// Connector definition stored in metadata
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ConnectorInfo {

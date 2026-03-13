@@ -3883,6 +3883,210 @@ impl MetadataStore for SqliteMetadataStore {
             )
             .collect())
     }
+
+    // ── Pipeline Target operations ──────────────────────
+
+    async fn create_pipeline_target(&self, target: PipelineTarget) -> Result<()> {
+        let config_json = serde_json::to_string(&target.connection_config)
+            .map_err(|e| MetadataError::InternalError(e.to_string()))?;
+        sqlx::query(
+            "INSERT INTO pipeline_targets (id, organization_id, name, target_type, connection_config, created_at, updated_at) \
+             VALUES (?, ?, ?, ?, ?, ?, ?)",
+        )
+        .bind(&target.id)
+        .bind(&target.organization_id)
+        .bind(&target.name)
+        .bind(&target.target_type)
+        .bind(&config_json)
+        .bind(target.created_at)
+        .bind(target.updated_at)
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
+    async fn get_pipeline_target(&self, name: &str) -> Result<Option<PipelineTarget>> {
+        let row: Option<(String, String, String, String, String, i64, i64)> = sqlx::query_as(
+            "SELECT id, organization_id, name, target_type, connection_config, created_at, updated_at \
+             FROM pipeline_targets WHERE name = ?",
+        )
+        .bind(name)
+        .fetch_optional(&self.pool)
+        .await?;
+        Ok(row.map(|r| self.row_to_pipeline_target(r)))
+    }
+
+    async fn get_pipeline_target_by_id(&self, id: &str) -> Result<Option<PipelineTarget>> {
+        let row: Option<(String, String, String, String, String, i64, i64)> = sqlx::query_as(
+            "SELECT id, organization_id, name, target_type, connection_config, created_at, updated_at \
+             FROM pipeline_targets WHERE id = ?",
+        )
+        .bind(id)
+        .fetch_optional(&self.pool)
+        .await?;
+        Ok(row.map(|r| self.row_to_pipeline_target(r)))
+    }
+
+    async fn list_pipeline_targets(&self) -> Result<Vec<PipelineTarget>> {
+        let rows: Vec<(String, String, String, String, String, i64, i64)> = sqlx::query_as(
+            "SELECT id, organization_id, name, target_type, connection_config, created_at, updated_at \
+             FROM pipeline_targets ORDER BY name",
+        )
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(rows.into_iter().map(|r| self.row_to_pipeline_target(r)).collect())
+    }
+
+    async fn delete_pipeline_target(&self, name: &str) -> Result<()> {
+        sqlx::query("DELETE FROM pipeline_targets WHERE name = ?")
+            .bind(name)
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
+
+    // ── Pipeline operations ──────────────────────
+
+    async fn create_pipeline(&self, pipeline: PipelineInfo) -> Result<()> {
+        sqlx::query(
+            "INSERT INTO pipelines (id, organization_id, name, source_topic, consumer_group, target_id, transform_sql, state, error_message, records_processed, last_offset, created_at, updated_at) \
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        )
+        .bind(&pipeline.id)
+        .bind(&pipeline.organization_id)
+        .bind(&pipeline.name)
+        .bind(&pipeline.source_topic)
+        .bind(&pipeline.consumer_group)
+        .bind(&pipeline.target_id)
+        .bind(&pipeline.transform_sql)
+        .bind(&pipeline.state)
+        .bind(&pipeline.error_message)
+        .bind(pipeline.records_processed)
+        .bind(pipeline.last_offset)
+        .bind(pipeline.created_at)
+        .bind(pipeline.updated_at)
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
+    async fn get_pipeline(&self, name: &str) -> Result<Option<PipelineInfo>> {
+        let row: Option<(String, String, String, String, String, String, Option<String>, String, Option<String>, i64, Option<i64>, i64, i64)> = sqlx::query_as(
+            "SELECT id, organization_id, name, source_topic, consumer_group, target_id, transform_sql, state, error_message, records_processed, last_offset, created_at, updated_at \
+             FROM pipelines WHERE name = ?",
+        )
+        .bind(name)
+        .fetch_optional(&self.pool)
+        .await?;
+        Ok(row.map(|r| self.row_to_pipeline_info(r)))
+    }
+
+    async fn get_pipeline_by_id(&self, id: &str) -> Result<Option<PipelineInfo>> {
+        let row: Option<(String, String, String, String, String, String, Option<String>, String, Option<String>, i64, Option<i64>, i64, i64)> = sqlx::query_as(
+            "SELECT id, organization_id, name, source_topic, consumer_group, target_id, transform_sql, state, error_message, records_processed, last_offset, created_at, updated_at \
+             FROM pipelines WHERE id = ?",
+        )
+        .bind(id)
+        .fetch_optional(&self.pool)
+        .await?;
+        Ok(row.map(|r| self.row_to_pipeline_info(r)))
+    }
+
+    async fn list_pipelines(&self) -> Result<Vec<PipelineInfo>> {
+        let rows: Vec<(String, String, String, String, String, String, Option<String>, String, Option<String>, i64, Option<i64>, i64, i64)> = sqlx::query_as(
+            "SELECT id, organization_id, name, source_topic, consumer_group, target_id, transform_sql, state, error_message, records_processed, last_offset, created_at, updated_at \
+             FROM pipelines ORDER BY name",
+        )
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(rows.into_iter().map(|r| self.row_to_pipeline_info(r)).collect())
+    }
+
+    async fn delete_pipeline(&self, name: &str) -> Result<()> {
+        sqlx::query("DELETE FROM pipelines WHERE name = ?")
+            .bind(name)
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
+
+    async fn update_pipeline_state(
+        &self,
+        name: &str,
+        state: &str,
+        error_message: Option<&str>,
+    ) -> Result<()> {
+        let now = chrono::Utc::now().timestamp_millis();
+        sqlx::query(
+            "UPDATE pipelines SET state = ?, error_message = ?, updated_at = ? WHERE name = ?",
+        )
+        .bind(state)
+        .bind(error_message)
+        .bind(now)
+        .bind(name)
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
+    async fn update_pipeline_progress(
+        &self,
+        name: &str,
+        records_processed: i64,
+        last_offset: i64,
+    ) -> Result<()> {
+        let now = chrono::Utc::now().timestamp_millis();
+        sqlx::query(
+            "UPDATE pipelines SET records_processed = ?, last_offset = ?, updated_at = ? WHERE name = ?",
+        )
+        .bind(records_processed)
+        .bind(last_offset)
+        .bind(now)
+        .bind(name)
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+}
+
+impl SqliteMetadataStore {
+    fn row_to_pipeline_target(
+        &self,
+        row: (String, String, String, String, String, i64, i64),
+    ) -> PipelineTarget {
+        let connection_config: std::collections::HashMap<String, String> =
+            serde_json::from_str(&row.4).unwrap_or_default();
+        PipelineTarget {
+            id: row.0,
+            organization_id: row.1,
+            name: row.2,
+            target_type: row.3,
+            connection_config,
+            created_at: row.5,
+            updated_at: row.6,
+        }
+    }
+
+    fn row_to_pipeline_info(
+        &self,
+        row: (String, String, String, String, String, String, Option<String>, String, Option<String>, i64, Option<i64>, i64, i64),
+    ) -> PipelineInfo {
+        PipelineInfo {
+            id: row.0,
+            organization_id: row.1,
+            name: row.2,
+            source_topic: row.3,
+            consumer_group: row.4,
+            target_id: row.5,
+            transform_sql: row.6,
+            state: row.7,
+            error_message: row.8,
+            records_processed: row.9,
+            last_offset: row.10,
+            created_at: row.11,
+            updated_at: row.12,
+        }
+    }
 }
 
 #[cfg(test)]

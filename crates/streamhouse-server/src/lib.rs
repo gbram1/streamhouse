@@ -7,6 +7,7 @@
 
 pub mod compaction;
 pub mod materialized_view_maintenance;
+pub mod pipeline_maintenance;
 pub mod services;
 
 // Include generated protobuf code
@@ -16,4 +17,5 @@ pub mod pb {
 
 pub use compaction::{CompactionConfig, CompactionTask};
 pub use materialized_view_maintenance::{MaintenanceConfig, MaterializedViewMaintenance};
+pub use pipeline_maintenance::PipelineMaintenance;
 pub use services::StreamHouseService;

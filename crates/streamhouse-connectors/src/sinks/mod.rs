@@ -3,6 +3,7 @@
 //! This module contains concrete sink connector implementations for writing
 //! StreamHouse records to external systems.
 
+pub mod clickhouse;
 pub mod elasticsearch;
 pub mod s3;
 
@@ -10,6 +11,7 @@ pub mod s3;
 #[cfg(feature = "postgres")]
 pub mod postgres;
 
+pub use clickhouse::ClickHouseSinkConnector;
 pub use elasticsearch::ElasticsearchSinkConnector;
 pub use s3::S3SinkConnector;
 

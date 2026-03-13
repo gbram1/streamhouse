@@ -255,6 +255,31 @@ pub fn create_router(state: AppState) -> Router {
             "/connectors/:name/resume",
             post(handlers::connectors::resume_connector),
         )
+        // Pipeline Targets
+        .route(
+            "/pipeline-targets",
+            get(handlers::pipelines::list_pipeline_targets).post(handlers::pipelines::create_pipeline_target),
+        )
+        .route(
+            "/pipeline-targets/:name",
+            get(handlers::pipelines::get_pipeline_target).delete(handlers::pipelines::delete_pipeline_target),
+        )
+        // Pipelines
+        .route(
+            "/pipelines",
+            get(handlers::pipelines::list_pipelines).post(handlers::pipelines::create_pipeline),
+        )
+        .route(
+            "/pipelines/:name",
+            get(handlers::pipelines::get_pipeline)
+                .patch(handlers::pipelines::update_pipeline_state)
+                .delete(handlers::pipelines::delete_pipeline),
+        )
+        // Transform validation
+        .route(
+            "/transforms/validate",
+            post(handlers::pipelines::validate_transform),
+        )
         .with_state(state.clone());
 
     // Admin routes (always require admin permission)
@@ -484,6 +509,16 @@ pub async fn serve_graceful(router: Router, port: u16) -> Result<(), Box<dyn std
         handlers::ai::delete_query,
         handlers::ai::clear_query_history,
         handlers::ai::infer_schema,
+        handlers::pipelines::list_pipeline_targets,
+        handlers::pipelines::create_pipeline_target,
+        handlers::pipelines::get_pipeline_target,
+        handlers::pipelines::delete_pipeline_target,
+        handlers::pipelines::list_pipelines,
+        handlers::pipelines::create_pipeline,
+        handlers::pipelines::get_pipeline,
+        handlers::pipelines::delete_pipeline,
+        handlers::pipelines::update_pipeline_state,
+        handlers::pipelines::validate_transform,
     ),
     components(schemas(
         models::Topic,
@@ -546,6 +581,13 @@ pub async fn serve_graceful(router: Router, port: u16) -> Result<(), Box<dyn std
         handlers::ai::InferredSchema,
         handlers::ai::InferredField,
         handlers::ai::IndexRecommendation,
+        models::PipelineTargetResponse,
+        models::CreatePipelineTargetRequest,
+        models::PipelineResponse,
+        models::CreatePipelineRequest,
+        models::UpdatePipelineRequest,
+        models::ValidateTransformRequest,
+        models::ValidateTransformResponse,
     )),
     tags(
         (name = "topics", description = "Topic management"),
@@ -559,6 +601,7 @@ pub async fn serve_graceful(router: Router, port: u16) -> Result<(), Box<dyn std
         (name = "organizations", description = "Organization management for multi-tenancy"),
         (name = "api-keys", description = "API key management for authentication"),
         (name = "ai", description = "AI-powered natural language query generation"),
+        (name = "pipelines", description = "Pipeline management"),
     ),
     info(
         title = "StreamHouse API",

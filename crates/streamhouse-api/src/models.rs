@@ -370,6 +370,76 @@ pub struct CreateConnectorRequest {
     pub config: std::collections::HashMap<String, String>,
 }
 
+// ---------------------------------------------------------------
+// Pipeline models
+// ---------------------------------------------------------------
+
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct PipelineTargetResponse {
+    pub id: String,
+    pub name: String,
+    pub target_type: String,
+    pub connection_config: std::collections::HashMap<String, String>,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct CreatePipelineTargetRequest {
+    pub name: String,
+    pub target_type: String,
+    #[serde(default)]
+    pub connection_config: std::collections::HashMap<String, String>,
+}
+
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct PipelineResponse {
+    pub id: String,
+    pub name: String,
+    pub source_topic: String,
+    pub consumer_group: String,
+    pub target_id: String,
+    pub transform_sql: Option<String>,
+    pub state: String,
+    pub error_message: Option<String>,
+    pub records_processed: i64,
+    pub last_offset: Option<i64>,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct CreatePipelineRequest {
+    pub name: String,
+    pub source_topic: String,
+    pub target_id: String,
+    pub transform_sql: Option<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdatePipelineRequest {
+    pub state: Option<String>,
+    pub error_message: Option<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct ValidateTransformRequest {
+    pub sql: String,
+}
+
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct ValidateTransformResponse {
+    pub valid: bool,
+    pub error: Option<String>,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

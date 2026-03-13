@@ -49,6 +49,7 @@ tracing = { workspace = true }
 # StreamHouse dependencies
 streamhouse-metadata = { path = "../streamhouse-metadata" }
 streamhouse-storage = { path = "../streamhouse-storage" }
+streamhouse-connectors = { path = "../streamhouse-connectors" }
 object_store = { workspace = true }
 
 [dev-dependencies]

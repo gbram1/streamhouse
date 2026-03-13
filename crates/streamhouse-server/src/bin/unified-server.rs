@@ -812,6 +812,20 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     tracing::info!("🔄 Materialized view maintenance task started");
 
+    // Start pipeline maintenance task
+    use streamhouse_server::PipelineMaintenance;
+
+    let pipeline_maintenance = Arc::new(PipelineMaintenance::new(
+        metadata.clone(),
+        object_store.clone(),
+        cache.clone(),
+    ));
+
+    let (_pipeline_shutdown_tx, pipeline_shutdown_rx) = tokio::sync::oneshot::channel::<()>();
+    let _pipeline_handle = pipeline_maintenance.start(pipeline_shutdown_rx);
+
+    tracing::info!("🔄 Pipeline maintenance task started");
+
     // Create Prometheus client for real metrics (optional)
     let prometheus_client = std::env::var("PROMETHEUS_URL").ok().map(|url| {
         tracing::info!("📊 Prometheus metrics enabled: {}", url);

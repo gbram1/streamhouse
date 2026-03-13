@@ -9,10 +9,12 @@ license.workspace = true
 # Internal crates
 streamhouse-core = { path = "../streamhouse-core" }
 streamhouse-metadata = { path = "../streamhouse-metadata" }
+streamhouse-storage = { path = "../streamhouse-storage" }
 
 # Async runtime
 tokio = { workspace = true }
 async-trait = { workspace = true }
+futures = { workspace = true }
 
 # Serialization
 serde = { workspace = true }

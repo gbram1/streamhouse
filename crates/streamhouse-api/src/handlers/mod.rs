@@ -11,4 +11,5 @@ pub mod organizations;
 pub mod produce;
 pub mod sql;
 pub mod topics;
+pub mod pipelines;
 pub mod websocket;

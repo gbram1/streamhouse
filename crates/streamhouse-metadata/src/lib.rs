@@ -2008,4 +2008,130 @@ pub trait MetadataStore: Send + Sync {
     ) -> Result<Vec<TransactionPartition>> {
         self.get_transaction_partitions(transaction_id).await
     }
+
+    // ── Pipeline Target operations ──────────────────────
+
+    /// Create a pipeline target.
+    async fn create_pipeline_target(&self, target: PipelineTarget) -> Result<()>;
+
+    /// Get a pipeline target by name.
+    async fn get_pipeline_target(&self, name: &str) -> Result<Option<PipelineTarget>>;
+
+    /// Get a pipeline target by ID.
+    async fn get_pipeline_target_by_id(&self, id: &str) -> Result<Option<PipelineTarget>>;
+
+    /// List all pipeline targets.
+    async fn list_pipeline_targets(&self) -> Result<Vec<PipelineTarget>>;
+
+    /// Delete a pipeline target by name.
+    async fn delete_pipeline_target(&self, name: &str) -> Result<()>;
+
+    // ── Pipeline operations ──────────────────────
+
+    /// Create a pipeline.
+    async fn create_pipeline(&self, pipeline: PipelineInfo) -> Result<()>;
+
+    /// Get a pipeline by name.
+    async fn get_pipeline(&self, name: &str) -> Result<Option<PipelineInfo>>;
+
+    /// Get a pipeline by ID.
+    async fn get_pipeline_by_id(&self, id: &str) -> Result<Option<PipelineInfo>>;
+
+    /// List all pipelines.
+    async fn list_pipelines(&self) -> Result<Vec<PipelineInfo>>;
+
+    /// Delete a pipeline by name.
+    async fn delete_pipeline(&self, name: &str) -> Result<()>;
+
+    /// Update pipeline state.
+    async fn update_pipeline_state(
+        &self,
+        name: &str,
+        state: &str,
+        error_message: Option<&str>,
+    ) -> Result<()>;
+
+    /// Update pipeline progress (records processed and last offset).
+    async fn update_pipeline_progress(
+        &self,
+        name: &str,
+        records_processed: i64,
+        last_offset: i64,
+    ) -> Result<()>;
+
+    // ── Org-scoped pipeline target operations ──────────────────────
+
+    /// Create a pipeline target for a specific organization.
+    async fn create_pipeline_target_for_org(&self, _org_id: &str, target: PipelineTarget) -> Result<()> {
+        self.create_pipeline_target(target).await
+    }
+
+    /// Get a pipeline target by name for a specific organization.
+    async fn get_pipeline_target_for_org(&self, _org_id: &str, name: &str) -> Result<Option<PipelineTarget>> {
+        self.get_pipeline_target(name).await
+    }
+
+    /// Get a pipeline target by ID for a specific organization.
+    async fn get_pipeline_target_by_id_for_org(&self, _org_id: &str, id: &str) -> Result<Option<PipelineTarget>> {
+        self.get_pipeline_target_by_id(id).await
+    }
+
+    /// List all pipeline targets for a specific organization.
+    async fn list_pipeline_targets_for_org(&self, _org_id: &str) -> Result<Vec<PipelineTarget>> {
+        self.list_pipeline_targets().await
+    }
+
+    /// Delete a pipeline target by name for a specific organization.
+    async fn delete_pipeline_target_for_org(&self, _org_id: &str, name: &str) -> Result<()> {
+        self.delete_pipeline_target(name).await
+    }
+
+    // ── Org-scoped pipeline operations ──────────────────────
+
+    /// Create a pipeline for a specific organization.
+    async fn create_pipeline_for_org(&self, _org_id: &str, pipeline: PipelineInfo) -> Result<()> {
+        self.create_pipeline(pipeline).await
+    }
+
+    /// Get a pipeline by name for a specific organization.
+    async fn get_pipeline_for_org(&self, _org_id: &str, name: &str) -> Result<Option<PipelineInfo>> {
+        self.get_pipeline(name).await
+    }
+
+    /// Get a pipeline by ID for a specific organization.
+    async fn get_pipeline_by_id_for_org(&self, _org_id: &str, id: &str) -> Result<Option<PipelineInfo>> {
+        self.get_pipeline_by_id(id).await
+    }
+
+    /// List all pipelines for a specific organization.
+    async fn list_pipelines_for_org(&self, _org_id: &str) -> Result<Vec<PipelineInfo>> {
+        self.list_pipelines().await
+    }
+
+    /// Delete a pipeline by name for a specific organization.
+    async fn delete_pipeline_for_org(&self, _org_id: &str, name: &str) -> Result<()> {
+        self.delete_pipeline(name).await
+    }
+
+    /// Update pipeline state for a specific organization.
+    async fn update_pipeline_state_for_org(
+        &self,
+        _org_id: &str,
+        name: &str,
+        state: &str,
+        error_message: Option<&str>,
+    ) -> Result<()> {
+        self.update_pipeline_state(name, state, error_message).await
+    }
+
+    /// Update pipeline progress for a specific organization.
+    async fn update_pipeline_progress_for_org(
+        &self,
+        _org_id: &str,
+        name: &str,
+        records_processed: i64,
+        last_offset: i64,
+    ) -> Result<()> {
+        self.update_pipeline_progress(name, records_processed, last_offset).await
+    }
 }

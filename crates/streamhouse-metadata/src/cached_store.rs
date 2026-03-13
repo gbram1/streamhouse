@@ -109,8 +109,8 @@ use crate::{
     CreateOrganization, InitProducerConfig, LeaderChangeReason, LeaseTransfer, MaterializedView,
     MaterializedViewData, MaterializedViewOffset, MaterializedViewStatus, MetadataStore,
     Organization, OrganizationPlan, OrganizationQuota, OrganizationStatus, OrganizationUsage,
-    Partition, PartitionLease, Producer, Result, SegmentInfo, Topic, TopicConfig,
-    TopicStorageStats, Transaction, TransactionMarker, TransactionPartition,
+    Partition, PartitionLease, PipelineInfo, PipelineTarget, Producer, Result, SegmentInfo,
+    Topic, TopicConfig, TopicStorageStats, Transaction, TransactionMarker, TransactionPartition,
 };
 use async_trait::async_trait;
 use lru::LruCache;
@@ -1356,6 +1356,68 @@ impl<S: MetadataStore + 'static> MetadataStore for CachedMetadataStore<S> {
         self.inner
             .get_transaction_partitions_for_org(org_id, transaction_id)
             .await
+    }
+
+    // ── Pipeline Target operations ──────────────────────
+
+    async fn create_pipeline_target(&self, target: PipelineTarget) -> Result<()> {
+        self.inner.create_pipeline_target(target).await
+    }
+
+    async fn get_pipeline_target(&self, name: &str) -> Result<Option<PipelineTarget>> {
+        self.inner.get_pipeline_target(name).await
+    }
+
+    async fn get_pipeline_target_by_id(&self, id: &str) -> Result<Option<PipelineTarget>> {
+        self.inner.get_pipeline_target_by_id(id).await
+    }
+
+    async fn list_pipeline_targets(&self) -> Result<Vec<PipelineTarget>> {
+        self.inner.list_pipeline_targets().await
+    }
+
+    async fn delete_pipeline_target(&self, name: &str) -> Result<()> {
+        self.inner.delete_pipeline_target(name).await
+    }
+
+    // ── Pipeline operations ──────────────────────
+
+    async fn create_pipeline(&self, pipeline: PipelineInfo) -> Result<()> {
+        self.inner.create_pipeline(pipeline).await
+    }
+
+    async fn get_pipeline(&self, name: &str) -> Result<Option<PipelineInfo>> {
+        self.inner.get_pipeline(name).await
+    }
+
+    async fn get_pipeline_by_id(&self, id: &str) -> Result<Option<PipelineInfo>> {
+        self.inner.get_pipeline_by_id(id).await
+    }
+
+    async fn list_pipelines(&self) -> Result<Vec<PipelineInfo>> {
+        self.inner.list_pipelines().await
+    }
+
+    async fn delete_pipeline(&self, name: &str) -> Result<()> {
+        self.inner.delete_pipeline(name).await
+    }
+
+    async fn update_pipeline_state(
+        &self,
+        name: &str,
+        state: &str,
+        error_message: Option<&str>,
+    ) -> Result<()> {
+        self.inner.update_pipeline_state(name, state, error_message).await
+    }
+
+    async fn update_pipeline_progress(
+        &self,
+        name: &str,
+        records_processed: i64,
+        last_offset: i64,
+    ) -> Result<()> {
+        self.inner.update_pipeline_progress(name, records_processed, last_offset).await
     }
 }
 

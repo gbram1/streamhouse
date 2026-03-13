@@ -3701,9 +3701,223 @@ impl MetadataStore for PostgresMetadataStore {
             })
             .collect())
     }
+
+    // ── Pipeline Target operations ──────────────────────
+
+    async fn create_pipeline_target(&self, target: PipelineTarget) -> Result<()> {
+        let config_json = serde_json::to_string(&target.connection_config)
+            .map_err(|e| MetadataError::InternalError(e.to_string()))?;
+        let org_uuid = uuid::Uuid::parse_str(&target.organization_id)
+            .map_err(|e| MetadataError::InternalError(format!("Invalid org UUID: {}", e)))?;
+        sqlx::query(
+            "INSERT INTO pipeline_targets (id, organization_id, name, target_type, connection_config, created_at, updated_at) \
+             VALUES ($1, $2, $3, $4, $5, $6, $7)",
+        )
+        .bind(uuid::Uuid::parse_str(&target.id).map_err(|e| MetadataError::InternalError(e.to_string()))?)
+        .bind(org_uuid)
+        .bind(&target.name)
+        .bind(&target.target_type)
+        .bind(&config_json)
+        .bind(target.created_at)
+        .bind(target.updated_at)
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
+    async fn get_pipeline_target(&self, name: &str) -> Result<Option<PipelineTarget>> {
+        let row = sqlx::query(
+            "SELECT id, organization_id, name, target_type, connection_config, created_at, updated_at \
+             FROM pipeline_targets WHERE name = $1",
+        )
+        .bind(name)
+        .fetch_optional(&self.pool)
+        .await?;
+        Ok(row.map(|r| Self::row_to_pipeline_target(r)))
+    }
+
+    async fn get_pipeline_target_by_id(&self, id: &str) -> Result<Option<PipelineTarget>> {
+        let id_uuid = uuid::Uuid::parse_str(id)
+            .map_err(|e| MetadataError::InternalError(format!("Invalid UUID: {}", e)))?;
+        let row = sqlx::query(
+            "SELECT id, organization_id, name, target_type, connection_config, created_at, updated_at \
+             FROM pipeline_targets WHERE id = $1",
+        )
+        .bind(id_uuid)
+        .fetch_optional(&self.pool)
+        .await?;
+        Ok(row.map(|r| Self::row_to_pipeline_target(r)))
+    }
+
+    async fn list_pipeline_targets(&self) -> Result<Vec<PipelineTarget>> {
+        let rows = sqlx::query(
+            "SELECT id, organization_id, name, target_type, connection_config, created_at, updated_at \
+             FROM pipeline_targets ORDER BY name",
+        )
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(rows.into_iter().map(|r| Self::row_to_pipeline_target(r)).collect())
+    }
+
+    async fn delete_pipeline_target(&self, name: &str) -> Result<()> {
+        sqlx::query("DELETE FROM pipeline_targets WHERE name = $1")
+            .bind(name)
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
+
+    // ── Pipeline operations ──────────────────────
+
+    async fn create_pipeline(&self, pipeline: PipelineInfo) -> Result<()> {
+        let org_uuid = uuid::Uuid::parse_str(&pipeline.organization_id)
+            .map_err(|e| MetadataError::InternalError(format!("Invalid org UUID: {}", e)))?;
+        sqlx::query(
+            "INSERT INTO pipelines (id, organization_id, name, source_topic, consumer_group, target_id, transform_sql, state, error_message, records_processed, last_offset, created_at, updated_at) \
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)",
+        )
+        .bind(uuid::Uuid::parse_str(&pipeline.id).map_err(|e| MetadataError::InternalError(e.to_string()))?)
+        .bind(org_uuid)
+        .bind(&pipeline.name)
+        .bind(&pipeline.source_topic)
+        .bind(&pipeline.consumer_group)
+        .bind(uuid::Uuid::parse_str(&pipeline.target_id).map_err(|e| MetadataError::InternalError(e.to_string()))?)
+        .bind(&pipeline.transform_sql)
+        .bind(&pipeline.state)
+        .bind(&pipeline.error_message)
+        .bind(pipeline.records_processed)
+        .bind(pipeline.last_offset)
+        .bind(pipeline.created_at)
+        .bind(pipeline.updated_at)
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
+    async fn get_pipeline(&self, name: &str) -> Result<Option<PipelineInfo>> {
+        let row = sqlx::query(
+            "SELECT id, organization_id, name, source_topic, consumer_group, target_id, transform_sql, state, error_message, records_processed, last_offset, created_at, updated_at \
+             FROM pipelines WHERE name = $1",
+        )
+        .bind(name)
+        .fetch_optional(&self.pool)
+        .await?;
+        Ok(row.map(|r| Self::row_to_pipeline_info(r)))
+    }
+
+    async fn get_pipeline_by_id(&self, id: &str) -> Result<Option<PipelineInfo>> {
+        let id_uuid = uuid::Uuid::parse_str(id)
+            .map_err(|e| MetadataError::InternalError(format!("Invalid UUID: {}", e)))?;
+        let row = sqlx::query(
+            "SELECT id, organization_id, name, source_topic, consumer_group, target_id, transform_sql, state, error_message, records_processed, last_offset, created_at, updated_at \
+             FROM pipelines WHERE id = $1",
+        )
+        .bind(id_uuid)
+        .fetch_optional(&self.pool)
+        .await?;
+        Ok(row.map(|r| Self::row_to_pipeline_info(r)))
+    }
+
+    async fn list_pipelines(&self) -> Result<Vec<PipelineInfo>> {
+        let rows = sqlx::query(
+            "SELECT id, organization_id, name, source_topic, consumer_group, target_id, transform_sql, state, error_message, records_processed, last_offset, created_at, updated_at \
+             FROM pipelines ORDER BY name",
+        )
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(rows.into_iter().map(|r| Self::row_to_pipeline_info(r)).collect())
+    }
+
+    async fn delete_pipeline(&self, name: &str) -> Result<()> {
+        sqlx::query("DELETE FROM pipelines WHERE name = $1")
+            .bind(name)
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
+
+    async fn update_pipeline_state(
+        &self,
+        name: &str,
+        state: &str,
+        error_message: Option<&str>,
+    ) -> Result<()> {
+        let now = chrono::Utc::now().timestamp_millis();
+        sqlx::query(
+            "UPDATE pipelines SET state = $1, error_message = $2, updated_at = $3 WHERE name = $4",
+        )
+        .bind(state)
+        .bind(error_message)
+        .bind(now)
+        .bind(name)
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
+    async fn update_pipeline_progress(
+        &self,
+        name: &str,
+        records_processed: i64,
+        last_offset: i64,
+    ) -> Result<()> {
+        let now = chrono::Utc::now().timestamp_millis();
+        sqlx::query(
+            "UPDATE pipelines SET records_processed = $1, last_offset = $2, updated_at = $3 WHERE name = $4",
+        )
+        .bind(records_processed)
+        .bind(last_offset)
+        .bind(now)
+        .bind(name)
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
 }
 
 impl PostgresMetadataStore {
+    /// Helper to convert a database row to PipelineTarget
+    fn row_to_pipeline_target(r: sqlx::postgres::PgRow) -> PipelineTarget {
+        use sqlx::Row;
+        let config_str: String = r.get("connection_config");
+        let connection_config: std::collections::HashMap<String, String> =
+            serde_json::from_str(&config_str).unwrap_or_default();
+        let org_id: uuid::Uuid = r.get("organization_id");
+        let id: uuid::Uuid = r.get("id");
+        PipelineTarget {
+            id: id.to_string(),
+            organization_id: org_id.to_string(),
+            name: r.get("name"),
+            target_type: r.get("target_type"),
+            connection_config,
+            created_at: r.get("created_at"),
+            updated_at: r.get("updated_at"),
+        }
+    }
+
+    /// Helper to convert a database row to PipelineInfo
+    fn row_to_pipeline_info(r: sqlx::postgres::PgRow) -> PipelineInfo {
+        use sqlx::Row;
+        let org_id: uuid::Uuid = r.get("organization_id");
+        let id: uuid::Uuid = r.get("id");
+        let target_id: uuid::Uuid = r.get("target_id");
+        PipelineInfo {
+            id: id.to_string(),
+            organization_id: org_id.to_string(),
+            name: r.get("name"),
+            source_topic: r.get("source_topic"),
+            consumer_group: r.get("consumer_group"),
+            target_id: target_id.to_string(),
+            transform_sql: r.get("transform_sql"),
+            state: r.get("state"),
+            error_message: r.get("error_message"),
+            records_processed: r.get("records_processed"),
+            last_offset: r.get("last_offset"),
+            created_at: r.get("created_at"),
+            updated_at: r.get("updated_at"),
+        }
+    }
+
     /// Helper to convert a database row to ConnectorInfo
     fn row_to_connector_info(r: sqlx::postgres::PgRow) -> Result<ConnectorInfo> {
         use sqlx::Row;

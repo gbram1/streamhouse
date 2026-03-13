@@ -19,6 +19,7 @@
 
 pub mod config;
 pub mod error;
+pub mod pipeline;
 pub mod runtime;
 pub mod sinks;
 pub mod sources;
@@ -28,6 +29,7 @@ pub mod traits;
 pub use config::{ConnectorConfig, ConnectorState, ConnectorType};
 pub use error::{ConnectorError, Result};
 pub use runtime::ConnectorRuntime;
+pub use sinks::ClickHouseSinkConnector;
 pub use sinks::ElasticsearchSinkConnector;
 pub use sinks::S3SinkConnector;
 pub use sources::DebeziumSourceConnector;

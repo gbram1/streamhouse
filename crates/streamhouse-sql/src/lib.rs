@@ -75,6 +75,7 @@ pub mod checkpoint_manager;
 pub mod operators;
 pub mod rocksdb_state;
 pub mod scheduler;
+pub mod transform;
 
 pub use arrow_executor::ArrowExecutor;
 pub use error::SqlError;
