@@ -1,11 +1,11 @@
 //! Auth CLI commands
 //!
 //! Provides subcommands for authentication management:
-//! login (discovers orgs via API key), logout, whoami, status.
+//! login (discovers orgs, provisions per-org API keys), logout, whoami, status.
 
 use anyhow::{Context, Result};
 use clap::Subcommand;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 use crate::auth::{AuthManager, OrgContext};
 use crate::rest_client::RestClient;
@@ -14,7 +14,7 @@ use crate::rest_client::RestClient;
 pub enum AuthCommands {
     /// Login to a StreamHouse server with an API key
     Login {
-        /// API key (e.g. sk_live_xxx)
+        /// API key (e.g. sk_live_xxx or admin key)
         #[arg(long)]
         api_key: String,
         /// Server URL (defaults to --api-url or STREAMHOUSE_API_URL)
@@ -29,19 +29,7 @@ pub enum AuthCommands {
     Status,
 }
 
-// --- API response types for org discovery ---
-
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "snake_case")]
-struct ApiKeyInfoResponse {
-    id: String,
-    organization_id: String,
-    name: String,
-    #[serde(default)]
-    permissions: Vec<String>,
-    #[serde(default)]
-    scopes: Vec<String>,
-}
+// --- API types ---
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -51,6 +39,32 @@ struct OrganizationResponse {
     slug: String,
     #[serde(default)]
     plan: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "snake_case")]
+struct CreateApiKeyRequest {
+    name: String,
+    permissions: Vec<String>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "snake_case")]
+struct ApiKeyCreatedResponse {
+    id: String,
+    name: String,
+    key: String,
+    #[serde(default)]
+    permissions: Vec<String>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "snake_case")]
+struct ApiKeyListEntry {
+    id: String,
+    name: String,
+    #[serde(default)]
+    permissions: Vec<String>,
 }
 
 /// Handle auth commands.
@@ -64,24 +78,24 @@ pub async fn handle_auth_command(
             let server_url = server.as_deref().unwrap_or(api_url);
             let client = RestClient::with_api_key(server_url, Some(api_key.clone()));
 
-            // Step 1: Verify the key works by hitting health
+            // Step 1: Verify the key works
             let _: serde_json::Value = client
                 .get("/health")
                 .await
                 .context("Failed to connect to server. Check your --server URL and API key.")?;
 
-            // Step 2: Try to discover which org this key belongs to.
-            // The admin API can list orgs; with a scoped key we may get just ours.
+            // Step 2: Discover orgs
             let orgs: Vec<OrganizationResponse> = client
                 .get("/api/v1/organizations")
                 .await
                 .unwrap_or_default();
 
             let mut manager = AuthManager::new()?;
+            manager.logout()?;
             manager.set_server_url(server_url);
 
             if orgs.is_empty() {
-                // No org discovery available — store as a "default" org context
+                // No orgs — store the key directly
                 manager.add_org(OrgContext {
                     org_id: "default".to_string(),
                     name: "Default".to_string(),
@@ -90,33 +104,48 @@ pub async fn handle_auth_command(
                     plan: None,
                 })?;
                 println!("Logged in to {}", server_url);
-                println!("  API key stored (no org discovery available)");
+                println!("  API key stored (no organizations found)");
             } else {
-                // Store each discovered org with this key
+                // Step 3: For each org, provision a CLI-specific API key
+                println!("Logged in to {}", server_url);
+                println!("  Provisioning per-org API keys...");
+
                 for org in &orgs {
-                    manager.add_org(OrgContext {
-                        org_id: org.id.clone(),
-                        name: org.name.clone(),
-                        slug: org.slug.clone(),
-                        api_key: api_key.clone(),
-                        plan: org.plan.clone(),
-                    })?;
+                    let org_key = provision_org_key(&client, &org.id, &org.slug).await;
+
+                    match org_key {
+                        Ok(key) => {
+                            manager.add_org(OrgContext {
+                                org_id: org.id.clone(),
+                                name: org.name.clone(),
+                                slug: org.slug.clone(),
+                                api_key: key,
+                                plan: org.plan.clone(),
+                            })?;
+                            println!("    {} ({}) — key provisioned", org.name, org.slug);
+                        }
+                        Err(e) => {
+                            // Fallback: use the admin key for this org
+                            manager.add_org(OrgContext {
+                                org_id: org.id.clone(),
+                                name: org.name.clone(),
+                                slug: org.slug.clone(),
+                                api_key: api_key.clone(),
+                                plan: org.plan.clone(),
+                            })?;
+                            println!(
+                                "    {} ({}) — using login key ({})",
+                                org.name, org.slug, e
+                            );
+                        }
+                    }
                 }
 
-                println!("Logged in to {}", server_url);
+                println!();
                 if orgs.len() == 1 {
-                    println!("  Organization: {} ({})", orgs[0].name, orgs[0].slug);
+                    println!("  Active: {} ({})", orgs[0].name, orgs[0].slug);
                 } else {
-                    println!("  {} organizations found:", orgs.len());
-                    for org in &orgs {
-                        let active = if manager.active_org_slug() == Some(org.slug.as_str()) {
-                            " (active)"
-                        } else {
-                            ""
-                        };
-                        println!("    {} ({}){}", org.name, org.slug, active);
-                    }
-                    println!();
+                    println!("  Active: {} ({})", orgs[0].name, orgs[0].slug);
                     println!("  Use `streamctl org switch <slug>` to change active org.");
                 }
             }
@@ -135,15 +164,13 @@ pub async fn handle_auth_command(
             if let Some(org) = manager.active_org() {
                 let server = manager.server_url().unwrap_or("(unknown)");
                 println!("Server: {}", server);
-                println!("Active organization: {} ({})", org.name, org.slug);
+                println!("Organization: {} ({})", org.name, org.slug);
                 if let Some(ref plan) = org.plan {
                     println!("Plan: {}", plan);
                 }
-                println!(
-                    "API key: {}...{}",
-                    &org.api_key[..org.api_key.len().min(12)],
-                    &org.api_key[org.api_key.len().saturating_sub(4)..]
-                );
+                // Show key prefix only
+                let prefix_len = org.api_key.len().min(16);
+                println!("API key: {}...", &org.api_key[..prefix_len]);
             } else {
                 println!("Not logged in. Run `streamctl auth login --api-key <key>` to authenticate.");
             }
@@ -187,4 +214,50 @@ pub async fn handle_auth_command(
     }
 
     Ok(())
+}
+
+/// Provision a per-org API key for the CLI.
+/// First checks if a "streamctl-cli" key already exists, reuses if so.
+/// Otherwise creates a new one.
+async fn provision_org_key(
+    client: &RestClient,
+    org_id: &str,
+    org_slug: &str,
+) -> Result<String> {
+    let key_name = format!("streamctl-cli-{}", org_slug);
+
+    // Check if we already have a CLI key for this org
+    let existing_keys: Vec<ApiKeyListEntry> = client
+        .get(&format!("/api/v1/organizations/{}/api-keys", org_id))
+        .await
+        .unwrap_or_default();
+
+    // If a CLI key already exists, we can't retrieve the secret again.
+    // We need to create a new one (or the user needs to revoke the old one).
+    // For simplicity, always create a fresh key with a unique name.
+    let has_existing = existing_keys.iter().any(|k| k.name == key_name);
+    let actual_name = if has_existing {
+        let ts = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs();
+        format!("streamctl-cli-{}-{}", org_slug, ts)
+    } else {
+        key_name
+    };
+
+    let req = CreateApiKeyRequest {
+        name: actual_name,
+        permissions: vec!["read".to_string(), "write".to_string()],
+    };
+
+    let resp: ApiKeyCreatedResponse = client
+        .post(
+            &format!("/api/v1/organizations/{}/api-keys", org_id),
+            &req,
+        )
+        .await
+        .context("Failed to create API key for org")?;
+
+    Ok(resp.key)
 }

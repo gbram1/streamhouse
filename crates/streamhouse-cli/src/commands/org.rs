@@ -103,7 +103,7 @@ pub enum OrgApiKeyCommands {
 // Request/Response types
 
 #[derive(Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "snake_case")]
 struct CreateOrganizationRequest {
     name: String,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -112,7 +112,7 @@ struct CreateOrganizationRequest {
 }
 
 #[derive(Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "snake_case")]
 struct UpdateOrganizationRequest {
     #[serde(skip_serializing_if = "Option::is_none")]
     name: Option<String>,
@@ -121,41 +121,59 @@ struct UpdateOrganizationRequest {
 }
 
 #[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "snake_case")]
 struct OrganizationResponse {
     id: String,
     name: String,
     slug: String,
     plan: String,
-    created_at: String,
-    updated_at: String,
+    #[serde(default)]
+    status: Option<String>,
+    #[serde(default)]
+    created_at: Option<i64>,
 }
 
 #[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "snake_case")]
 struct QuotaResponse {
-    org_id: String,
-    plan: String,
-    topics_limit: i64,
-    topics_used: i64,
-    storage_limit_bytes: i64,
-    storage_used_bytes: i64,
-    throughput_limit_bytes_per_sec: i64,
+    organization_id: String,
+    max_topics: i64,
+    max_partitions_per_topic: i64,
+    max_total_partitions: i64,
+    max_storage_bytes: i64,
+    max_retention_days: i64,
+    max_produce_bytes_per_sec: i64,
+    max_consume_bytes_per_sec: i64,
+    max_requests_per_sec: i64,
+    max_consumer_groups: i64,
+    max_schemas: i64,
+    max_connections: i64,
 }
 
 #[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "snake_case")]
 struct UsageResponse {
-    org_id: String,
-    period: String,
-    records_produced: i64,
-    records_consumed: i64,
+    organization_id: String,
+    #[serde(default)]
+    topics_count: i64,
+    #[serde(default)]
+    partitions_count: i64,
+    #[serde(default)]
     storage_bytes: i64,
-    api_calls: i64,
+    #[serde(default)]
+    produce_bytes_last_hour: i64,
+    #[serde(default)]
+    consume_bytes_last_hour: i64,
+    #[serde(default)]
+    requests_last_hour: i64,
+    #[serde(default)]
+    consumer_groups_count: i64,
+    #[serde(default)]
+    schemas_count: i64,
 }
 
 #[derive(Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "snake_case")]
 struct CreateApiKeyRequest {
     name: String,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -167,22 +185,27 @@ struct CreateApiKeyRequest {
 }
 
 #[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "snake_case")]
 struct ApiKeyCreatedResponse {
     id: String,
+    #[serde(default)]
+    organization_id: Option<String>,
     name: String,
     key: String,
+    #[serde(default)]
+    key_prefix: Option<String>,
     #[serde(default)]
     permissions: Vec<String>,
     #[serde(default)]
     scopes: Vec<String>,
     #[serde(default)]
-    expires_at: Option<String>,
-    created_at: String,
+    expires_at: Option<serde_json::Value>,
+    #[serde(default)]
+    created_at: Option<i64>,
 }
 
 #[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "snake_case")]
 struct ApiKeyResponse {
     id: String,
     name: String,
@@ -191,8 +214,9 @@ struct ApiKeyResponse {
     #[serde(default)]
     scopes: Vec<String>,
     #[serde(default)]
-    expires_at: Option<String>,
-    created_at: String,
+    expires_at: Option<serde_json::Value>,
+    #[serde(default)]
+    created_at: Option<i64>,
 }
 
 /// Handle organization commands
@@ -276,20 +300,18 @@ pub async fn handle_org_command(
                 .await
                 .context("Failed to get quota")?;
 
-            println!("Quota for organization {}:", quota.org_id);
-            println!("  Plan:       {}", quota.plan);
-            println!(
-                "  Topics:     {}/{}",
-                quota.topics_used, quota.topics_limit
-            );
-            println!(
-                "  Storage:    {} / {} bytes",
-                quota.storage_used_bytes, quota.storage_limit_bytes
-            );
-            println!(
-                "  Throughput: {} bytes/sec limit",
-                quota.throughput_limit_bytes_per_sec
-            );
+            println!("Quota for organization {}:", quota.organization_id);
+            println!("  Max topics:            {}", quota.max_topics);
+            println!("  Max partitions/topic:  {}", quota.max_partitions_per_topic);
+            println!("  Max total partitions:  {}", quota.max_total_partitions);
+            println!("  Max storage:           {} bytes", quota.max_storage_bytes);
+            println!("  Max retention:         {} days", quota.max_retention_days);
+            println!("  Max produce rate:      {} bytes/sec", quota.max_produce_bytes_per_sec);
+            println!("  Max consume rate:      {} bytes/sec", quota.max_consume_bytes_per_sec);
+            println!("  Max requests/sec:      {}", quota.max_requests_per_sec);
+            println!("  Max consumer groups:   {}", quota.max_consumer_groups);
+            println!("  Max schemas:           {}", quota.max_schemas);
+            println!("  Max connections:       {}", quota.max_connections);
         }
         OrgCommands::Usage { org } => {
             let usage: UsageResponse = client
@@ -297,12 +319,15 @@ pub async fn handle_org_command(
                 .await
                 .context("Failed to get usage")?;
 
-            println!("Usage for organization {}:", usage.org_id);
-            println!("  Period:           {}", usage.period);
-            println!("  Records produced: {}", usage.records_produced);
-            println!("  Records consumed: {}", usage.records_consumed);
-            println!("  Storage:          {} bytes", usage.storage_bytes);
-            println!("  API calls:        {}", usage.api_calls);
+            println!("Usage for organization {}:", usage.organization_id);
+            println!("  Topics:             {}", usage.topics_count);
+            println!("  Partitions:         {}", usage.partitions_count);
+            println!("  Storage:            {} bytes", usage.storage_bytes);
+            println!("  Produce (last hr):  {} bytes", usage.produce_bytes_last_hour);
+            println!("  Consume (last hr):  {} bytes", usage.consume_bytes_last_hour);
+            println!("  Requests (last hr): {}", usage.requests_last_hour);
+            println!("  Consumer groups:    {}", usage.consumer_groups_count);
+            println!("  Schemas:            {}", usage.schemas_count);
         }
         OrgCommands::ApiKey { org, command } => {
             handle_org_api_key_command(command, &org, &client).await?;
@@ -349,7 +374,7 @@ async fn handle_org_api_key_command(
             if !resp.scopes.is_empty() {
                 println!("  Scopes: {}", resp.scopes.join(", "));
             }
-            if let Some(expires) = resp.expires_at {
+            if let Some(ref expires) = resp.expires_at {
                 println!("  Expires: {}", expires);
             }
             println!();
@@ -371,12 +396,17 @@ async fn handle_org_api_key_command(
                 );
                 println!("{}", "-".repeat(96));
                 for key in keys {
+                    let created = key
+                        .created_at
+                        .map(|ts| ts.to_string())
+                        .unwrap_or_else(|| "—".to_string());
+                    let expires = match &key.expires_at {
+                        Some(v) => v.to_string(),
+                        None => "never".to_string(),
+                    };
                     println!(
                         "{:<36} {:<20} {:<20} {:<20}",
-                        key.id,
-                        key.name,
-                        key.created_at,
-                        key.expires_at.as_deref().unwrap_or("never"),
+                        key.id, key.name, created, expires,
                     );
                 }
             }
@@ -396,8 +426,10 @@ async fn handle_org_api_key_command(
             if !key.scopes.is_empty() {
                 println!("  Scopes:      {}", key.scopes.join(", "));
             }
-            println!("  Created:     {}", key.created_at);
-            if let Some(expires) = key.expires_at {
+            if let Some(created) = key.created_at {
+                println!("  Created:     {}", created);
+            }
+            if let Some(ref expires) = key.expires_at {
                 println!("  Expires:     {}", expires);
             }
         }
@@ -418,6 +450,10 @@ fn print_org(org: &OrganizationResponse) {
     println!("  Name:    {}", org.name);
     println!("  Slug:    {}", org.slug);
     println!("  Plan:    {}", org.plan);
-    println!("  Created: {}", org.created_at);
-    println!("  Updated: {}", org.updated_at);
+    if let Some(ref status) = org.status {
+        println!("  Status:  {}", status);
+    }
+    if let Some(created) = org.created_at {
+        println!("  Created: {}", created);
+    }
 }
