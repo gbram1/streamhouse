@@ -52,6 +52,11 @@ pub enum PipelineCommands {
         /// Pipeline name
         name: String,
     },
+    /// Validate a SQL transform
+    Validate {
+        /// SQL query to validate
+        sql: String,
+    },
 }
 
 #[derive(Subcommand)]
@@ -144,6 +149,22 @@ struct UpdatePipelineRequest {
     error_message: Option<String>,
 }
 
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ValidateTransformRequest {
+    sql: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ValidateTransformResponse {
+    valid: bool,
+    #[serde(default)]
+    error: Option<String>,
+    #[serde(default)]
+    warnings: Vec<String>,
+}
+
 pub async fn handle_pipeline_command(command: PipelineCommands, api_url: &str) -> Result<()> {
     let client = RestClient::new(api_url);
 
@@ -234,6 +255,26 @@ pub async fn handle_pipeline_command(command: PipelineCommands, api_url: &str) -
                 .await
                 .context("Failed to delete pipeline")?;
             println!("Pipeline '{}' deleted", name);
+            Ok(())
+        }
+        PipelineCommands::Validate { sql } => {
+            let req = ValidateTransformRequest { sql: sql.clone() };
+            let resp: ValidateTransformResponse = client
+                .post("/api/v1/transforms/validate", &req)
+                .await
+                .context("Failed to validate transform")?;
+
+            if resp.valid {
+                println!("Transform SQL is valid");
+            } else {
+                println!("Transform SQL is invalid");
+                if let Some(error) = resp.error {
+                    println!("  Error: {}", error);
+                }
+            }
+            for warning in &resp.warnings {
+                println!("  Warning: {}", warning);
+            }
             Ok(())
         }
     }

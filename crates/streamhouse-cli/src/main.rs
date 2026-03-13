@@ -61,6 +61,7 @@
 
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
+use serde::{Deserialize, Serialize};
 use tonic::transport::Channel;
 
 // Include generated protobuf code from build.rs
@@ -76,7 +77,6 @@ mod config;
 #[allow(dead_code)]
 mod format;
 mod repl;
-#[allow(dead_code)]
 mod rest_client;
 
 use pb::stream_house_client::StreamHouseClient;
@@ -109,6 +109,15 @@ struct Cli {
         default_value = "http://localhost:8080"
     )]
     api_url: String,
+
+    /// API key for authentication
+    #[arg(
+        short = 'k',
+        long = "api-key",
+        env = "STREAMHOUSE_API_KEY",
+        global = true
+    )]
+    api_key: Option<String>,
 
     #[command(subcommand)]
     command: Commands,
@@ -147,11 +156,17 @@ enum Commands {
         #[arg(short, long)]
         key: Option<String>,
         /// Record value (JSON string)
-        #[arg(short, long)]
-        value: String,
+        #[arg(short, long, required_unless_present_any = ["file", "stdin"])]
+        value: Option<String>,
         /// Skip client-side schema validation
         #[arg(long, default_value = "false")]
         skip_validation: bool,
+        /// File containing JSON records (one per line) for batch produce
+        #[arg(short, long)]
+        file: Option<String>,
+        /// Read JSON records from stdin for batch produce
+        #[arg(long)]
+        stdin: bool,
     },
     /// Consume records from a topic
     Consume {
@@ -182,6 +197,23 @@ enum Commands {
         #[command(subcommand)]
         command: commands::auth::AuthCommands,
     },
+    /// Connector management
+    Connector {
+        #[command(subcommand)]
+        command: commands::ConnectorCommands,
+    },
+    /// Organization management
+    Org {
+        #[command(subcommand)]
+        command: commands::OrgCommands,
+    },
+    /// Metrics and monitoring
+    Metrics {
+        #[command(subcommand)]
+        command: commands::MetricsCommands,
+    },
+    /// Check server health
+    Health,
 }
 
 #[derive(Subcommand)]
@@ -208,6 +240,25 @@ pub enum TopicCommands {
     Delete {
         /// Topic name
         name: String,
+    },
+    /// Get topic partition details
+    Partitions {
+        /// Topic name
+        name: String,
+    },
+    /// Read messages from a topic via REST API
+    Messages {
+        /// Topic name
+        name: String,
+        /// Partition number
+        #[arg(short, long, default_value = "0")]
+        partition: u32,
+        /// Starting offset
+        #[arg(short, long, default_value = "0")]
+        offset: u64,
+        /// Maximum number of messages
+        #[arg(short, long, default_value = "10")]
+        limit: u32,
     },
 }
 
@@ -283,40 +334,98 @@ async fn main() -> Result<()> {
         // Traditional CLI mode
         let cli = Cli::parse();
 
-        let channel = Channel::from_shared(cli.server.clone())
-            .context("Invalid server address")?
-            .connect()
-            .await
-            .context("Failed to connect to server")?;
-
-        let mut client = StreamHouseClient::new(channel);
+        // Helper to lazily connect gRPC only when needed
+        let connect_grpc = || async {
+            let channel = Channel::from_shared(cli.server.clone())
+                .context("Invalid server address")?
+                .connect()
+                .await
+                .context("Failed to connect to gRPC server")?;
+            Ok::<_, anyhow::Error>(StreamHouseClient::new(channel))
+        };
 
         match cli.command {
-            Commands::Topic { command } => handle_topic_command(&mut client, command).await?,
-            Commands::Schema { command } => {
-                commands::schema::handle_schema_command(command, &cli.schema_registry_url).await?
-            }
+            // --- Commands that need gRPC ---
+            Commands::Topic { command } => match command {
+                TopicCommands::Partitions { ref name } => {
+                    handle_topic_partitions(
+                        &cli.api_url,
+                        cli.api_key.as_deref(),
+                        name,
+                    )
+                    .await?
+                }
+                TopicCommands::Messages {
+                    ref name,
+                    partition,
+                    offset,
+                    limit,
+                } => {
+                    handle_topic_messages(
+                        &cli.api_url,
+                        cli.api_key.as_deref(),
+                        name,
+                        partition,
+                        offset,
+                        limit,
+                    )
+                    .await?
+                }
+                _ => {
+                    let mut client = connect_grpc().await?;
+                    handle_topic_command(&mut client, command).await?
+                }
+            },
             Commands::Produce {
                 topic,
                 partition,
                 key,
                 value,
                 skip_validation,
+                file,
+                stdin,
             } => {
-                let registry_url = if skip_validation {
-                    None
+                if file.is_some() || stdin {
+                    handle_batch_produce(
+                        &cli.api_url,
+                        cli.api_key.as_deref(),
+                        &topic,
+                        partition,
+                        key.as_deref(),
+                        file.as_deref(),
+                        stdin,
+                    )
+                    .await?
+                } else if let Some(value) = value {
+                    let mut client = connect_grpc().await?;
+                    let registry_url = if skip_validation {
+                        None
+                    } else {
+                        Some(cli.schema_registry_url.as_str())
+                    };
+                    handle_produce(&mut client, topic, partition, key, value, registry_url).await?
                 } else {
-                    Some(cli.schema_registry_url.as_str())
-                };
-                handle_produce(&mut client, topic, partition, key, value, registry_url).await?
+                    anyhow::bail!("Either --value, --file, or --stdin must be provided");
+                }
             }
             Commands::Consume {
                 topic,
                 partition,
                 offset,
                 limit,
-            } => handle_consume(&mut client, topic, partition, offset, limit).await?,
-            Commands::Offset { command } => handle_offset_command(&mut client, command).await?,
+            } => {
+                let mut client = connect_grpc().await?;
+                handle_consume(&mut client, topic, partition, offset, limit).await?
+            }
+            Commands::Offset { command } => {
+                let mut client = connect_grpc().await?;
+                handle_offset_command(&mut client, command).await?
+            }
+
+            // --- Commands that only need REST (no gRPC) ---
+            Commands::Schema { command } => {
+                commands::schema::handle_schema_command(command, &cli.schema_registry_url).await?
+            }
             Commands::Consumer { command } => {
                 commands::consumer::handle_consumer_command(command, &cli.api_url).await?
             }
@@ -327,8 +436,43 @@ async fn main() -> Result<()> {
                 commands::pipeline::handle_pipeline_command(command, &cli.api_url).await?
             }
             Commands::Auth { command } => {
-                // Auth commands don't need gRPC connection
-                println!("Auth command: {:?}", command);
+                commands::auth::handle_auth_command(
+                    command,
+                    &cli.api_url,
+                    cli.api_key.as_deref(),
+                )
+                .await?
+            }
+            Commands::Connector { command } => {
+                commands::connector::handle_connector_command(
+                    command,
+                    &cli.api_url,
+                    cli.api_key.as_deref(),
+                )
+                .await?
+            }
+            Commands::Org { command } => {
+                commands::org::handle_org_command(
+                    command,
+                    &cli.api_url,
+                    cli.api_key.as_deref(),
+                )
+                .await?
+            }
+            Commands::Metrics { command } => {
+                commands::metrics::handle_metrics_command(
+                    command,
+                    &cli.api_url,
+                    cli.api_key.as_deref(),
+                )
+                .await?
+            }
+            Commands::Health => {
+                commands::metrics::handle_health_command(
+                    &cli.api_url,
+                    cli.api_key.as_deref(),
+                )
+                .await?
             }
         }
     }
@@ -415,6 +559,15 @@ pub async fn handle_topic_command(
                 .context("Failed to delete topic")?;
 
             println!("✅ Topic deleted: {}", name);
+        }
+        TopicCommands::Partitions { name } | TopicCommands::Messages { name, .. } => {
+            // These are handled via REST below, but we need the api_url which
+            // isn't available here. We'll handle this in main() dispatch instead.
+            // This arm should not be reached.
+            anyhow::bail!(
+                "Topic {} subcommand should be handled via REST dispatch",
+                name
+            );
         }
     }
 
@@ -716,6 +869,210 @@ pub async fn handle_offset_command(
             println!("  Partition: {}", partition);
             println!("  Committed offset: {}", data.offset);
         }
+    }
+
+    Ok(())
+}
+
+// --- REST-based topic commands ---
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct PartitionInfo {
+    partition_id: u32,
+    #[serde(default)]
+    high_watermark: u64,
+    #[serde(default)]
+    low_watermark: u64,
+    #[serde(default)]
+    size_bytes: i64,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct TopicMessage {
+    offset: u64,
+    #[serde(default)]
+    partition: u32,
+    #[serde(default)]
+    timestamp: Option<String>,
+    #[serde(default)]
+    key: Option<String>,
+    value: serde_json::Value,
+    #[serde(default)]
+    headers: std::collections::HashMap<String, String>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct TopicMessagesResponse {
+    messages: Vec<TopicMessage>,
+    #[serde(default)]
+    has_more: bool,
+}
+
+async fn handle_topic_partitions(
+    api_url: &str,
+    api_key: Option<&str>,
+    topic: &str,
+) -> Result<()> {
+    let client = rest_client::RestClient::with_api_key(api_url, api_key.map(String::from));
+    let partitions: Vec<PartitionInfo> = client
+        .get(&format!("/api/v1/topics/{}/partitions", topic))
+        .await
+        .context("Failed to get topic partitions")?;
+
+    if partitions.is_empty() {
+        println!("No partitions found for topic '{}'", topic);
+    } else {
+        println!("Partitions for topic '{}' ({}):", topic, partitions.len());
+        println!(
+            "{:<12} {:<15} {:<15} {:<15}",
+            "Partition", "Low WM", "High WM", "Size (bytes)"
+        );
+        println!("{}", "-".repeat(57));
+        for p in &partitions {
+            println!(
+                "{:<12} {:<15} {:<15} {:<15}",
+                p.partition_id, p.low_watermark, p.high_watermark, p.size_bytes
+            );
+        }
+    }
+
+    Ok(())
+}
+
+async fn handle_topic_messages(
+    api_url: &str,
+    api_key: Option<&str>,
+    topic: &str,
+    partition: u32,
+    offset: u64,
+    limit: u32,
+) -> Result<()> {
+    let client = rest_client::RestClient::with_api_key(api_url, api_key.map(String::from));
+    let resp: TopicMessagesResponse = client
+        .get(&format!(
+            "/api/v1/topics/{}/messages?partition={}&offset={}&limit={}",
+            topic, partition, offset, limit
+        ))
+        .await
+        .context("Failed to get topic messages")?;
+
+    if resp.messages.is_empty() {
+        println!("No messages found");
+    } else {
+        println!(
+            "Messages from {}:{} (offset {}):",
+            topic, partition, offset
+        );
+        println!();
+        for msg in &resp.messages {
+            println!("Offset: {}", msg.offset);
+            if let Some(ref ts) = msg.timestamp {
+                println!("  Timestamp: {}", ts);
+            }
+            if let Some(ref key) = msg.key {
+                println!("  Key: {}", key);
+            }
+            println!(
+                "  Value: {}",
+                serde_json::to_string_pretty(&msg.value).unwrap_or_else(|_| msg.value.to_string())
+            );
+            if !msg.headers.is_empty() {
+                println!("  Headers:");
+                for (k, v) in &msg.headers {
+                    println!("    {}: {}", k, v);
+                }
+            }
+            println!();
+        }
+        println!("{} message(s) returned", resp.messages.len());
+        if resp.has_more {
+            println!("(More messages available)");
+        }
+    }
+
+    Ok(())
+}
+
+// --- Batch produce via REST ---
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct BatchProduceRequest {
+    topic: String,
+    partition: u32,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    key: Option<String>,
+    records: Vec<serde_json::Value>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct BatchProduceResponse {
+    count: usize,
+    #[serde(default)]
+    first_offset: Option<u64>,
+    #[serde(default)]
+    last_offset: Option<u64>,
+}
+
+async fn handle_batch_produce(
+    api_url: &str,
+    api_key: Option<&str>,
+    topic: &str,
+    partition: u32,
+    key: Option<&str>,
+    file: Option<&str>,
+    from_stdin: bool,
+) -> Result<()> {
+    let input = if let Some(path) = file {
+        std::fs::read_to_string(path).context("Failed to read file")?
+    } else if from_stdin {
+        use std::io::Read;
+        let mut buf = String::new();
+        std::io::stdin()
+            .read_to_string(&mut buf)
+            .context("Failed to read from stdin")?;
+        buf
+    } else {
+        anyhow::bail!("Either --file or --stdin must be specified for batch produce");
+    };
+
+    let records: Vec<serde_json::Value> = input
+        .lines()
+        .filter(|line| !line.trim().is_empty())
+        .map(|line| serde_json::from_str(line).context("Invalid JSON record"))
+        .collect::<Result<Vec<_>>>()?;
+
+    if records.is_empty() {
+        println!("No records to produce");
+        return Ok(());
+    }
+
+    let client = rest_client::RestClient::with_api_key(api_url, api_key.map(String::from));
+    let req = BatchProduceRequest {
+        topic: topic.to_string(),
+        partition,
+        key: key.map(String::from),
+        records,
+    };
+
+    let resp: BatchProduceResponse = client
+        .post("/api/v1/produce/batch", &req)
+        .await
+        .context("Failed to batch produce")?;
+
+    println!("✅ Batch produce complete:");
+    println!("  Topic:     {}", topic);
+    println!("  Partition: {}", partition);
+    println!("  Records:   {}", resp.count);
+    if let Some(first) = resp.first_offset {
+        println!("  First offset: {}", first);
+    }
+    if let Some(last) = resp.last_offset {
+        println!("  Last offset:  {}", last);
     }
 
     Ok(())

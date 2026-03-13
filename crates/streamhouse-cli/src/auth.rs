@@ -294,6 +294,16 @@ impl AuthManager {
         hostname.replace('.', "-")
     }
 
+    /// Access credentials (read-only, for status/instances display).
+    pub fn credentials_for_login(&self) -> &Credentials {
+        &self.credentials
+    }
+
+    /// Access credentials mutably (for login with API key).
+    pub fn credentials_for_login_mut(&mut self) -> &mut Credentials {
+        &mut self.credentials
+    }
+
     /// Access credentials (for testing).
     #[cfg(test)]
     pub fn credentials(&self) -> &Credentials {

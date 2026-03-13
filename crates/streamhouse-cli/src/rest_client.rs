@@ -12,6 +12,7 @@ use serde::{Deserialize, Serialize};
 pub struct RestClient {
     base_url: String,
     client: Client,
+    api_key: Option<String>,
 }
 
 impl RestClient {
@@ -20,6 +21,28 @@ impl RestClient {
         Self {
             base_url: base_url.into(),
             client: Client::new(),
+            api_key: None,
+        }
+    }
+
+    /// Create a new REST client with an API key for authentication
+    pub fn with_api_key(base_url: impl Into<String>, api_key: Option<String>) -> Self {
+        Self {
+            base_url: base_url.into(),
+            client: Client::new(),
+            api_key,
+        }
+    }
+
+    /// Apply authorization header if an API key is set
+    fn apply_auth(
+        &self,
+        builder: reqwest::RequestBuilder,
+    ) -> reqwest::RequestBuilder {
+        if let Some(ref key) = self.api_key {
+            builder.header("Authorization", format!("Bearer {}", key))
+        } else {
+            builder
         }
     }
 
@@ -27,8 +50,7 @@ impl RestClient {
     pub async fn get<T: for<'de> Deserialize<'de>>(&self, path: &str) -> Result<T> {
         let url = format!("{}{}", self.base_url, path);
         let response = self
-            .client
-            .get(&url)
+            .apply_auth(self.client.get(&url))
             .send()
             .await
             .context("Failed to send GET request")?;
@@ -58,8 +80,7 @@ impl RestClient {
     ) -> Result<R> {
         let url = format!("{}{}", self.base_url, path);
         let response = self
-            .client
-            .post(&url)
+            .apply_auth(self.client.post(&url))
             .json(body)
             .send()
             .await
@@ -90,8 +111,7 @@ impl RestClient {
     ) -> Result<R> {
         let url = format!("{}{}", self.base_url, path);
         let response = self
-            .client
-            .put(&url)
+            .apply_auth(self.client.put(&url))
             .json(body)
             .send()
             .await
@@ -118,8 +138,7 @@ impl RestClient {
     pub async fn delete(&self, path: &str) -> Result<()> {
         let url = format!("{}{}", self.base_url, path);
         let response = self
-            .client
-            .delete(&url)
+            .apply_auth(self.client.delete(&url))
             .send()
             .await
             .context("Failed to send DELETE request")?;
@@ -142,8 +161,7 @@ impl RestClient {
     pub async fn delete_json<R: for<'de> Deserialize<'de>>(&self, path: &str) -> Result<R> {
         let url = format!("{}{}", self.base_url, path);
         let response = self
-            .client
-            .delete(&url)
+            .apply_auth(self.client.delete(&url))
             .send()
             .await
             .context("Failed to send DELETE request")?;
@@ -172,8 +190,7 @@ impl RestClient {
     ) -> Result<R> {
         let url = format!("{}{}", self.base_url, path);
         let response = self
-            .client
-            .patch(&url)
+            .apply_auth(self.client.patch(&url))
             .json(body)
             .send()
             .await
