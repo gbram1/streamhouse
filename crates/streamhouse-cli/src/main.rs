@@ -371,6 +371,13 @@ async fn main() -> Result<()> {
                     )
                     .await?
                 }
+                TopicCommands::List => {
+                    handle_topic_list_rest(
+                        &cli.api_url,
+                        cli.api_key.as_deref(),
+                    )
+                    .await?
+                }
                 _ => {
                     let mut client = connect_grpc().await?;
                     handle_topic_command(&mut client, command).await?
@@ -877,38 +884,45 @@ pub async fn handle_offset_command(
 // --- REST-based topic commands ---
 
 #[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "snake_case")]
 struct PartitionInfo {
+    #[serde(default)]
+    topic: Option<String>,
     partition_id: u32,
     #[serde(default)]
     high_watermark: u64,
     #[serde(default)]
     low_watermark: u64,
     #[serde(default)]
-    size_bytes: i64,
+    leader_agent_id: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "snake_case")]
 struct TopicMessage {
     offset: u64,
     #[serde(default)]
     partition: u32,
     #[serde(default)]
-    timestamp: Option<String>,
+    timestamp: Option<u64>,
     #[serde(default)]
     key: Option<String>,
     value: serde_json::Value,
-    #[serde(default)]
-    headers: std::collections::HashMap<String, String>,
 }
 
 #[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct TopicMessagesResponse {
-    messages: Vec<TopicMessage>,
+#[serde(rename_all = "snake_case")]
+struct TopicListEntry {
+    name: String,
+    partitions: u32,
     #[serde(default)]
-    has_more: bool,
+    replication_factor: u32,
+    #[serde(default)]
+    created_at: Option<String>,
+    #[serde(default)]
+    message_count: i64,
+    #[serde(default)]
+    size_bytes: i64,
 }
 
 async fn handle_topic_partitions(
@@ -927,14 +941,44 @@ async fn handle_topic_partitions(
     } else {
         println!("Partitions for topic '{}' ({}):", topic, partitions.len());
         println!(
-            "{:<12} {:<15} {:<15} {:<15}",
-            "Partition", "Low WM", "High WM", "Size (bytes)"
+            "{:<12} {:<15} {:<15}",
+            "Partition", "Low WM", "High WM"
         );
-        println!("{}", "-".repeat(57));
+        println!("{}", "-".repeat(42));
         for p in &partitions {
             println!(
-                "{:<12} {:<15} {:<15} {:<15}",
-                p.partition_id, p.low_watermark, p.high_watermark, p.size_bytes
+                "{:<12} {:<15} {:<15}",
+                p.partition_id, p.low_watermark, p.high_watermark
+            );
+        }
+    }
+
+    Ok(())
+}
+
+async fn handle_topic_list_rest(
+    api_url: &str,
+    api_key: Option<&str>,
+) -> Result<()> {
+    let client = rest_client::RestClient::with_api_key(api_url, api_key.map(String::from));
+    let topics: Vec<TopicListEntry> = client
+        .get("/api/v1/topics")
+        .await
+        .context("Failed to list topics")?;
+
+    if topics.is_empty() {
+        println!("No topics found");
+    } else {
+        println!("Topics ({}):", topics.len());
+        println!(
+            "{:<25} {:<12} {:<12} {:<12}",
+            "Name", "Partitions", "Messages", "Size (bytes)"
+        );
+        println!("{}", "-".repeat(61));
+        for t in &topics {
+            println!(
+                "{:<25} {:<12} {:<12} {:<12}",
+                t.name, t.partitions, t.message_count, t.size_bytes
             );
         }
     }
@@ -951,7 +995,7 @@ async fn handle_topic_messages(
     limit: u32,
 ) -> Result<()> {
     let client = rest_client::RestClient::with_api_key(api_url, api_key.map(String::from));
-    let resp: TopicMessagesResponse = client
+    let messages: Vec<TopicMessage> = client
         .get(&format!(
             "/api/v1/topics/{}/messages?partition={}&offset={}&limit={}",
             topic, partition, offset, limit
@@ -959,7 +1003,7 @@ async fn handle_topic_messages(
         .await
         .context("Failed to get topic messages")?;
 
-    if resp.messages.is_empty() {
+    if messages.is_empty() {
         println!("No messages found");
     } else {
         println!(
@@ -967,30 +1011,35 @@ async fn handle_topic_messages(
             topic, partition, offset
         );
         println!();
-        for msg in &resp.messages {
+        for msg in &messages {
             println!("Offset: {}", msg.offset);
-            if let Some(ref ts) = msg.timestamp {
+            if let Some(ts) = msg.timestamp {
                 println!("  Timestamp: {}", ts);
             }
             if let Some(ref key) = msg.key {
                 println!("  Key: {}", key);
             }
-            println!(
-                "  Value: {}",
-                serde_json::to_string_pretty(&msg.value).unwrap_or_else(|_| msg.value.to_string())
-            );
-            if !msg.headers.is_empty() {
-                println!("  Headers:");
-                for (k, v) in &msg.headers {
-                    println!("    {}: {}", k, v);
+            // value comes as a JSON string from the API, try to parse and pretty-print
+            if let serde_json::Value::String(ref s) = msg.value {
+                if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(s) {
+                    println!(
+                        "  Value: {}",
+                        serde_json::to_string_pretty(&parsed)
+                            .unwrap_or_else(|_| s.clone())
+                    );
+                } else {
+                    println!("  Value: {}", s);
                 }
+            } else {
+                println!(
+                    "  Value: {}",
+                    serde_json::to_string_pretty(&msg.value)
+                        .unwrap_or_else(|_| msg.value.to_string())
+                );
             }
             println!();
         }
-        println!("{} message(s) returned", resp.messages.len());
-        if resp.has_more {
-            println!("(More messages available)");
-        }
+        println!("{} message(s) returned", messages.len());
     }
 
     Ok(())
