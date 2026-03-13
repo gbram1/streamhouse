@@ -6,10 +6,16 @@ use anyhow::{Context, Result};
 use clap::Subcommand;
 use serde::{Deserialize, Serialize};
 
+use crate::auth::AuthManager;
 use crate::rest_client::RestClient;
 
 #[derive(Subcommand)]
 pub enum OrgCommands {
+    /// Switch active organization (changes which API key is used)
+    Switch {
+        /// Organization slug to switch to
+        slug: String,
+    },
     /// Create a new organization
     Create {
         /// Organization name
@@ -198,6 +204,13 @@ pub async fn handle_org_command(
     let client = RestClient::with_api_key(api_url, api_key.map(String::from));
 
     match command {
+        OrgCommands::Switch { slug } => {
+            let mut manager = AuthManager::new()?;
+            manager.switch_org(&slug)?;
+            let org = manager.active_org().unwrap();
+            println!("Switched to organization: {} ({})", org.name, org.slug);
+            return Ok(());
+        }
         OrgCommands::Create { name, slug, plan } => {
             let req = CreateOrganizationRequest {
                 name: name.clone(),

@@ -332,7 +332,22 @@ async fn main() -> Result<()> {
         repl.run().await?;
     } else {
         // Traditional CLI mode
-        let cli = Cli::parse();
+        let mut cli = Cli::parse();
+
+        // If no --api-key flag or env var, try to load from stored auth
+        if cli.api_key.is_none() {
+            if let Ok(manager) = auth::AuthManager::new() {
+                if let Some(key) = manager.active_api_key() {
+                    cli.api_key = Some(key.to_string());
+                }
+                // Also use stored server URL if not overridden
+                if let Some(url) = manager.server_url() {
+                    if cli.api_url == "http://localhost:8080" {
+                        cli.api_url = url.to_string();
+                    }
+                }
+            }
+        }
 
         // Helper to lazily connect gRPC only when needed
         let connect_grpc = || async {
