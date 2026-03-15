@@ -27,6 +27,10 @@ pub struct Credentials {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub server_url: Option<String>,
 
+    /// Direct API key for self-hosted mode (no org scoping needed)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub api_key: Option<String>,
+
     /// Organizations the user has access to, keyed by slug
     #[serde(default)]
     pub organizations: HashMap<String, OrgContext>,
@@ -64,9 +68,12 @@ impl Credentials {
             .and_then(|slug| self.organizations.get(slug))
     }
 
-    /// Get the active organization's API key.
+    /// Get the active API key.
+    /// Returns direct api_key if set (self-hosted), otherwise falls back to active org's key.
     pub fn active_api_key(&self) -> Option<&str> {
-        self.active_org_context().map(|ctx| ctx.api_key.as_str())
+        self.api_key
+            .as_deref()
+            .or_else(|| self.active_org_context().map(|ctx| ctx.api_key.as_str()))
     }
 }
 
@@ -210,11 +217,17 @@ impl AuthManager {
         self.save()
     }
 
+    /// Set a direct API key (for self-hosted, no org scoping).
+    pub fn set_api_key(&mut self, key: &str) {
+        self.credentials.api_key = Some(key.to_string());
+    }
+
     /// Logout: clear all orgs and server URL.
     pub fn logout(&mut self) -> Result<()> {
         self.credentials.organizations.clear();
         self.credentials.active_org = None;
         self.credentials.server_url = None;
+        self.credentials.api_key = None;
         // Also clear legacy fields
         self.credentials.instances.clear();
         self.credentials.active_instance = None;

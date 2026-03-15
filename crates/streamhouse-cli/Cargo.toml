@@ -37,6 +37,9 @@ serde = { version = "1.0", features = ["derive"] }
 serde_yaml = "0.9"
 jsonschema = { workspace = true }
 apache-avro = { workspace = true }
+rand = "0.8"
+open = "5"
+dialoguer = "0.11"
 
 # Output formatting
 tabled = "0.15"  # For table output

@@ -124,8 +124,9 @@ pub async fn handle_metrics_command(
     command: MetricsCommands,
     api_url: &str,
     api_key: Option<&str>,
+    org_id: Option<&str>,
 ) -> Result<()> {
-    let client = RestClient::with_api_key(api_url, api_key.map(String::from));
+    let client = RestClient::with_org(api_url, api_key.map(String::from), org_id.map(String::from));
 
     match command {
         MetricsCommands::Overview => {

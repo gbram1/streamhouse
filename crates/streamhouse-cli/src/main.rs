@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 //! StreamHouse CLI (streamctl)
 //!
 //! Command-line tool for interacting with StreamHouse servers via gRPC.
@@ -112,7 +113,6 @@ struct Cli {
 
     /// API key for authentication
     #[arg(
-        short = 'k',
         long = "api-key",
         env = "STREAMHOUSE_API_KEY",
         global = true
@@ -149,9 +149,9 @@ enum Commands {
     Produce {
         /// Topic name
         topic: String,
-        /// Partition number
+        /// Partition number (auto-assigned if omitted)
         #[arg(short, long)]
-        partition: u32,
+        partition: Option<u32>,
         /// Record key (optional)
         #[arg(short, long)]
         key: Option<String>,
@@ -172,8 +172,8 @@ enum Commands {
     Consume {
         /// Topic name
         topic: String,
-        /// Partition number
-        #[arg(short, long)]
+        /// Partition number (default: 0)
+        #[arg(short, long, default_value = "0")]
         partition: u32,
         /// Starting offset
         #[arg(short, long, default_value = "0")]
@@ -335,6 +335,7 @@ async fn main() -> Result<()> {
         let mut cli = Cli::parse();
 
         // If no --api-key flag or env var, try to load from stored auth
+        let mut active_org_id: Option<String> = None;
         if cli.api_key.is_none() {
             if let Ok(manager) = auth::AuthManager::new() {
                 if let Some(key) = manager.active_api_key() {
@@ -345,6 +346,10 @@ async fn main() -> Result<()> {
                     if cli.api_url == "http://localhost:8080" {
                         cli.api_url = url.to_string();
                     }
+                }
+                // Track active org ID for scoping REST requests
+                if let Some(org) = manager.active_org() {
+                    active_org_id = Some(org.org_id.clone());
                 }
             }
         }
@@ -360,13 +365,53 @@ async fn main() -> Result<()> {
         };
 
         match cli.command {
-            // --- Commands that need gRPC ---
             Commands::Topic { command } => match command {
+                TopicCommands::Create {
+                    name,
+                    partitions,
+                    retention_ms: _,
+                } => {
+                    handle_topic_create_rest(
+                        &cli.api_url,
+                        cli.api_key.as_deref(),
+                        &name,
+                        partitions,
+                        active_org_id.as_deref(),
+                    )
+                    .await?
+                }
+                TopicCommands::List => {
+                    handle_topic_list_rest(
+                        &cli.api_url,
+                        cli.api_key.as_deref(),
+                        active_org_id.as_deref(),
+                    )
+                    .await?
+                }
+                TopicCommands::Get { name } => {
+                    handle_topic_get_rest(
+                        &cli.api_url,
+                        cli.api_key.as_deref(),
+                        &name,
+                        active_org_id.as_deref(),
+                    )
+                    .await?
+                }
+                TopicCommands::Delete { name } => {
+                    handle_topic_delete_rest(
+                        &cli.api_url,
+                        cli.api_key.as_deref(),
+                        &name,
+                        active_org_id.as_deref(),
+                    )
+                    .await?
+                }
                 TopicCommands::Partitions { ref name } => {
                     handle_topic_partitions(
                         &cli.api_url,
                         cli.api_key.as_deref(),
                         name,
+                        active_org_id.as_deref(),
                     )
                     .await?
                 }
@@ -383,19 +428,9 @@ async fn main() -> Result<()> {
                         partition,
                         offset,
                         limit,
+                        active_org_id.as_deref(),
                     )
                     .await?
-                }
-                TopicCommands::List => {
-                    handle_topic_list_rest(
-                        &cli.api_url,
-                        cli.api_key.as_deref(),
-                    )
-                    .await?
-                }
-                _ => {
-                    let mut client = connect_grpc().await?;
-                    handle_topic_command(&mut client, command).await?
                 }
             },
             Commands::Produce {
@@ -403,7 +438,7 @@ async fn main() -> Result<()> {
                 partition,
                 key,
                 value,
-                skip_validation,
+                skip_validation: _,
                 file,
                 stdin,
             } => {
@@ -412,20 +447,24 @@ async fn main() -> Result<()> {
                         &cli.api_url,
                         cli.api_key.as_deref(),
                         &topic,
-                        partition,
+                        partition.unwrap_or(0),
                         key.as_deref(),
                         file.as_deref(),
                         stdin,
+                        active_org_id.as_deref(),
                     )
                     .await?
                 } else if let Some(value) = value {
-                    let mut client = connect_grpc().await?;
-                    let registry_url = if skip_validation {
-                        None
-                    } else {
-                        Some(cli.schema_registry_url.as_str())
-                    };
-                    handle_produce(&mut client, topic, partition, key, value, registry_url).await?
+                    handle_produce_rest(
+                        &cli.api_url,
+                        cli.api_key.as_deref(),
+                        &topic,
+                        partition,
+                        key.as_deref(),
+                        &value,
+                        active_org_id.as_deref(),
+                    )
+                    .await?
                 } else {
                     anyhow::bail!("Either --value, --file, or --stdin must be provided");
                 }
@@ -436,8 +475,16 @@ async fn main() -> Result<()> {
                 offset,
                 limit,
             } => {
-                let mut client = connect_grpc().await?;
-                handle_consume(&mut client, topic, partition, offset, limit).await?
+                handle_consume_rest(
+                    &cli.api_url,
+                    cli.api_key.as_deref(),
+                    &topic,
+                    partition,
+                    offset,
+                    limit,
+                    active_org_id.as_deref(),
+                )
+                .await?
             }
             Commands::Offset { command } => {
                 let mut client = connect_grpc().await?;
@@ -470,6 +517,7 @@ async fn main() -> Result<()> {
                     command,
                     &cli.api_url,
                     cli.api_key.as_deref(),
+                    active_org_id.as_deref(),
                 )
                 .await?
             }
@@ -478,6 +526,7 @@ async fn main() -> Result<()> {
                     command,
                     &cli.api_url,
                     cli.api_key.as_deref(),
+                    active_org_id.as_deref(),
                 )
                 .await?
             }
@@ -486,6 +535,7 @@ async fn main() -> Result<()> {
                     command,
                     &cli.api_url,
                     cli.api_key.as_deref(),
+                    active_org_id.as_deref(),
                 )
                 .await?
             }
@@ -944,8 +994,9 @@ async fn handle_topic_partitions(
     api_url: &str,
     api_key: Option<&str>,
     topic: &str,
+    org_id: Option<&str>,
 ) -> Result<()> {
-    let client = rest_client::RestClient::with_api_key(api_url, api_key.map(String::from));
+    let client = rest_client::RestClient::with_org(api_url, api_key.map(String::from), org_id.map(String::from));
     let partitions: Vec<PartitionInfo> = client
         .get(&format!("/api/v1/topics/{}/partitions", topic))
         .await
@@ -974,8 +1025,9 @@ async fn handle_topic_partitions(
 async fn handle_topic_list_rest(
     api_url: &str,
     api_key: Option<&str>,
+    org_id: Option<&str>,
 ) -> Result<()> {
-    let client = rest_client::RestClient::with_api_key(api_url, api_key.map(String::from));
+    let client = rest_client::RestClient::with_org(api_url, api_key.map(String::from), org_id.map(String::from));
     let topics: Vec<TopicListEntry> = client
         .get("/api/v1/topics")
         .await
@@ -1001,6 +1053,206 @@ async fn handle_topic_list_rest(
     Ok(())
 }
 
+// --- REST-based topic create/get/delete ---
+
+#[derive(Debug, Serialize)]
+struct CreateTopicRestRequest {
+    name: String,
+    partitions: u32,
+    replication_factor: u32,
+}
+
+async fn handle_topic_create_rest(
+    api_url: &str,
+    api_key: Option<&str>,
+    name: &str,
+    partitions: u32,
+    org_id: Option<&str>,
+) -> Result<()> {
+    let client = rest_client::RestClient::with_org(api_url, api_key.map(String::from), org_id.map(String::from));
+    let req = CreateTopicRestRequest {
+        name: name.to_string(),
+        partitions,
+        replication_factor: 1,
+    };
+    let resp: TopicListEntry = client
+        .post("/api/v1/topics", &req)
+        .await
+        .context("Failed to create topic")?;
+
+    println!("Topic created:");
+    println!("  Name:       {}", resp.name);
+    println!("  Partitions: {}", resp.partitions);
+
+    Ok(())
+}
+
+async fn handle_topic_get_rest(
+    api_url: &str,
+    api_key: Option<&str>,
+    name: &str,
+    org_id: Option<&str>,
+) -> Result<()> {
+    let client = rest_client::RestClient::with_org(api_url, api_key.map(String::from), org_id.map(String::from));
+    let topic: TopicListEntry = client
+        .get(&format!("/api/v1/topics/{}", name))
+        .await
+        .context("Topic not found")?;
+
+    println!("Topic: {}", topic.name);
+    println!("  Partitions: {}", topic.partitions);
+    println!("  Messages:   {}", topic.message_count);
+    println!("  Size:       {} bytes", topic.size_bytes);
+    if let Some(ref created) = topic.created_at {
+        println!("  Created:    {}", created);
+    }
+
+    Ok(())
+}
+
+async fn handle_topic_delete_rest(
+    api_url: &str,
+    api_key: Option<&str>,
+    name: &str,
+    org_id: Option<&str>,
+) -> Result<()> {
+    let client = rest_client::RestClient::with_org(api_url, api_key.map(String::from), org_id.map(String::from));
+    client
+        .delete(&format!("/api/v1/topics/{}", name))
+        .await
+        .context("Failed to delete topic")?;
+
+    println!("Topic deleted: {}", name);
+
+    Ok(())
+}
+
+// --- REST-based single produce ---
+
+#[derive(Debug, Serialize)]
+struct SingleProduceRequest {
+    topic: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    key: Option<String>,
+    value: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    partition: Option<u32>,
+}
+
+#[derive(Debug, Deserialize)]
+struct SingleProduceResponse {
+    offset: u64,
+    partition: u32,
+}
+
+async fn handle_produce_rest(
+    api_url: &str,
+    api_key: Option<&str>,
+    topic: &str,
+    partition: Option<u32>,
+    key: Option<&str>,
+    value: &str,
+    org_id: Option<&str>,
+) -> Result<()> {
+    let client = rest_client::RestClient::with_org(api_url, api_key.map(String::from), org_id.map(String::from));
+    let req = SingleProduceRequest {
+        topic: topic.to_string(),
+        key: key.map(String::from),
+        value: value.to_string(),
+        partition,
+    };
+    let resp: SingleProduceResponse = client
+        .post("/api/v1/produce", &req)
+        .await
+        .context("Failed to produce record")?;
+
+    println!("Record produced:");
+    println!("  Topic:     {}", topic);
+    println!("  Partition: {}", resp.partition);
+    println!("  Offset:    {}", resp.offset);
+
+    Ok(())
+}
+
+// --- REST-based consume ---
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ConsumeRestResponse {
+    records: Vec<ConsumedRecord>,
+    next_offset: u64,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ConsumedRecord {
+    #[serde(default)]
+    partition: u32,
+    offset: u64,
+    #[serde(default)]
+    key: Option<String>,
+    value: String,
+    #[serde(default)]
+    timestamp: i64,
+}
+
+async fn handle_consume_rest(
+    api_url: &str,
+    api_key: Option<&str>,
+    topic: &str,
+    partition: u32,
+    offset: u64,
+    limit: Option<u32>,
+    org_id: Option<&str>,
+) -> Result<()> {
+    let client = rest_client::RestClient::with_org(api_url, api_key.map(String::from), org_id.map(String::from));
+    let max_records = limit.unwrap_or(100);
+    let resp: ConsumeRestResponse = client
+        .get(&format!(
+            "/api/v1/consume?topic={}&partition={}&offset={}&maxRecords={}",
+            topic, partition, offset, max_records
+        ))
+        .await
+        .context("Failed to consume records")?;
+
+    println!(
+        "Consuming from {}:{} starting at offset {}",
+        topic, partition, offset
+    );
+    println!();
+
+    if resp.records.is_empty() {
+        println!("No records found");
+    } else {
+        for (idx, record) in resp.records.iter().enumerate() {
+            println!(
+                "Record {} (offset: {}, timestamp: {})",
+                idx + 1,
+                record.offset,
+                record.timestamp
+            );
+
+            if let Some(ref key) = record.key {
+                println!("  Key: {}", key);
+            }
+
+            // Try to pretty-print as JSON
+            if let Ok(json) = serde_json::from_str::<serde_json::Value>(&record.value) {
+                println!("  Value: {}", serde_json::to_string_pretty(&json)?);
+            } else {
+                println!("  Value: {}", record.value);
+            }
+
+            println!();
+        }
+
+        println!("{} record(s) consumed", resp.records.len());
+        println!("Next offset: {}", resp.next_offset);
+    }
+
+    Ok(())
+}
+
 async fn handle_topic_messages(
     api_url: &str,
     api_key: Option<&str>,
@@ -1008,8 +1260,9 @@ async fn handle_topic_messages(
     partition: u32,
     offset: u64,
     limit: u32,
+    org_id: Option<&str>,
 ) -> Result<()> {
-    let client = rest_client::RestClient::with_api_key(api_url, api_key.map(String::from));
+    let client = rest_client::RestClient::with_org(api_url, api_key.map(String::from), org_id.map(String::from));
     let messages: Vec<TopicMessage> = client
         .get(&format!(
             "/api/v1/topics/{}/messages?partition={}&offset={}&limit={}",
@@ -1090,6 +1343,7 @@ async fn handle_batch_produce(
     key: Option<&str>,
     file: Option<&str>,
     from_stdin: bool,
+    org_id: Option<&str>,
 ) -> Result<()> {
     let input = if let Some(path) = file {
         std::fs::read_to_string(path).context("Failed to read file")?
@@ -1115,7 +1369,7 @@ async fn handle_batch_produce(
         return Ok(());
     }
 
-    let client = rest_client::RestClient::with_api_key(api_url, api_key.map(String::from));
+    let client = rest_client::RestClient::with_org(api_url, api_key.map(String::from), org_id.map(String::from));
     let req = BatchProduceRequest {
         topic: topic.to_string(),
         partition,

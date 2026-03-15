@@ -13,8 +13,9 @@ use crate::rest_client::RestClient;
 pub enum OrgCommands {
     /// Switch active organization (changes which API key is used)
     Switch {
-        /// Organization slug to switch to
-        slug: String,
+        /// Organization name or slug (interactive picker if omitted)
+        #[arg(num_args = 1.., value_delimiter = ' ')]
+        name: Option<Vec<String>>,
     },
     /// Create a new organization
     Create {
@@ -224,15 +225,67 @@ pub async fn handle_org_command(
     command: OrgCommands,
     api_url: &str,
     api_key: Option<&str>,
+    org_id: Option<&str>,
 ) -> Result<()> {
-    let client = RestClient::with_api_key(api_url, api_key.map(String::from));
+    let client = RestClient::with_org(api_url, api_key.map(String::from), org_id.map(String::from));
 
     match command {
-        OrgCommands::Switch { slug } => {
+        OrgCommands::Switch { name } => {
             let mut manager = AuthManager::new()?;
+            let orgs: Vec<_> = manager.list_orgs().into_iter().cloned().collect();
+
+            if orgs.is_empty() {
+                anyhow::bail!("No organizations stored. Run `streamctl auth login` first.");
+            }
+
+            let slug = if let Some(name_parts) = name {
+                // Name provided — match by slug or name
+                let query = name_parts.join(" ");
+
+                // Try exact slug match
+                if orgs.iter().any(|o| o.slug == query) {
+                    query
+                } else {
+                    // Try case-insensitive name match
+                    let query_lower = query.to_lowercase();
+                    orgs.iter()
+                        .find(|o| o.name.to_lowercase() == query_lower)
+                        .map(|o| o.slug.clone())
+                        .ok_or_else(|| {
+                            let available: Vec<&str> = orgs.iter().map(|o| o.name.as_str()).collect();
+                            anyhow::anyhow!(
+                                "Organization '{}' not found. Available: {}",
+                                query,
+                                available.join(", ")
+                            )
+                        })?
+                }
+            } else {
+                // Interactive picker
+                let active_slug = manager.active_org_slug().map(|s| s.to_string());
+                let items: Vec<String> = orgs
+                    .iter()
+                    .map(|o| {
+                        let marker = if active_slug.as_deref() == Some(&o.slug) { " (active)" } else { "" };
+                        format!("{}{}", o.name, marker)
+                    })
+                    .collect();
+
+                let default = orgs.iter().position(|o| active_slug.as_deref() == Some(&o.slug)).unwrap_or(0);
+
+                let selection = dialoguer::Select::new()
+                    .with_prompt("Select organization")
+                    .items(&items)
+                    .default(default)
+                    .interact()
+                    .context("Selection cancelled")?;
+
+                orgs[selection].slug.clone()
+            };
+
             manager.switch_org(&slug)?;
             let org = manager.active_org().unwrap();
-            println!("Switched to organization: {} ({})", org.name, org.slug);
+            println!("Switched to: {}", org.name);
             return Ok(());
         }
         OrgCommands::Create { name, slug, plan } => {

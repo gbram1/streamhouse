@@ -13,6 +13,7 @@ pub struct RestClient {
     base_url: String,
     client: Client,
     api_key: Option<String>,
+    organization_id: Option<String>,
 }
 
 impl RestClient {
@@ -22,6 +23,7 @@ impl RestClient {
             base_url: base_url.into(),
             client: Client::new(),
             api_key: None,
+            organization_id: None,
         }
     }
 
@@ -31,16 +33,41 @@ impl RestClient {
             base_url: base_url.into(),
             client: Client::new(),
             api_key,
+            organization_id: None,
         }
     }
 
-    /// Apply authorization header if an API key is set
-    fn apply_auth(
+    /// Create a new REST client with API key and organization scoping
+    pub fn with_org(
+        base_url: impl Into<String>,
+        api_key: Option<String>,
+        organization_id: Option<String>,
+    ) -> Self {
+        Self {
+            base_url: base_url.into(),
+            client: Client::new(),
+            api_key,
+            organization_id,
+        }
+    }
+
+    /// Set the organization ID to scope requests
+    pub fn set_organization_id(&mut self, org_id: Option<String>) {
+        self.organization_id = org_id;
+    }
+
+    /// Apply authorization and organization headers
+    fn apply_headers(
         &self,
         builder: reqwest::RequestBuilder,
     ) -> reqwest::RequestBuilder {
-        if let Some(ref key) = self.api_key {
+        let builder = if let Some(ref key) = self.api_key {
             builder.header("Authorization", format!("Bearer {}", key))
+        } else {
+            builder
+        };
+        if let Some(ref org_id) = self.organization_id {
+            builder.header("X-Organization-Id", org_id)
         } else {
             builder
         }
@@ -50,7 +77,7 @@ impl RestClient {
     pub async fn get<T: for<'de> Deserialize<'de>>(&self, path: &str) -> Result<T> {
         let url = format!("{}{}", self.base_url, path);
         let response = self
-            .apply_auth(self.client.get(&url))
+            .apply_headers(self.client.get(&url))
             .send()
             .await
             .context("Failed to send GET request")?;
@@ -80,7 +107,7 @@ impl RestClient {
     ) -> Result<R> {
         let url = format!("{}{}", self.base_url, path);
         let response = self
-            .apply_auth(self.client.post(&url))
+            .apply_headers(self.client.post(&url))
             .json(body)
             .send()
             .await
@@ -111,7 +138,7 @@ impl RestClient {
     ) -> Result<R> {
         let url = format!("{}{}", self.base_url, path);
         let response = self
-            .apply_auth(self.client.put(&url))
+            .apply_headers(self.client.put(&url))
             .json(body)
             .send()
             .await
@@ -138,7 +165,7 @@ impl RestClient {
     pub async fn delete(&self, path: &str) -> Result<()> {
         let url = format!("{}{}", self.base_url, path);
         let response = self
-            .apply_auth(self.client.delete(&url))
+            .apply_headers(self.client.delete(&url))
             .send()
             .await
             .context("Failed to send DELETE request")?;
@@ -161,7 +188,7 @@ impl RestClient {
     pub async fn delete_json<R: for<'de> Deserialize<'de>>(&self, path: &str) -> Result<R> {
         let url = format!("{}{}", self.base_url, path);
         let response = self
-            .apply_auth(self.client.delete(&url))
+            .apply_headers(self.client.delete(&url))
             .send()
             .await
             .context("Failed to send DELETE request")?;
@@ -190,7 +217,7 @@ impl RestClient {
     ) -> Result<R> {
         let url = format!("{}{}", self.base_url, path);
         let response = self
-            .apply_auth(self.client.patch(&url))
+            .apply_headers(self.client.patch(&url))
             .json(body)
             .send()
             .await
