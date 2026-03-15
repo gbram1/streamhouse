@@ -8,15 +8,23 @@
 //! - Connector: Connector management operations
 //! - Org: Organization and API key management
 //! - Metrics: System metrics and health
+//! - Init: Project scaffolding
+//! - Status: Cluster status dashboard
+//! - Apply/Destroy: Declarative config management
+//! - Logs: Pipeline log tailing
 
+pub mod apply;
 pub mod auth;
 pub mod connector;
 pub mod consumer;
+pub mod init;
+pub mod logs;
 pub mod metrics;
 pub mod org;
 pub mod pipeline;
 pub mod schema;
 pub mod sql;
+pub mod status;
 
 // Re-export for convenience
 pub use connector::ConnectorCommands;

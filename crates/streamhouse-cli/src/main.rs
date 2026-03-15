@@ -63,6 +63,7 @@
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
 use serde::{Deserialize, Serialize};
+use std::io::IsTerminal;
 use tonic::transport::Channel;
 
 // Include generated protobuf code from build.rs
@@ -73,9 +74,8 @@ pub mod pb {
 
 mod auth;
 mod commands;
-#[allow(dead_code)]
 mod config;
-#[allow(dead_code)]
+mod declarative;
 mod format;
 mod repl;
 mod rest_client;
@@ -119,6 +119,10 @@ struct Cli {
     )]
     api_key: Option<String>,
 
+    /// Output format (table, json, yaml, text) — applies to all commands
+    #[arg(long, global = true, value_parser = ["table", "json", "yaml", "text"])]
+    output: Option<String>,
+
     #[command(subcommand)]
     command: Commands,
 }
@@ -155,8 +159,8 @@ enum Commands {
         /// Record key (optional)
         #[arg(short, long)]
         key: Option<String>,
-        /// Record value (JSON string)
-        #[arg(short, long, required_unless_present_any = ["file", "stdin"])]
+        /// Record value (JSON string). If omitted and stdin is piped, reads from stdin.
+        #[arg(short, long)]
         value: Option<String>,
         /// Skip client-side schema validation
         #[arg(long, default_value = "false")]
@@ -181,6 +185,12 @@ enum Commands {
         /// Maximum number of records to consume
         #[arg(short, long)]
         limit: Option<u32>,
+        /// Follow mode: continuously poll for new records (like tail -f)
+        #[arg(short, long)]
+        follow: bool,
+        /// Output format for consumed records: table (default), json, raw
+        #[arg(long, default_value = "table")]
+        format: String,
     },
     /// Consumer offset management
     Offset {
@@ -214,6 +224,41 @@ enum Commands {
     },
     /// Check server health
     Health,
+    /// Show cluster status dashboard
+    Status,
+    /// Initialize a new StreamHouse project
+    Init {
+        /// Directory to initialize (default: current directory)
+        directory: Option<String>,
+    },
+    /// Apply declarative config (streamhouse.yaml)
+    Apply {
+        /// Path to config file (default: ./streamhouse.yaml)
+        #[arg(short, long)]
+        file: Option<String>,
+        /// Skip confirmation prompt
+        #[arg(short, long)]
+        yes: bool,
+    },
+    /// Destroy resources declared in config
+    Destroy {
+        /// Path to config file (default: ./streamhouse.yaml)
+        #[arg(short, long)]
+        file: Option<String>,
+        /// Skip confirmation prompt
+        #[arg(short, long)]
+        yes: bool,
+    },
+    /// Tail pipeline logs
+    Logs {
+        /// Pipeline name
+        pipeline: String,
+    },
+    /// Generate shell completions
+    Completions {
+        /// Shell type (bash, zsh, fish, powershell)
+        shell: clap_complete::Shell,
+    },
 }
 
 #[derive(Subcommand)]
@@ -442,7 +487,10 @@ async fn main() -> Result<()> {
                 file,
                 stdin,
             } => {
-                if file.is_some() || stdin {
+                // Auto-detect stdin: if no --value and stdin is not a TTY, read from it
+                let use_stdin = stdin || (value.is_none() && file.is_none() && !std::io::stdin().is_terminal());
+
+                if file.is_some() || use_stdin {
                     handle_batch_produce(
                         &cli.api_url,
                         cli.api_key.as_deref(),
@@ -450,7 +498,7 @@ async fn main() -> Result<()> {
                         partition.unwrap_or(0),
                         key.as_deref(),
                         file.as_deref(),
-                        stdin,
+                        use_stdin && file.is_none(),
                         active_org_id.as_deref(),
                     )
                     .await?
@@ -466,7 +514,7 @@ async fn main() -> Result<()> {
                     )
                     .await?
                 } else {
-                    anyhow::bail!("Either --value, --file, or --stdin must be provided");
+                    anyhow::bail!("Either --value, --file, or --stdin must be provided, or pipe data via stdin");
                 }
             }
             Commands::Consume {
@@ -474,17 +522,33 @@ async fn main() -> Result<()> {
                 partition,
                 offset,
                 limit,
+                follow,
+                format,
             } => {
-                handle_consume_rest(
-                    &cli.api_url,
-                    cli.api_key.as_deref(),
-                    &topic,
-                    partition,
-                    offset,
-                    limit,
-                    active_org_id.as_deref(),
-                )
-                .await?
+                if follow {
+                    handle_consume_follow(
+                        &cli.api_url,
+                        cli.api_key.as_deref(),
+                        &topic,
+                        partition,
+                        offset,
+                        &format,
+                        active_org_id.as_deref(),
+                    )
+                    .await?
+                } else {
+                    handle_consume_rest(
+                        &cli.api_url,
+                        cli.api_key.as_deref(),
+                        &topic,
+                        partition,
+                        offset,
+                        limit,
+                        &format,
+                        active_org_id.as_deref(),
+                    )
+                    .await?
+                }
             }
             Commands::Offset { command } => {
                 let mut client = connect_grpc().await?;
@@ -545,6 +609,55 @@ async fn main() -> Result<()> {
                     cli.api_key.as_deref(),
                 )
                 .await?
+            }
+            Commands::Status => {
+                commands::status::handle_status(
+                    &cli.api_url,
+                    cli.api_key.as_deref(),
+                    active_org_id.as_deref(),
+                )
+                .await?
+            }
+            Commands::Init { directory } => {
+                commands::init::handle_init(directory.as_deref())?
+            }
+            Commands::Apply { file, yes } => {
+                commands::apply::handle_apply(
+                    file.as_deref(),
+                    yes,
+                    &cli.api_url,
+                    cli.api_key.as_deref(),
+                    active_org_id.as_deref(),
+                )
+                .await?
+            }
+            Commands::Destroy { file, yes } => {
+                commands::apply::handle_destroy(
+                    file.as_deref(),
+                    yes,
+                    &cli.api_url,
+                    cli.api_key.as_deref(),
+                    active_org_id.as_deref(),
+                )
+                .await?
+            }
+            Commands::Logs { pipeline } => {
+                commands::logs::handle_logs(
+                    &pipeline,
+                    &cli.api_url,
+                    cli.api_key.as_deref(),
+                    active_org_id.as_deref(),
+                )
+                .await?
+            }
+            Commands::Completions { shell } => {
+                let mut cmd = <Cli as clap::CommandFactory>::command();
+                clap_complete::generate(
+                    shell,
+                    &mut cmd,
+                    "streamctl",
+                    &mut std::io::stdout(),
+                );
             }
         }
     }
@@ -1203,6 +1316,7 @@ async fn handle_consume_rest(
     partition: u32,
     offset: u64,
     limit: Option<u32>,
+    format: &str,
     org_id: Option<&str>,
 ) -> Result<()> {
     let client = rest_client::RestClient::with_org(api_url, api_key.map(String::from), org_id.map(String::from));
@@ -1215,41 +1329,124 @@ async fn handle_consume_rest(
         .await
         .context("Failed to consume records")?;
 
-    println!(
-        "Consuming from {}:{} starting at offset {}",
-        topic, partition, offset
-    );
-    println!();
-
     if resp.records.is_empty() {
-        println!("No records found");
-    } else {
-        for (idx, record) in resp.records.iter().enumerate() {
-            println!(
-                "Record {} (offset: {}, timestamp: {})",
-                idx + 1,
-                record.offset,
-                record.timestamp
-            );
-
-            if let Some(ref key) = record.key {
-                println!("  Key: {}", key);
-            }
-
-            // Try to pretty-print as JSON
-            if let Ok(json) = serde_json::from_str::<serde_json::Value>(&record.value) {
-                println!("  Value: {}", serde_json::to_string_pretty(&json)?);
-            } else {
-                println!("  Value: {}", record.value);
-            }
-
-            println!();
+        if format == "table" {
+            println!("No records found");
         }
+        return Ok(());
+    }
 
+    print_consumed_records(&resp.records, format)?;
+
+    if format == "table" {
         println!("{} record(s) consumed", resp.records.len());
         println!("Next offset: {}", resp.next_offset);
     }
 
+    Ok(())
+}
+
+/// Follow mode: continuously poll for new records
+async fn handle_consume_follow(
+    api_url: &str,
+    api_key: Option<&str>,
+    topic: &str,
+    partition: u32,
+    start_offset: u64,
+    format: &str,
+    org_id: Option<&str>,
+) -> Result<()> {
+    let client = rest_client::RestClient::with_org(api_url, api_key.map(String::from), org_id.map(String::from));
+    let mut current_offset = start_offset;
+
+    if format == "table" {
+        eprintln!(
+            "Following {}:{} from offset {} (Ctrl+C to stop)",
+            topic, partition, current_offset
+        );
+        eprintln!();
+    }
+
+    loop {
+        tokio::select! {
+            _ = tokio::signal::ctrl_c() => {
+                if format == "table" {
+                    eprintln!();
+                    eprintln!("Stopped at offset {}", current_offset);
+                }
+                break;
+            }
+            result = async {
+                let resp: Result<ConsumeRestResponse> = client
+                    .get(&std::format!(
+                        "/api/v1/consume?topic={}&partition={}&offset={}&maxRecords=100",
+                        topic, partition, current_offset
+                    ))
+                    .await
+                    .context("Failed to consume records");
+                resp
+            } => {
+                match result {
+                    Ok(resp) => {
+                        if resp.records.is_empty() {
+                            // No new records, sleep before retry
+                            tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+                        } else {
+                            print_consumed_records(&resp.records, format)?;
+                            current_offset = resp.next_offset;
+                            // Records found, poll again immediately
+                        }
+                    }
+                    Err(e) => {
+                        eprintln!("Error: {}", e);
+                        tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+                    }
+                }
+            }
+        }
+    }
+
+    Ok(())
+}
+
+/// Print consumed records in the requested format
+fn print_consumed_records(records: &[ConsumedRecord], format: &str) -> Result<()> {
+    for record in records {
+        match format {
+            "json" => {
+                // One JSON object per line for piping
+                let obj = serde_json::json!({
+                    "offset": record.offset,
+                    "partition": record.partition,
+                    "timestamp": record.timestamp,
+                    "key": record.key,
+                    "value": serde_json::from_str::<serde_json::Value>(&record.value)
+                        .unwrap_or_else(|_| serde_json::Value::String(record.value.clone())),
+                });
+                println!("{}", serde_json::to_string(&obj)?);
+            }
+            "raw" => {
+                // Just the value, nothing else
+                println!("{}", record.value);
+            }
+            _ => {
+                // table format (default)
+                println!(
+                    "Record (offset: {}, timestamp: {})",
+                    record.offset, record.timestamp
+                );
+                if let Some(ref key) = record.key {
+                    println!("  Key: {}", key);
+                }
+                if let Ok(json) = serde_json::from_str::<serde_json::Value>(&record.value) {
+                    println!("  Value: {}", serde_json::to_string_pretty(&json)?);
+                } else {
+                    println!("  Value: {}", record.value);
+                }
+                println!();
+            }
+        }
+    }
     Ok(())
 }
 
