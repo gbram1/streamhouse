@@ -22,7 +22,6 @@ ignore = [
 
 # Licenses — ensure all dependencies use acceptable licenses
 [licenses]
-unlicensed = "deny"
 allow = [
     "MIT",
     "Apache-2.0",
@@ -38,7 +37,6 @@ allow = [
     "MPL-2.0",
     "BSL-1.0",
 ]
-copyleft = "deny"
 
 [[licenses.clarify]]
 name = "ring"
