@@ -192,25 +192,41 @@ pub static REGISTRY: LazyLock<Mutex<Registry>> = LazyLock::new(|| Mutex::new(Reg
 
 pub static PRODUCED_TOTAL: LazyLock<IntCounterVec> = LazyLock::new(|| {
     let m = IntCounterVec::new(&["org", "topic", "protocol"]);
-    REGISTRY.lock().unwrap().register("loadtest_produced_total", "Total records produced", m.family.clone());
+    REGISTRY.lock().unwrap().register(
+        "loadtest_produced_total",
+        "Total records produced",
+        m.family.clone(),
+    );
     m
 });
 
 pub static CONSUMED_TOTAL: LazyLock<IntCounterVec> = LazyLock::new(|| {
     let m = IntCounterVec::new(&["org", "topic", "group"]);
-    REGISTRY.lock().unwrap().register("loadtest_consumed_total", "Total records consumed", m.family.clone());
+    REGISTRY.lock().unwrap().register(
+        "loadtest_consumed_total",
+        "Total records consumed",
+        m.family.clone(),
+    );
     m
 });
 
 pub static PRODUCE_ERRORS: LazyLock<IntCounterVec> = LazyLock::new(|| {
     let m = IntCounterVec::new(&["org", "topic", "protocol"]);
-    REGISTRY.lock().unwrap().register("loadtest_produce_errors_total", "Total produce errors", m.family.clone());
+    REGISTRY.lock().unwrap().register(
+        "loadtest_produce_errors_total",
+        "Total produce errors",
+        m.family.clone(),
+    );
     m
 });
 
 pub static CONSUME_ERRORS: LazyLock<IntCounterVec> = LazyLock::new(|| {
     let m = IntCounterVec::new(&["org", "topic"]);
-    REGISTRY.lock().unwrap().register("loadtest_consume_errors_total", "Total consume errors", m.family.clone());
+    REGISTRY.lock().unwrap().register(
+        "loadtest_consume_errors_total",
+        "Total consume errors",
+        m.family.clone(),
+    );
     m
 });
 
@@ -219,17 +235,30 @@ pub static CONSUME_ERRORS: LazyLock<IntCounterVec> = LazyLock::new(|| {
 pub static PRODUCE_LATENCY: LazyLock<HistogramVec> = LazyLock::new(|| {
     let m = HistogramVec::new(
         &["protocol"],
-        vec![0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0],
+        vec![
+            0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0,
+        ],
     );
-    REGISTRY.lock().unwrap().register("loadtest_produce_latency_seconds", "Produce latency", m.family.clone());
+    REGISTRY.lock().unwrap().register(
+        "loadtest_produce_latency_seconds",
+        "Produce latency",
+        m.family.clone(),
+    );
     m
 });
 
 pub static CONSUME_LATENCY: LazyLock<SimpleHistogram> = LazyLock::new(|| {
     let inner = Histogram::new(
-        vec![0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0].into_iter(),
+        vec![
+            0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0,
+        ]
+        .into_iter(),
     );
-    REGISTRY.lock().unwrap().register("loadtest_consume_latency_seconds", "Consume latency", inner.clone());
+    REGISTRY.lock().unwrap().register(
+        "loadtest_consume_latency_seconds",
+        "Consume latency",
+        inner.clone(),
+    );
     SimpleHistogram { inner }
 });
 
@@ -238,7 +267,11 @@ pub static SQL_LATENCY: LazyLock<HistogramVec> = LazyLock::new(|| {
         &["query_type"],
         vec![0.01, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0],
     );
-    REGISTRY.lock().unwrap().register("loadtest_sql_latency_seconds", "SQL query latency", m.family.clone());
+    REGISTRY.lock().unwrap().register(
+        "loadtest_sql_latency_seconds",
+        "SQL query latency",
+        m.family.clone(),
+    );
     m
 });
 
@@ -246,13 +279,21 @@ pub static SQL_LATENCY: LazyLock<HistogramVec> = LazyLock::new(|| {
 
 pub static DATA_LOSS_EVENTS: LazyLock<IntCounterVec> = LazyLock::new(|| {
     let m = IntCounterVec::new(&["org", "topic"]);
-    REGISTRY.lock().unwrap().register("loadtest_data_loss_events_total", "Data loss events detected", m.family.clone());
+    REGISTRY.lock().unwrap().register(
+        "loadtest_data_loss_events_total",
+        "Data loss events detected",
+        m.family.clone(),
+    );
     m
 });
 
 pub static INTEGRITY_CHECKS: LazyLock<IntCounterVec> = LazyLock::new(|| {
     let m = IntCounterVec::new(&["result"]);
-    REGISTRY.lock().unwrap().register("loadtest_integrity_checks_total", "Integrity check results", m.family.clone());
+    REGISTRY.lock().unwrap().register(
+        "loadtest_integrity_checks_total",
+        "Integrity check results",
+        m.family.clone(),
+    );
     m
 });
 
@@ -260,19 +301,31 @@ pub static INTEGRITY_CHECKS: LazyLock<IntCounterVec> = LazyLock::new(|| {
 
 pub static SCHEMA_EVOLUTIONS: LazyLock<IntCounter> = LazyLock::new(|| {
     let inner = Counter::<u64>::default();
-    REGISTRY.lock().unwrap().register("loadtest_schema_evolutions_total", "Schema evolutions", inner.clone());
+    REGISTRY.lock().unwrap().register(
+        "loadtest_schema_evolutions_total",
+        "Schema evolutions",
+        inner.clone(),
+    );
     IntCounter { inner }
 });
 
 pub static SQL_QUERIES_TOTAL: LazyLock<IntCounterVec> = LazyLock::new(|| {
     let m = IntCounterVec::new(&["query_type", "result"]);
-    REGISTRY.lock().unwrap().register("loadtest_sql_queries_total", "SQL queries executed", m.family.clone());
+    REGISTRY.lock().unwrap().register(
+        "loadtest_sql_queries_total",
+        "SQL queries executed",
+        m.family.clone(),
+    );
     m
 });
 
 pub static S3_SEGMENTS_VERIFIED: LazyLock<IntCounter> = LazyLock::new(|| {
     let inner = Counter::<u64>::default();
-    REGISTRY.lock().unwrap().register("loadtest_s3_segments_verified_total", "S3 segments verified", inner.clone());
+    REGISTRY.lock().unwrap().register(
+        "loadtest_s3_segments_verified_total",
+        "S3 segments verified",
+        inner.clone(),
+    );
     IntCounter { inner }
 });
 
@@ -280,19 +333,31 @@ pub static S3_SEGMENTS_VERIFIED: LazyLock<IntCounter> = LazyLock::new(|| {
 
 pub static ACTIVE_PRODUCERS: LazyLock<IntGauge> = LazyLock::new(|| {
     let inner = Gauge::<i64>::default();
-    REGISTRY.lock().unwrap().register("loadtest_active_producers", "Active producer tasks", inner.clone());
+    REGISTRY.lock().unwrap().register(
+        "loadtest_active_producers",
+        "Active producer tasks",
+        inner.clone(),
+    );
     IntGauge { inner }
 });
 
 pub static ACTIVE_CONSUMERS: LazyLock<IntGauge> = LazyLock::new(|| {
     let inner = Gauge::<i64>::default();
-    REGISTRY.lock().unwrap().register("loadtest_active_consumers", "Active consumer tasks", inner.clone());
+    REGISTRY.lock().unwrap().register(
+        "loadtest_active_consumers",
+        "Active consumer tasks",
+        inner.clone(),
+    );
     IntGauge { inner }
 });
 
 pub static RUNNING_SECONDS: LazyLock<IntGauge> = LazyLock::new(|| {
     let inner = Gauge::<i64>::default();
-    REGISTRY.lock().unwrap().register("loadtest_running_seconds", "Load test uptime", inner.clone());
+    REGISTRY.lock().unwrap().register(
+        "loadtest_running_seconds",
+        "Load test uptime",
+        inner.clone(),
+    );
     IntGauge { inner }
 });
 

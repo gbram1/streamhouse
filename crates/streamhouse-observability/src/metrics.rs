@@ -230,22 +230,36 @@ pub static REGISTRY: LazyLock<Mutex<Registry>> = LazyLock::new(|| Mutex::new(Reg
 
 pub static PRODUCER_RECORDS_TOTAL: LazyLock<IntCounterVec> = LazyLock::new(|| {
     let m = IntCounterVec::new(&["org_id", "topic"]);
-    REGISTRY.lock().unwrap().register("streamhouse_producer_records_total", "Total records produced", m.family.clone());
+    REGISTRY.lock().unwrap().register(
+        "streamhouse_producer_records_total",
+        "Total records produced",
+        m.family.clone(),
+    );
     m
 });
 
 pub static PRODUCER_BYTES_TOTAL: LazyLock<IntCounterVec> = LazyLock::new(|| {
     let m = IntCounterVec::new(&["org_id", "topic"]);
-    REGISTRY.lock().unwrap().register("streamhouse_producer_bytes_total", "Total bytes produced", m.family.clone());
+    REGISTRY.lock().unwrap().register(
+        "streamhouse_producer_bytes_total",
+        "Total bytes produced",
+        m.family.clone(),
+    );
     m
 });
 
 pub static PRODUCER_LATENCY: LazyLock<HistogramVec> = LazyLock::new(|| {
     let m = HistogramVec::new(
         &["org_id", "topic"],
-        vec![0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0],
+        vec![
+            0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0,
+        ],
     );
-    REGISTRY.lock().unwrap().register("streamhouse_producer_latency_seconds", "Producer latency in seconds", m.family.clone());
+    REGISTRY.lock().unwrap().register(
+        "streamhouse_producer_latency_seconds",
+        "Producer latency in seconds",
+        m.family.clone(),
+    );
     m
 });
 
@@ -254,13 +268,21 @@ pub static PRODUCER_BATCH_SIZE: LazyLock<HistogramVec> = LazyLock::new(|| {
         &["org_id", "topic"],
         vec![1.0, 10.0, 50.0, 100.0, 500.0, 1000.0, 5000.0, 10000.0],
     );
-    REGISTRY.lock().unwrap().register("streamhouse_producer_batch_size", "Producer batch size in records", m.family.clone());
+    REGISTRY.lock().unwrap().register(
+        "streamhouse_producer_batch_size",
+        "Producer batch size in records",
+        m.family.clone(),
+    );
     m
 });
 
 pub static PRODUCER_ERRORS_TOTAL: LazyLock<IntCounterVec> = LazyLock::new(|| {
     let m = IntCounterVec::new(&["org_id", "topic", "error_type"]);
-    REGISTRY.lock().unwrap().register("streamhouse_producer_errors_total", "Total producer errors", m.family.clone());
+    REGISTRY.lock().unwrap().register(
+        "streamhouse_producer_errors_total",
+        "Total producer errors",
+        m.family.clone(),
+    );
     m
 });
 
@@ -268,25 +290,41 @@ pub static PRODUCER_ERRORS_TOTAL: LazyLock<IntCounterVec> = LazyLock::new(|| {
 
 pub static CONSUMER_RECORDS_TOTAL: LazyLock<IntCounterVec> = LazyLock::new(|| {
     let m = IntCounterVec::new(&["org_id", "topic", "consumer_group"]);
-    REGISTRY.lock().unwrap().register("streamhouse_consumer_records_total", "Total records consumed", m.family.clone());
+    REGISTRY.lock().unwrap().register(
+        "streamhouse_consumer_records_total",
+        "Total records consumed",
+        m.family.clone(),
+    );
     m
 });
 
 pub static CONSUMER_LAG: LazyLock<IntGaugeVec> = LazyLock::new(|| {
     let m = IntGaugeVec::new(&["org_id", "topic", "partition", "consumer_group"]);
-    REGISTRY.lock().unwrap().register("streamhouse_consumer_lag", "Consumer lag in number of messages", m.family.clone());
+    REGISTRY.lock().unwrap().register(
+        "streamhouse_consumer_lag",
+        "Consumer lag in number of messages",
+        m.family.clone(),
+    );
     m
 });
 
 pub static CONSUMER_REBALANCES_TOTAL: LazyLock<IntCounterVec> = LazyLock::new(|| {
     let m = IntCounterVec::new(&["org_id", "consumer_group"]);
-    REGISTRY.lock().unwrap().register("streamhouse_consumer_rebalances_total", "Total consumer rebalances", m.family.clone());
+    REGISTRY.lock().unwrap().register(
+        "streamhouse_consumer_rebalances_total",
+        "Total consumer rebalances",
+        m.family.clone(),
+    );
     m
 });
 
 pub static CONSUMER_ERRORS_TOTAL: LazyLock<IntCounterVec> = LazyLock::new(|| {
     let m = IntCounterVec::new(&["org_id", "topic", "consumer_group", "error_type"]);
-    REGISTRY.lock().unwrap().register("streamhouse_consumer_errors_total", "Total consumer errors", m.family.clone());
+    REGISTRY.lock().unwrap().register(
+        "streamhouse_consumer_errors_total",
+        "Total consumer errors",
+        m.family.clone(),
+    );
     m
 });
 
@@ -294,31 +332,51 @@ pub static CONSUMER_ERRORS_TOTAL: LazyLock<IntCounterVec> = LazyLock::new(|| {
 
 pub static SEGMENT_WRITES_TOTAL: LazyLock<IntCounterVec> = LazyLock::new(|| {
     let m = IntCounterVec::new(&["org_id", "topic", "partition"]);
-    REGISTRY.lock().unwrap().register("streamhouse_segment_writes_total", "Total segments written", m.family.clone());
+    REGISTRY.lock().unwrap().register(
+        "streamhouse_segment_writes_total",
+        "Total segments written",
+        m.family.clone(),
+    );
     m
 });
 
 pub static SEGMENT_FLUSHES_TOTAL: LazyLock<IntCounterVec> = LazyLock::new(|| {
     let m = IntCounterVec::new(&["org_id", "topic", "partition"]);
-    REGISTRY.lock().unwrap().register("streamhouse_segment_flushes_total", "Total segment flushes to S3", m.family.clone());
+    REGISTRY.lock().unwrap().register(
+        "streamhouse_segment_flushes_total",
+        "Total segment flushes to S3",
+        m.family.clone(),
+    );
     m
 });
 
 pub static SEGMENT_BUFFER_RECORDS: LazyLock<IntGaugeVec> = LazyLock::new(|| {
     let m = IntGaugeVec::new(&["org_id", "topic", "partition"]);
-    REGISTRY.lock().unwrap().register("streamhouse_segment_buffer_records", "Records currently in segment buffer per partition", m.family.clone());
+    REGISTRY.lock().unwrap().register(
+        "streamhouse_segment_buffer_records",
+        "Records currently in segment buffer per partition",
+        m.family.clone(),
+    );
     m
 });
 
 pub static S3_REQUESTS_TOTAL: LazyLock<IntCounterVec> = LazyLock::new(|| {
     let m = IntCounterVec::new(&["org_id", "operation"]);
-    REGISTRY.lock().unwrap().register("streamhouse_s3_requests_total", "Total S3 requests", m.family.clone());
+    REGISTRY.lock().unwrap().register(
+        "streamhouse_s3_requests_total",
+        "Total S3 requests",
+        m.family.clone(),
+    );
     m
 });
 
 pub static S3_ERRORS_TOTAL: LazyLock<IntCounterVec> = LazyLock::new(|| {
     let m = IntCounterVec::new(&["org_id", "operation", "error_type"]);
-    REGISTRY.lock().unwrap().register("streamhouse_s3_errors_total", "Total S3 errors", m.family.clone());
+    REGISTRY.lock().unwrap().register(
+        "streamhouse_s3_errors_total",
+        "Total S3 errors",
+        m.family.clone(),
+    );
     m
 });
 
@@ -327,25 +385,41 @@ pub static S3_LATENCY: LazyLock<HistogramVec> = LazyLock::new(|| {
         &["org_id", "operation"],
         vec![0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0],
     );
-    REGISTRY.lock().unwrap().register("streamhouse_s3_latency_seconds", "S3 request latency in seconds", m.family.clone());
+    REGISTRY.lock().unwrap().register(
+        "streamhouse_s3_latency_seconds",
+        "S3 request latency in seconds",
+        m.family.clone(),
+    );
     m
 });
 
 pub static CACHE_HITS_TOTAL: LazyLock<IntCounterVec> = LazyLock::new(|| {
     let m = IntCounterVec::new(&["org_id"]);
-    REGISTRY.lock().unwrap().register("streamhouse_cache_hits_total", "Total cache hits", m.family.clone());
+    REGISTRY.lock().unwrap().register(
+        "streamhouse_cache_hits_total",
+        "Total cache hits",
+        m.family.clone(),
+    );
     m
 });
 
 pub static CACHE_MISSES_TOTAL: LazyLock<IntCounterVec> = LazyLock::new(|| {
     let m = IntCounterVec::new(&["org_id"]);
-    REGISTRY.lock().unwrap().register("streamhouse_cache_misses_total", "Total cache misses", m.family.clone());
+    REGISTRY.lock().unwrap().register(
+        "streamhouse_cache_misses_total",
+        "Total cache misses",
+        m.family.clone(),
+    );
     m
 });
 
 pub static CACHE_SIZE_BYTES: LazyLock<IntGauge> = LazyLock::new(|| {
     let m = IntGauge::new();
-    REGISTRY.lock().unwrap().register("streamhouse_cache_size_bytes", "Current cache size in bytes", m.gauge.clone());
+    REGISTRY.lock().unwrap().register(
+        "streamhouse_cache_size_bytes",
+        "Current cache size in bytes",
+        m.gauge.clone(),
+    );
     m
 });
 
@@ -353,37 +427,60 @@ pub static CACHE_SIZE_BYTES: LazyLock<IntGauge> = LazyLock::new(|| {
 
 pub static CONNECTIONS_ACTIVE: LazyLock<IntGauge> = LazyLock::new(|| {
     let m = IntGauge::new();
-    REGISTRY.lock().unwrap().register("streamhouse_connections_active", "Number of active connections", m.gauge.clone());
+    REGISTRY.lock().unwrap().register(
+        "streamhouse_connections_active",
+        "Number of active connections",
+        m.gauge.clone(),
+    );
     m
 });
 
 pub static PARTITIONS_TOTAL: LazyLock<IntGaugeVec> = LazyLock::new(|| {
     let m = IntGaugeVec::new(&["org_id", "topic"]);
-    REGISTRY.lock().unwrap().register("streamhouse_partitions_total", "Total partitions", m.family.clone());
+    REGISTRY.lock().unwrap().register(
+        "streamhouse_partitions_total",
+        "Total partitions",
+        m.family.clone(),
+    );
     m
 });
 
 pub static TOPICS_TOTAL: LazyLock<IntGaugeVec> = LazyLock::new(|| {
     let m = IntGaugeVec::new(&["org_id"]);
-    REGISTRY.lock().unwrap().register("streamhouse_topics_total", "Total topics", m.family.clone());
+    REGISTRY
+        .lock()
+        .unwrap()
+        .register("streamhouse_topics_total", "Total topics", m.family.clone());
     m
 });
 
 pub static AGENTS_ACTIVE: LazyLock<IntGauge> = LazyLock::new(|| {
     let m = IntGauge::new();
-    REGISTRY.lock().unwrap().register("streamhouse_agents_active", "Number of active agents", m.gauge.clone());
+    REGISTRY.lock().unwrap().register(
+        "streamhouse_agents_active",
+        "Number of active agents",
+        m.gauge.clone(),
+    );
     m
 });
 
 pub static UPTIME_SECONDS: LazyLock<IntGauge> = LazyLock::new(|| {
     let m = IntGauge::new();
-    REGISTRY.lock().unwrap().register("streamhouse_uptime_seconds", "Server uptime in seconds", m.gauge.clone());
+    REGISTRY.lock().unwrap().register(
+        "streamhouse_uptime_seconds",
+        "Server uptime in seconds",
+        m.gauge.clone(),
+    );
     m
 });
 
 pub static DATABASE_ERRORS_TOTAL: LazyLock<IntCounterVec> = LazyLock::new(|| {
     let m = IntCounterVec::new(&["org_id", "operation", "error_type"]);
-    REGISTRY.lock().unwrap().register("streamhouse_database_errors_total", "Total database errors", m.family.clone());
+    REGISTRY.lock().unwrap().register(
+        "streamhouse_database_errors_total",
+        "Total database errors",
+        m.family.clone(),
+    );
     m
 });
 
@@ -391,37 +488,61 @@ pub static DATABASE_ERRORS_TOTAL: LazyLock<IntCounterVec> = LazyLock::new(|| {
 
 pub static THROTTLE_DECISIONS_TOTAL: LazyLock<IntCounterVec> = LazyLock::new(|| {
     let m = IntCounterVec::new(&["org_id", "operation", "decision"]);
-    REGISTRY.lock().unwrap().register("streamhouse_throttle_decisions_total", "Total throttle decisions", m.family.clone());
+    REGISTRY.lock().unwrap().register(
+        "streamhouse_throttle_decisions_total",
+        "Total throttle decisions",
+        m.family.clone(),
+    );
     m
 });
 
 pub static THROTTLE_RATE_CURRENT: LazyLock<IntGaugeVec> = LazyLock::new(|| {
     let m = IntGaugeVec::new(&["org_id", "operation"]);
-    REGISTRY.lock().unwrap().register("streamhouse_throttle_rate_current", "Current rate limit in operations per second", m.family.clone());
+    REGISTRY.lock().unwrap().register(
+        "streamhouse_throttle_rate_current",
+        "Current rate limit in operations per second",
+        m.family.clone(),
+    );
     m
 });
 
 pub static CIRCUIT_BREAKER_STATE: LazyLock<IntGaugeVec> = LazyLock::new(|| {
     let m = IntGaugeVec::new(&["org_id", "operation"]);
-    REGISTRY.lock().unwrap().register("streamhouse_circuit_breaker_state", "Circuit breaker state (0=Closed, 1=Open, 2=HalfOpen)", m.family.clone());
+    REGISTRY.lock().unwrap().register(
+        "streamhouse_circuit_breaker_state",
+        "Circuit breaker state (0=Closed, 1=Open, 2=HalfOpen)",
+        m.family.clone(),
+    );
     m
 });
 
 pub static CIRCUIT_BREAKER_TRANSITIONS_TOTAL: LazyLock<IntCounterVec> = LazyLock::new(|| {
     let m = IntCounterVec::new(&["org_id", "operation", "from_state", "to_state"]);
-    REGISTRY.lock().unwrap().register("streamhouse_circuit_breaker_transitions_total", "Total circuit breaker state transitions", m.family.clone());
+    REGISTRY.lock().unwrap().register(
+        "streamhouse_circuit_breaker_transitions_total",
+        "Total circuit breaker state transitions",
+        m.family.clone(),
+    );
     m
 });
 
 pub static CIRCUIT_BREAKER_FAILURES: LazyLock<IntGaugeVec> = LazyLock::new(|| {
     let m = IntGaugeVec::new(&["org_id", "operation"]);
-    REGISTRY.lock().unwrap().register("streamhouse_circuit_breaker_failures", "Current consecutive failure count", m.family.clone());
+    REGISTRY.lock().unwrap().register(
+        "streamhouse_circuit_breaker_failures",
+        "Current consecutive failure count",
+        m.family.clone(),
+    );
     m
 });
 
 pub static CIRCUIT_BREAKER_SUCCESSES: LazyLock<IntGaugeVec> = LazyLock::new(|| {
     let m = IntGaugeVec::new(&["org_id", "operation"]);
-    REGISTRY.lock().unwrap().register("streamhouse_circuit_breaker_successes", "Current consecutive success count in half-open", m.family.clone());
+    REGISTRY.lock().unwrap().register(
+        "streamhouse_circuit_breaker_successes",
+        "Current consecutive success count in half-open",
+        m.family.clone(),
+    );
     m
 });
 
@@ -429,31 +550,51 @@ pub static CIRCUIT_BREAKER_SUCCESSES: LazyLock<IntGaugeVec> = LazyLock::new(|| {
 
 pub static LEASE_ACQUISITIONS_TOTAL: LazyLock<IntCounterVec> = LazyLock::new(|| {
     let m = IntCounterVec::new(&["org_id", "topic", "partition", "result"]);
-    REGISTRY.lock().unwrap().register("streamhouse_lease_acquisitions_total", "Total partition lease acquisitions", m.family.clone());
+    REGISTRY.lock().unwrap().register(
+        "streamhouse_lease_acquisitions_total",
+        "Total partition lease acquisitions",
+        m.family.clone(),
+    );
     m
 });
 
 pub static LEASE_RENEWALS_TOTAL: LazyLock<IntCounterVec> = LazyLock::new(|| {
     let m = IntCounterVec::new(&["org_id", "topic", "partition", "result"]);
-    REGISTRY.lock().unwrap().register("streamhouse_lease_renewals_total", "Total partition lease renewals", m.family.clone());
+    REGISTRY.lock().unwrap().register(
+        "streamhouse_lease_renewals_total",
+        "Total partition lease renewals",
+        m.family.clone(),
+    );
     m
 });
 
 pub static LEASE_CONFLICTS_TOTAL: LazyLock<IntCounterVec> = LazyLock::new(|| {
     let m = IntCounterVec::new(&["org_id", "topic", "partition"]);
-    REGISTRY.lock().unwrap().register("streamhouse_lease_conflicts_total", "Total lease conflicts", m.family.clone());
+    REGISTRY.lock().unwrap().register(
+        "streamhouse_lease_conflicts_total",
+        "Total lease conflicts",
+        m.family.clone(),
+    );
     m
 });
 
 pub static LEASE_EPOCH_CURRENT: LazyLock<IntGaugeVec> = LazyLock::new(|| {
     let m = IntGaugeVec::new(&["org_id", "topic", "partition", "agent_id"]);
-    REGISTRY.lock().unwrap().register("streamhouse_lease_epoch_current", "Current lease epoch for partition", m.family.clone());
+    REGISTRY.lock().unwrap().register(
+        "streamhouse_lease_epoch_current",
+        "Current lease epoch for partition",
+        m.family.clone(),
+    );
     m
 });
 
 pub static LEASE_EXPIRES_AT: LazyLock<IntGaugeVec> = LazyLock::new(|| {
     let m = IntGaugeVec::new(&["org_id", "topic", "partition", "agent_id"]);
-    REGISTRY.lock().unwrap().register("streamhouse_lease_expires_at", "Lease expiration timestamp", m.family.clone());
+    REGISTRY.lock().unwrap().register(
+        "streamhouse_lease_expires_at",
+        "Lease expiration timestamp",
+        m.family.clone(),
+    );
     m
 });
 
@@ -461,7 +602,11 @@ pub static LEASE_EXPIRES_AT: LazyLock<IntGaugeVec> = LazyLock::new(|| {
 
 pub static LEADER_CHANGES_TOTAL: LazyLock<IntCounterVec> = LazyLock::new(|| {
     let m = IntCounterVec::new(&["org_id", "topic", "partition", "reason"]);
-    REGISTRY.lock().unwrap().register("streamhouse_leader_changes_total", "Total leadership changes by reason", m.family.clone());
+    REGISTRY.lock().unwrap().register(
+        "streamhouse_leader_changes_total",
+        "Total leadership changes by reason",
+        m.family.clone(),
+    );
     m
 });
 
@@ -470,7 +615,11 @@ pub static LEADER_HANDOFF_LATENCY: LazyLock<HistogramVec> = LazyLock::new(|| {
         &["org_id", "topic", "partition"],
         vec![0.01, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0],
     );
-    REGISTRY.lock().unwrap().register("streamhouse_leader_handoff_latency_seconds", "Leader handoff latency in seconds", m.family.clone());
+    REGISTRY.lock().unwrap().register(
+        "streamhouse_leader_handoff_latency_seconds",
+        "Leader handoff latency in seconds",
+        m.family.clone(),
+    );
     m
 });
 
@@ -479,19 +628,31 @@ pub static LEADER_GAP_SECONDS: LazyLock<HistogramVec> = LazyLock::new(|| {
         &["org_id", "topic", "partition"],
         vec![0.0, 0.1, 0.5, 1.0, 2.0, 5.0, 10.0, 30.0, 60.0],
     );
-    REGISTRY.lock().unwrap().register("streamhouse_leader_gap_seconds", "Time partition was without a leader", m.family.clone());
+    REGISTRY.lock().unwrap().register(
+        "streamhouse_leader_gap_seconds",
+        "Time partition was without a leader",
+        m.family.clone(),
+    );
     m
 });
 
 pub static LEADER_TRANSFERS_PENDING: LazyLock<IntGaugeVec> = LazyLock::new(|| {
     let m = IntGaugeVec::new(&["org_id"]);
-    REGISTRY.lock().unwrap().register("streamhouse_leader_transfers_pending", "Number of pending leader transfers", m.family.clone());
+    REGISTRY.lock().unwrap().register(
+        "streamhouse_leader_transfers_pending",
+        "Number of pending leader transfers",
+        m.family.clone(),
+    );
     m
 });
 
 pub static LEADER_TRANSFERS_TOTAL: LazyLock<IntCounterVec> = LazyLock::new(|| {
     let m = IntCounterVec::new(&["org_id", "result"]);
-    REGISTRY.lock().unwrap().register("streamhouse_leader_transfers_total", "Total leader transfer operations", m.family.clone());
+    REGISTRY.lock().unwrap().register(
+        "streamhouse_leader_transfers_total",
+        "Total leader transfer operations",
+        m.family.clone(),
+    );
     m
 });
 
@@ -499,37 +660,61 @@ pub static LEADER_TRANSFERS_TOTAL: LazyLock<IntCounterVec> = LazyLock::new(|| {
 
 pub static WAL_APPENDS_TOTAL: LazyLock<IntCounterVec> = LazyLock::new(|| {
     let m = IntCounterVec::new(&["org_id", "topic", "partition", "result"]);
-    REGISTRY.lock().unwrap().register("streamhouse_wal_appends_total", "Total WAL append operations", m.family.clone());
+    REGISTRY.lock().unwrap().register(
+        "streamhouse_wal_appends_total",
+        "Total WAL append operations",
+        m.family.clone(),
+    );
     m
 });
 
 pub static WAL_RECOVERIES_TOTAL: LazyLock<IntCounterVec> = LazyLock::new(|| {
     let m = IntCounterVec::new(&["org_id", "topic", "partition", "result"]);
-    REGISTRY.lock().unwrap().register("streamhouse_wal_recoveries_total", "Total WAL recovery operations", m.family.clone());
+    REGISTRY.lock().unwrap().register(
+        "streamhouse_wal_recoveries_total",
+        "Total WAL recovery operations",
+        m.family.clone(),
+    );
     m
 });
 
 pub static WAL_RECORDS_RECOVERED: LazyLock<IntCounterVec> = LazyLock::new(|| {
     let m = IntCounterVec::new(&["org_id", "topic", "partition"]);
-    REGISTRY.lock().unwrap().register("streamhouse_wal_records_recovered", "Number of records recovered from WAL", m.family.clone());
+    REGISTRY.lock().unwrap().register(
+        "streamhouse_wal_records_recovered",
+        "Number of records recovered from WAL",
+        m.family.clone(),
+    );
     m
 });
 
 pub static WAL_RECORDS_SKIPPED: LazyLock<IntCounterVec> = LazyLock::new(|| {
     let m = IntCounterVec::new(&["org_id", "topic", "partition"]);
-    REGISTRY.lock().unwrap().register("streamhouse_wal_records_skipped", "Number of corrupted WAL records skipped", m.family.clone());
+    REGISTRY.lock().unwrap().register(
+        "streamhouse_wal_records_skipped",
+        "Number of corrupted WAL records skipped",
+        m.family.clone(),
+    );
     m
 });
 
 pub static WAL_SIZE_BYTES: LazyLock<IntGaugeVec> = LazyLock::new(|| {
     let m = IntGaugeVec::new(&["org_id", "topic", "partition"]);
-    REGISTRY.lock().unwrap().register("streamhouse_wal_size_bytes", "WAL file size in bytes", m.family.clone());
+    REGISTRY.lock().unwrap().register(
+        "streamhouse_wal_size_bytes",
+        "WAL file size in bytes",
+        m.family.clone(),
+    );
     m
 });
 
 pub static WAL_TRUNCATES_TOTAL: LazyLock<IntCounterVec> = LazyLock::new(|| {
     let m = IntCounterVec::new(&["org_id", "topic", "partition", "result"]);
-    REGISTRY.lock().unwrap().register("streamhouse_wal_truncates_total", "Total WAL truncate operations", m.family.clone());
+    REGISTRY.lock().unwrap().register(
+        "streamhouse_wal_truncates_total",
+        "Total WAL truncate operations",
+        m.family.clone(),
+    );
     m
 });
 
@@ -537,43 +722,71 @@ pub static WAL_TRUNCATES_TOTAL: LazyLock<IntCounterVec> = LazyLock::new(|| {
 
 pub static SCHEMA_REGISTRATIONS_TOTAL: LazyLock<IntCounterVec> = LazyLock::new(|| {
     let m = IntCounterVec::new(&["org_id", "subject", "result"]);
-    REGISTRY.lock().unwrap().register("streamhouse_schema_registrations_total", "Total schema registrations", m.family.clone());
+    REGISTRY.lock().unwrap().register(
+        "streamhouse_schema_registrations_total",
+        "Total schema registrations",
+        m.family.clone(),
+    );
     m
 });
 
 pub static SCHEMA_REGISTRY_ERRORS_TOTAL: LazyLock<IntCounterVec> = LazyLock::new(|| {
     let m = IntCounterVec::new(&["org_id", "type"]);
-    REGISTRY.lock().unwrap().register("streamhouse_schema_registry_errors_total", "Total schema registry errors", m.family.clone());
+    REGISTRY.lock().unwrap().register(
+        "streamhouse_schema_registry_errors_total",
+        "Total schema registry errors",
+        m.family.clone(),
+    );
     m
 });
 
 pub static SCHEMA_COMPATIBILITY_CHECKS_TOTAL: LazyLock<IntCounterVec> = LazyLock::new(|| {
     let m = IntCounterVec::new(&["org_id", "subject", "result"]);
-    REGISTRY.lock().unwrap().register("streamhouse_schema_compatibility_checks_total", "Total schema compatibility checks", m.family.clone());
+    REGISTRY.lock().unwrap().register(
+        "streamhouse_schema_compatibility_checks_total",
+        "Total schema compatibility checks",
+        m.family.clone(),
+    );
     m
 });
 
 pub static SCHEMA_CACHE_ENTRIES: LazyLock<IntGaugeVec> = LazyLock::new(|| {
     let m = IntGaugeVec::new(&["org_id"]);
-    REGISTRY.lock().unwrap().register("streamhouse_schema_cache_entries", "Number of entries in schema cache", m.family.clone());
+    REGISTRY.lock().unwrap().register(
+        "streamhouse_schema_cache_entries",
+        "Number of entries in schema cache",
+        m.family.clone(),
+    );
     m
 });
 
 pub static SCHEMA_LOOKUPS_TOTAL: LazyLock<IntCounterVec> = LazyLock::new(|| {
     let m = IntCounterVec::new(&["org_id", "result"]);
-    REGISTRY.lock().unwrap().register("streamhouse_schema_lookups_total", "Total schema lookups by ID", m.family.clone());
+    REGISTRY.lock().unwrap().register(
+        "streamhouse_schema_lookups_total",
+        "Total schema lookups by ID",
+        m.family.clone(),
+    );
     m
 });
 
 pub static SCHEMAS_TOTAL: LazyLock<IntGaugeVec> = LazyLock::new(|| {
     let m = IntGaugeVec::new(&["org_id"]);
-    REGISTRY.lock().unwrap().register("streamhouse_schemas_total", "Total number of registered schemas", m.family.clone());
+    REGISTRY.lock().unwrap().register(
+        "streamhouse_schemas_total",
+        "Total number of registered schemas",
+        m.family.clone(),
+    );
     m
 });
 
 pub static SUBJECTS_TOTAL: LazyLock<IntGaugeVec> = LazyLock::new(|| {
     let m = IntGaugeVec::new(&["org_id"]);
-    REGISTRY.lock().unwrap().register("streamhouse_subjects_total", "Total number of schema subjects", m.family.clone());
+    REGISTRY.lock().unwrap().register(
+        "streamhouse_subjects_total",
+        "Total number of schema subjects",
+        m.family.clone(),
+    );
     m
 });
 
@@ -581,19 +794,31 @@ pub static SUBJECTS_TOTAL: LazyLock<IntGaugeVec> = LazyLock::new(|| {
 
 pub static PRODUCER_DEDUP_TOTAL: LazyLock<IntCounterVec> = LazyLock::new(|| {
     let m = IntCounterVec::new(&["org_id", "producer_id", "result"]);
-    REGISTRY.lock().unwrap().register("streamhouse_producer_dedup_total", "Total producer dedup checks by result", m.family.clone());
+    REGISTRY.lock().unwrap().register(
+        "streamhouse_producer_dedup_total",
+        "Total producer dedup checks by result",
+        m.family.clone(),
+    );
     m
 });
 
 pub static PRODUCER_SEQUENCE_CURRENT: LazyLock<IntGaugeVec> = LazyLock::new(|| {
     let m = IntGaugeVec::new(&["org_id", "producer_id", "topic", "partition"]);
-    REGISTRY.lock().unwrap().register("streamhouse_producer_sequence_current", "Current producer sequence number", m.family.clone());
+    REGISTRY.lock().unwrap().register(
+        "streamhouse_producer_sequence_current",
+        "Current producer sequence number",
+        m.family.clone(),
+    );
     m
 });
 
 pub static PRODUCER_FENCE_TOTAL: LazyLock<IntCounterVec> = LazyLock::new(|| {
     let m = IntCounterVec::new(&["org_id", "producer_id"]);
-    REGISTRY.lock().unwrap().register("streamhouse_producer_fence_total", "Total producer fence events", m.family.clone());
+    REGISTRY.lock().unwrap().register(
+        "streamhouse_producer_fence_total",
+        "Total producer fence events",
+        m.family.clone(),
+    );
     m
 });
 
@@ -601,19 +826,31 @@ pub static PRODUCER_FENCE_TOTAL: LazyLock<IntCounterVec> = LazyLock::new(|| {
 
 pub static PARTITION_WRITE_RATE: LazyLock<IntGaugeVec> = LazyLock::new(|| {
     let m = IntGaugeVec::new(&["org_id", "topic", "partition"]);
-    REGISTRY.lock().unwrap().register("streamhouse_partition_write_rate", "Partition write rate in records per second", m.family.clone());
+    REGISTRY.lock().unwrap().register(
+        "streamhouse_partition_write_rate",
+        "Partition write rate in records per second",
+        m.family.clone(),
+    );
     m
 });
 
 pub static PARTITION_BYTES_RATE: LazyLock<IntGaugeVec> = LazyLock::new(|| {
     let m = IntGaugeVec::new(&["org_id", "topic", "partition"]);
-    REGISTRY.lock().unwrap().register("streamhouse_partition_bytes_rate", "Partition write rate in bytes per second", m.family.clone());
+    REGISTRY.lock().unwrap().register(
+        "streamhouse_partition_bytes_rate",
+        "Partition write rate in bytes per second",
+        m.family.clone(),
+    );
     m
 });
 
 pub static PARTITION_IMBALANCE_RATIO: LazyLock<IntGaugeVec> = LazyLock::new(|| {
     let m = IntGaugeVec::new(&["org_id", "topic"]);
-    REGISTRY.lock().unwrap().register("streamhouse_partition_imbalance_ratio", "Partition write rate imbalance ratio (stdev/mean * 1000)", m.family.clone());
+    REGISTRY.lock().unwrap().register(
+        "streamhouse_partition_imbalance_ratio",
+        "Partition write rate imbalance ratio (stdev/mean * 1000)",
+        m.family.clone(),
+    );
     m
 });
 
@@ -621,22 +858,36 @@ pub static PARTITION_IMBALANCE_RATIO: LazyLock<IntGaugeVec> = LazyLock::new(|| {
 
 pub static BACKPRESSURE_THROTTLE_TOTAL: LazyLock<IntCounterVec> = LazyLock::new(|| {
     let m = IntCounterVec::new(&["org_id", "producer_id"]);
-    REGISTRY.lock().unwrap().register("streamhouse_backpressure_throttle_total", "Total backpressure throttle events", m.family.clone());
+    REGISTRY.lock().unwrap().register(
+        "streamhouse_backpressure_throttle_total",
+        "Total backpressure throttle events",
+        m.family.clone(),
+    );
     m
 });
 
 pub static BACKPRESSURE_CREDITS_AVAILABLE: LazyLock<IntGaugeVec> = LazyLock::new(|| {
     let m = IntGaugeVec::new(&["org_id", "producer_id"]);
-    REGISTRY.lock().unwrap().register("streamhouse_backpressure_credits_available", "Available backpressure credits per producer", m.family.clone());
+    REGISTRY.lock().unwrap().register(
+        "streamhouse_backpressure_credits_available",
+        "Available backpressure credits per producer",
+        m.family.clone(),
+    );
     m
 });
 
 pub static BACKPRESSURE_WAIT_TIME: LazyLock<HistogramVec> = LazyLock::new(|| {
     let m = HistogramVec::new(
         &["org_id", "producer_id"],
-        vec![0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0],
+        vec![
+            0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0,
+        ],
     );
-    REGISTRY.lock().unwrap().register("streamhouse_backpressure_wait_time_seconds", "Backpressure wait time in seconds", m.family.clone());
+    REGISTRY.lock().unwrap().register(
+        "streamhouse_backpressure_wait_time_seconds",
+        "Backpressure wait time in seconds",
+        m.family.clone(),
+    );
     m
 });
 
@@ -645,9 +896,15 @@ pub static BACKPRESSURE_WAIT_TIME: LazyLock<HistogramVec> = LazyLock::new(|| {
 pub static E2E_PRODUCE_LATENCY: LazyLock<HistogramVec> = LazyLock::new(|| {
     let m = HistogramVec::new(
         &["org_id", "topic"],
-        vec![0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0],
+        vec![
+            0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0,
+        ],
     );
-    REGISTRY.lock().unwrap().register("streamhouse_e2e_produce_latency_seconds", "End-to-end produce latency in seconds", m.family.clone());
+    REGISTRY.lock().unwrap().register(
+        "streamhouse_e2e_produce_latency_seconds",
+        "End-to-end produce latency in seconds",
+        m.family.clone(),
+    );
     m
 });
 
@@ -656,7 +913,11 @@ pub static WAL_APPEND_LATENCY: LazyLock<HistogramVec> = LazyLock::new(|| {
         &["org_id", "topic", "partition"],
         vec![0.0001, 0.0005, 0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25],
     );
-    REGISTRY.lock().unwrap().register("streamhouse_wal_append_latency_seconds", "WAL append latency in seconds", m.family.clone());
+    REGISTRY.lock().unwrap().register(
+        "streamhouse_wal_append_latency_seconds",
+        "WAL append latency in seconds",
+        m.family.clone(),
+    );
     m
 });
 
@@ -665,7 +926,11 @@ pub static S3_FLUSH_LATENCY: LazyLock<HistogramVec> = LazyLock::new(|| {
         &["org_id", "topic", "partition"],
         vec![0.01, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0, 30.0],
     );
-    REGISTRY.lock().unwrap().register("streamhouse_s3_flush_latency_seconds", "S3 flush latency in seconds", m.family.clone());
+    REGISTRY.lock().unwrap().register(
+        "streamhouse_s3_flush_latency_seconds",
+        "S3 flush latency in seconds",
+        m.family.clone(),
+    );
     m
 });
 
@@ -673,7 +938,11 @@ pub static S3_FLUSH_LATENCY: LazyLock<HistogramVec> = LazyLock::new(|| {
 
 pub static RATE_LIMIT_TOTAL: LazyLock<IntCounterVec> = LazyLock::new(|| {
     let m = IntCounterVec::new(&["org_id", "decision", "protocol"]);
-    REGISTRY.lock().unwrap().register("streamhouse_rate_limit_total", "Total rate limit decisions", m.family.clone());
+    REGISTRY.lock().unwrap().register(
+        "streamhouse_rate_limit_total",
+        "Total rate limit decisions",
+        m.family.clone(),
+    );
     m
 });
 
@@ -682,7 +951,11 @@ pub static THROTTLE_TIME_MS: LazyLock<HistogramVec> = LazyLock::new(|| {
         &["org_id", "protocol"],
         vec![0.0, 10.0, 50.0, 100.0, 250.0, 500.0, 1000.0, 2500.0, 5000.0],
     );
-    REGISTRY.lock().unwrap().register("streamhouse_throttle_time_ms", "Kafka throttle time in milliseconds", m.family.clone());
+    REGISTRY.lock().unwrap().register(
+        "streamhouse_throttle_time_ms",
+        "Kafka throttle time in milliseconds",
+        m.family.clone(),
+    );
     m
 });
 
