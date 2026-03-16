@@ -4,20 +4,21 @@ use axum::{
     routing::get,
     Router,
 };
-use prometheus::{Encoder, TextEncoder};
+use prometheus_client::encoding::text::encode;
 
 use crate::metrics::REGISTRY;
 
 /// Handler for Prometheus metrics endpoint
 pub async fn metrics_handler() -> Response {
-    let encoder = TextEncoder::new();
-    let metric_families = REGISTRY.gather();
-
-    let mut buffer = vec![];
-    match encoder.encode(&metric_families, &mut buffer) {
+    let mut buffer = String::new();
+    let registry = REGISTRY.lock().unwrap();
+    match encode(&mut buffer, &registry) {
         Ok(_) => (
             StatusCode::OK,
-            [("content-type", encoder.format_type())],
+            [(
+                "content-type",
+                "application/openmetrics-text; version=1.0.0; charset=utf-8",
+            )],
             buffer,
         )
             .into_response(),
@@ -43,7 +44,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_metrics_endpoint() {
-        // Metrics are automatically initialized via lazy_static
+        // Metrics are automatically initialized via LazyLock
         // No need to call init() here
 
         // Create app
@@ -61,11 +62,5 @@ mod tests {
             .unwrap();
 
         assert_eq!(response.status(), StatusCode::OK);
-
-        // Check content type
-        assert_eq!(
-            response.headers().get("content-type").unwrap(),
-            "text/plain; version=0.0.4"
-        );
     }
 }

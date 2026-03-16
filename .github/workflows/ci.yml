@@ -177,6 +177,7 @@ jobs:
         uses: actions-rust-lang/audit@v1
         with:
           deny-warnings: false
+          create-issues: false
 
       - name: Install cargo-deny
         uses: taiki-e/install-action@cargo-deny

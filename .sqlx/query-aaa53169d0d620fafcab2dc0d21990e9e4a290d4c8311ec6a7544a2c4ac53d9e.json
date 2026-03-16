@@ -16,12 +16,12 @@
       {
         "name": "partition_id",
         "ordinal": 2,
-        "type_info": "Int64"
+        "type_info": "Integer"
       },
       {
         "name": "committed_offset",
         "ordinal": 3,
-        "type_info": "Int64"
+        "type_info": "Integer"
       },
       {
         "name": "metadata",

@@ -1,718 +1,766 @@
-use lazy_static::lazy_static;
-use prometheus::{
-    HistogramOpts, HistogramVec, IntCounterVec, IntGauge, IntGaugeVec, Opts, Registry,
-};
-use std::sync::Once;
-
-static INIT: Once = Once::new();
-
-lazy_static! {
-    /// Global Prometheus metrics registry
-    pub static ref REGISTRY: Registry = Registry::new();
-
-    // ============================================================================
-    // Producer Metrics
-    // ============================================================================
-
-    /// Total number of records produced
-    pub static ref PRODUCER_RECORDS_TOTAL: IntCounterVec = IntCounterVec::new(
-        Opts::new("streamhouse_producer_records_total", "Total records produced"),
-        &["org_id", "topic"]
-    ).expect("metric can be created");
-
-    /// Total bytes produced
-    pub static ref PRODUCER_BYTES_TOTAL: IntCounterVec = IntCounterVec::new(
-        Opts::new("streamhouse_producer_bytes_total", "Total bytes produced"),
-        &["org_id", "topic"]
-    ).expect("metric can be created");
-
-    /// Producer request latency
-    pub static ref PRODUCER_LATENCY: HistogramVec = HistogramVec::new(
-        HistogramOpts::new("streamhouse_producer_latency_seconds", "Producer latency in seconds")
-            .buckets(vec![0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0]),
-        &["org_id", "topic"]
-    ).expect("metric can be created");
-
-    /// Producer batch size
-    pub static ref PRODUCER_BATCH_SIZE: HistogramVec = HistogramVec::new(
-        HistogramOpts::new("streamhouse_producer_batch_size", "Producer batch size in records")
-            .buckets(vec![1.0, 10.0, 50.0, 100.0, 500.0, 1000.0, 5000.0, 10000.0]),
-        &["org_id", "topic"]
-    ).expect("metric can be created");
-
-    /// Producer errors
-    pub static ref PRODUCER_ERRORS_TOTAL: IntCounterVec = IntCounterVec::new(
-        Opts::new("streamhouse_producer_errors_total", "Total producer errors"),
-        &["org_id", "topic", "error_type"]
-    ).expect("metric can be created");
-
-    // ============================================================================
-    // Consumer Metrics
-    // ============================================================================
-
-    /// Total number of records consumed
-    pub static ref CONSUMER_RECORDS_TOTAL: IntCounterVec = IntCounterVec::new(
-        Opts::new("streamhouse_consumer_records_total", "Total records consumed"),
-        &["org_id", "topic", "consumer_group"]
-    ).expect("metric can be created");
-
-    /// Consumer lag (difference between latest offset and committed offset)
-    pub static ref CONSUMER_LAG: IntGaugeVec = IntGaugeVec::new(
-        Opts::new("streamhouse_consumer_lag", "Consumer lag in number of messages"),
-        &["org_id", "topic", "partition", "consumer_group"]
-    ).expect("metric can be created");
-
-    /// Consumer rebalances
-    pub static ref CONSUMER_REBALANCES_TOTAL: IntCounterVec = IntCounterVec::new(
-        Opts::new("streamhouse_consumer_rebalances_total", "Total consumer rebalances"),
-        &["org_id", "consumer_group"]
-    ).expect("metric can be created");
-
-    /// Consumer errors
-    pub static ref CONSUMER_ERRORS_TOTAL: IntCounterVec = IntCounterVec::new(
-        Opts::new("streamhouse_consumer_errors_total", "Total consumer errors"),
-        &["org_id", "topic", "consumer_group", "error_type"]
-    ).expect("metric can be created");
-
-    // ============================================================================
-    // Storage Metrics
-    // ============================================================================
-
-    /// Total segment writes
-    pub static ref SEGMENT_WRITES_TOTAL: IntCounterVec = IntCounterVec::new(
-        Opts::new("streamhouse_segment_writes_total", "Total segments written"),
-        &["org_id", "topic", "partition"]
-    ).expect("metric can be created");
-
-    /// Total segment flushes to S3
-    pub static ref SEGMENT_FLUSHES_TOTAL: IntCounterVec = IntCounterVec::new(
-        Opts::new("streamhouse_segment_flushes_total", "Total segment flushes to S3"),
-        &["org_id", "topic", "partition"]
-    ).expect("metric can be created");
-
-    /// Number of records currently buffered in the segment buffer (not yet flushed to S3)
-    pub static ref SEGMENT_BUFFER_RECORDS: IntGaugeVec = IntGaugeVec::new(
-        Opts::new("streamhouse_segment_buffer_records", "Records currently in segment buffer per partition"),
-        &["org_id", "topic", "partition"]
-    ).expect("metric can be created");
-
-    /// S3 requests by operation type
-    pub static ref S3_REQUESTS_TOTAL: IntCounterVec = IntCounterVec::new(
-        Opts::new("streamhouse_s3_requests_total", "Total S3 requests"),
-        &["org_id", "operation"] // GET, PUT, DELETE, LIST, HEAD
-    ).expect("metric can be created");
-
-    /// S3 errors by type
-    pub static ref S3_ERRORS_TOTAL: IntCounterVec = IntCounterVec::new(
-        Opts::new("streamhouse_s3_errors_total", "Total S3 errors"),
-        &["org_id", "operation", "error_type"] // throttling, not_found, access_denied, etc.
-    ).expect("metric can be created");
-
-    /// S3 request latency
-    pub static ref S3_LATENCY: HistogramVec = HistogramVec::new(
-        HistogramOpts::new("streamhouse_s3_latency_seconds", "S3 request latency in seconds")
-            .buckets(vec![0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0]),
-        &["org_id", "operation"]
-    ).expect("metric can be created");
-
-    /// Cache hits
-    pub static ref CACHE_HITS_TOTAL: IntCounterVec = IntCounterVec::new(
-        Opts::new("streamhouse_cache_hits_total", "Total cache hits"),
-        &["org_id"]
-    ).expect("metric can be created");
-
-    /// Cache misses
-    pub static ref CACHE_MISSES_TOTAL: IntCounterVec = IntCounterVec::new(
-        Opts::new("streamhouse_cache_misses_total", "Total cache misses"),
-        &["org_id"]
-    ).expect("metric can be created");
-
-    /// Cache size in bytes (global system metric — not per-org)
-    pub static ref CACHE_SIZE_BYTES: IntGauge = IntGauge::new(
-        "streamhouse_cache_size_bytes",
-        "Current cache size in bytes"
-    ).expect("metric can be created");
-
-    // ============================================================================
-    // System Metrics
-    // ============================================================================
-
-    /// Active connections (global system metric — not per-org)
-    pub static ref CONNECTIONS_ACTIVE: IntGauge = IntGauge::new(
-        "streamhouse_connections_active",
-        "Number of active connections"
-    ).expect("metric can be created");
-
-    /// Total partitions
-    pub static ref PARTITIONS_TOTAL: IntGaugeVec = IntGaugeVec::new(
-        Opts::new("streamhouse_partitions_total", "Total partitions"),
-        &["org_id", "topic"]
-    ).expect("metric can be created");
-
-    /// Total topics
-    pub static ref TOPICS_TOTAL: IntGaugeVec = IntGaugeVec::new(
-        Opts::new("streamhouse_topics_total", "Total topics"),
-        &["org_id"]
-    ).expect("metric can be created");
-
-    /// Active agents (global system metric — not per-org)
-    pub static ref AGENTS_ACTIVE: IntGauge = IntGauge::new(
-        "streamhouse_agents_active",
-        "Number of active agents"
-    ).expect("metric can be created");
-
-    /// Server uptime in seconds (global system metric — not per-org)
-    pub static ref UPTIME_SECONDS: IntGauge = IntGauge::new(
-        "streamhouse_uptime_seconds",
-        "Server uptime in seconds"
-    ).expect("metric can be created");
-
-    /// Database errors (connection failures, query errors)
-    pub static ref DATABASE_ERRORS_TOTAL: IntCounterVec = IntCounterVec::new(
-        Opts::new("streamhouse_database_errors_total", "Total database errors"),
-        &["org_id", "operation", "error_type"] // operation=query/connect, error_type=timeout/connection_refused/etc.
-    ).expect("metric can be created");
-
-    // ============================================================================
-    // Throttle & Circuit Breaker Metrics (Phase 12.4.2)
-    // ============================================================================
-
-    /// Throttle decisions by type (allow, rate_limited, circuit_open)
-    pub static ref THROTTLE_DECISIONS_TOTAL: IntCounterVec = IntCounterVec::new(
-        Opts::new("streamhouse_throttle_decisions_total", "Total throttle decisions"),
-        &["org_id", "operation", "decision"] // operation=put/get/delete, decision=allow/rate_limited/circuit_open
-    ).expect("metric can be created");
-
-    /// Current rate limit for S3 operations (ops/sec)
-    pub static ref THROTTLE_RATE_CURRENT: IntGaugeVec = IntGaugeVec::new(
-        Opts::new("streamhouse_throttle_rate_current", "Current rate limit in operations per second"),
-        &["org_id", "operation"] // put, get, delete
-    ).expect("metric can be created");
-
-    /// Circuit breaker state (0=Closed, 1=Open, 2=HalfOpen)
-    pub static ref CIRCUIT_BREAKER_STATE: IntGaugeVec = IntGaugeVec::new(
-        Opts::new("streamhouse_circuit_breaker_state", "Circuit breaker state (0=Closed, 1=Open, 2=HalfOpen)"),
-        &["org_id", "operation"] // put, get, delete
-    ).expect("metric can be created");
-
-    /// Circuit breaker state transitions
-    pub static ref CIRCUIT_BREAKER_TRANSITIONS_TOTAL: IntCounterVec = IntCounterVec::new(
-        Opts::new("streamhouse_circuit_breaker_transitions_total", "Total circuit breaker state transitions"),
-        &["org_id", "operation", "from_state", "to_state"] // from_state/to_state: closed/open/half_open
-    ).expect("metric can be created");
-
-    /// Circuit breaker failure count
-    pub static ref CIRCUIT_BREAKER_FAILURES: IntGaugeVec = IntGaugeVec::new(
-        Opts::new("streamhouse_circuit_breaker_failures", "Current consecutive failure count"),
-        &["org_id", "operation"]
-    ).expect("metric can be created");
-
-    /// Circuit breaker success count (in half-open state)
-    pub static ref CIRCUIT_BREAKER_SUCCESSES: IntGaugeVec = IntGaugeVec::new(
-        Opts::new("streamhouse_circuit_breaker_successes", "Current consecutive success count in half-open"),
-        &["org_id", "operation"]
-    ).expect("metric can be created");
-
-    // ============================================================================
-    // Lease Manager Metrics (Phase 4.2)
-    // ============================================================================
-
-    /// Partition lease acquisitions
-    pub static ref LEASE_ACQUISITIONS_TOTAL: IntCounterVec = IntCounterVec::new(
-        Opts::new("streamhouse_lease_acquisitions_total", "Total partition lease acquisitions"),
-        &["org_id", "topic", "partition", "result"] // result=success/conflict/error
-    ).expect("metric can be created");
-
-    /// Partition lease renewals
-    pub static ref LEASE_RENEWALS_TOTAL: IntCounterVec = IntCounterVec::new(
-        Opts::new("streamhouse_lease_renewals_total", "Total partition lease renewals"),
-        &["org_id", "topic", "partition", "result"] // result=success/failure
-    ).expect("metric can be created");
-
-    /// Lease conflicts (stale epoch rejections)
-    pub static ref LEASE_CONFLICTS_TOTAL: IntCounterVec = IntCounterVec::new(
-        Opts::new("streamhouse_lease_conflicts_total", "Total lease conflicts"),
-        &["org_id", "topic", "partition"]
-    ).expect("metric can be created");
-
-    /// Current lease epoch
-    pub static ref LEASE_EPOCH_CURRENT: IntGaugeVec = IntGaugeVec::new(
-        Opts::new("streamhouse_lease_epoch_current", "Current lease epoch for partition"),
-        &["org_id", "topic", "partition", "agent_id"]
-    ).expect("metric can be created");
-
-    /// Lease expiration time (Unix timestamp)
-    pub static ref LEASE_EXPIRES_AT: IntGaugeVec = IntGaugeVec::new(
-        Opts::new("streamhouse_lease_expires_at", "Lease expiration timestamp"),
-        &["org_id", "topic", "partition", "agent_id"]
-    ).expect("metric can be created");
-
-    // ============================================================================
-    // Leader Change Tracking Metrics (Fast Leader Handoff)
-    // ============================================================================
-
-    /// Total leader changes by reason
-    /// Reasons: lease_expired, graceful_handoff, agent_crash, rebalance
-    pub static ref LEADER_CHANGES_TOTAL: IntCounterVec = IntCounterVec::new(
-        Opts::new("streamhouse_leader_changes_total", "Total leadership changes by reason"),
-        &["org_id", "topic", "partition", "reason"] // reason=lease_expired/graceful_handoff/agent_crash/rebalance
-    ).expect("metric can be created");
-
-    /// Leader handoff latency (time from initiation to completion)
-    pub static ref LEADER_HANDOFF_LATENCY: HistogramVec = HistogramVec::new(
-        HistogramOpts::new("streamhouse_leader_handoff_latency_seconds", "Leader handoff latency in seconds")
-            .buckets(vec![0.01, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0]),
-        &["org_id", "topic", "partition"]
-    ).expect("metric can be created");
-
-    /// Leader gap time (time partition was leaderless)
-    pub static ref LEADER_GAP_SECONDS: HistogramVec = HistogramVec::new(
-        HistogramOpts::new("streamhouse_leader_gap_seconds", "Time partition was without a leader")
-            .buckets(vec![0.0, 0.1, 0.5, 1.0, 2.0, 5.0, 10.0, 30.0, 60.0]),
-        &["org_id", "topic", "partition"]
-    ).expect("metric can be created");
-
-    /// Pending lease transfers (in-progress graceful handoffs)
-    pub static ref LEADER_TRANSFERS_PENDING: IntGaugeVec = IntGaugeVec::new(
-        Opts::new("streamhouse_leader_transfers_pending", "Number of pending leader transfers"),
-        &["org_id"]
-    ).expect("metric can be created");
-
-    /// Lease transfer results
-    pub static ref LEADER_TRANSFERS_TOTAL: IntCounterVec = IntCounterVec::new(
-        Opts::new("streamhouse_leader_transfers_total", "Total leader transfer operations"),
-        &["org_id", "result"] // result=success/timeout/rejected/error
-    ).expect("metric can be created");
-
-    // ============================================================================
-    // WAL Metrics (Phase 10)
-    // ============================================================================
-
-    /// WAL append operations
-    pub static ref WAL_APPENDS_TOTAL: IntCounterVec = IntCounterVec::new(
-        Opts::new("streamhouse_wal_appends_total", "Total WAL append operations"),
-        &["org_id", "topic", "partition", "result"] // result=success/error
-    ).expect("metric can be created");
-
-    /// WAL recovery operations
-    pub static ref WAL_RECOVERIES_TOTAL: IntCounterVec = IntCounterVec::new(
-        Opts::new("streamhouse_wal_recoveries_total", "Total WAL recovery operations"),
-        &["org_id", "topic", "partition", "result"] // result=success/error
-    ).expect("metric can be created");
-
-    /// WAL records recovered
-    pub static ref WAL_RECORDS_RECOVERED: IntCounterVec = IntCounterVec::new(
-        Opts::new("streamhouse_wal_records_recovered", "Number of records recovered from WAL"),
-        &["org_id", "topic", "partition"]
-    ).expect("metric can be created");
-
-    /// WAL records skipped (corruption)
-    pub static ref WAL_RECORDS_SKIPPED: IntCounterVec = IntCounterVec::new(
-        Opts::new("streamhouse_wal_records_skipped", "Number of corrupted WAL records skipped"),
-        &["org_id", "topic", "partition"]
-    ).expect("metric can be created");
-
-    /// WAL file size in bytes
-    pub static ref WAL_SIZE_BYTES: IntGaugeVec = IntGaugeVec::new(
-        Opts::new("streamhouse_wal_size_bytes", "WAL file size in bytes"),
-        &["org_id", "topic", "partition"]
-    ).expect("metric can be created");
-
-    /// WAL truncate operations
-    pub static ref WAL_TRUNCATES_TOTAL: IntCounterVec = IntCounterVec::new(
-        Opts::new("streamhouse_wal_truncates_total", "Total WAL truncate operations"),
-        &["org_id", "topic", "partition", "result"] // result=success/error
-    ).expect("metric can be created");
-
-    // ============================================================================
-    // Schema Registry Metrics (Phase 9)
-    // ============================================================================
-
-    /// Schema registration operations
-    pub static ref SCHEMA_REGISTRATIONS_TOTAL: IntCounterVec = IntCounterVec::new(
-        Opts::new("streamhouse_schema_registrations_total", "Total schema registrations"),
-        &["org_id", "subject", "result"] // result=success/error/incompatible
-    ).expect("metric can be created");
-
-    /// Schema registry errors by type
-    pub static ref SCHEMA_REGISTRY_ERRORS_TOTAL: IntCounterVec = IntCounterVec::new(
-        Opts::new("streamhouse_schema_registry_errors_total", "Total schema registry errors"),
-        &["org_id", "type"] // not_found, incompatible, invalid, storage_error, etc.
-    ).expect("metric can be created");
-
-    /// Schema compatibility checks
-    pub static ref SCHEMA_COMPATIBILITY_CHECKS_TOTAL: IntCounterVec = IntCounterVec::new(
-        Opts::new("streamhouse_schema_compatibility_checks_total", "Total schema compatibility checks"),
-        &["org_id", "subject", "result"] // result=compatible/incompatible/error
-    ).expect("metric can be created");
-
-    /// Schema cache entries
-    pub static ref SCHEMA_CACHE_ENTRIES: IntGaugeVec = IntGaugeVec::new(
-        Opts::new("streamhouse_schema_cache_entries", "Number of entries in schema cache"),
-        &["org_id"]
-    ).expect("metric can be created");
-
-    /// Schema lookups by ID
-    pub static ref SCHEMA_LOOKUPS_TOTAL: IntCounterVec = IntCounterVec::new(
-        Opts::new("streamhouse_schema_lookups_total", "Total schema lookups by ID"),
-        &["org_id", "result"] // result=hit/miss
-    ).expect("metric can be created");
-
-    /// Total schemas registered
-    pub static ref SCHEMAS_TOTAL: IntGaugeVec = IntGaugeVec::new(
-        Opts::new("streamhouse_schemas_total", "Total number of registered schemas"),
-        &["org_id"]
-    ).expect("metric can be created");
-
-    /// Total subjects
-    pub static ref SUBJECTS_TOTAL: IntGaugeVec = IntGaugeVec::new(
-        Opts::new("streamhouse_subjects_total", "Total number of schema subjects"),
-        &["org_id"]
-    ).expect("metric can be created");
-
-    // ============================================================================
-    // Per-Producer Debugging Metrics (Phase 10.7: Idempotent Producers)
-    // ============================================================================
-
-    /// Producer dedup results (accepted, duplicate, gap)
-    pub static ref PRODUCER_DEDUP_TOTAL: IntCounterVec = IntCounterVec::new(
-        Opts::new("streamhouse_producer_dedup_total", "Total producer dedup checks by result"),
-        &["org_id", "producer_id", "result"] // result=accepted/duplicate/gap
-    ).expect("metric can be created");
-
-    /// Current producer sequence number per (producer, topic, partition)
-    pub static ref PRODUCER_SEQUENCE_CURRENT: IntGaugeVec = IntGaugeVec::new(
-        Opts::new("streamhouse_producer_sequence_current", "Current producer sequence number"),
-        &["org_id", "producer_id", "topic", "partition"]
-    ).expect("metric can be created");
-
-    /// Producer fence events (epoch bumps / fencing of old instances)
-    pub static ref PRODUCER_FENCE_TOTAL: IntCounterVec = IntCounterVec::new(
-        Opts::new("streamhouse_producer_fence_total", "Total producer fence events"),
-        &["org_id", "producer_id"]
-    ).expect("metric can be created");
-
-    // ============================================================================
-    // Partition Imbalance Metrics (Phase 10.8: Hot-Partition Detection)
-    // ============================================================================
-
-    /// Per-partition write rate in records/sec
-    pub static ref PARTITION_WRITE_RATE: IntGaugeVec = IntGaugeVec::new(
-        Opts::new("streamhouse_partition_write_rate", "Partition write rate in records per second"),
-        &["org_id", "topic", "partition"]
-    ).expect("metric can be created");
-
-    /// Per-partition write rate in bytes/sec
-    pub static ref PARTITION_BYTES_RATE: IntGaugeVec = IntGaugeVec::new(
-        Opts::new("streamhouse_partition_bytes_rate", "Partition write rate in bytes per second"),
-        &["org_id", "topic", "partition"]
-    ).expect("metric can be created");
-
-    /// Partition imbalance ratio (stdev/mean of write rates across partitions for a topic)
-    pub static ref PARTITION_IMBALANCE_RATIO: IntGaugeVec = IntGaugeVec::new(
-        Opts::new("streamhouse_partition_imbalance_ratio", "Partition write rate imbalance ratio (stdev/mean * 1000)"),
-        &["org_id", "topic"]
-    ).expect("metric can be created");
-
-    // ============================================================================
-    // Backpressure Visibility Metrics (Phase 10.9: Credit-Based Backpressure)
-    // ============================================================================
-
-    /// Total backpressure throttle events per producer
-    pub static ref BACKPRESSURE_THROTTLE_TOTAL: IntCounterVec = IntCounterVec::new(
-        Opts::new("streamhouse_backpressure_throttle_total", "Total backpressure throttle events"),
-        &["org_id", "producer_id"]
-    ).expect("metric can be created");
-
-    /// Available credits per producer
-    pub static ref BACKPRESSURE_CREDITS_AVAILABLE: IntGaugeVec = IntGaugeVec::new(
-        Opts::new("streamhouse_backpressure_credits_available", "Available backpressure credits per producer"),
-        &["org_id", "producer_id"]
-    ).expect("metric can be created");
-
-    /// Backpressure wait time distribution in seconds
-    pub static ref BACKPRESSURE_WAIT_TIME: HistogramVec = HistogramVec::new(
-        HistogramOpts::new("streamhouse_backpressure_wait_time_seconds", "Backpressure wait time in seconds")
-            .buckets(vec![0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0]),
-        &["org_id", "producer_id"]
-    ).expect("metric can be created");
-
-    // ============================================================================
-    // E2E Latency Breakdown Metrics (Phase 10.10: Enhanced Ops)
-    // ============================================================================
-
-    /// End-to-end produce latency (from request arrival to ack)
-    pub static ref E2E_PRODUCE_LATENCY: HistogramVec = HistogramVec::new(
-        HistogramOpts::new("streamhouse_e2e_produce_latency_seconds", "End-to-end produce latency in seconds")
-            .buckets(vec![0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0]),
-        &["org_id", "topic"]
-    ).expect("metric can be created");
-
-    /// WAL append latency (time to write to the write-ahead log)
-    pub static ref WAL_APPEND_LATENCY: HistogramVec = HistogramVec::new(
-        HistogramOpts::new("streamhouse_wal_append_latency_seconds", "WAL append latency in seconds")
-            .buckets(vec![0.0001, 0.0005, 0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25]),
-        &["org_id", "topic", "partition"]
-    ).expect("metric can be created");
-
-    /// S3 flush latency (time to upload a segment to S3)
-    pub static ref S3_FLUSH_LATENCY: HistogramVec = HistogramVec::new(
-        HistogramOpts::new("streamhouse_s3_flush_latency_seconds", "S3 flush latency in seconds")
-            .buckets(vec![0.01, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0, 30.0]),
-        &["org_id", "topic", "partition"]
-    ).expect("metric can be created");
-
-    // ============================================================================
-    // Rate Limiting Metrics
-    // ============================================================================
-
-    /// Rate limit decisions (allowed, denied, warning) by protocol (rest, kafka)
-    pub static ref RATE_LIMIT_TOTAL: IntCounterVec = IntCounterVec::new(
-        Opts::new("streamhouse_rate_limit_total", "Total rate limit decisions"),
-        &["org_id", "decision", "protocol"] // decision=allowed/denied/warning, protocol=rest/kafka
-    ).expect("metric can be created");
-
-    /// Kafka throttle time applied to clients
-    pub static ref THROTTLE_TIME_MS: HistogramVec = HistogramVec::new(
-        HistogramOpts::new("streamhouse_throttle_time_ms", "Kafka throttle time in milliseconds")
-            .buckets(vec![0.0, 10.0, 50.0, 100.0, 250.0, 500.0, 1000.0, 2500.0, 5000.0]),
-        &["org_id", "protocol"]
-    ).expect("metric can be created");
+use prometheus_client::encoding::{EncodeLabel, EncodeLabelSet, LabelSetEncoder};
+use prometheus_client::metrics::counter::Counter as PCounter;
+use prometheus_client::metrics::family::Family;
+use prometheus_client::metrics::gauge::Gauge as PGauge;
+use prometheus_client::metrics::histogram::Histogram as PHist;
+use prometheus_client::registry::Registry;
+use std::fmt;
+use std::sync::{Arc, LazyLock, Mutex};
+
+// =============================================================================
+// Wrapper types that preserve the old `prometheus` crate API
+// =============================================================================
+
+/// Label set backed by a vector of key-value pairs.
+#[derive(Clone, Debug, Hash, PartialEq, Eq)]
+struct DynLabels(Vec<(String, String)>);
+
+impl EncodeLabelSet for DynLabels {
+    fn encode(&self, mut encoder: LabelSetEncoder) -> Result<(), fmt::Error> {
+        for (key, val) in &self.0 {
+            let pair = (key.as_str(), val.as_str());
+            EncodeLabel::encode(&pair, encoder.encode_label())?;
+        }
+        Ok(())
+    }
 }
 
-/// Initialize metrics registry
-/// Can be called multiple times safely (idempotent)
+fn make_labels(keys: &[&str], values: &[&str]) -> DynLabels {
+    DynLabels(
+        keys.iter()
+            .zip(values.iter())
+            .map(|(k, v)| (k.to_string(), v.to_string()))
+            .collect(),
+    )
+}
+
+// ---- IntCounterVec ----------------------------------------------------------
+
+/// Drop-in replacement for `prometheus::IntCounterVec`.
+#[derive(Clone)]
+pub struct IntCounterVec {
+    family: Family<DynLabels, PCounter<u64>>,
+    keys: Vec<String>,
+}
+
+/// Handle returned by `IntCounterVec::with_label_values`.
+pub struct IntCounterRef<'a> {
+    family: &'a Family<DynLabels, PCounter<u64>>,
+    labels: DynLabels,
+}
+
+impl IntCounterVec {
+    fn new(keys: &[&str]) -> Self {
+        Self {
+            family: Family::default(),
+            keys: keys.iter().map(|s| s.to_string()).collect(),
+        }
+    }
+
+    pub fn with_label_values<'a>(&'a self, values: &[&str]) -> IntCounterRef<'a> {
+        let labels = make_labels(
+            &self.keys.iter().map(|s| s.as_str()).collect::<Vec<_>>(),
+            values,
+        );
+        IntCounterRef {
+            family: &self.family,
+            labels,
+        }
+    }
+}
+
+impl IntCounterRef<'_> {
+    pub fn inc(&self) {
+        self.family.get_or_create(&self.labels).inc();
+    }
+    pub fn inc_by(&self, v: u64) {
+        self.family.get_or_create(&self.labels).inc_by(v);
+    }
+    pub fn get(&self) -> u64 {
+        self.family.get_or_create(&self.labels).get()
+    }
+}
+
+// ---- IntGaugeVec ------------------------------------------------------------
+
+/// Drop-in replacement for `prometheus::IntGaugeVec`.
+#[derive(Clone)]
+pub struct IntGaugeVec {
+    family: Family<DynLabels, PGauge<i64>>,
+    keys: Vec<String>,
+}
+
+pub struct IntGaugeRef<'a> {
+    family: &'a Family<DynLabels, PGauge<i64>>,
+    labels: DynLabels,
+}
+
+impl IntGaugeVec {
+    fn new(keys: &[&str]) -> Self {
+        Self {
+            family: Family::default(),
+            keys: keys.iter().map(|s| s.to_string()).collect(),
+        }
+    }
+
+    pub fn with_label_values<'a>(&'a self, values: &[&str]) -> IntGaugeRef<'a> {
+        let labels = make_labels(
+            &self.keys.iter().map(|s| s.as_str()).collect::<Vec<_>>(),
+            values,
+        );
+        IntGaugeRef {
+            family: &self.family,
+            labels,
+        }
+    }
+}
+
+impl IntGaugeRef<'_> {
+    pub fn set(&self, v: i64) {
+        self.family.get_or_create(&self.labels).set(v);
+    }
+    pub fn inc(&self) {
+        self.family.get_or_create(&self.labels).inc();
+    }
+    pub fn dec(&self) {
+        self.family.get_or_create(&self.labels).dec();
+    }
+    pub fn get(&self) -> i64 {
+        self.family.get_or_create(&self.labels).get()
+    }
+}
+
+// ---- HistogramVec -----------------------------------------------------------
+
+/// Drop-in replacement for `prometheus::HistogramVec`.
+///
+/// Uses `Family<DynLabels, PHist>` with `MetricConstructor` to provide custom
+/// buckets to each new histogram created on first access.
+#[derive(Clone)]
+pub struct HistogramVec {
+    family: Family<DynLabels, PHist, BucketConstructor>,
+    keys: Vec<String>,
+}
+
+/// Constructor that stores the bucket boundaries so `Family` can create
+/// histograms with the right buckets.
+#[derive(Clone, Debug)]
+struct BucketConstructor {
+    buckets: Arc<Vec<f64>>,
+}
+
+impl prometheus_client::metrics::family::MetricConstructor<PHist> for BucketConstructor {
+    fn new_metric(&self) -> PHist {
+        PHist::new(self.buckets.iter().copied())
+    }
+}
+
+pub struct HistogramRef<'a> {
+    family: &'a Family<DynLabels, PHist, BucketConstructor>,
+    labels: DynLabels,
+}
+
+impl HistogramVec {
+    fn new(keys: &[&str], buckets: Vec<f64>) -> Self {
+        Self {
+            family: Family::new_with_constructor(BucketConstructor {
+                buckets: Arc::new(buckets),
+            }),
+            keys: keys.iter().map(|s| s.to_string()).collect(),
+        }
+    }
+
+    pub fn with_label_values<'a>(&'a self, values: &[&str]) -> HistogramRef<'a> {
+        let labels = make_labels(
+            &self.keys.iter().map(|s| s.as_str()).collect::<Vec<_>>(),
+            values,
+        );
+        HistogramRef {
+            family: &self.family,
+            labels,
+        }
+    }
+}
+
+impl HistogramRef<'_> {
+    pub fn observe(&self, v: f64) {
+        self.family.get_or_create(&self.labels).observe(v);
+    }
+}
+
+// ---- IntGauge (no labels) ---------------------------------------------------
+
+/// Drop-in replacement for `prometheus::IntGauge`.
+#[derive(Clone)]
+pub struct IntGauge {
+    gauge: PGauge<i64>,
+}
+
+impl IntGauge {
+    fn new() -> Self {
+        Self {
+            gauge: PGauge::default(),
+        }
+    }
+    pub fn set(&self, v: i64) {
+        self.gauge.set(v);
+    }
+    pub fn inc(&self) {
+        self.gauge.inc();
+    }
+    pub fn dec(&self) {
+        self.gauge.dec();
+    }
+    pub fn get(&self) -> i64 {
+        self.gauge.get()
+    }
+}
+
+// =============================================================================
+// Global registry
+// =============================================================================
+
+pub static REGISTRY: LazyLock<Mutex<Registry>> = LazyLock::new(|| Mutex::new(Registry::default()));
+
+// =============================================================================
+// Metric statics — same names / public visibility as before
+// =============================================================================
+
+// ---- Producer Metrics -------------------------------------------------------
+
+pub static PRODUCER_RECORDS_TOTAL: LazyLock<IntCounterVec> = LazyLock::new(|| {
+    let m = IntCounterVec::new(&["org_id", "topic"]);
+    REGISTRY.lock().unwrap().register("streamhouse_producer_records_total", "Total records produced", m.family.clone());
+    m
+});
+
+pub static PRODUCER_BYTES_TOTAL: LazyLock<IntCounterVec> = LazyLock::new(|| {
+    let m = IntCounterVec::new(&["org_id", "topic"]);
+    REGISTRY.lock().unwrap().register("streamhouse_producer_bytes_total", "Total bytes produced", m.family.clone());
+    m
+});
+
+pub static PRODUCER_LATENCY: LazyLock<HistogramVec> = LazyLock::new(|| {
+    let m = HistogramVec::new(
+        &["org_id", "topic"],
+        vec![0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0],
+    );
+    REGISTRY.lock().unwrap().register("streamhouse_producer_latency_seconds", "Producer latency in seconds", m.family.clone());
+    m
+});
+
+pub static PRODUCER_BATCH_SIZE: LazyLock<HistogramVec> = LazyLock::new(|| {
+    let m = HistogramVec::new(
+        &["org_id", "topic"],
+        vec![1.0, 10.0, 50.0, 100.0, 500.0, 1000.0, 5000.0, 10000.0],
+    );
+    REGISTRY.lock().unwrap().register("streamhouse_producer_batch_size", "Producer batch size in records", m.family.clone());
+    m
+});
+
+pub static PRODUCER_ERRORS_TOTAL: LazyLock<IntCounterVec> = LazyLock::new(|| {
+    let m = IntCounterVec::new(&["org_id", "topic", "error_type"]);
+    REGISTRY.lock().unwrap().register("streamhouse_producer_errors_total", "Total producer errors", m.family.clone());
+    m
+});
+
+// ---- Consumer Metrics -------------------------------------------------------
+
+pub static CONSUMER_RECORDS_TOTAL: LazyLock<IntCounterVec> = LazyLock::new(|| {
+    let m = IntCounterVec::new(&["org_id", "topic", "consumer_group"]);
+    REGISTRY.lock().unwrap().register("streamhouse_consumer_records_total", "Total records consumed", m.family.clone());
+    m
+});
+
+pub static CONSUMER_LAG: LazyLock<IntGaugeVec> = LazyLock::new(|| {
+    let m = IntGaugeVec::new(&["org_id", "topic", "partition", "consumer_group"]);
+    REGISTRY.lock().unwrap().register("streamhouse_consumer_lag", "Consumer lag in number of messages", m.family.clone());
+    m
+});
+
+pub static CONSUMER_REBALANCES_TOTAL: LazyLock<IntCounterVec> = LazyLock::new(|| {
+    let m = IntCounterVec::new(&["org_id", "consumer_group"]);
+    REGISTRY.lock().unwrap().register("streamhouse_consumer_rebalances_total", "Total consumer rebalances", m.family.clone());
+    m
+});
+
+pub static CONSUMER_ERRORS_TOTAL: LazyLock<IntCounterVec> = LazyLock::new(|| {
+    let m = IntCounterVec::new(&["org_id", "topic", "consumer_group", "error_type"]);
+    REGISTRY.lock().unwrap().register("streamhouse_consumer_errors_total", "Total consumer errors", m.family.clone());
+    m
+});
+
+// ---- Storage Metrics --------------------------------------------------------
+
+pub static SEGMENT_WRITES_TOTAL: LazyLock<IntCounterVec> = LazyLock::new(|| {
+    let m = IntCounterVec::new(&["org_id", "topic", "partition"]);
+    REGISTRY.lock().unwrap().register("streamhouse_segment_writes_total", "Total segments written", m.family.clone());
+    m
+});
+
+pub static SEGMENT_FLUSHES_TOTAL: LazyLock<IntCounterVec> = LazyLock::new(|| {
+    let m = IntCounterVec::new(&["org_id", "topic", "partition"]);
+    REGISTRY.lock().unwrap().register("streamhouse_segment_flushes_total", "Total segment flushes to S3", m.family.clone());
+    m
+});
+
+pub static SEGMENT_BUFFER_RECORDS: LazyLock<IntGaugeVec> = LazyLock::new(|| {
+    let m = IntGaugeVec::new(&["org_id", "topic", "partition"]);
+    REGISTRY.lock().unwrap().register("streamhouse_segment_buffer_records", "Records currently in segment buffer per partition", m.family.clone());
+    m
+});
+
+pub static S3_REQUESTS_TOTAL: LazyLock<IntCounterVec> = LazyLock::new(|| {
+    let m = IntCounterVec::new(&["org_id", "operation"]);
+    REGISTRY.lock().unwrap().register("streamhouse_s3_requests_total", "Total S3 requests", m.family.clone());
+    m
+});
+
+pub static S3_ERRORS_TOTAL: LazyLock<IntCounterVec> = LazyLock::new(|| {
+    let m = IntCounterVec::new(&["org_id", "operation", "error_type"]);
+    REGISTRY.lock().unwrap().register("streamhouse_s3_errors_total", "Total S3 errors", m.family.clone());
+    m
+});
+
+pub static S3_LATENCY: LazyLock<HistogramVec> = LazyLock::new(|| {
+    let m = HistogramVec::new(
+        &["org_id", "operation"],
+        vec![0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0],
+    );
+    REGISTRY.lock().unwrap().register("streamhouse_s3_latency_seconds", "S3 request latency in seconds", m.family.clone());
+    m
+});
+
+pub static CACHE_HITS_TOTAL: LazyLock<IntCounterVec> = LazyLock::new(|| {
+    let m = IntCounterVec::new(&["org_id"]);
+    REGISTRY.lock().unwrap().register("streamhouse_cache_hits_total", "Total cache hits", m.family.clone());
+    m
+});
+
+pub static CACHE_MISSES_TOTAL: LazyLock<IntCounterVec> = LazyLock::new(|| {
+    let m = IntCounterVec::new(&["org_id"]);
+    REGISTRY.lock().unwrap().register("streamhouse_cache_misses_total", "Total cache misses", m.family.clone());
+    m
+});
+
+pub static CACHE_SIZE_BYTES: LazyLock<IntGauge> = LazyLock::new(|| {
+    let m = IntGauge::new();
+    REGISTRY.lock().unwrap().register("streamhouse_cache_size_bytes", "Current cache size in bytes", m.gauge.clone());
+    m
+});
+
+// ---- System Metrics ---------------------------------------------------------
+
+pub static CONNECTIONS_ACTIVE: LazyLock<IntGauge> = LazyLock::new(|| {
+    let m = IntGauge::new();
+    REGISTRY.lock().unwrap().register("streamhouse_connections_active", "Number of active connections", m.gauge.clone());
+    m
+});
+
+pub static PARTITIONS_TOTAL: LazyLock<IntGaugeVec> = LazyLock::new(|| {
+    let m = IntGaugeVec::new(&["org_id", "topic"]);
+    REGISTRY.lock().unwrap().register("streamhouse_partitions_total", "Total partitions", m.family.clone());
+    m
+});
+
+pub static TOPICS_TOTAL: LazyLock<IntGaugeVec> = LazyLock::new(|| {
+    let m = IntGaugeVec::new(&["org_id"]);
+    REGISTRY.lock().unwrap().register("streamhouse_topics_total", "Total topics", m.family.clone());
+    m
+});
+
+pub static AGENTS_ACTIVE: LazyLock<IntGauge> = LazyLock::new(|| {
+    let m = IntGauge::new();
+    REGISTRY.lock().unwrap().register("streamhouse_agents_active", "Number of active agents", m.gauge.clone());
+    m
+});
+
+pub static UPTIME_SECONDS: LazyLock<IntGauge> = LazyLock::new(|| {
+    let m = IntGauge::new();
+    REGISTRY.lock().unwrap().register("streamhouse_uptime_seconds", "Server uptime in seconds", m.gauge.clone());
+    m
+});
+
+pub static DATABASE_ERRORS_TOTAL: LazyLock<IntCounterVec> = LazyLock::new(|| {
+    let m = IntCounterVec::new(&["org_id", "operation", "error_type"]);
+    REGISTRY.lock().unwrap().register("streamhouse_database_errors_total", "Total database errors", m.family.clone());
+    m
+});
+
+// ---- Throttle & Circuit Breaker Metrics -------------------------------------
+
+pub static THROTTLE_DECISIONS_TOTAL: LazyLock<IntCounterVec> = LazyLock::new(|| {
+    let m = IntCounterVec::new(&["org_id", "operation", "decision"]);
+    REGISTRY.lock().unwrap().register("streamhouse_throttle_decisions_total", "Total throttle decisions", m.family.clone());
+    m
+});
+
+pub static THROTTLE_RATE_CURRENT: LazyLock<IntGaugeVec> = LazyLock::new(|| {
+    let m = IntGaugeVec::new(&["org_id", "operation"]);
+    REGISTRY.lock().unwrap().register("streamhouse_throttle_rate_current", "Current rate limit in operations per second", m.family.clone());
+    m
+});
+
+pub static CIRCUIT_BREAKER_STATE: LazyLock<IntGaugeVec> = LazyLock::new(|| {
+    let m = IntGaugeVec::new(&["org_id", "operation"]);
+    REGISTRY.lock().unwrap().register("streamhouse_circuit_breaker_state", "Circuit breaker state (0=Closed, 1=Open, 2=HalfOpen)", m.family.clone());
+    m
+});
+
+pub static CIRCUIT_BREAKER_TRANSITIONS_TOTAL: LazyLock<IntCounterVec> = LazyLock::new(|| {
+    let m = IntCounterVec::new(&["org_id", "operation", "from_state", "to_state"]);
+    REGISTRY.lock().unwrap().register("streamhouse_circuit_breaker_transitions_total", "Total circuit breaker state transitions", m.family.clone());
+    m
+});
+
+pub static CIRCUIT_BREAKER_FAILURES: LazyLock<IntGaugeVec> = LazyLock::new(|| {
+    let m = IntGaugeVec::new(&["org_id", "operation"]);
+    REGISTRY.lock().unwrap().register("streamhouse_circuit_breaker_failures", "Current consecutive failure count", m.family.clone());
+    m
+});
+
+pub static CIRCUIT_BREAKER_SUCCESSES: LazyLock<IntGaugeVec> = LazyLock::new(|| {
+    let m = IntGaugeVec::new(&["org_id", "operation"]);
+    REGISTRY.lock().unwrap().register("streamhouse_circuit_breaker_successes", "Current consecutive success count in half-open", m.family.clone());
+    m
+});
+
+// ---- Lease Manager Metrics --------------------------------------------------
+
+pub static LEASE_ACQUISITIONS_TOTAL: LazyLock<IntCounterVec> = LazyLock::new(|| {
+    let m = IntCounterVec::new(&["org_id", "topic", "partition", "result"]);
+    REGISTRY.lock().unwrap().register("streamhouse_lease_acquisitions_total", "Total partition lease acquisitions", m.family.clone());
+    m
+});
+
+pub static LEASE_RENEWALS_TOTAL: LazyLock<IntCounterVec> = LazyLock::new(|| {
+    let m = IntCounterVec::new(&["org_id", "topic", "partition", "result"]);
+    REGISTRY.lock().unwrap().register("streamhouse_lease_renewals_total", "Total partition lease renewals", m.family.clone());
+    m
+});
+
+pub static LEASE_CONFLICTS_TOTAL: LazyLock<IntCounterVec> = LazyLock::new(|| {
+    let m = IntCounterVec::new(&["org_id", "topic", "partition"]);
+    REGISTRY.lock().unwrap().register("streamhouse_lease_conflicts_total", "Total lease conflicts", m.family.clone());
+    m
+});
+
+pub static LEASE_EPOCH_CURRENT: LazyLock<IntGaugeVec> = LazyLock::new(|| {
+    let m = IntGaugeVec::new(&["org_id", "topic", "partition", "agent_id"]);
+    REGISTRY.lock().unwrap().register("streamhouse_lease_epoch_current", "Current lease epoch for partition", m.family.clone());
+    m
+});
+
+pub static LEASE_EXPIRES_AT: LazyLock<IntGaugeVec> = LazyLock::new(|| {
+    let m = IntGaugeVec::new(&["org_id", "topic", "partition", "agent_id"]);
+    REGISTRY.lock().unwrap().register("streamhouse_lease_expires_at", "Lease expiration timestamp", m.family.clone());
+    m
+});
+
+// ---- Leader Change Tracking Metrics -----------------------------------------
+
+pub static LEADER_CHANGES_TOTAL: LazyLock<IntCounterVec> = LazyLock::new(|| {
+    let m = IntCounterVec::new(&["org_id", "topic", "partition", "reason"]);
+    REGISTRY.lock().unwrap().register("streamhouse_leader_changes_total", "Total leadership changes by reason", m.family.clone());
+    m
+});
+
+pub static LEADER_HANDOFF_LATENCY: LazyLock<HistogramVec> = LazyLock::new(|| {
+    let m = HistogramVec::new(
+        &["org_id", "topic", "partition"],
+        vec![0.01, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0],
+    );
+    REGISTRY.lock().unwrap().register("streamhouse_leader_handoff_latency_seconds", "Leader handoff latency in seconds", m.family.clone());
+    m
+});
+
+pub static LEADER_GAP_SECONDS: LazyLock<HistogramVec> = LazyLock::new(|| {
+    let m = HistogramVec::new(
+        &["org_id", "topic", "partition"],
+        vec![0.0, 0.1, 0.5, 1.0, 2.0, 5.0, 10.0, 30.0, 60.0],
+    );
+    REGISTRY.lock().unwrap().register("streamhouse_leader_gap_seconds", "Time partition was without a leader", m.family.clone());
+    m
+});
+
+pub static LEADER_TRANSFERS_PENDING: LazyLock<IntGaugeVec> = LazyLock::new(|| {
+    let m = IntGaugeVec::new(&["org_id"]);
+    REGISTRY.lock().unwrap().register("streamhouse_leader_transfers_pending", "Number of pending leader transfers", m.family.clone());
+    m
+});
+
+pub static LEADER_TRANSFERS_TOTAL: LazyLock<IntCounterVec> = LazyLock::new(|| {
+    let m = IntCounterVec::new(&["org_id", "result"]);
+    REGISTRY.lock().unwrap().register("streamhouse_leader_transfers_total", "Total leader transfer operations", m.family.clone());
+    m
+});
+
+// ---- WAL Metrics ------------------------------------------------------------
+
+pub static WAL_APPENDS_TOTAL: LazyLock<IntCounterVec> = LazyLock::new(|| {
+    let m = IntCounterVec::new(&["org_id", "topic", "partition", "result"]);
+    REGISTRY.lock().unwrap().register("streamhouse_wal_appends_total", "Total WAL append operations", m.family.clone());
+    m
+});
+
+pub static WAL_RECOVERIES_TOTAL: LazyLock<IntCounterVec> = LazyLock::new(|| {
+    let m = IntCounterVec::new(&["org_id", "topic", "partition", "result"]);
+    REGISTRY.lock().unwrap().register("streamhouse_wal_recoveries_total", "Total WAL recovery operations", m.family.clone());
+    m
+});
+
+pub static WAL_RECORDS_RECOVERED: LazyLock<IntCounterVec> = LazyLock::new(|| {
+    let m = IntCounterVec::new(&["org_id", "topic", "partition"]);
+    REGISTRY.lock().unwrap().register("streamhouse_wal_records_recovered", "Number of records recovered from WAL", m.family.clone());
+    m
+});
+
+pub static WAL_RECORDS_SKIPPED: LazyLock<IntCounterVec> = LazyLock::new(|| {
+    let m = IntCounterVec::new(&["org_id", "topic", "partition"]);
+    REGISTRY.lock().unwrap().register("streamhouse_wal_records_skipped", "Number of corrupted WAL records skipped", m.family.clone());
+    m
+});
+
+pub static WAL_SIZE_BYTES: LazyLock<IntGaugeVec> = LazyLock::new(|| {
+    let m = IntGaugeVec::new(&["org_id", "topic", "partition"]);
+    REGISTRY.lock().unwrap().register("streamhouse_wal_size_bytes", "WAL file size in bytes", m.family.clone());
+    m
+});
+
+pub static WAL_TRUNCATES_TOTAL: LazyLock<IntCounterVec> = LazyLock::new(|| {
+    let m = IntCounterVec::new(&["org_id", "topic", "partition", "result"]);
+    REGISTRY.lock().unwrap().register("streamhouse_wal_truncates_total", "Total WAL truncate operations", m.family.clone());
+    m
+});
+
+// ---- Schema Registry Metrics ------------------------------------------------
+
+pub static SCHEMA_REGISTRATIONS_TOTAL: LazyLock<IntCounterVec> = LazyLock::new(|| {
+    let m = IntCounterVec::new(&["org_id", "subject", "result"]);
+    REGISTRY.lock().unwrap().register("streamhouse_schema_registrations_total", "Total schema registrations", m.family.clone());
+    m
+});
+
+pub static SCHEMA_REGISTRY_ERRORS_TOTAL: LazyLock<IntCounterVec> = LazyLock::new(|| {
+    let m = IntCounterVec::new(&["org_id", "type"]);
+    REGISTRY.lock().unwrap().register("streamhouse_schema_registry_errors_total", "Total schema registry errors", m.family.clone());
+    m
+});
+
+pub static SCHEMA_COMPATIBILITY_CHECKS_TOTAL: LazyLock<IntCounterVec> = LazyLock::new(|| {
+    let m = IntCounterVec::new(&["org_id", "subject", "result"]);
+    REGISTRY.lock().unwrap().register("streamhouse_schema_compatibility_checks_total", "Total schema compatibility checks", m.family.clone());
+    m
+});
+
+pub static SCHEMA_CACHE_ENTRIES: LazyLock<IntGaugeVec> = LazyLock::new(|| {
+    let m = IntGaugeVec::new(&["org_id"]);
+    REGISTRY.lock().unwrap().register("streamhouse_schema_cache_entries", "Number of entries in schema cache", m.family.clone());
+    m
+});
+
+pub static SCHEMA_LOOKUPS_TOTAL: LazyLock<IntCounterVec> = LazyLock::new(|| {
+    let m = IntCounterVec::new(&["org_id", "result"]);
+    REGISTRY.lock().unwrap().register("streamhouse_schema_lookups_total", "Total schema lookups by ID", m.family.clone());
+    m
+});
+
+pub static SCHEMAS_TOTAL: LazyLock<IntGaugeVec> = LazyLock::new(|| {
+    let m = IntGaugeVec::new(&["org_id"]);
+    REGISTRY.lock().unwrap().register("streamhouse_schemas_total", "Total number of registered schemas", m.family.clone());
+    m
+});
+
+pub static SUBJECTS_TOTAL: LazyLock<IntGaugeVec> = LazyLock::new(|| {
+    let m = IntGaugeVec::new(&["org_id"]);
+    REGISTRY.lock().unwrap().register("streamhouse_subjects_total", "Total number of schema subjects", m.family.clone());
+    m
+});
+
+// ---- Per-Producer Debugging Metrics -----------------------------------------
+
+pub static PRODUCER_DEDUP_TOTAL: LazyLock<IntCounterVec> = LazyLock::new(|| {
+    let m = IntCounterVec::new(&["org_id", "producer_id", "result"]);
+    REGISTRY.lock().unwrap().register("streamhouse_producer_dedup_total", "Total producer dedup checks by result", m.family.clone());
+    m
+});
+
+pub static PRODUCER_SEQUENCE_CURRENT: LazyLock<IntGaugeVec> = LazyLock::new(|| {
+    let m = IntGaugeVec::new(&["org_id", "producer_id", "topic", "partition"]);
+    REGISTRY.lock().unwrap().register("streamhouse_producer_sequence_current", "Current producer sequence number", m.family.clone());
+    m
+});
+
+pub static PRODUCER_FENCE_TOTAL: LazyLock<IntCounterVec> = LazyLock::new(|| {
+    let m = IntCounterVec::new(&["org_id", "producer_id"]);
+    REGISTRY.lock().unwrap().register("streamhouse_producer_fence_total", "Total producer fence events", m.family.clone());
+    m
+});
+
+// ---- Partition Imbalance Metrics --------------------------------------------
+
+pub static PARTITION_WRITE_RATE: LazyLock<IntGaugeVec> = LazyLock::new(|| {
+    let m = IntGaugeVec::new(&["org_id", "topic", "partition"]);
+    REGISTRY.lock().unwrap().register("streamhouse_partition_write_rate", "Partition write rate in records per second", m.family.clone());
+    m
+});
+
+pub static PARTITION_BYTES_RATE: LazyLock<IntGaugeVec> = LazyLock::new(|| {
+    let m = IntGaugeVec::new(&["org_id", "topic", "partition"]);
+    REGISTRY.lock().unwrap().register("streamhouse_partition_bytes_rate", "Partition write rate in bytes per second", m.family.clone());
+    m
+});
+
+pub static PARTITION_IMBALANCE_RATIO: LazyLock<IntGaugeVec> = LazyLock::new(|| {
+    let m = IntGaugeVec::new(&["org_id", "topic"]);
+    REGISTRY.lock().unwrap().register("streamhouse_partition_imbalance_ratio", "Partition write rate imbalance ratio (stdev/mean * 1000)", m.family.clone());
+    m
+});
+
+// ---- Backpressure Visibility Metrics ----------------------------------------
+
+pub static BACKPRESSURE_THROTTLE_TOTAL: LazyLock<IntCounterVec> = LazyLock::new(|| {
+    let m = IntCounterVec::new(&["org_id", "producer_id"]);
+    REGISTRY.lock().unwrap().register("streamhouse_backpressure_throttle_total", "Total backpressure throttle events", m.family.clone());
+    m
+});
+
+pub static BACKPRESSURE_CREDITS_AVAILABLE: LazyLock<IntGaugeVec> = LazyLock::new(|| {
+    let m = IntGaugeVec::new(&["org_id", "producer_id"]);
+    REGISTRY.lock().unwrap().register("streamhouse_backpressure_credits_available", "Available backpressure credits per producer", m.family.clone());
+    m
+});
+
+pub static BACKPRESSURE_WAIT_TIME: LazyLock<HistogramVec> = LazyLock::new(|| {
+    let m = HistogramVec::new(
+        &["org_id", "producer_id"],
+        vec![0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0],
+    );
+    REGISTRY.lock().unwrap().register("streamhouse_backpressure_wait_time_seconds", "Backpressure wait time in seconds", m.family.clone());
+    m
+});
+
+// ---- E2E Latency Breakdown Metrics ------------------------------------------
+
+pub static E2E_PRODUCE_LATENCY: LazyLock<HistogramVec> = LazyLock::new(|| {
+    let m = HistogramVec::new(
+        &["org_id", "topic"],
+        vec![0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0],
+    );
+    REGISTRY.lock().unwrap().register("streamhouse_e2e_produce_latency_seconds", "End-to-end produce latency in seconds", m.family.clone());
+    m
+});
+
+pub static WAL_APPEND_LATENCY: LazyLock<HistogramVec> = LazyLock::new(|| {
+    let m = HistogramVec::new(
+        &["org_id", "topic", "partition"],
+        vec![0.0001, 0.0005, 0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25],
+    );
+    REGISTRY.lock().unwrap().register("streamhouse_wal_append_latency_seconds", "WAL append latency in seconds", m.family.clone());
+    m
+});
+
+pub static S3_FLUSH_LATENCY: LazyLock<HistogramVec> = LazyLock::new(|| {
+    let m = HistogramVec::new(
+        &["org_id", "topic", "partition"],
+        vec![0.01, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0, 30.0],
+    );
+    REGISTRY.lock().unwrap().register("streamhouse_s3_flush_latency_seconds", "S3 flush latency in seconds", m.family.clone());
+    m
+});
+
+// ---- Rate Limiting Metrics --------------------------------------------------
+
+pub static RATE_LIMIT_TOTAL: LazyLock<IntCounterVec> = LazyLock::new(|| {
+    let m = IntCounterVec::new(&["org_id", "decision", "protocol"]);
+    REGISTRY.lock().unwrap().register("streamhouse_rate_limit_total", "Total rate limit decisions", m.family.clone());
+    m
+});
+
+pub static THROTTLE_TIME_MS: LazyLock<HistogramVec> = LazyLock::new(|| {
+    let m = HistogramVec::new(
+        &["org_id", "protocol"],
+        vec![0.0, 10.0, 50.0, 100.0, 250.0, 500.0, 1000.0, 2500.0, 5000.0],
+    );
+    REGISTRY.lock().unwrap().register("streamhouse_throttle_time_ms", "Kafka throttle time in milliseconds", m.family.clone());
+    m
+});
+
+// =============================================================================
+// Initialization
+// =============================================================================
+
+/// Initialize metrics registry.
+/// Can be called multiple times safely (idempotent via LazyLock).
 pub fn init() {
-    INIT.call_once(|| {
-        // Producer metrics
-        REGISTRY
-            .register(Box::new(PRODUCER_RECORDS_TOTAL.clone()))
-            .expect("producer_records_total can be registered");
-        REGISTRY
-            .register(Box::new(PRODUCER_BYTES_TOTAL.clone()))
-            .expect("producer_bytes_total can be registered");
-        REGISTRY
-            .register(Box::new(PRODUCER_LATENCY.clone()))
-            .expect("producer_latency can be registered");
-        REGISTRY
-            .register(Box::new(PRODUCER_BATCH_SIZE.clone()))
-            .expect("producer_batch_size can be registered");
-        REGISTRY
-            .register(Box::new(PRODUCER_ERRORS_TOTAL.clone()))
-            .expect("producer_errors_total can be registered");
-
-        // Consumer metrics
-        REGISTRY
-            .register(Box::new(CONSUMER_RECORDS_TOTAL.clone()))
-            .expect("consumer_records_total can be registered");
-        REGISTRY
-            .register(Box::new(CONSUMER_LAG.clone()))
-            .expect("consumer_lag can be registered");
-        REGISTRY
-            .register(Box::new(CONSUMER_REBALANCES_TOTAL.clone()))
-            .expect("consumer_rebalances_total can be registered");
-        REGISTRY
-            .register(Box::new(CONSUMER_ERRORS_TOTAL.clone()))
-            .expect("consumer_errors_total can be registered");
-
-        // Storage metrics
-        REGISTRY
-            .register(Box::new(SEGMENT_WRITES_TOTAL.clone()))
-            .expect("segment_writes_total can be registered");
-        REGISTRY
-            .register(Box::new(SEGMENT_FLUSHES_TOTAL.clone()))
-            .expect("segment_flushes_total can be registered");
-        REGISTRY
-            .register(Box::new(SEGMENT_BUFFER_RECORDS.clone()))
-            .expect("segment_buffer_records can be registered");
-        REGISTRY
-            .register(Box::new(S3_REQUESTS_TOTAL.clone()))
-            .expect("s3_requests_total can be registered");
-        REGISTRY
-            .register(Box::new(S3_ERRORS_TOTAL.clone()))
-            .expect("s3_errors_total can be registered");
-        REGISTRY
-            .register(Box::new(S3_LATENCY.clone()))
-            .expect("s3_latency can be registered");
-        REGISTRY
-            .register(Box::new(CACHE_HITS_TOTAL.clone()))
-            .expect("cache_hits_total can be registered");
-        REGISTRY
-            .register(Box::new(CACHE_MISSES_TOTAL.clone()))
-            .expect("cache_misses_total can be registered");
-        REGISTRY
-            .register(Box::new(CACHE_SIZE_BYTES.clone()))
-            .expect("cache_size_bytes can be registered");
-
-        // System metrics
-        REGISTRY
-            .register(Box::new(CONNECTIONS_ACTIVE.clone()))
-            .expect("connections_active can be registered");
-        REGISTRY
-            .register(Box::new(PARTITIONS_TOTAL.clone()))
-            .expect("partitions_total can be registered");
-        REGISTRY
-            .register(Box::new(TOPICS_TOTAL.clone()))
-            .expect("topics_total can be registered");
-        REGISTRY
-            .register(Box::new(AGENTS_ACTIVE.clone()))
-            .expect("agents_active can be registered");
-        REGISTRY
-            .register(Box::new(UPTIME_SECONDS.clone()))
-            .expect("uptime_seconds can be registered");
-        REGISTRY
-            .register(Box::new(DATABASE_ERRORS_TOTAL.clone()))
-            .expect("database_errors_total can be registered");
-
-        // Throttle & Circuit Breaker metrics
-        REGISTRY
-            .register(Box::new(THROTTLE_DECISIONS_TOTAL.clone()))
-            .expect("throttle_decisions_total can be registered");
-        REGISTRY
-            .register(Box::new(THROTTLE_RATE_CURRENT.clone()))
-            .expect("throttle_rate_current can be registered");
-        REGISTRY
-            .register(Box::new(CIRCUIT_BREAKER_STATE.clone()))
-            .expect("circuit_breaker_state can be registered");
-        REGISTRY
-            .register(Box::new(CIRCUIT_BREAKER_TRANSITIONS_TOTAL.clone()))
-            .expect("circuit_breaker_transitions_total can be registered");
-        REGISTRY
-            .register(Box::new(CIRCUIT_BREAKER_FAILURES.clone()))
-            .expect("circuit_breaker_failures can be registered");
-        REGISTRY
-            .register(Box::new(CIRCUIT_BREAKER_SUCCESSES.clone()))
-            .expect("circuit_breaker_successes can be registered");
-
-        // Lease Manager metrics
-        REGISTRY
-            .register(Box::new(LEASE_ACQUISITIONS_TOTAL.clone()))
-            .expect("lease_acquisitions_total can be registered");
-        REGISTRY
-            .register(Box::new(LEASE_RENEWALS_TOTAL.clone()))
-            .expect("lease_renewals_total can be registered");
-        REGISTRY
-            .register(Box::new(LEASE_CONFLICTS_TOTAL.clone()))
-            .expect("lease_conflicts_total can be registered");
-        REGISTRY
-            .register(Box::new(LEASE_EPOCH_CURRENT.clone()))
-            .expect("lease_epoch_current can be registered");
-        REGISTRY
-            .register(Box::new(LEASE_EXPIRES_AT.clone()))
-            .expect("lease_expires_at can be registered");
-
-        // Leader Change Tracking metrics
-        REGISTRY
-            .register(Box::new(LEADER_CHANGES_TOTAL.clone()))
-            .expect("leader_changes_total can be registered");
-        REGISTRY
-            .register(Box::new(LEADER_HANDOFF_LATENCY.clone()))
-            .expect("leader_handoff_latency can be registered");
-        REGISTRY
-            .register(Box::new(LEADER_GAP_SECONDS.clone()))
-            .expect("leader_gap_seconds can be registered");
-        REGISTRY
-            .register(Box::new(LEADER_TRANSFERS_PENDING.clone()))
-            .expect("leader_transfers_pending can be registered");
-        REGISTRY
-            .register(Box::new(LEADER_TRANSFERS_TOTAL.clone()))
-            .expect("leader_transfers_total can be registered");
-
-        // WAL metrics
-        REGISTRY
-            .register(Box::new(WAL_APPENDS_TOTAL.clone()))
-            .expect("wal_appends_total can be registered");
-        REGISTRY
-            .register(Box::new(WAL_RECOVERIES_TOTAL.clone()))
-            .expect("wal_recoveries_total can be registered");
-        REGISTRY
-            .register(Box::new(WAL_RECORDS_RECOVERED.clone()))
-            .expect("wal_records_recovered can be registered");
-        REGISTRY
-            .register(Box::new(WAL_RECORDS_SKIPPED.clone()))
-            .expect("wal_records_skipped can be registered");
-        REGISTRY
-            .register(Box::new(WAL_SIZE_BYTES.clone()))
-            .expect("wal_size_bytes can be registered");
-        REGISTRY
-            .register(Box::new(WAL_TRUNCATES_TOTAL.clone()))
-            .expect("wal_truncates_total can be registered");
-
-        // Schema Registry metrics
-        REGISTRY
-            .register(Box::new(SCHEMA_REGISTRATIONS_TOTAL.clone()))
-            .expect("schema_registrations_total can be registered");
-        REGISTRY
-            .register(Box::new(SCHEMA_REGISTRY_ERRORS_TOTAL.clone()))
-            .expect("schema_registry_errors_total can be registered");
-        REGISTRY
-            .register(Box::new(SCHEMA_COMPATIBILITY_CHECKS_TOTAL.clone()))
-            .expect("schema_compatibility_checks_total can be registered");
-        REGISTRY
-            .register(Box::new(SCHEMA_CACHE_ENTRIES.clone()))
-            .expect("schema_cache_entries can be registered");
-        REGISTRY
-            .register(Box::new(SCHEMA_LOOKUPS_TOTAL.clone()))
-            .expect("schema_lookups_total can be registered");
-        REGISTRY
-            .register(Box::new(SCHEMAS_TOTAL.clone()))
-            .expect("schemas_total can be registered");
-        REGISTRY
-            .register(Box::new(SUBJECTS_TOTAL.clone()))
-            .expect("subjects_total can be registered");
-
-        // Per-Producer Debugging metrics (Phase 10.7)
-        REGISTRY
-            .register(Box::new(PRODUCER_DEDUP_TOTAL.clone()))
-            .expect("producer_dedup_total can be registered");
-        REGISTRY
-            .register(Box::new(PRODUCER_SEQUENCE_CURRENT.clone()))
-            .expect("producer_sequence_current can be registered");
-        REGISTRY
-            .register(Box::new(PRODUCER_FENCE_TOTAL.clone()))
-            .expect("producer_fence_total can be registered");
-
-        // Partition Imbalance metrics (Phase 10.8)
-        REGISTRY
-            .register(Box::new(PARTITION_WRITE_RATE.clone()))
-            .expect("partition_write_rate can be registered");
-        REGISTRY
-            .register(Box::new(PARTITION_BYTES_RATE.clone()))
-            .expect("partition_bytes_rate can be registered");
-        REGISTRY
-            .register(Box::new(PARTITION_IMBALANCE_RATIO.clone()))
-            .expect("partition_imbalance_ratio can be registered");
-
-        // Backpressure Visibility metrics (Phase 10.9)
-        REGISTRY
-            .register(Box::new(BACKPRESSURE_THROTTLE_TOTAL.clone()))
-            .expect("backpressure_throttle_total can be registered");
-        REGISTRY
-            .register(Box::new(BACKPRESSURE_CREDITS_AVAILABLE.clone()))
-            .expect("backpressure_credits_available can be registered");
-        REGISTRY
-            .register(Box::new(BACKPRESSURE_WAIT_TIME.clone()))
-            .expect("backpressure_wait_time can be registered");
-
-        // E2E Latency Breakdown metrics (Phase 10.10)
-        REGISTRY
-            .register(Box::new(E2E_PRODUCE_LATENCY.clone()))
-            .expect("e2e_produce_latency can be registered");
-        REGISTRY
-            .register(Box::new(WAL_APPEND_LATENCY.clone()))
-            .expect("wal_append_latency can be registered");
-        REGISTRY
-            .register(Box::new(S3_FLUSH_LATENCY.clone()))
-            .expect("s3_flush_latency can be registered");
-
-        // Rate Limiting metrics
-        REGISTRY
-            .register(Box::new(RATE_LIMIT_TOTAL.clone()))
-            .expect("rate_limit_total can be registered");
-        REGISTRY
-            .register(Box::new(THROTTLE_TIME_MS.clone()))
-            .expect("throttle_time_ms can be registered");
-    });
+    // Touch all lazy statics to ensure they are registered.
+    let _ = &*PRODUCER_RECORDS_TOTAL;
+    let _ = &*PRODUCER_BYTES_TOTAL;
+    let _ = &*PRODUCER_LATENCY;
+    let _ = &*PRODUCER_BATCH_SIZE;
+    let _ = &*PRODUCER_ERRORS_TOTAL;
+    let _ = &*CONSUMER_RECORDS_TOTAL;
+    let _ = &*CONSUMER_LAG;
+    let _ = &*CONSUMER_REBALANCES_TOTAL;
+    let _ = &*CONSUMER_ERRORS_TOTAL;
+    let _ = &*SEGMENT_WRITES_TOTAL;
+    let _ = &*SEGMENT_FLUSHES_TOTAL;
+    let _ = &*SEGMENT_BUFFER_RECORDS;
+    let _ = &*S3_REQUESTS_TOTAL;
+    let _ = &*S3_ERRORS_TOTAL;
+    let _ = &*S3_LATENCY;
+    let _ = &*CACHE_HITS_TOTAL;
+    let _ = &*CACHE_MISSES_TOTAL;
+    let _ = &*CACHE_SIZE_BYTES;
+    let _ = &*CONNECTIONS_ACTIVE;
+    let _ = &*PARTITIONS_TOTAL;
+    let _ = &*TOPICS_TOTAL;
+    let _ = &*AGENTS_ACTIVE;
+    let _ = &*UPTIME_SECONDS;
+    let _ = &*DATABASE_ERRORS_TOTAL;
+    let _ = &*THROTTLE_DECISIONS_TOTAL;
+    let _ = &*THROTTLE_RATE_CURRENT;
+    let _ = &*CIRCUIT_BREAKER_STATE;
+    let _ = &*CIRCUIT_BREAKER_TRANSITIONS_TOTAL;
+    let _ = &*CIRCUIT_BREAKER_FAILURES;
+    let _ = &*CIRCUIT_BREAKER_SUCCESSES;
+    let _ = &*LEASE_ACQUISITIONS_TOTAL;
+    let _ = &*LEASE_RENEWALS_TOTAL;
+    let _ = &*LEASE_CONFLICTS_TOTAL;
+    let _ = &*LEASE_EPOCH_CURRENT;
+    let _ = &*LEASE_EXPIRES_AT;
+    let _ = &*LEADER_CHANGES_TOTAL;
+    let _ = &*LEADER_HANDOFF_LATENCY;
+    let _ = &*LEADER_GAP_SECONDS;
+    let _ = &*LEADER_TRANSFERS_PENDING;
+    let _ = &*LEADER_TRANSFERS_TOTAL;
+    let _ = &*WAL_APPENDS_TOTAL;
+    let _ = &*WAL_RECOVERIES_TOTAL;
+    let _ = &*WAL_RECORDS_RECOVERED;
+    let _ = &*WAL_RECORDS_SKIPPED;
+    let _ = &*WAL_SIZE_BYTES;
+    let _ = &*WAL_TRUNCATES_TOTAL;
+    let _ = &*SCHEMA_REGISTRATIONS_TOTAL;
+    let _ = &*SCHEMA_REGISTRY_ERRORS_TOTAL;
+    let _ = &*SCHEMA_COMPATIBILITY_CHECKS_TOTAL;
+    let _ = &*SCHEMA_CACHE_ENTRIES;
+    let _ = &*SCHEMA_LOOKUPS_TOTAL;
+    let _ = &*SCHEMAS_TOTAL;
+    let _ = &*SUBJECTS_TOTAL;
+    let _ = &*PRODUCER_DEDUP_TOTAL;
+    let _ = &*PRODUCER_SEQUENCE_CURRENT;
+    let _ = &*PRODUCER_FENCE_TOTAL;
+    let _ = &*PARTITION_WRITE_RATE;
+    let _ = &*PARTITION_BYTES_RATE;
+    let _ = &*PARTITION_IMBALANCE_RATIO;
+    let _ = &*BACKPRESSURE_THROTTLE_TOTAL;
+    let _ = &*BACKPRESSURE_CREDITS_AVAILABLE;
+    let _ = &*BACKPRESSURE_WAIT_TIME;
+    let _ = &*E2E_PRODUCE_LATENCY;
+    let _ = &*WAL_APPEND_LATENCY;
+    let _ = &*S3_FLUSH_LATENCY;
+    let _ = &*RATE_LIMIT_TOTAL;
+    let _ = &*THROTTLE_TIME_MS;
 }
 
 #[cfg(test)]

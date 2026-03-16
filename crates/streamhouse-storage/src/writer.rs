@@ -684,7 +684,7 @@ impl PartitionWriter {
             // Measure S3 latency
             let start = std::time::Instant::now();
 
-            match self.object_store.put(&path, data.clone()).await {
+            match self.object_store.put(&path, data.clone().into()).await {
                 Ok(_) => {
                     // Record S3 latency on success (Phase 7.1d)
                     let duration = start.elapsed().as_secs_f64();
@@ -770,11 +770,8 @@ impl PartitionWriter {
     /// - Better throughput for large segments
     /// - Streaming upload (memory efficient)
     ///
-    /// Note: In object_store 0.9, put_multipart returns an AsyncWrite stream.
-    /// For true parallel uploads, we'd need to chunk and spawn tasks.
+    /// Uses object_store 0.10+ MultipartUpload API: put_part + complete.
     async fn upload_multipart(&self, path: &object_store::path::Path, data: Bytes) -> Result<()> {
-        use tokio::io::AsyncWriteExt;
-
         let part_size = self.config.multipart_part_size;
         let num_parts = data.len().div_ceil(part_size);
 
@@ -801,8 +798,8 @@ impl PartitionWriter {
 
         let start = std::time::Instant::now();
 
-        // Start multipart upload - returns (multipart_id, writer)
-        let (_multipart_id, mut writer) = match self.object_store.put_multipart(path).await {
+        // Start multipart upload - returns Box<dyn MultipartUpload>
+        let mut upload = match self.object_store.put_multipart(path).await {
             Ok(upload) => upload,
             Err(e) => {
                 if let Some(ref throttle) = self.throttle {
@@ -819,7 +816,8 @@ impl PartitionWriter {
         for (i, chunk) in data.chunks(part_size).enumerate() {
             tracing::trace!(part = i, size = chunk.len(), "Writing part");
 
-            if let Err(e) = writer.write_all(chunk).await {
+            let part_data: Bytes = Bytes::copy_from_slice(chunk);
+            if let Err(e) = upload.put_part(part_data.into()).await {
                 if let Some(ref throttle) = self.throttle {
                     throttle.report_result(S3Operation::Put, false, false).await;
                 }
@@ -827,8 +825,8 @@ impl PartitionWriter {
             }
         }
 
-        // Complete the multipart upload by shutting down the writer
-        match writer.shutdown().await {
+        // Complete the multipart upload
+        match upload.complete().await {
             Ok(_) => {
                 let duration = start.elapsed().as_secs_f64();
                 streamhouse_observability::metrics::S3_LATENCY

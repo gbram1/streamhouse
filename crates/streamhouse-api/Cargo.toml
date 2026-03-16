@@ -21,8 +21,8 @@ bytes = { workspace = true }
 apache-avro = { workspace = true }
 
 # OpenAPI docs
-utoipa = { version = "4.0", features = ["axum_extras"] }
-utoipa-swagger-ui = { version = "7.1", features = ["axum"] }
+utoipa = { version = "5.0", features = ["axum_extras"] }
+utoipa-swagger-ui = { version = "8.0", features = ["axum"] }
 
 # Logging
 tracing = { workspace = true }
@@ -53,7 +53,7 @@ base64 = "0.22"
 
 # TLS support
 rustls = "0.23"
-rustls-pemfile = "2"
+rustls-pki-types = "1"
 tokio-rustls = "0.26"
 axum-server = { version = "0.7", features = ["tls-rustls"] }
 

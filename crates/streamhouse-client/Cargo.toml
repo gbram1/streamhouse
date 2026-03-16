@@ -33,7 +33,7 @@ reqwest = { version = "0.12", features = ["json"] }
 siphasher = "1.0"
 
 # For S3 integration
-object_store = "0.9"
+object_store = { workspace = true }
 
 # For metrics
 prometheus-client = { workspace = true, optional = true }

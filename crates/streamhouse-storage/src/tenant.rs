@@ -58,13 +58,12 @@ use async_trait::async_trait;
 use bytes::Bytes;
 use futures::stream::BoxStream;
 use object_store::{
-    path::Path, GetOptions, GetResult, ListResult, MultipartId, ObjectMeta, ObjectStore,
-    PutOptions, PutResult, Result,
+    path::Path, GetOptions, GetResult, ListResult, MultipartUpload, ObjectMeta, ObjectStore,
+    PutMultipartOpts, PutOptions, PutPayload, PutResult, Result,
 };
 use std::fmt::{Debug, Display, Formatter};
 use std::ops::Range;
 use std::sync::Arc;
-use tokio::io::AsyncWrite;
 
 /// A tenant-isolated wrapper around any ObjectStore implementation.
 ///
@@ -176,52 +175,45 @@ impl Display for TenantObjectStore {
 #[async_trait]
 impl ObjectStore for TenantObjectStore {
     /// Upload data to the tenant's storage space.
-    async fn put(&self, location: &Path, bytes: Bytes) -> Result<PutResult> {
+    async fn put(&self, location: &Path, payload: PutPayload) -> Result<PutResult> {
         let tenant_location = self.tenant_path(location);
         tracing::trace!(
             original = %location,
             tenant = %tenant_location,
             "TenantObjectStore::put"
         );
-        self.inner.put(&tenant_location, bytes).await
+        self.inner.put(&tenant_location, payload).await
     }
 
     /// Upload data with options to the tenant's storage space.
-    async fn put_opts(&self, location: &Path, bytes: Bytes, opts: PutOptions) -> Result<PutResult> {
+    async fn put_opts(
+        &self,
+        location: &Path,
+        payload: PutPayload,
+        opts: PutOptions,
+    ) -> Result<PutResult> {
         let tenant_location = self.tenant_path(location);
         tracing::trace!(
             original = %location,
             tenant = %tenant_location,
             "TenantObjectStore::put_opts"
         );
-        self.inner.put_opts(&tenant_location, bytes, opts).await
+        self.inner.put_opts(&tenant_location, payload, opts).await
     }
 
     /// Start a multipart upload to the tenant's storage space.
-    async fn put_multipart(
+    async fn put_multipart_opts(
         &self,
         location: &Path,
-    ) -> Result<(MultipartId, Box<dyn AsyncWrite + Unpin + Send>)> {
+        opts: PutMultipartOpts,
+    ) -> Result<Box<dyn MultipartUpload>> {
         let tenant_location = self.tenant_path(location);
         tracing::trace!(
             original = %location,
             tenant = %tenant_location,
             "TenantObjectStore::put_multipart"
         );
-        self.inner.put_multipart(&tenant_location).await
-    }
-
-    /// Abort a multipart upload.
-    async fn abort_multipart(&self, location: &Path, multipart_id: &MultipartId) -> Result<()> {
-        let tenant_location = self.tenant_path(location);
-        tracing::trace!(
-            original = %location,
-            tenant = %tenant_location,
-            "TenantObjectStore::abort_multipart"
-        );
-        self.inner
-            .abort_multipart(&tenant_location, multipart_id)
-            .await
+        self.inner.put_multipart_opts(&tenant_location, opts).await
     }
 
     /// Download data from the tenant's storage space.
@@ -504,7 +496,7 @@ mod tests {
         let location = Path::from("data/test.seg");
         let data = Bytes::from("test data");
         store
-            .put(&location, data.clone())
+            .put(&location, data.clone().into())
             .await
             .expect("put failed");
 
@@ -530,13 +522,13 @@ mod tests {
         // Tenant 1 writes data
         let location = Path::from("data/shared-name.seg");
         tenant1
-            .put(&location, Bytes::from("tenant1 data"))
+            .put(&location, Bytes::from("tenant1 data").into())
             .await
             .expect("tenant1 put failed");
 
         // Tenant 2 writes data with same path
         tenant2
-            .put(&location, Bytes::from("tenant2 data"))
+            .put(&location, Bytes::from("tenant2 data").into())
             .await
             .expect("tenant2 put failed");
 

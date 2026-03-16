@@ -16,27 +16,27 @@
       {
         "name": "partition_id!",
         "ordinal": 2,
-        "type_info": "Int64"
+        "type_info": "Integer"
       },
       {
         "name": "base_offset!",
         "ordinal": 3,
-        "type_info": "Int64"
+        "type_info": "Integer"
       },
       {
         "name": "end_offset!",
         "ordinal": 4,
-        "type_info": "Int64"
+        "type_info": "Integer"
       },
       {
         "name": "record_count!",
         "ordinal": 5,
-        "type_info": "Int64"
+        "type_info": "Integer"
       },
       {
         "name": "size_bytes!",
         "ordinal": 6,
-        "type_info": "Int64"
+        "type_info": "Integer"
       },
       {
         "name": "s3_bucket!",
@@ -51,7 +51,7 @@
       {
         "name": "created_at!",
         "ordinal": 9,
-        "type_info": "Int64"
+        "type_info": "Integer"
       }
     ],
     "parameters": {

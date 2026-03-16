@@ -11,7 +11,7 @@
       {
         "name": "partition_id",
         "ordinal": 1,
-        "type_info": "Int64"
+        "type_info": "Integer"
       },
       {
         "name": "leader_agent_id",
@@ -21,17 +21,17 @@
       {
         "name": "lease_expires_at",
         "ordinal": 3,
-        "type_info": "Int64"
+        "type_info": "Integer"
       },
       {
         "name": "acquired_at",
         "ordinal": 4,
-        "type_info": "Int64"
+        "type_info": "Integer"
       },
       {
         "name": "epoch",
         "ordinal": 5,
-        "type_info": "Int64"
+        "type_info": "Integer"
       }
     ],
     "parameters": {

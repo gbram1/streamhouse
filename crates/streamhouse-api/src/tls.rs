@@ -27,8 +27,6 @@
 use rustls::pki_types::{CertificateDer, PrivateKeyDer};
 use rustls::server::WebPkiClientVerifier;
 use rustls::RootCertStore;
-use std::fs::File;
-use std::io::BufReader;
 use std::path::Path;
 use std::sync::Arc;
 use thiserror::Error;
@@ -154,10 +152,10 @@ impl TlsConfig {
 
 /// Load certificates from a PEM file
 fn load_certs(path: &Path) -> Result<Vec<CertificateDer<'static>>, TlsError> {
-    let file = File::open(path)?;
-    let mut reader = BufReader::new(file);
+    use rustls_pki_types::pem::PemObject;
 
-    let certs: Vec<_> = rustls_pemfile::certs(&mut reader)
+    let certs: Vec<_> = CertificateDer::pem_file_iter(path)
+        .map_err(|e| TlsError::CertificateParse(e.to_string()))?
         .filter_map(|result| result.ok())
         .collect();
 
@@ -172,26 +170,9 @@ fn load_certs(path: &Path) -> Result<Vec<CertificateDer<'static>>, TlsError> {
 
 /// Load private key from a PEM file
 fn load_private_key(path: &Path) -> Result<PrivateKeyDer<'static>, TlsError> {
-    let file = File::open(path)?;
-    let mut reader = BufReader::new(file);
+    use rustls_pki_types::pem::PemObject;
 
-    // Try to read PKCS#8 key first, then RSA key, then EC key
-    for item in rustls_pemfile::read_all(&mut reader).flatten() {
-        match item {
-            rustls_pemfile::Item::Pkcs1Key(key) => {
-                return Ok(PrivateKeyDer::Pkcs1(key));
-            }
-            rustls_pemfile::Item::Pkcs8Key(key) => {
-                return Ok(PrivateKeyDer::Pkcs8(key));
-            }
-            rustls_pemfile::Item::Sec1Key(key) => {
-                return Ok(PrivateKeyDer::Sec1(key));
-            }
-            _ => continue,
-        }
-    }
-
-    Err(TlsError::NoPrivateKey)
+    PrivateKeyDer::from_pem_file(path).map_err(|_| TlsError::NoPrivateKey)
 }
 
 /// Serve an Axum router with TLS

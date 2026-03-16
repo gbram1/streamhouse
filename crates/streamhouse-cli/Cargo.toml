@@ -43,7 +43,7 @@ open = "5"
 dialoguer = "0.11"
 
 # Output formatting
-tabled = "0.15"  # For table output
+tabled = "0.17"  # For table output
 colored = "2.1"  # For colored terminal output
 toml = "0.8"     # For config file parsing
 
