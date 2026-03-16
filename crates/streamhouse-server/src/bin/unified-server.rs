@@ -56,7 +56,9 @@ use axum::Router;
 use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::Duration;
-use streamhouse_kafka::{GroupCoordinator, KafkaServer, KafkaServerConfig, KafkaServerState, KafkaTenantResolver};
+use streamhouse_kafka::{
+    GroupCoordinator, KafkaServer, KafkaServerConfig, KafkaServerState, KafkaTenantResolver,
+};
 #[cfg(feature = "postgres")]
 use streamhouse_metadata::PostgresMetadataStore;
 use streamhouse_metadata::{MetadataStore, SqliteMetadataStore};
@@ -373,7 +375,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         metadata.clone(),
         Duration::from_secs(reconcile_grace),
     ));
-    let _reconciler_handle = reconciler.clone().start_background(Duration::from_secs(reconcile_interval));
+    let _reconciler_handle = reconciler
+        .clone()
+        .start_background(Duration::from_secs(reconcile_interval));
     tracing::info!(
         "🧹 S3 orphan reconciler started ({}s interval, {}s grace)",
         reconcile_interval,
@@ -430,10 +434,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                         .strip_prefix("org-")
                         .and_then(|s| s.strip_suffix('/'))
                     {
-                        org_snapshot_prefixes.push((
-                            org_id.to_string(),
-                            format!("org-{}/_snapshots/", org_id),
-                        ));
+                        org_snapshot_prefixes
+                            .push((org_id.to_string(), format!("org-{}/_snapshots/", org_id)));
                     }
                 }
             }
@@ -441,13 +443,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             let mut any_restored = false;
 
             for (org_id, snapshot_prefix) in &org_snapshot_prefixes {
-                let prefix_path =
-                    object_store::path::Path::from(snapshot_prefix.as_str());
+                let prefix_path = object_store::path::Path::from(snapshot_prefix.as_str());
                 let mut snapshots: Vec<object_store::ObjectMeta> = Vec::new();
                 let mut list_stream = object_store.list(Some(&prefix_path));
-                while let Some(meta) =
-                    list_stream.try_next().await.unwrap_or(None)
-                {
+                while let Some(meta) = list_stream.try_next().await.unwrap_or(None) {
                     if meta.location.to_string().ends_with(".json.gz") {
                         snapshots.push(meta);
                     }
@@ -472,15 +471,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     let result = object_store.get(&latest.location).await?;
                     let compressed = result.bytes().await?;
                     use std::io::Read;
-                    let mut decoder =
-                        flate2::read::GzDecoder::new(&compressed[..]);
+                    let mut decoder = flate2::read::GzDecoder::new(&compressed[..]);
                     let mut json = String::new();
                     decoder.read_to_string(&mut json)?;
 
-                    let backup =
-                        streamhouse_metadata::backup::MetadataBackup::from_json(
-                            &json,
-                        )
+                    let backup = streamhouse_metadata::backup::MetadataBackup::from_json(&json)
                         .map_err(|e| format!("Parse error: {}", e))?;
 
                     tracing::info!(
@@ -521,9 +516,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
             // After all snapshots restored, reconcile to fill gaps
             if any_restored {
-                tracing::info!(
-                    "Running reconcile-from-s3 to fill gaps..."
-                );
+                tracing::info!("Running reconcile-from-s3 to fill gaps...");
                 match reconciler.reconcile_from_s3().await {
                     Ok(stats) => {
                         if stats.segments_registered > 0 {
@@ -533,9 +526,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                                 stats.segments_registered
                             );
                         } else {
-                            tracing::info!(
-                                "Reconcile complete — snapshots were up to date"
-                            );
+                            tracing::info!("Reconcile complete — snapshots were up to date");
                         }
                     }
                     Err(e) => {
@@ -546,9 +537,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     }
                 }
             } else {
-                tracing::debug!(
-                    "No snapshots found in S3 — fresh deployment"
-                );
+                tracing::debug!("No snapshots found in S3 — fresh deployment");
             }
         }
     }
@@ -884,7 +873,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     if let Ok(admin_key) = std::env::var("STREAMHOUSE_ADMIN_KEY") {
         if !admin_key.is_empty() {
             use sha2::{Digest, Sha256};
-            let key_hash = format!("{:x}", Sha256::new().chain_update(admin_key.as_bytes()).finalize());
+            let key_hash = format!(
+                "{:x}",
+                Sha256::new().chain_update(admin_key.as_bytes()).finalize()
+            );
             let key_prefix = admin_key.chars().take(12).collect::<String>();
 
             // Check if already seeded
@@ -895,16 +887,22 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 _ => {
                     // Ensure default org exists
                     let org_id = streamhouse_metadata::DEFAULT_ORGANIZATION_ID;
-                    if metadata.get_organization(org_id).await.ok().flatten().is_none() {
-                        let _ = metadata.create_organization(
-                            streamhouse_metadata::CreateOrganization {
+                    if metadata
+                        .get_organization(org_id)
+                        .await
+                        .ok()
+                        .flatten()
+                        .is_none()
+                    {
+                        let _ = metadata
+                            .create_organization(streamhouse_metadata::CreateOrganization {
                                 name: "Default".to_string(),
                                 slug: "default".to_string(),
                                 plan: Default::default(),
                                 settings: Default::default(),
                                 clerk_id: None,
-                            },
-                        ).await;
+                            })
+                            .await;
                         tracing::info!("Created default organization");
                     }
 
@@ -914,7 +912,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                         scopes: vec![],
                         expires_in_ms: None,
                     };
-                    match metadata.create_api_key(org_id, config, &key_hash, &key_prefix).await {
+                    match metadata
+                        .create_api_key(org_id, config, &key_hash, &key_prefix)
+                        .await
+                    {
                         Ok(_) => tracing::info!("Seeded admin API key from STREAMHOUSE_ADMIN_KEY"),
                         Err(e) => tracing::warn!(error = %e, "Failed to seed admin API key"),
                     }

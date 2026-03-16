@@ -48,7 +48,10 @@ pub async fn run_schema_evolution(
         });
 
         match client
-            .post_json::<serde_json::Value>("/schemas/subjects/ft-user-events-value/versions", &body)
+            .post_json::<serde_json::Value>(
+                "/schemas/subjects/ft-user-events-value/versions",
+                &body,
+            )
             .await
         {
             Ok(resp) => {

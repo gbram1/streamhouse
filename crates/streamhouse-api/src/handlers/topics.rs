@@ -16,10 +16,7 @@ use streamhouse_metadata::{TopicConfig, DEFAULT_ORGANIZATION_ID};
 /// request extensions by the auth middleware — this cannot be spoofed by clients.
 /// Falls back to the `x-organization-id` header only when auth middleware is not
 /// present (dev/testing without auth).
-pub(crate) fn extract_org_id(
-    headers: &HeaderMap,
-    auth_key: Option<&AuthenticatedKey>,
-) -> String {
+pub(crate) fn extract_org_id(headers: &HeaderMap, auth_key: Option<&AuthenticatedKey>) -> String {
     // 1. If AuthenticatedKey is present (auth enabled), use its org_id
     if let Some(key) = auth_key {
         return key.organization_id.clone();
@@ -167,7 +164,11 @@ pub async fn list_topics(
         let mut total_size: u64 = 0;
 
         for partition_id in 0..t.partition_count {
-            if let Ok(segments) = state.metadata.get_segments(&org_id, &t.name, partition_id).await {
+            if let Ok(segments) = state
+                .metadata
+                .get_segments(&org_id, &t.name, partition_id)
+                .await
+            {
                 for seg in segments {
                     total_messages += seg.record_count as u64;
                     total_size += seg.size_bytes;
@@ -305,7 +306,11 @@ pub async fn get_topic(
     let mut total_size: u64 = 0;
 
     for partition_id in 0..topic.partition_count {
-        if let Ok(segments) = state.metadata.get_segments(&org_id, &topic.name, partition_id).await {
+        if let Ok(segments) = state
+            .metadata
+            .get_segments(&org_id, &topic.name, partition_id)
+            .await
+        {
             for seg in segments {
                 total_messages += seg.record_count as u64;
                 total_size += seg.size_bytes;

@@ -17,8 +17,8 @@ use std::time::{Duration, Instant};
 use bytes::{Buf, BufMut, BytesMut};
 use object_store::memory::InMemory;
 use streamhouse_metadata::{
-    MetadataStore, OrganizationPlan, OrganizationQuota,
-    QuotaEnforcer, SqliteMetadataStore, TopicConfig,
+    MetadataStore, OrganizationPlan, OrganizationQuota, QuotaEnforcer, SqliteMetadataStore,
+    TopicConfig,
 };
 use streamhouse_storage::{SegmentCache, WriteConfig, WriterPool};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -34,13 +34,26 @@ const NUM_BATCHES: usize = 50; // Send 50 produce requests rapidly
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     tracing_subscriber::fmt()
-        .with_env_filter("info,streamhouse_kafka=debug,streamhouse_metadata=debug,streamhouse_storage=warn")
+        .with_env_filter(
+            "info,streamhouse_kafka=debug,streamhouse_metadata=debug,streamhouse_storage=warn",
+        )
         .init();
 
     println!("=== Kafka Rate Limit Test ===");
-    println!("    Request limit: {} req/s (burst: {})", REQUEST_RATE_LIMIT, REQUEST_RATE_LIMIT * 2);
-    println!("    Produce limit: {} bytes/s (burst: {})", PRODUCE_BYTE_RATE, PRODUCE_BYTE_RATE * 2);
-    println!("    Sending:       {} produce requests as fast as possible\n", NUM_BATCHES);
+    println!(
+        "    Request limit: {} req/s (burst: {})",
+        REQUEST_RATE_LIMIT,
+        REQUEST_RATE_LIMIT * 2
+    );
+    println!(
+        "    Produce limit: {} bytes/s (burst: {})",
+        PRODUCE_BYTE_RATE,
+        PRODUCE_BYTE_RATE * 2
+    );
+    println!(
+        "    Sending:       {} produce requests as fast as possible\n",
+        NUM_BATCHES
+    );
 
     // ── Setup ────────────────────────────────────────────────────────────
     let metadata: Arc<dyn MetadataStore> = Arc::new(SqliteMetadataStore::new_in_memory().await?);
@@ -135,7 +148,10 @@ async fn main() -> anyhow::Result<()> {
 
     // Seed the enforcer — this creates the rate limiter with our low limits
     let _ = enforcer.check_request(&low_quota_ctx, None).await;
-    println!("[setup] QuotaEnforcer seeded with low limits ({}req/s, {}B/s)", REQUEST_RATE_LIMIT, PRODUCE_BYTE_RATE);
+    println!(
+        "[setup] QuotaEnforcer seeded with low limits ({}req/s, {}B/s)",
+        REQUEST_RATE_LIMIT, PRODUCE_BYTE_RATE
+    );
 
     // Build KafkaServerState manually (to inject the quota_enforcer)
     let kafka_config = KafkaServerConfig {
@@ -145,7 +161,9 @@ async fn main() -> anyhow::Result<()> {
         advertised_port: 0,
     };
 
-    let group_coordinator = Arc::new(streamhouse_kafka::coordinator::GroupCoordinator::new(metadata.clone()));
+    let group_coordinator = Arc::new(streamhouse_kafka::coordinator::GroupCoordinator::new(
+        metadata.clone(),
+    ));
 
     let state = Arc::new(KafkaServerState {
         config: kafka_config.clone(),
@@ -170,7 +188,11 @@ async fn main() -> anyhow::Result<()> {
             if let Ok((stream, peer_addr)) = listener.accept().await {
                 let state = server_state.clone();
                 tokio::spawn(async move {
-                    if let Err(e) = streamhouse_kafka::server::handle_connection_public(stream, peer_addr, state).await {
+                    if let Err(e) = streamhouse_kafka::server::handle_connection_public(
+                        stream, peer_addr, state,
+                    )
+                    .await
+                    {
                         // ConnectionClosed is expected
                         let _ = e;
                     }
@@ -189,9 +211,18 @@ async fn main() -> anyhow::Result<()> {
     send_request(&mut stream, &req).await?;
     let _ = recv_response(&mut stream).await?;
 
-    println!("[produce] Sending {} produce requests as fast as possible...\n", NUM_BATCHES);
-    println!("  {:>5}  {:>12}  {:>15}  {:>10}", "Batch", "Error Code", "Throttle (ms)", "Status");
-    println!("  {:>5}  {:>12}  {:>15}  {:>10}", "-----", "----------", "-------------", "------");
+    println!(
+        "[produce] Sending {} produce requests as fast as possible...\n",
+        NUM_BATCHES
+    );
+    println!(
+        "  {:>5}  {:>12}  {:>15}  {:>10}",
+        "Batch", "Error Code", "Throttle (ms)", "Status"
+    );
+    println!(
+        "  {:>5}  {:>12}  {:>15}  {:>10}",
+        "-----", "----------", "-------------", "------"
+    );
 
     let mut throttled_count = 0;
     let mut total_throttle_ms = 0i32;
@@ -203,7 +234,9 @@ async fn main() -> anyhow::Result<()> {
                 let key = format!("key-{batch_idx}-{i}").into_bytes();
                 let value = format!(
                     r#"{{"batch":{},"seq":{},"data":"rate-limit-test-payload-{:06}"}}"#,
-                    batch_idx, i, batch_idx * 10 + i
+                    batch_idx,
+                    i,
+                    batch_idx * 10 + i
                 )
                 .into_bytes();
                 (key, value)
@@ -244,16 +277,32 @@ async fn main() -> anyhow::Result<()> {
     println!("  Total batches:     {}", NUM_BATCHES);
     println!("  Total records:     {}", NUM_BATCHES * 10);
     println!("  Elapsed:           {:.3}s", produce_elapsed.as_secs_f64());
-    println!("  Request rate:      {:.0} req/s", NUM_BATCHES as f64 / produce_elapsed.as_secs_f64());
-    println!("  Throttled:         {}/{} batches", throttled_count, NUM_BATCHES);
+    println!(
+        "  Request rate:      {:.0} req/s",
+        NUM_BATCHES as f64 / produce_elapsed.as_secs_f64()
+    );
+    println!(
+        "  Throttled:         {}/{} batches",
+        throttled_count, NUM_BATCHES
+    );
     println!("  Total throttle:    {} ms", total_throttle_ms);
-    println!("  Rate limit:        {} req/s (burst {})", REQUEST_RATE_LIMIT, REQUEST_RATE_LIMIT * 2);
+    println!(
+        "  Rate limit:        {} req/s (burst {})",
+        REQUEST_RATE_LIMIT,
+        REQUEST_RATE_LIMIT * 2
+    );
 
     if throttled_count > 0 {
-        println!("\n  Rate limiting is working! Kafka clients would back off for {}ms total.", total_throttle_ms);
+        println!(
+            "\n  Rate limiting is working! Kafka clients would back off for {}ms total.",
+            total_throttle_ms
+        );
     } else {
         println!("\n  No throttling observed (requests may not have exceeded burst capacity).");
-        println!("  Burst allows {} requests before throttling kicks in.", REQUEST_RATE_LIMIT * 2);
+        println!(
+            "  Burst allows {} requests before throttling kicks in.",
+            REQUEST_RATE_LIMIT * 2
+        );
     }
 
     println!("\n=== Done ===");
@@ -283,7 +332,7 @@ async fn recv_response(stream: &mut TcpStream) -> anyhow::Result<Vec<u8>> {
 fn build_api_versions_request(correlation_id: i32) -> Vec<u8> {
     let mut buf = BytesMut::new();
     buf.put_i16(18); // api_key = ApiVersions
-    buf.put_i16(0);  // version
+    buf.put_i16(0); // version
     buf.put_i32(correlation_id);
     buf.put_i16(8);
     buf.extend_from_slice(b"ratelim1");
@@ -299,20 +348,20 @@ fn build_produce_v1_request(
 ) -> Vec<u8> {
     let mut buf = BytesMut::new();
 
-    buf.put_i16(0);  // api_key = Produce
-    buf.put_i16(1);  // api_version = 1 (includes throttle_time_ms in response)
+    buf.put_i16(0); // api_key = Produce
+    buf.put_i16(1); // api_version = 1 (includes throttle_time_ms in response)
     buf.put_i32(correlation_id);
     buf.put_i16(8);
     buf.extend_from_slice(b"ratelim1");
 
-    buf.put_i16(1);      // acks
+    buf.put_i16(1); // acks
     buf.put_i32(30_000); // timeout
 
-    buf.put_i32(1);                     // 1 topic
+    buf.put_i32(1); // 1 topic
     buf.put_i16(topic.len() as i16);
     buf.extend_from_slice(topic.as_bytes());
 
-    buf.put_i32(1);       // 1 partition
+    buf.put_i32(1); // 1 partition
     buf.put_i32(partition);
 
     let record_batch = build_record_batch(records);
@@ -328,8 +377,8 @@ fn build_record_batch(records: &[(Vec<u8>, Vec<u8>)]) -> Vec<u8> {
     for (i, (key, value)) in records.iter().enumerate() {
         let mut record = BytesMut::new();
         record.put_i8(0); // attributes
-        write_varint(&mut record, 0);            // timestamp_delta
-        write_varint(&mut record, i as i64);     // offset_delta
+        write_varint(&mut record, 0); // timestamp_delta
+        write_varint(&mut record, i as i64); // offset_delta
         write_varint(&mut record, key.len() as i64);
         record.extend_from_slice(key);
         write_varint(&mut record, value.len() as i64);
@@ -347,7 +396,7 @@ fn build_record_batch(records: &[(Vec<u8>, Vec<u8>)]) -> Vec<u8> {
     batch.put_i32(0); // placeholder batch length
 
     batch.put_i32(0); // partition_leader_epoch
-    batch.put_i8(2);  // magic = 2
+    batch.put_i8(2); // magic = 2
 
     let crc_pos = batch.len();
     batch.put_u32(0); // placeholder CRC

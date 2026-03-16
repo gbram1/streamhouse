@@ -67,10 +67,10 @@ async fn main() -> anyhow::Result<()> {
                 interval: Duration::from_millis(100),
             },
             max_size_bytes: 1024 * 1024 * 1024,
-            batch_enabled: true,       // group commit
+            batch_enabled: true, // group commit
             batch_max_records: 1000,
             batch_max_bytes: 4 * 1024 * 1024,
-            batch_max_age_ms: 10,      // flush batch after 10ms
+            batch_max_age_ms: 10, // flush batch after 10ms
             agent_id: None,
         }),
         ..Default::default()
@@ -132,9 +132,7 @@ async fn main() -> anyhow::Result<()> {
     // Optimization #3: one connection per topic, all producing concurrently
     let batches_per_topic = MESSAGES_PER_TOPIC / BATCH_SIZE;
 
-    println!(
-        "[produce] Sending {TOTAL_MESSAGES} messages ({NUM_TOPICS} parallel connections)..."
-    );
+    println!("[produce] Sending {TOTAL_MESSAGES} messages ({NUM_TOPICS} parallel connections)...");
 
     let produce_start = Instant::now();
     let mut join_set = JoinSet::new();
@@ -310,8 +308,7 @@ async fn main() -> anyhow::Result<()> {
         .await?;
     println!("[sasl] Created org: id={}", org.id);
 
-    let (raw_key, key_hash, key_prefix) =
-        streamhouse_metadata::tenant::generate_api_key("sk_test");
+    let (raw_key, key_hash, key_prefix) = streamhouse_metadata::tenant::generate_api_key("sk_test");
     let _api_key = metadata
         .create_api_key(
             &org.id,
@@ -366,14 +363,17 @@ async fn main() -> anyhow::Result<()> {
         send_request(&mut stream, &req).await?;
         let resp = recv_response(&mut stream).await?;
         let auth_error = parse_sasl_authenticate_error(&resp);
-        assert_eq!(auth_error, 0, "SaslAuthenticate should succeed with valid key");
-        println!("[sasl] SaslAuthenticate OK (authenticated as org={})", org.id);
+        assert_eq!(
+            auth_error, 0,
+            "SaslAuthenticate should succeed with valid key"
+        );
+        println!(
+            "[sasl] SaslAuthenticate OK (authenticated as org={})",
+            org.id
+        );
 
         // Step 4: Produce a message (should use the authenticated org context)
-        let records: Vec<(Vec<u8>, Vec<u8>)> = vec![(
-            b"sasl-key".to_vec(),
-            b"sasl-value".to_vec(),
-        )];
+        let records: Vec<(Vec<u8>, Vec<u8>)> = vec![(b"sasl-key".to_vec(), b"sasl-value".to_vec())];
         let req = build_batched_produce_request(3, sasl_topic, 0, &records);
         send_request(&mut stream, &req).await?;
         let resp = recv_response(&mut stream).await?;
@@ -406,7 +406,10 @@ async fn main() -> anyhow::Result<()> {
         send_request(&mut stream, &req).await?;
         let resp = recv_response(&mut stream).await?;
         let err = parse_sasl_handshake_error(&resp);
-        assert_eq!(err, 33, "Should get UnsupportedSaslMechanism (33) for SCRAM");
+        assert_eq!(
+            err, 33,
+            "Should get UnsupportedSaslMechanism (33) for SCRAM"
+        );
         println!("[sasl] Unsupported mechanism rejected correctly");
     }
 
@@ -421,11 +424,18 @@ async fn main() -> anyhow::Result<()> {
         send_request(&mut stream, &req).await?;
         let _ = recv_response(&mut stream).await?;
 
-        let req = build_sasl_authenticate_request(2, "sk_test_invalid_key_000000000000000000000000000000000000", "sk_test_invalid_key_000000000000000000000000000000000000");
+        let req = build_sasl_authenticate_request(
+            2,
+            "sk_test_invalid_key_000000000000000000000000000000000000",
+            "sk_test_invalid_key_000000000000000000000000000000000000",
+        );
         send_request(&mut stream, &req).await?;
         let resp = recv_response(&mut stream).await?;
         let err = parse_sasl_authenticate_error(&resp);
-        assert_eq!(err, 58, "Should get SaslAuthenticationFailed (58) for bad key");
+        assert_eq!(
+            err, 58,
+            "Should get SaslAuthenticationFailed (58) for bad key"
+        );
         println!("[sasl] Invalid credentials rejected correctly");
     }
 
@@ -739,11 +749,7 @@ fn build_sasl_handshake_request(correlation_id: i32, mechanism: &str) -> Vec<u8>
 }
 
 /// Build a SaslAuthenticate request (API Key 36, version 0)
-fn build_sasl_authenticate_request(
-    correlation_id: i32,
-    username: &str,
-    password: &str,
-) -> Vec<u8> {
+fn build_sasl_authenticate_request(correlation_id: i32, username: &str, password: &str) -> Vec<u8> {
     let mut buf = BytesMut::new();
     buf.put_i16(36); // api_key = SaslAuthenticate
     buf.put_i16(0); // api_version = 0

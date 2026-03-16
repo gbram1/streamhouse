@@ -92,7 +92,11 @@ pub fn build_fetch_request(
     buf.to_vec()
 }
 
-pub fn build_sasl_handshake_request(correlation_id: i32, client_id: &str, mechanism: &str) -> Vec<u8> {
+pub fn build_sasl_handshake_request(
+    correlation_id: i32,
+    client_id: &str,
+    mechanism: &str,
+) -> Vec<u8> {
     let mut buf = BytesMut::new();
     buf.put_i16(17); // SaslHandshake
     buf.put_i16(0);

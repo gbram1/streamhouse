@@ -359,7 +359,10 @@ mod tests {
         let cache = SegmentCache::new(temp_dir.path().join("cache"), 1024 * 1024).unwrap();
 
         let data = Bytes::from(vec![1u8, 2, 3, 4, 5]);
-        cache.put("segment-1", data.clone(), "test-org").await.unwrap();
+        cache
+            .put("segment-1", data.clone(), "test-org")
+            .await
+            .unwrap();
 
         let retrieved = cache.get("segment-1", "test-org").await.unwrap();
         assert!(retrieved.is_some());

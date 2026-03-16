@@ -106,7 +106,8 @@ impl S3Reconciler {
         let mut known_keys: HashSet<String> = HashSet::new();
 
         // Build list of org_ids to check
-        let mut org_ids: Vec<String> = vec![streamhouse_metadata::DEFAULT_ORGANIZATION_ID.to_string()];
+        let mut org_ids: Vec<String> =
+            vec![streamhouse_metadata::DEFAULT_ORGANIZATION_ID.to_string()];
         if let Ok(orgs) = self.metadata.list_organizations().await {
             for org in orgs {
                 if org.id != streamhouse_metadata::DEFAULT_ORGANIZATION_ID {
@@ -347,8 +348,10 @@ impl S3Reconciler {
 
                 // Update high watermark if this segment extends it
                 let new_hwm = header.end_offset + 1;
-                if let Ok(Some(partition)) =
-                    self.metadata.get_partition(org_id, &topic, partition_id).await
+                if let Ok(Some(partition)) = self
+                    .metadata
+                    .get_partition(org_id, &topic, partition_id)
+                    .await
                 {
                     if new_hwm > partition.high_watermark {
                         if let Err(e) = self
@@ -453,20 +456,23 @@ mod tests {
 
         // Register only the first segment in metadata
         metadata
-            .add_segment(streamhouse_metadata::DEFAULT_ORGANIZATION_ID, streamhouse_metadata::SegmentInfo {
-                id: "orders-0-0".to_string(),
-                topic: "orders".to_string(),
-                partition_id: 0,
-                base_offset: 0,
-                end_offset: 999,
-                record_count: 1000,
-                size_bytes: 12,
-                s3_bucket: "test".to_string(),
-                s3_key: registered_key.to_string(),
-                created_at: 0,
-                min_timestamp: 0,
-                max_timestamp: 0,
-            })
+            .add_segment(
+                streamhouse_metadata::DEFAULT_ORGANIZATION_ID,
+                streamhouse_metadata::SegmentInfo {
+                    id: "orders-0-0".to_string(),
+                    topic: "orders".to_string(),
+                    partition_id: 0,
+                    base_offset: 0,
+                    end_offset: 999,
+                    record_count: 1000,
+                    size_bytes: 12,
+                    s3_bucket: "test".to_string(),
+                    s3_key: registered_key.to_string(),
+                    created_at: 0,
+                    min_timestamp: 0,
+                    max_timestamp: 0,
+                },
+            )
             .await
             .unwrap();
 

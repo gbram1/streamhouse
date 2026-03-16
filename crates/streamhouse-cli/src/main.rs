@@ -112,11 +112,7 @@ struct Cli {
     api_url: String,
 
     /// API key for authentication
-    #[arg(
-        long = "api-key",
-        env = "STREAMHOUSE_API_KEY",
-        global = true
-    )]
+    #[arg(long = "api-key", env = "STREAMHOUSE_API_KEY", global = true)]
     api_key: Option<String>,
 
     /// Output format (table, json, yaml, text) — applies to all commands
@@ -488,7 +484,8 @@ async fn main() -> Result<()> {
                 stdin,
             } => {
                 // Auto-detect stdin: if no --value and stdin is not a TTY, read from it
-                let use_stdin = stdin || (value.is_none() && file.is_none() && !std::io::stdin().is_terminal());
+                let use_stdin =
+                    stdin || (value.is_none() && file.is_none() && !std::io::stdin().is_terminal());
 
                 if file.is_some() || use_stdin {
                     handle_batch_produce(
@@ -569,12 +566,8 @@ async fn main() -> Result<()> {
                 commands::pipeline::handle_pipeline_command(command, &cli.api_url).await?
             }
             Commands::Auth { command } => {
-                commands::auth::handle_auth_command(
-                    command,
-                    &cli.api_url,
-                    cli.api_key.as_deref(),
-                )
-                .await?
+                commands::auth::handle_auth_command(command, &cli.api_url, cli.api_key.as_deref())
+                    .await?
             }
             Commands::Connector { command } => {
                 commands::connector::handle_connector_command(
@@ -604,11 +597,8 @@ async fn main() -> Result<()> {
                 .await?
             }
             Commands::Health => {
-                commands::metrics::handle_health_command(
-                    &cli.api_url,
-                    cli.api_key.as_deref(),
-                )
-                .await?
+                commands::metrics::handle_health_command(&cli.api_url, cli.api_key.as_deref())
+                    .await?
             }
             Commands::Status => {
                 commands::status::handle_status(
@@ -618,9 +608,7 @@ async fn main() -> Result<()> {
                 )
                 .await?
             }
-            Commands::Init { directory } => {
-                commands::init::handle_init(directory.as_deref())?
-            }
+            Commands::Init { directory } => commands::init::handle_init(directory.as_deref())?,
             Commands::Apply { file, yes } => {
                 commands::apply::handle_apply(
                     file.as_deref(),
@@ -652,12 +640,7 @@ async fn main() -> Result<()> {
             }
             Commands::Completions { shell } => {
                 let mut cmd = <Cli as clap::CommandFactory>::command();
-                clap_complete::generate(
-                    shell,
-                    &mut cmd,
-                    "streamctl",
-                    &mut std::io::stdout(),
-                );
+                clap_complete::generate(shell, &mut cmd, "streamctl", &mut std::io::stdout());
             }
         }
     }
@@ -1109,7 +1092,11 @@ async fn handle_topic_partitions(
     topic: &str,
     org_id: Option<&str>,
 ) -> Result<()> {
-    let client = rest_client::RestClient::with_org(api_url, api_key.map(String::from), org_id.map(String::from));
+    let client = rest_client::RestClient::with_org(
+        api_url,
+        api_key.map(String::from),
+        org_id.map(String::from),
+    );
     let partitions: Vec<PartitionInfo> = client
         .get(&format!("/api/v1/topics/{}/partitions", topic))
         .await
@@ -1119,10 +1106,7 @@ async fn handle_topic_partitions(
         println!("No partitions found for topic '{}'", topic);
     } else {
         println!("Partitions for topic '{}' ({}):", topic, partitions.len());
-        println!(
-            "{:<12} {:<15} {:<15}",
-            "Partition", "Low WM", "High WM"
-        );
+        println!("{:<12} {:<15} {:<15}", "Partition", "Low WM", "High WM");
         println!("{}", "-".repeat(42));
         for p in &partitions {
             println!(
@@ -1140,7 +1124,11 @@ async fn handle_topic_list_rest(
     api_key: Option<&str>,
     org_id: Option<&str>,
 ) -> Result<()> {
-    let client = rest_client::RestClient::with_org(api_url, api_key.map(String::from), org_id.map(String::from));
+    let client = rest_client::RestClient::with_org(
+        api_url,
+        api_key.map(String::from),
+        org_id.map(String::from),
+    );
     let topics: Vec<TopicListEntry> = client
         .get("/api/v1/topics")
         .await
@@ -1182,7 +1170,11 @@ async fn handle_topic_create_rest(
     partitions: u32,
     org_id: Option<&str>,
 ) -> Result<()> {
-    let client = rest_client::RestClient::with_org(api_url, api_key.map(String::from), org_id.map(String::from));
+    let client = rest_client::RestClient::with_org(
+        api_url,
+        api_key.map(String::from),
+        org_id.map(String::from),
+    );
     let req = CreateTopicRestRequest {
         name: name.to_string(),
         partitions,
@@ -1206,7 +1198,11 @@ async fn handle_topic_get_rest(
     name: &str,
     org_id: Option<&str>,
 ) -> Result<()> {
-    let client = rest_client::RestClient::with_org(api_url, api_key.map(String::from), org_id.map(String::from));
+    let client = rest_client::RestClient::with_org(
+        api_url,
+        api_key.map(String::from),
+        org_id.map(String::from),
+    );
     let topic: TopicListEntry = client
         .get(&format!("/api/v1/topics/{}", name))
         .await
@@ -1229,7 +1225,11 @@ async fn handle_topic_delete_rest(
     name: &str,
     org_id: Option<&str>,
 ) -> Result<()> {
-    let client = rest_client::RestClient::with_org(api_url, api_key.map(String::from), org_id.map(String::from));
+    let client = rest_client::RestClient::with_org(
+        api_url,
+        api_key.map(String::from),
+        org_id.map(String::from),
+    );
     client
         .delete(&format!("/api/v1/topics/{}", name))
         .await
@@ -1267,7 +1267,11 @@ async fn handle_produce_rest(
     value: &str,
     org_id: Option<&str>,
 ) -> Result<()> {
-    let client = rest_client::RestClient::with_org(api_url, api_key.map(String::from), org_id.map(String::from));
+    let client = rest_client::RestClient::with_org(
+        api_url,
+        api_key.map(String::from),
+        org_id.map(String::from),
+    );
     let req = SingleProduceRequest {
         topic: topic.to_string(),
         key: key.map(String::from),
@@ -1319,7 +1323,11 @@ async fn handle_consume_rest(
     format: &str,
     org_id: Option<&str>,
 ) -> Result<()> {
-    let client = rest_client::RestClient::with_org(api_url, api_key.map(String::from), org_id.map(String::from));
+    let client = rest_client::RestClient::with_org(
+        api_url,
+        api_key.map(String::from),
+        org_id.map(String::from),
+    );
     let max_records = limit.unwrap_or(100);
     let resp: ConsumeRestResponse = client
         .get(&format!(
@@ -1356,7 +1364,11 @@ async fn handle_consume_follow(
     format: &str,
     org_id: Option<&str>,
 ) -> Result<()> {
-    let client = rest_client::RestClient::with_org(api_url, api_key.map(String::from), org_id.map(String::from));
+    let client = rest_client::RestClient::with_org(
+        api_url,
+        api_key.map(String::from),
+        org_id.map(String::from),
+    );
     let mut current_offset = start_offset;
 
     if format == "table" {
@@ -1459,7 +1471,11 @@ async fn handle_topic_messages(
     limit: u32,
     org_id: Option<&str>,
 ) -> Result<()> {
-    let client = rest_client::RestClient::with_org(api_url, api_key.map(String::from), org_id.map(String::from));
+    let client = rest_client::RestClient::with_org(
+        api_url,
+        api_key.map(String::from),
+        org_id.map(String::from),
+    );
     let messages: Vec<TopicMessage> = client
         .get(&format!(
             "/api/v1/topics/{}/messages?partition={}&offset={}&limit={}",
@@ -1471,10 +1487,7 @@ async fn handle_topic_messages(
     if messages.is_empty() {
         println!("No messages found");
     } else {
-        println!(
-            "Messages from {}:{} (offset {}):",
-            topic, partition, offset
-        );
+        println!("Messages from {}:{} (offset {}):", topic, partition, offset);
         println!();
         for msg in &messages {
             println!("Offset: {}", msg.offset);
@@ -1489,8 +1502,7 @@ async fn handle_topic_messages(
                 if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(s) {
                     println!(
                         "  Value: {}",
-                        serde_json::to_string_pretty(&parsed)
-                            .unwrap_or_else(|_| s.clone())
+                        serde_json::to_string_pretty(&parsed).unwrap_or_else(|_| s.clone())
                     );
                 } else {
                     println!("  Value: {}", s);
@@ -1566,7 +1578,11 @@ async fn handle_batch_produce(
         return Ok(());
     }
 
-    let client = rest_client::RestClient::with_org(api_url, api_key.map(String::from), org_id.map(String::from));
+    let client = rest_client::RestClient::with_org(
+        api_url,
+        api_key.map(String::from),
+        org_id.map(String::from),
+    );
     let req = BatchProduceRequest {
         topic: topic.to_string(),
         partition,

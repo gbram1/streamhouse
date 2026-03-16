@@ -403,7 +403,12 @@ pub trait MetadataStore: Send + Sync {
     /// # Performance
     ///
     /// Very fast (< 100µs) as this uses composite index on (topic, partition_id).
-    async fn get_partition(&self, org_id: &str, topic: &str, partition_id: u32) -> Result<Option<Partition>>;
+    async fn get_partition(
+        &self,
+        org_id: &str,
+        topic: &str,
+        partition_id: u32,
+    ) -> Result<Option<Partition>>;
 
     /// Update the high watermark (latest offset) for a partition.
     ///
@@ -537,7 +542,12 @@ pub trait MetadataStore: Send + Sync {
     /// # Performance
     ///
     /// Fast (< 10ms for partitions with 1000 segments) due to index on (topic, partition_id).
-    async fn get_segments(&self, org_id: &str, topic: &str, partition_id: u32) -> Result<Vec<SegmentInfo>>;
+    async fn get_segments(
+        &self,
+        org_id: &str,
+        topic: &str,
+        partition_id: u32,
+    ) -> Result<Vec<SegmentInfo>>;
 
     /// Find which segment contains a specific offset.
     ///
@@ -815,7 +825,8 @@ pub trait MetadataStore: Send + Sync {
         offset: u64,
         metadata: Option<String>,
     ) -> Result<()> {
-        self.commit_offset(group_id, topic, partition_id, offset, metadata).await
+        self.commit_offset(group_id, topic, partition_id, offset, metadata)
+            .await
     }
 
     /// Get committed offset for a consumer group within a specific organization.
@@ -826,7 +837,8 @@ pub trait MetadataStore: Send + Sync {
         topic: &str,
         partition_id: u32,
     ) -> Result<Option<u64>> {
-        self.get_committed_offset(group_id, topic, partition_id).await
+        self.get_committed_offset(group_id, topic, partition_id)
+            .await
     }
 
     /// Get all committed offsets for a consumer group within a specific organization.
@@ -1899,12 +1911,20 @@ pub trait MetadataStore: Send + Sync {
     // ── Org-scoped connector operations ──────────────────────
 
     /// Create a connector for a specific organization.
-    async fn create_connector_for_org(&self, _org_id: &str, connector: ConnectorInfo) -> Result<()> {
+    async fn create_connector_for_org(
+        &self,
+        _org_id: &str,
+        connector: ConnectorInfo,
+    ) -> Result<()> {
         self.create_connector(connector).await
     }
 
     /// Get a connector by name for a specific organization.
-    async fn get_connector_for_org(&self, _org_id: &str, name: &str) -> Result<Option<ConnectorInfo>> {
+    async fn get_connector_for_org(
+        &self,
+        _org_id: &str,
+        name: &str,
+    ) -> Result<Option<ConnectorInfo>> {
         self.get_connector(name).await
     }
 
@@ -1926,7 +1946,8 @@ pub trait MetadataStore: Send + Sync {
         state: &str,
         error_message: Option<&str>,
     ) -> Result<()> {
-        self.update_connector_state(name, state, error_message).await
+        self.update_connector_state(name, state, error_message)
+            .await
     }
 
     /// Update the records_processed counter for a connector in a specific organization.
@@ -1936,7 +1957,8 @@ pub trait MetadataStore: Send + Sync {
         name: &str,
         records_processed: i64,
     ) -> Result<()> {
-        self.update_connector_records_processed(name, records_processed).await
+        self.update_connector_records_processed(name, records_processed)
+            .await
     }
 
     // ── Org-scoped transaction operations ──────────────────────
@@ -1961,29 +1983,17 @@ pub trait MetadataStore: Send + Sync {
     }
 
     /// Prepare a transaction for a specific organization.
-    async fn prepare_transaction_for_org(
-        &self,
-        _org_id: &str,
-        transaction_id: &str,
-    ) -> Result<()> {
+    async fn prepare_transaction_for_org(&self, _org_id: &str, transaction_id: &str) -> Result<()> {
         self.prepare_transaction(transaction_id).await
     }
 
     /// Commit a transaction for a specific organization.
-    async fn commit_transaction_for_org(
-        &self,
-        _org_id: &str,
-        transaction_id: &str,
-    ) -> Result<i64> {
+    async fn commit_transaction_for_org(&self, _org_id: &str, transaction_id: &str) -> Result<i64> {
         self.commit_transaction(transaction_id).await
     }
 
     /// Abort a transaction for a specific organization.
-    async fn abort_transaction_for_org(
-        &self,
-        _org_id: &str,
-        transaction_id: &str,
-    ) -> Result<()> {
+    async fn abort_transaction_for_org(&self, _org_id: &str, transaction_id: &str) -> Result<()> {
         self.abort_transaction(transaction_id).await
     }
 
@@ -2062,17 +2072,29 @@ pub trait MetadataStore: Send + Sync {
     // ── Org-scoped pipeline target operations ──────────────────────
 
     /// Create a pipeline target for a specific organization.
-    async fn create_pipeline_target_for_org(&self, _org_id: &str, target: PipelineTarget) -> Result<()> {
+    async fn create_pipeline_target_for_org(
+        &self,
+        _org_id: &str,
+        target: PipelineTarget,
+    ) -> Result<()> {
         self.create_pipeline_target(target).await
     }
 
     /// Get a pipeline target by name for a specific organization.
-    async fn get_pipeline_target_for_org(&self, _org_id: &str, name: &str) -> Result<Option<PipelineTarget>> {
+    async fn get_pipeline_target_for_org(
+        &self,
+        _org_id: &str,
+        name: &str,
+    ) -> Result<Option<PipelineTarget>> {
         self.get_pipeline_target(name).await
     }
 
     /// Get a pipeline target by ID for a specific organization.
-    async fn get_pipeline_target_by_id_for_org(&self, _org_id: &str, id: &str) -> Result<Option<PipelineTarget>> {
+    async fn get_pipeline_target_by_id_for_org(
+        &self,
+        _org_id: &str,
+        id: &str,
+    ) -> Result<Option<PipelineTarget>> {
         self.get_pipeline_target_by_id(id).await
     }
 
@@ -2094,12 +2116,20 @@ pub trait MetadataStore: Send + Sync {
     }
 
     /// Get a pipeline by name for a specific organization.
-    async fn get_pipeline_for_org(&self, _org_id: &str, name: &str) -> Result<Option<PipelineInfo>> {
+    async fn get_pipeline_for_org(
+        &self,
+        _org_id: &str,
+        name: &str,
+    ) -> Result<Option<PipelineInfo>> {
         self.get_pipeline(name).await
     }
 
     /// Get a pipeline by ID for a specific organization.
-    async fn get_pipeline_by_id_for_org(&self, _org_id: &str, id: &str) -> Result<Option<PipelineInfo>> {
+    async fn get_pipeline_by_id_for_org(
+        &self,
+        _org_id: &str,
+        id: &str,
+    ) -> Result<Option<PipelineInfo>> {
         self.get_pipeline_by_id(id).await
     }
 
@@ -2132,6 +2162,7 @@ pub trait MetadataStore: Send + Sync {
         records_processed: i64,
         last_offset: i64,
     ) -> Result<()> {
-        self.update_pipeline_progress(name, records_processed, last_offset).await
+        self.update_pipeline_progress(name, records_processed, last_offset)
+            .await
     }
 }

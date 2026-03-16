@@ -313,7 +313,10 @@ async fn handle_connection(
             if let Some(ref client_id) = conn_state.client_id {
                 if let Some(ref resolver) = state.tenant_resolver {
                     if let Ok(Some(ctx)) = resolver.try_resolve_from_client_id(client_id).await {
-                        debug!("Resolved tenant from client_id: org={}", ctx.tenant.organization.id);
+                        debug!(
+                            "Resolved tenant from client_id: org={}",
+                            ctx.tenant.organization.id
+                        );
                         conn_state.tenant = Some(ctx);
                     }
                 }
@@ -362,7 +365,8 @@ async fn handle_connection(
         );
 
         // Handle the request
-        let (response, throttle_time_ms) = handle_request(&state, &mut conn_state, &header, &mut frame).await?;
+        let (response, throttle_time_ms) =
+            handle_request(&state, &mut conn_state, &header, &mut frame).await?;
 
         // Enforce throttle delay — hold the response so the client physically
         // cannot send the next request until the delay expires (same as Apache Kafka).
@@ -440,23 +444,21 @@ async fn handle_request(
     let response_body = match api_key {
         Some(ApiKey::ApiVersions) => handlers::handle_api_versions(state, header, body).await?,
         Some(ApiKey::Metadata) => handlers::handle_metadata(state, org_id, header, body).await?,
-        Some(ApiKey::Produce) => handlers::handle_produce(state, org_id, header, body, throttle_time_ms).await?,
-        Some(ApiKey::Fetch) => handlers::handle_fetch(state, org_id, header, body, throttle_time_ms).await?,
+        Some(ApiKey::Produce) => {
+            handlers::handle_produce(state, org_id, header, body, throttle_time_ms).await?
+        }
+        Some(ApiKey::Fetch) => {
+            handlers::handle_fetch(state, org_id, header, body, throttle_time_ms).await?
+        }
         Some(ApiKey::ListOffsets) => {
             handlers::handle_list_offsets(state, org_id, header, body).await?
         }
         Some(ApiKey::FindCoordinator) => {
             handlers::handle_find_coordinator(state, header, body).await?
         }
-        Some(ApiKey::JoinGroup) => {
-            handlers::handle_join_group(state, org_id, header, body).await?
-        }
-        Some(ApiKey::SyncGroup) => {
-            handlers::handle_sync_group(state, org_id, header, body).await?
-        }
-        Some(ApiKey::Heartbeat) => {
-            handlers::handle_heartbeat(state, org_id, header, body).await?
-        }
+        Some(ApiKey::JoinGroup) => handlers::handle_join_group(state, org_id, header, body).await?,
+        Some(ApiKey::SyncGroup) => handlers::handle_sync_group(state, org_id, header, body).await?,
+        Some(ApiKey::Heartbeat) => handlers::handle_heartbeat(state, org_id, header, body).await?,
         Some(ApiKey::LeaveGroup) => {
             handlers::handle_leave_group(state, org_id, header, body).await?
         }

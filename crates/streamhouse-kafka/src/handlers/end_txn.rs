@@ -63,7 +63,11 @@ pub async fn handle_end_txn(
 
     // Find the active transaction for this producer.
     // We get the transaction by beginning one (which returns existing if ongoing).
-    let transaction = match state.metadata.begin_transaction_for_org(org_id, &producer.id, 60000).await {
+    let transaction = match state
+        .metadata
+        .begin_transaction_for_org(org_id, &producer.id, 60000)
+        .await
+    {
         Ok(txn) => txn,
         Err(e) => {
             warn!("Failed to get transaction for producer: {}", e);

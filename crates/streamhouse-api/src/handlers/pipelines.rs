@@ -238,8 +238,7 @@ pub async fn list_pipelines(
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
-    let response: Vec<PipelineResponse> =
-        pipelines.into_iter().map(pipeline_to_response).collect();
+    let response: Vec<PipelineResponse> = pipelines.into_iter().map(pipeline_to_response).collect();
 
     Ok(Json(response))
 }
@@ -404,12 +403,7 @@ pub async fn update_pipeline_state(
     if let Some(ref new_state) = req.state {
         state
             .metadata
-            .update_pipeline_state_for_org(
-                &org_id,
-                &name,
-                new_state,
-                req.error_message.as_deref(),
-            )
+            .update_pipeline_state_for_org(&org_id, &name, new_state, req.error_message.as_deref())
             .await
             .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     }

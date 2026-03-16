@@ -129,10 +129,7 @@ pub async fn handle_produce(
             // Check storage quota
             let storage_check = enforcer.check_storage(&tenant_ctx).await;
             if let Ok(streamhouse_metadata::QuotaCheck::Denied(reason)) = storage_check {
-                warn!(
-                    "Storage limit exceeded: org={}, reason={}",
-                    org_id, reason
-                );
+                warn!("Storage limit exceeded: org={}, reason={}", org_id, reason);
 
                 metrics::RATE_LIMIT_TOTAL
                     .with_label_values(&[org_id, "denied_storage", "kafka"])
@@ -216,7 +213,14 @@ pub async fn handle_produce(
         for (partition_index, records) in partitions {
             let response = match records {
                 Some(record_data) => {
-                    process_records(state, org_id, &topic_name, partition_index as u32, record_data).await
+                    process_records(
+                        state,
+                        org_id,
+                        &topic_name,
+                        partition_index as u32,
+                        record_data,
+                    )
+                    .await
                 }
                 None => PartitionProduceResponse {
                     partition_index,
@@ -331,7 +335,9 @@ async fn process_records(
         Ok(meta) => meta,
         Err(e) => {
             warn!("Failed to parse record batch: {}", e);
-            metrics::PRODUCER_ERRORS_TOTAL.with_label_values(&[org_id, topic_name, "corrupt_message"]).inc();
+            metrics::PRODUCER_ERRORS_TOTAL
+                .with_label_values(&[org_id, topic_name, "corrupt_message"])
+                .inc();
             return PartitionProduceResponse {
                 partition_index: partition_id as i32,
                 error_code: ErrorCode::CorruptMessage,
@@ -353,7 +359,9 @@ async fn process_records(
         {
             Ok(Some(p)) => p,
             Ok(None) => {
-                metrics::PRODUCER_ERRORS_TOTAL.with_label_values(&[org_id, topic_name, "unknown_producer"]).inc();
+                metrics::PRODUCER_ERRORS_TOTAL
+                    .with_label_values(&[org_id, topic_name, "unknown_producer"])
+                    .inc();
                 return PartitionProduceResponse {
                     partition_index: partition_id as i32,
                     error_code: ErrorCode::UnknownProducerId,
@@ -364,7 +372,9 @@ async fn process_records(
             }
             Err(e) => {
                 warn!("Failed to lookup producer: {}", e);
-                metrics::PRODUCER_ERRORS_TOTAL.with_label_values(&[org_id, topic_name, "producer_lookup_error"]).inc();
+                metrics::PRODUCER_ERRORS_TOTAL
+                    .with_label_values(&[org_id, topic_name, "producer_lookup_error"])
+                    .inc();
                 return PartitionProduceResponse {
                     partition_index: partition_id as i32,
                     error_code: ErrorCode::UnknownServerError,
@@ -377,7 +387,9 @@ async fn process_records(
 
         // Validate producer epoch
         if producer.epoch != batch_meta.producer_epoch as u32 {
-            metrics::PRODUCER_ERRORS_TOTAL.with_label_values(&[org_id, topic_name, "invalid_epoch"]).inc();
+            metrics::PRODUCER_ERRORS_TOTAL
+                .with_label_values(&[org_id, topic_name, "invalid_epoch"])
+                .inc();
             return PartitionProduceResponse {
                 partition_index: partition_id as i32,
                 error_code: ErrorCode::InvalidProducerEpoch,
@@ -404,7 +416,9 @@ async fn process_records(
             }
             Ok(false) => {
                 // Duplicate detected
-                metrics::PRODUCER_ERRORS_TOTAL.with_label_values(&[org_id, topic_name, "duplicate_sequence"]).inc();
+                metrics::PRODUCER_ERRORS_TOTAL
+                    .with_label_values(&[org_id, topic_name, "duplicate_sequence"])
+                    .inc();
                 return PartitionProduceResponse {
                     partition_index: partition_id as i32,
                     error_code: ErrorCode::DuplicateSequenceNumber,
@@ -415,7 +429,9 @@ async fn process_records(
             }
             Err(e) => {
                 warn!("Sequence check failed: {}", e);
-                metrics::PRODUCER_ERRORS_TOTAL.with_label_values(&[org_id, topic_name, "sequence_error"]).inc();
+                metrics::PRODUCER_ERRORS_TOTAL
+                    .with_label_values(&[org_id, topic_name, "sequence_error"])
+                    .inc();
                 return PartitionProduceResponse {
                     partition_index: partition_id as i32,
                     error_code: ErrorCode::OutOfOrderSequenceNumber,
@@ -428,11 +444,17 @@ async fn process_records(
     }
 
     // Get writer from pool
-    let writer = match state.writer_pool.get_writer(org_id, topic_name, partition_id).await {
+    let writer = match state
+        .writer_pool
+        .get_writer(org_id, topic_name, partition_id)
+        .await
+    {
         Ok(w) => w,
         Err(e) => {
             warn!("Failed to get writer: {}", e);
-            metrics::PRODUCER_ERRORS_TOTAL.with_label_values(&[org_id, topic_name, "writer_error"]).inc();
+            metrics::PRODUCER_ERRORS_TOTAL
+                .with_label_values(&[org_id, topic_name, "writer_error"])
+                .inc();
             return PartitionProduceResponse {
                 partition_index: partition_id as i32,
                 error_code: ErrorCode::KafkaStorageError,
@@ -461,7 +483,9 @@ async fn process_records(
             }
             Err(e) => {
                 warn!("Failed to write record: {}", e);
-                metrics::PRODUCER_ERRORS_TOTAL.with_label_values(&[org_id, topic_name, "append_error"]).inc();
+                metrics::PRODUCER_ERRORS_TOTAL
+                    .with_label_values(&[org_id, topic_name, "append_error"])
+                    .inc();
                 return PartitionProduceResponse {
                     partition_index: partition_id as i32,
                     error_code: ErrorCode::KafkaStorageError,
@@ -473,10 +497,18 @@ async fn process_records(
         }
     }
 
-    metrics::PRODUCER_RECORDS_TOTAL.with_label_values(&[org_id, topic_name]).inc_by(record_count as u64);
-    metrics::PRODUCER_BYTES_TOTAL.with_label_values(&[org_id, topic_name]).inc_by(record_data_len);
-    metrics::PRODUCER_BATCH_SIZE.with_label_values(&[org_id, topic_name]).observe(record_count as f64);
-    metrics::PRODUCER_LATENCY.with_label_values(&[org_id, topic_name]).observe(start.elapsed().as_secs_f64());
+    metrics::PRODUCER_RECORDS_TOTAL
+        .with_label_values(&[org_id, topic_name])
+        .inc_by(record_count as u64);
+    metrics::PRODUCER_BYTES_TOTAL
+        .with_label_values(&[org_id, topic_name])
+        .inc_by(record_data_len);
+    metrics::PRODUCER_BATCH_SIZE
+        .with_label_values(&[org_id, topic_name])
+        .observe(record_count as f64);
+    metrics::PRODUCER_LATENCY
+        .with_label_values(&[org_id, topic_name])
+        .observe(start.elapsed().as_secs_f64());
 
     PartitionProduceResponse {
         partition_index: partition_id as i32,

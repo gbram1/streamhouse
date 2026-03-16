@@ -224,9 +224,18 @@ pub fn compute_destroy(config: &StreamHouseConfig, current: &CurrentState) -> Ve
 
 /// Print the diff plan in terraform-style output
 pub fn print_plan(actions: &[DiffAction]) {
-    let creates = actions.iter().filter(|a| a.operation == DiffOp::Create).count();
-    let updates = actions.iter().filter(|a| a.operation == DiffOp::Update).count();
-    let deletes = actions.iter().filter(|a| a.operation == DiffOp::Delete).count();
+    let creates = actions
+        .iter()
+        .filter(|a| a.operation == DiffOp::Create)
+        .count();
+    let updates = actions
+        .iter()
+        .filter(|a| a.operation == DiffOp::Update)
+        .count();
+    let deletes = actions
+        .iter()
+        .filter(|a| a.operation == DiffOp::Delete)
+        .count();
 
     println!(
         "Plan: {} to create, {} to update, {} to destroy",

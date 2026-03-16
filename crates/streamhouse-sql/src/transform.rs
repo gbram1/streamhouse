@@ -70,10 +70,7 @@ impl TransformEngine {
     /// Result rows are converted back to `SinkRecord`s. If the result contains
     /// a `value` column it is used as the record value; otherwise the entire
     /// row is serialized as JSON.
-    pub async fn apply_transform(
-        records: &[SinkRecord],
-        sql: &str,
-    ) -> Result<Vec<SinkRecord>> {
+    pub async fn apply_transform(records: &[SinkRecord], sql: &str) -> Result<Vec<SinkRecord>> {
         if records.is_empty() {
             return Ok(Vec::new());
         }
@@ -196,8 +193,7 @@ impl TransformEngine {
                         let val = column_value_to_json(col, row);
                         map.insert(field.name().clone(), val);
                     }
-                    serde_json::to_string(&serde_json::Value::Object(map))
-                        .unwrap_or_default()
+                    serde_json::to_string(&serde_json::Value::Object(map)).unwrap_or_default()
                 };
 
                 // Extract timestamp
@@ -296,9 +292,7 @@ mod tests {
 
     #[test]
     fn test_validate_sql_rejects_multiple_statements() {
-        assert!(
-            TransformEngine::validate_sql("SELECT 1; SELECT 2").is_err()
-        );
+        assert!(TransformEngine::validate_sql("SELECT 1; SELECT 2").is_err());
     }
 
     #[tokio::test]
@@ -351,12 +345,10 @@ mod tests {
             },
         ];
 
-        let result = TransformEngine::apply_transform(
-            &records,
-            "SELECT * FROM input WHERE value = 'keep'",
-        )
-        .await
-        .unwrap();
+        let result =
+            TransformEngine::apply_transform(&records, "SELECT * FROM input WHERE value = 'keep'")
+                .await
+                .unwrap();
         assert_eq!(result.len(), 1);
         assert_eq!(result[0].value, Bytes::from("keep"));
     }
@@ -372,8 +364,7 @@ mod tests {
             value: Bytes::from("v"),
         }];
 
-        let result =
-            TransformEngine::apply_transform(&records, "DROP TABLE input").await;
+        let result = TransformEngine::apply_transform(&records, "DROP TABLE input").await;
         assert!(result.is_err());
     }
 }

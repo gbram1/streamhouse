@@ -214,7 +214,8 @@ fn require_ai_provider() -> Result<AiProvider, (StatusCode, Json<AskQueryError>)
             StatusCode::SERVICE_UNAVAILABLE,
             Json(AskQueryError {
                 error: "ai_not_configured".to_string(),
-                message: "No AI API key configured. Set OPENAI_API_KEY or ANTHROPIC_API_KEY.".to_string(),
+                message: "No AI API key configured. Set OPENAI_API_KEY or ANTHROPIC_API_KEY."
+                    .to_string(),
                 sql: None,
                 suggestions: vec![
                     "Set OPENAI_API_KEY environment variable".to_string(),
@@ -365,7 +366,10 @@ async fn call_ai(
             if !response.status().is_success() {
                 let status = response.status();
                 let error_text = response.text().await.unwrap_or_default();
-                return Err(format!("Anthropic returned error {}: {}", status, error_text));
+                return Err(format!(
+                    "Anthropic returned error {}: {}",
+                    status, error_text
+                ));
             }
 
             let claude_response: ClaudeResponse = response
@@ -1118,7 +1122,11 @@ async fn estimate_query_cost(
         if let Ok(Some(topic)) = state.metadata.get_topic_for_org(org_id, topic_name).await {
             // Get message count from all partitions
             for partition_id in 0..topic.partition_count {
-                if let Ok(segments) = state.metadata.get_segments(org_id, topic_name, partition_id).await {
+                if let Ok(segments) = state
+                    .metadata
+                    .get_segments(org_id, topic_name, partition_id)
+                    .await
+                {
                     let partition_rows: u64 = segments.iter().map(|s| s.record_count as u64).sum();
                     let partition_bytes: u64 = segments.iter().map(|s| s.size_bytes).sum();
 

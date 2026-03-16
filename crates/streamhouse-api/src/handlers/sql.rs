@@ -1,6 +1,10 @@
 //! SQL query endpoint
 
-use axum::{extract::State, http::{HeaderMap, StatusCode}, Extension, Json};
+use axum::{
+    extract::State,
+    http::{HeaderMap, StatusCode},
+    Extension, Json,
+};
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 

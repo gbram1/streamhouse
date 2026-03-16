@@ -235,8 +235,13 @@ impl PartitionWriter {
             // Phase 12.4.5: Shared WAL recovery
             // If agent_id is configured, scan for WAL files from other agents
             let other_agent_records = if let Some(ref agent_id) = org_wal_config.agent_id {
-                match WAL::recover_partition(&org_wal_config.directory, &topic, partition_id, agent_id)
-                    .await
+                match WAL::recover_partition(
+                    &org_wal_config.directory,
+                    &topic,
+                    partition_id,
+                    agent_id,
+                )
+                .await
                 {
                     Ok((records, stale_paths)) => {
                         stale_wal_files = stale_paths;

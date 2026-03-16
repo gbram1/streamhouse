@@ -67,16 +67,11 @@ pub fn handle_init(directory: Option<&str>) -> Result<()> {
     let env_path = dir.join(".env.example");
 
     if yaml_path.exists() {
-        anyhow::bail!(
-            "streamhouse.yaml already exists in {}",
-            dir.display()
-        );
+        anyhow::bail!("streamhouse.yaml already exists in {}", dir.display());
     }
 
-    std::fs::write(&yaml_path, TEMPLATE_YAML)
-        .context("Failed to write streamhouse.yaml")?;
-    std::fs::write(&env_path, ENV_EXAMPLE)
-        .context("Failed to write .env.example")?;
+    std::fs::write(&yaml_path, TEMPLATE_YAML).context("Failed to write streamhouse.yaml")?;
+    std::fs::write(&env_path, ENV_EXAMPLE).context("Failed to write .env.example")?;
 
     println!("Project initialized in {}", dir.display());
     println!("  Created: streamhouse.yaml");

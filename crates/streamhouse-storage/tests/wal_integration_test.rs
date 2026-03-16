@@ -7,7 +7,9 @@ use bytes::Bytes;
 use object_store::memory::InMemory;
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
-use streamhouse_metadata::{MetadataStore, SqliteMetadataStore, TopicConfig, DEFAULT_ORGANIZATION_ID};
+use streamhouse_metadata::{
+    MetadataStore, SqliteMetadataStore, TopicConfig, DEFAULT_ORGANIZATION_ID,
+};
 use streamhouse_storage::wal::{SyncPolicy, WALConfig};
 use streamhouse_storage::writer::PartitionWriter;
 use streamhouse_storage::WriteConfig;
@@ -205,7 +207,10 @@ async fn test_crash_recovery_no_data_loss() {
     }
 
     // Step 3: Verify segment in metadata has 101 records (100 recovered + 1 new)
-    let segments = metadata.get_segments(DEFAULT_ORGANIZATION_ID, topic, partition_id).await.unwrap();
+    let segments = metadata
+        .get_segments(DEFAULT_ORGANIZATION_ID, topic, partition_id)
+        .await
+        .unwrap();
     assert_eq!(segments.len(), 1, "Should have 1 segment after flush");
     assert_eq!(
         segments[0].record_count, 101,
@@ -419,7 +424,10 @@ async fn test_multiple_crash_recovery_cycles() {
     }
 
     // Verify final state: 2 segments from 2 flush_durable calls
-    let segments = metadata.get_segments(DEFAULT_ORGANIZATION_ID, "test-topic", 0).await.unwrap();
+    let segments = metadata
+        .get_segments(DEFAULT_ORGANIZATION_ID, "test-topic", 0)
+        .await
+        .unwrap();
     assert_eq!(
         segments.len(),
         2,

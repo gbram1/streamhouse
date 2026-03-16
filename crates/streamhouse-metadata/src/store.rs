@@ -299,12 +299,10 @@ impl MetadataStore for SqliteMetadataStore {
     }
 
     async fn get_topic_organization_id(&self, topic: &str) -> Result<Option<String>> {
-        let row = sqlx::query(
-            "SELECT organization_id FROM topics WHERE name = ?",
-        )
-        .bind(topic)
-        .fetch_optional(&self.pool)
-        .await?;
+        let row = sqlx::query("SELECT organization_id FROM topics WHERE name = ?")
+            .bind(topic)
+            .fetch_optional(&self.pool)
+            .await?;
 
         use sqlx::Row;
         Ok(row.map(|r| r.get::<String, _>("organization_id")))
@@ -496,7 +494,12 @@ impl MetadataStore for SqliteMetadataStore {
         Ok(())
     }
 
-    async fn get_partition(&self, org_id: &str, topic: &str, partition_id: u32) -> Result<Option<Partition>> {
+    async fn get_partition(
+        &self,
+        org_id: &str,
+        topic: &str,
+        partition_id: u32,
+    ) -> Result<Option<Partition>> {
         use sqlx::Row;
         let row = sqlx::query(
             "SELECT topic, partition_id, high_watermark
@@ -652,7 +655,12 @@ impl MetadataStore for SqliteMetadataStore {
         Ok(())
     }
 
-    async fn get_segments(&self, org_id: &str, topic: &str, partition_id: u32) -> Result<Vec<SegmentInfo>> {
+    async fn get_segments(
+        &self,
+        org_id: &str,
+        topic: &str,
+        partition_id: u32,
+    ) -> Result<Vec<SegmentInfo>> {
         use sqlx::Row;
         let rows = sqlx::query(
             "SELECT id, topic, partition_id, base_offset, end_offset, record_count, size_bytes, s3_bucket, s3_key, created_at, min_timestamp, max_timestamp
@@ -766,7 +774,10 @@ impl MetadataStore for SqliteMetadataStore {
             .collect())
     }
 
-    async fn get_segment_storage_stats_for_org(&self, org_id: &str) -> Result<Vec<TopicStorageStats>> {
+    async fn get_segment_storage_stats_for_org(
+        &self,
+        org_id: &str,
+    ) -> Result<Vec<TopicStorageStats>> {
         let rows = sqlx::query(
             "SELECT topic, COUNT(*) as segment_count, COALESCE(SUM(size_bytes), 0) as total_size_bytes
              FROM segments WHERE organization_id = ? GROUP BY topic",
@@ -1312,7 +1323,8 @@ impl MetadataStore for SqliteMetadataStore {
 
         use sqlx::Row;
         Ok(row.map(|r| PartitionLease {
-            organization_id: r.try_get::<String, _>("organization_id")
+            organization_id: r
+                .try_get::<String, _>("organization_id")
                 .unwrap_or_else(|_| crate::DEFAULT_ORGANIZATION_ID.to_string()),
             topic: r.get("topic"),
             partition_id: r.get::<i32, _>("partition_id") as u32,
@@ -1399,9 +1411,18 @@ impl MetadataStore for SqliteMetadataStore {
         Ok(rows
             .into_iter()
             .map(
-                |(organization_id, topic, partition_id, leader_agent_id, lease_expires_at, acquired_at, epoch)| {
+                |(
+                    organization_id,
+                    topic,
+                    partition_id,
+                    leader_agent_id,
+                    lease_expires_at,
+                    acquired_at,
+                    epoch,
+                )| {
                     PartitionLease {
-                        organization_id: organization_id.unwrap_or_else(|| crate::DEFAULT_ORGANIZATION_ID.to_string()),
+                        organization_id: organization_id
+                            .unwrap_or_else(|| crate::DEFAULT_ORGANIZATION_ID.to_string()),
                         topic,
                         partition_id: partition_id as u32,
                         leader_agent_id,
@@ -1425,7 +1446,10 @@ impl MetadataStore for SqliteMetadataStore {
         let status_str = OrganizationStatus::Active.to_string();
         let settings_json = serde_json::to_string(&config.settings)?;
 
-        let clerk_id_val = config.clerk_id.as_deref().map(|s| format!("'{}'", s.replace('\'', "''")));
+        let clerk_id_val = config
+            .clerk_id
+            .as_deref()
+            .map(|s| format!("'{}'", s.replace('\'', "''")));
         let clerk_id_sql = clerk_id_val.as_deref().unwrap_or("NULL");
         let query = format!(
             "INSERT INTO organizations (id, name, slug, plan, status, created_at, updated_at, settings, clerk_id) \
@@ -1471,8 +1495,16 @@ impl MetadataStore for SqliteMetadataStore {
             id
         );
 
-        let row: Option<(String, String, String, String, String, i64, String, Option<String>)> =
-            sqlx::query_as(&query).fetch_optional(&self.pool).await?;
+        let row: Option<(
+            String,
+            String,
+            String,
+            String,
+            String,
+            i64,
+            String,
+            Option<String>,
+        )> = sqlx::query_as(&query).fetch_optional(&self.pool).await?;
 
         Ok(row.map(
             |(id, name, slug, plan, status, created_at, settings_json, clerk_id)| Organization {
@@ -1495,8 +1527,16 @@ impl MetadataStore for SqliteMetadataStore {
             slug
         );
 
-        let row: Option<(String, String, String, String, String, i64, String, Option<String>)> =
-            sqlx::query_as(&query).fetch_optional(&self.pool).await?;
+        let row: Option<(
+            String,
+            String,
+            String,
+            String,
+            String,
+            i64,
+            String,
+            Option<String>,
+        )> = sqlx::query_as(&query).fetch_optional(&self.pool).await?;
 
         Ok(row.map(
             |(id, name, slug, plan, status, created_at, settings_json, clerk_id)| Organization {
@@ -1519,8 +1559,16 @@ impl MetadataStore for SqliteMetadataStore {
             clerk_id.replace('\'', "''")
         );
 
-        let row: Option<(String, String, String, String, String, i64, String, Option<String>)> =
-            sqlx::query_as(&query).fetch_optional(&self.pool).await?;
+        let row: Option<(
+            String,
+            String,
+            String,
+            String,
+            String,
+            i64,
+            String,
+            Option<String>,
+        )> = sqlx::query_as(&query).fetch_optional(&self.pool).await?;
 
         Ok(row.map(
             |(id, name, slug, plan, status, created_at, settings_json, clerk_id)| Organization {
@@ -1537,7 +1585,16 @@ impl MetadataStore for SqliteMetadataStore {
     }
 
     async fn list_organizations(&self) -> Result<Vec<Organization>> {
-        let rows: Vec<(String, String, String, String, String, i64, String, Option<String>)> = sqlx::query_as(
+        let rows: Vec<(
+            String,
+            String,
+            String,
+            String,
+            String,
+            i64,
+            String,
+            Option<String>,
+        )> = sqlx::query_as(
             "SELECT id, name, slug, plan, status, created_at, settings, clerk_id \
              FROM organizations ORDER BY name",
         )
@@ -1547,15 +1604,17 @@ impl MetadataStore for SqliteMetadataStore {
         Ok(rows
             .into_iter()
             .map(
-                |(id, name, slug, plan, status, created_at, settings_json, clerk_id)| Organization {
-                    id,
-                    name,
-                    slug,
-                    plan: plan.parse().unwrap_or_default(),
-                    status: status.parse().unwrap_or_default(),
-                    created_at,
-                    settings: serde_json::from_str(&settings_json).unwrap_or_default(),
-                    clerk_id,
+                |(id, name, slug, plan, status, created_at, settings_json, clerk_id)| {
+                    Organization {
+                        id,
+                        name,
+                        slug,
+                        plan: plan.parse().unwrap_or_default(),
+                        status: status.parse().unwrap_or_default(),
+                        created_at,
+                        settings: serde_json::from_str(&settings_json).unwrap_or_default(),
+                        clerk_id,
+                    }
                 },
             )
             .collect())
@@ -3528,11 +3587,19 @@ impl MetadataStore for SqliteMetadataStore {
 
     // ── Org-scoped connector operations ──────────────────────
 
-    async fn create_connector_for_org(&self, _org_id: &str, connector: ConnectorInfo) -> Result<()> {
+    async fn create_connector_for_org(
+        &self,
+        _org_id: &str,
+        connector: ConnectorInfo,
+    ) -> Result<()> {
         self.create_connector(connector).await
     }
 
-    async fn get_connector_for_org(&self, org_id: &str, name: &str) -> Result<Option<ConnectorInfo>> {
+    async fn get_connector_for_org(
+        &self,
+        org_id: &str,
+        name: &str,
+    ) -> Result<Option<ConnectorInfo>> {
         let row = sqlx::query(
             "SELECT organization_id, name, connector_type, connector_class, topics, config, state, \
                     error_message, records_processed, created_at, updated_at \
@@ -3668,7 +3735,15 @@ impl MetadataStore for SqliteMetadataStore {
         .await?;
 
         Ok(row.map(
-            |(transaction_id, producer_id, state, timeout_ms, started_at, updated_at, completed_at)| {
+            |(
+                transaction_id,
+                producer_id,
+                state,
+                timeout_ms,
+                started_at,
+                updated_at,
+                completed_at,
+            )| {
                 Transaction {
                     transaction_id,
                     producer_id,
@@ -3682,11 +3757,7 @@ impl MetadataStore for SqliteMetadataStore {
         ))
     }
 
-    async fn prepare_transaction_for_org(
-        &self,
-        org_id: &str,
-        transaction_id: &str,
-    ) -> Result<()> {
+    async fn prepare_transaction_for_org(&self, org_id: &str, transaction_id: &str) -> Result<()> {
         let now = Self::now_ms();
         let result = sqlx::query(
             "UPDATE transactions SET state = 'preparing', updated_at = ? \
@@ -3708,11 +3779,7 @@ impl MetadataStore for SqliteMetadataStore {
         Ok(())
     }
 
-    async fn commit_transaction_for_org(
-        &self,
-        org_id: &str,
-        transaction_id: &str,
-    ) -> Result<i64> {
+    async fn commit_transaction_for_org(&self, org_id: &str, transaction_id: &str) -> Result<i64> {
         let now = Self::now_ms();
 
         // Get transaction partitions for writing markers
@@ -3765,11 +3832,7 @@ impl MetadataStore for SqliteMetadataStore {
         Ok(now)
     }
 
-    async fn abort_transaction_for_org(
-        &self,
-        org_id: &str,
-        transaction_id: &str,
-    ) -> Result<()> {
+    async fn abort_transaction_for_org(&self, org_id: &str, transaction_id: &str) -> Result<()> {
         let now = Self::now_ms();
 
         // Get transaction partitions for writing markers
@@ -3934,7 +3997,10 @@ impl MetadataStore for SqliteMetadataStore {
         )
         .fetch_all(&self.pool)
         .await?;
-        Ok(rows.into_iter().map(|r| self.row_to_pipeline_target(r)).collect())
+        Ok(rows
+            .into_iter()
+            .map(|r| self.row_to_pipeline_target(r))
+            .collect())
     }
 
     async fn delete_pipeline_target(&self, name: &str) -> Result<()> {
@@ -3999,7 +4065,10 @@ impl MetadataStore for SqliteMetadataStore {
         )
         .fetch_all(&self.pool)
         .await?;
-        Ok(rows.into_iter().map(|r| self.row_to_pipeline_info(r)).collect())
+        Ok(rows
+            .into_iter()
+            .map(|r| self.row_to_pipeline_info(r))
+            .collect())
     }
 
     async fn delete_pipeline(&self, name: &str) -> Result<()> {
@@ -4069,7 +4138,21 @@ impl SqliteMetadataStore {
 
     fn row_to_pipeline_info(
         &self,
-        row: (String, String, String, String, String, String, Option<String>, String, Option<String>, i64, Option<i64>, i64, i64),
+        row: (
+            String,
+            String,
+            String,
+            String,
+            String,
+            String,
+            Option<String>,
+            String,
+            Option<String>,
+            i64,
+            Option<i64>,
+            i64,
+            i64,
+        ),
     ) -> PipelineInfo {
         PipelineInfo {
             id: row.0,
@@ -4117,7 +4200,10 @@ mod tests {
         assert_eq!(topic.partition_count, 3);
 
         // Should have created 3 partitions
-        let partitions = store.list_partitions(crate::DEFAULT_ORGANIZATION_ID, "test").await.unwrap();
+        let partitions = store
+            .list_partitions(crate::DEFAULT_ORGANIZATION_ID, "test")
+            .await
+            .unwrap();
         assert_eq!(partitions.len(), 3);
     }
 
@@ -4158,38 +4244,44 @@ mod tests {
 
         // Add segments
         store
-            .add_segment(crate::DEFAULT_ORGANIZATION_ID, SegmentInfo {
-                id: "seg1".to_string(),
-                topic: "test".to_string(),
-                partition_id: 0,
-                base_offset: 0,
-                end_offset: 999,
-                record_count: 1000,
-                size_bytes: 1024,
-                s3_bucket: "test".to_string(),
-                s3_key: "seg1.seg".to_string(),
-                created_at: 0,
-                min_timestamp: 0,
-                max_timestamp: 0,
-            })
+            .add_segment(
+                crate::DEFAULT_ORGANIZATION_ID,
+                SegmentInfo {
+                    id: "seg1".to_string(),
+                    topic: "test".to_string(),
+                    partition_id: 0,
+                    base_offset: 0,
+                    end_offset: 999,
+                    record_count: 1000,
+                    size_bytes: 1024,
+                    s3_bucket: "test".to_string(),
+                    s3_key: "seg1.seg".to_string(),
+                    created_at: 0,
+                    min_timestamp: 0,
+                    max_timestamp: 0,
+                },
+            )
             .await
             .unwrap();
 
         store
-            .add_segment(crate::DEFAULT_ORGANIZATION_ID, SegmentInfo {
-                id: "seg2".to_string(),
-                topic: "test".to_string(),
-                partition_id: 0,
-                base_offset: 1000,
-                end_offset: 1999,
-                record_count: 1000,
-                size_bytes: 1024,
-                s3_bucket: "test".to_string(),
-                s3_key: "seg2.seg".to_string(),
-                created_at: 0,
-                min_timestamp: 0,
-                max_timestamp: 0,
-            })
+            .add_segment(
+                crate::DEFAULT_ORGANIZATION_ID,
+                SegmentInfo {
+                    id: "seg2".to_string(),
+                    topic: "test".to_string(),
+                    partition_id: 0,
+                    base_offset: 1000,
+                    end_offset: 1999,
+                    record_count: 1000,
+                    size_bytes: 1024,
+                    s3_bucket: "test".to_string(),
+                    s3_key: "seg2.seg".to_string(),
+                    created_at: 0,
+                    min_timestamp: 0,
+                    max_timestamp: 0,
+                },
+            )
             .await
             .unwrap();
 

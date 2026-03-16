@@ -148,8 +148,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     println!("✅ Step 5: Verify data in metadata store");
     for partition_id in 0..topic_info.partition_count {
-        let partition = metadata.get_partition(DEFAULT_ORGANIZATION_ID, topic, partition_id).await?.unwrap();
-        let segments = metadata.get_segments(DEFAULT_ORGANIZATION_ID, topic, partition_id).await?;
+        let partition = metadata
+            .get_partition(DEFAULT_ORGANIZATION_ID, topic, partition_id)
+            .await?
+            .unwrap();
+        let segments = metadata
+            .get_segments(DEFAULT_ORGANIZATION_ID, topic, partition_id)
+            .await?;
 
         println!(
             "   Partition {} watermark: {} ({} segments)",

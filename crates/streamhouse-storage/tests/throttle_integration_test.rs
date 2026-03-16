@@ -10,7 +10,9 @@ use bytes::Bytes;
 use object_store::memory::InMemory;
 use std::sync::Arc;
 use std::time::Duration;
-use streamhouse_metadata::{MetadataStore, SqliteMetadataStore, TopicConfig, DEFAULT_ORGANIZATION_ID};
+use streamhouse_metadata::{
+    MetadataStore, SqliteMetadataStore, TopicConfig, DEFAULT_ORGANIZATION_ID,
+};
 use streamhouse_storage::{
     BucketConfig, CircuitBreakerConfig, PartitionWriter, ThrottleConfig, WriteConfig,
 };

@@ -23,7 +23,11 @@ pub async fn run_rest_producer(
     metrics::ACTIVE_PRODUCERS.inc();
     let mut rng = rand::rngs::StdRng::from_entropy();
     let mut seq: u64 = 0;
-    let producer_id = format!("rest-{}-{}", org_slug, uuid::Uuid::new_v4().to_string()[..8].to_string());
+    let producer_id = format!(
+        "rest-{}-{}",
+        org_slug,
+        uuid::Uuid::new_v4().to_string()[..8].to_string()
+    );
 
     // Interval for rate limiting: batch_size records every (batch_size / produce_rate) seconds
     let interval_ms = if produce_rate > 0 {
@@ -82,9 +86,12 @@ pub async fn run_rest_producer(
                     }
                     Some("an-user-segments-value") => {
                         // JSON Schema: user_id, segments[], updated_at
-                        let all_segments = ["power_user", "premium", "new", "churned", "active", "trial"];
+                        let all_segments =
+                            ["power_user", "premium", "new", "churned", "active", "trial"];
                         let n = rng.gen_range(1..=3);
-                        let segments: Vec<&str> = (0..n).map(|_| all_segments[rng.gen_range(0..all_segments.len())]).collect();
+                        let segments: Vec<&str> = (0..n)
+                            .map(|_| all_segments[rng.gen_range(0..all_segments.len())])
+                            .collect();
                         json!({
                             "user_id": format!("user-{}", rng.gen_range(0u32..10000)),
                             "segments": segments,

@@ -6,7 +6,9 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 
-use streamhouse_connectors::pipeline::{PipelineConsumeLoop, PipelineConsumeLoopConfig, TransformFn};
+use streamhouse_connectors::pipeline::{
+    PipelineConsumeLoop, PipelineConsumeLoopConfig, TransformFn,
+};
 use streamhouse_connectors::sinks::clickhouse::ClickHouseSinkConnector;
 use streamhouse_connectors::sinks::elasticsearch::ElasticsearchSinkConnector;
 #[cfg(feature = "postgres")]
@@ -74,18 +76,26 @@ impl PipelineMaintenance {
     }
 
     /// Reconcile running pipelines with desired state from metadata.
-    async fn reconcile(&self, running: &mut HashMap<String, RunningPipeline>) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    async fn reconcile(
+        &self,
+        running: &mut HashMap<String, RunningPipeline>,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         // List all pipelines across all orgs (use default org for now)
-        let pipelines = self.metadata.list_pipelines_for_org(streamhouse_metadata::DEFAULT_ORGANIZATION_ID).await?;
+        let pipelines = self
+            .metadata
+            .list_pipelines_for_org(streamhouse_metadata::DEFAULT_ORGANIZATION_ID)
+            .await?;
 
         // Determine which should be running
-        let desired_running: HashMap<String, _> = pipelines.iter()
+        let desired_running: HashMap<String, _> = pipelines
+            .iter()
             .filter(|p| p.state == "running")
             .map(|p| (p.id.clone(), p))
             .collect();
 
         // Stop pipelines that should no longer be running
-        let to_stop: Vec<String> = running.keys()
+        let to_stop: Vec<String> = running
+            .keys()
             .filter(|id| !desired_running.contains_key(*id))
             .cloned()
             .collect();
@@ -104,10 +114,11 @@ impl PipelineMaintenance {
             }
 
             // Look up the target
-            let target = match self.metadata.get_pipeline_target_by_id_for_org(
-                &pipeline.organization_id,
-                &pipeline.target_id,
-            ).await? {
+            let target = match self
+                .metadata
+                .get_pipeline_target_by_id_for_org(&pipeline.organization_id, &pipeline.target_id)
+                .await?
+            {
                 Some(t) => t,
                 None => {
                     tracing::warn!(pipeline = %pipeline.name, target_id = %pipeline.target_id, "Target not found");
@@ -116,7 +127,11 @@ impl PipelineMaintenance {
             };
 
             // Look up the source topic to get partition count
-            let topic = match self.metadata.get_topic_for_org(&pipeline.organization_id, &pipeline.source_topic).await? {
+            let topic = match self
+                .metadata
+                .get_topic_for_org(&pipeline.organization_id, &pipeline.source_topic)
+                .await?
+            {
                 Some(t) => t,
                 None => {
                     tracing::warn!(pipeline = %pipeline.name, topic = %pipeline.source_topic, "Source topic not found");
@@ -136,7 +151,8 @@ impl PipelineMaintenance {
                     }
                 }
                 "elasticsearch" => {
-                    match ElasticsearchSinkConnector::new(&pipeline.name, &target.connection_config) {
+                    match ElasticsearchSinkConnector::new(&pipeline.name, &target.connection_config)
+                    {
                         Ok(c) => Box::new(c),
                         Err(e) => {
                             tracing::warn!(pipeline = %pipeline.name, error = %e, "Failed to create Elasticsearch sink");
@@ -144,15 +160,13 @@ impl PipelineMaintenance {
                         }
                     }
                 }
-                "s3" => {
-                    match S3SinkConnector::new(&pipeline.name, &target.connection_config) {
-                        Ok(c) => Box::new(c),
-                        Err(e) => {
-                            tracing::warn!(pipeline = %pipeline.name, error = %e, "Failed to create S3 sink");
-                            continue;
-                        }
+                "s3" => match S3SinkConnector::new(&pipeline.name, &target.connection_config) {
+                    Ok(c) => Box::new(c),
+                    Err(e) => {
+                        tracing::warn!(pipeline = %pipeline.name, error = %e, "Failed to create S3 sink");
+                        continue;
                     }
-                }
+                },
                 #[cfg(feature = "postgres")]
                 "postgres" => {
                     match PostgresSinkConnector::new(&pipeline.name, &target.connection_config) {
@@ -186,8 +200,20 @@ impl PipelineMaintenance {
                     Box::pin(async move {
                         TransformEngine::apply_transform(&records, &sql)
                             .await
-                            .map_err(|e| -> Box<dyn std::error::Error + Send + Sync> { Box::new(e) })
-                    }) as std::pin::Pin<Box<dyn std::future::Future<Output = std::result::Result<Vec<streamhouse_connectors::SinkRecord>, Box<dyn std::error::Error + Send + Sync>>> + Send>>
+                            .map_err(|e| -> Box<dyn std::error::Error + Send + Sync> {
+                                Box::new(e)
+                            })
+                    })
+                        as std::pin::Pin<
+                            Box<
+                                dyn std::future::Future<
+                                        Output = std::result::Result<
+                                            Vec<streamhouse_connectors::SinkRecord>,
+                                            Box<dyn std::error::Error + Send + Sync>,
+                                        >,
+                                    > + Send,
+                            >,
+                        >
                 }) as TransformFn
             });
 
@@ -206,7 +232,13 @@ impl PipelineMaintenance {
             });
 
             tracing::info!(pipeline = %pipeline.name, pipeline_id = %id, "Started pipeline consume loop");
-            running.insert(id.clone(), RunningPipeline { handle, shutdown_tx });
+            running.insert(
+                id.clone(),
+                RunningPipeline {
+                    handle,
+                    shutdown_tx,
+                },
+            );
         }
 
         Ok(())

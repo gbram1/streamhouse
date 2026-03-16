@@ -11,7 +11,9 @@ use std::collections::HashMap;
 #[cfg(feature = "postgres")]
 use std::sync::Arc;
 #[cfg(feature = "postgres")]
-use streamhouse_metadata::{MetadataStore, PostgresMetadataStore, TopicConfig, DEFAULT_ORGANIZATION_ID};
+use streamhouse_metadata::{
+    MetadataStore, PostgresMetadataStore, TopicConfig, DEFAULT_ORGANIZATION_ID,
+};
 #[cfg(feature = "postgres")]
 use streamhouse_storage::{PartitionReader, PartitionWriter, SegmentCache, WriteConfig};
 

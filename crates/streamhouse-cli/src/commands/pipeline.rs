@@ -346,7 +346,14 @@ async fn handle_target_command(command: TargetCommands, client: &RestClient) -> 
             } else {
                 println!("Pipeline targets ({}):", targets.len());
                 for t in &targets {
-                    println!("  {} [{}] {}", t.name, t.target_type, t.connection_config.get("connection_url").unwrap_or(&"".to_string()));
+                    println!(
+                        "  {} [{}] {}",
+                        t.name,
+                        t.target_type,
+                        t.connection_config
+                            .get("connection_url")
+                            .unwrap_or(&"".to_string())
+                    );
                 }
             }
         }

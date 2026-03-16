@@ -178,7 +178,14 @@ impl SqlExecutor {
         timeout_ms: u64,
     ) -> Result<QueryResult> {
         // Validate topic exists; if not, check if it's a materialized view
-        let topic = match self.metadata.get_topic_for_org(self.org_id.as_deref().unwrap_or(DEFAULT_ORGANIZATION_ID), &query.topic).await? {
+        let topic = match self
+            .metadata
+            .get_topic_for_org(
+                self.org_id.as_deref().unwrap_or(DEFAULT_ORGANIZATION_ID),
+                &query.topic,
+            )
+            .await?
+        {
             Some(t) => t,
             None => {
                 // Check if this is a materialized view name
@@ -240,7 +247,11 @@ impl SqlExecutor {
             // Get partition info
             let partition = match self
                 .metadata
-                .get_partition(self.org_id.as_deref().unwrap_or(DEFAULT_ORGANIZATION_ID), &query.topic, *partition_id)
+                .get_partition(
+                    self.org_id.as_deref().unwrap_or(DEFAULT_ORGANIZATION_ID),
+                    &query.topic,
+                    *partition_id,
+                )
                 .await?
             {
                 Some(p) => p,
@@ -254,7 +265,11 @@ impl SqlExecutor {
             // Get segments covering this range
             let segments = self
                 .metadata
-                .get_segments(self.org_id.as_deref().unwrap_or(DEFAULT_ORGANIZATION_ID), &query.topic, *partition_id)
+                .get_segments(
+                    self.org_id.as_deref().unwrap_or(DEFAULT_ORGANIZATION_ID),
+                    &query.topic,
+                    *partition_id,
+                )
                 .await?;
 
             for segment in segments {
@@ -590,7 +605,10 @@ impl SqlExecutor {
         // Validate topic exists
         let topic = self
             .metadata
-            .get_topic_for_org(self.org_id.as_deref().unwrap_or(DEFAULT_ORGANIZATION_ID), &query.topic)
+            .get_topic_for_org(
+                self.org_id.as_deref().unwrap_or(DEFAULT_ORGANIZATION_ID),
+                &query.topic,
+            )
             .await?
             .ok_or_else(|| SqlError::TopicNotFound(query.topic.clone()))?;
 
@@ -622,7 +640,11 @@ impl SqlExecutor {
             for partition_id in partitions {
                 if let Some(partition) = self
                     .metadata
-                    .get_partition(self.org_id.as_deref().unwrap_or(DEFAULT_ORGANIZATION_ID), &query.topic, partition_id)
+                    .get_partition(
+                        self.org_id.as_deref().unwrap_or(DEFAULT_ORGANIZATION_ID),
+                        &query.topic,
+                        partition_id,
+                    )
                     .await?
                 {
                     count += partition.high_watermark;
@@ -637,7 +659,11 @@ impl SqlExecutor {
 
                 let segments = self
                     .metadata
-                    .get_segments(self.org_id.as_deref().unwrap_or(DEFAULT_ORGANIZATION_ID), &query.topic, partition_id)
+                    .get_segments(
+                        self.org_id.as_deref().unwrap_or(DEFAULT_ORGANIZATION_ID),
+                        &query.topic,
+                        partition_id,
+                    )
                     .await?;
 
                 for segment in segments {
@@ -708,7 +734,10 @@ impl SqlExecutor {
 
         let topic = self
             .metadata
-            .get_topic_for_org(self.org_id.as_deref().unwrap_or(DEFAULT_ORGANIZATION_ID), topic_name)
+            .get_topic_for_org(
+                self.org_id.as_deref().unwrap_or(DEFAULT_ORGANIZATION_ID),
+                topic_name,
+            )
             .await?
             .ok_or_else(|| SqlError::TopicNotFound(topic_name.to_string()))?;
 
@@ -718,10 +747,21 @@ impl SqlExecutor {
         for partition_id in 0..topic.partition_count {
             let partition = self
                 .metadata
-                .get_partition(self.org_id.as_deref().unwrap_or(DEFAULT_ORGANIZATION_ID), topic_name, partition_id)
+                .get_partition(
+                    self.org_id.as_deref().unwrap_or(DEFAULT_ORGANIZATION_ID),
+                    topic_name,
+                    partition_id,
+                )
                 .await?;
 
-            let segments = self.metadata.get_segments(self.org_id.as_deref().unwrap_or(DEFAULT_ORGANIZATION_ID), topic_name, partition_id).await?;
+            let segments = self
+                .metadata
+                .get_segments(
+                    self.org_id.as_deref().unwrap_or(DEFAULT_ORGANIZATION_ID),
+                    topic_name,
+                    partition_id,
+                )
+                .await?;
 
             let hwm = partition.map(|p| p.high_watermark).unwrap_or(0);
             total_messages += hwm;
@@ -808,7 +848,10 @@ impl SqlExecutor {
         // Validate topic exists
         let topic = self
             .metadata
-            .get_topic_for_org(self.org_id.as_deref().unwrap_or(DEFAULT_ORGANIZATION_ID), &query.topic)
+            .get_topic_for_org(
+                self.org_id.as_deref().unwrap_or(DEFAULT_ORGANIZATION_ID),
+                &query.topic,
+            )
             .await?
             .ok_or_else(|| SqlError::TopicNotFound(query.topic.clone()))?;
 
@@ -838,7 +881,11 @@ impl SqlExecutor {
 
             let segments = self
                 .metadata
-                .get_segments(self.org_id.as_deref().unwrap_or(DEFAULT_ORGANIZATION_ID), &query.topic, partition_id)
+                .get_segments(
+                    self.org_id.as_deref().unwrap_or(DEFAULT_ORGANIZATION_ID),
+                    &query.topic,
+                    partition_id,
+                )
                 .await?;
 
             for segment in segments {
@@ -934,7 +981,10 @@ impl SqlExecutor {
 
         let topic = self
             .metadata
-            .get_topic_for_org(self.org_id.as_deref().unwrap_or(DEFAULT_ORGANIZATION_ID), &query.topic)
+            .get_topic_for_org(
+                self.org_id.as_deref().unwrap_or(DEFAULT_ORGANIZATION_ID),
+                &query.topic,
+            )
             .await?
             .ok_or_else(|| SqlError::TopicNotFound(query.topic.clone()))?;
 
@@ -962,7 +1012,11 @@ impl SqlExecutor {
 
             let segments = self
                 .metadata
-                .get_segments(self.org_id.as_deref().unwrap_or(DEFAULT_ORGANIZATION_ID), &query.topic, partition_id)
+                .get_segments(
+                    self.org_id.as_deref().unwrap_or(DEFAULT_ORGANIZATION_ID),
+                    &query.topic,
+                    partition_id,
+                )
                 .await?;
 
             for segment in segments {
@@ -1037,13 +1091,19 @@ impl SqlExecutor {
         // Validate both topics exist
         let _left_topic = self
             .metadata
-            .get_topic_for_org(self.org_id.as_deref().unwrap_or(DEFAULT_ORGANIZATION_ID), &query.left.topic)
+            .get_topic_for_org(
+                self.org_id.as_deref().unwrap_or(DEFAULT_ORGANIZATION_ID),
+                &query.left.topic,
+            )
             .await?
             .ok_or_else(|| SqlError::TopicNotFound(query.left.topic.clone()))?;
 
         let _right_topic = self
             .metadata
-            .get_topic_for_org(self.org_id.as_deref().unwrap_or(DEFAULT_ORGANIZATION_ID), &query.right.topic)
+            .get_topic_for_org(
+                self.org_id.as_deref().unwrap_or(DEFAULT_ORGANIZATION_ID),
+                &query.right.topic,
+            )
             .await?
             .ok_or_else(|| SqlError::TopicNotFound(query.right.topic.clone()))?;
 
@@ -1207,7 +1267,10 @@ impl SqlExecutor {
     ) -> Result<Vec<MessageRow>> {
         let topic = self
             .metadata
-            .get_topic_for_org(self.org_id.as_deref().unwrap_or(DEFAULT_ORGANIZATION_ID), topic_name)
+            .get_topic_for_org(
+                self.org_id.as_deref().unwrap_or(DEFAULT_ORGANIZATION_ID),
+                topic_name,
+            )
             .await?
             .ok_or_else(|| SqlError::TopicNotFound(topic_name.to_string()))?;
 
@@ -1218,7 +1281,14 @@ impl SqlExecutor {
                 return Err(SqlError::Timeout(timeout_ms));
             }
 
-            let segments = self.metadata.get_segments(self.org_id.as_deref().unwrap_or(DEFAULT_ORGANIZATION_ID), topic_name, partition_id).await?;
+            let segments = self
+                .metadata
+                .get_segments(
+                    self.org_id.as_deref().unwrap_or(DEFAULT_ORGANIZATION_ID),
+                    topic_name,
+                    partition_id,
+                )
+                .await?;
 
             for segment in segments {
                 let messages = self.read_segment_messages(&segment).await?;
@@ -1256,7 +1326,10 @@ impl SqlExecutor {
                 .map_err(|e| SqlError::StorageError(e.to_string()))?;
 
             // Cache it for future use
-            let _ = self.segment_cache.put(cache_key, bytes.clone(), org_id_str).await;
+            let _ = self
+                .segment_cache
+                .put(cache_key, bytes.clone(), org_id_str)
+                .await;
 
             bytes
         };
@@ -1374,7 +1447,10 @@ impl SqlExecutor {
         // Validate source topic exists
         let _topic = self
             .metadata
-            .get_topic_for_org(self.org_id.as_deref().unwrap_or(DEFAULT_ORGANIZATION_ID), &query.source_topic)
+            .get_topic_for_org(
+                self.org_id.as_deref().unwrap_or(DEFAULT_ORGANIZATION_ID),
+                &query.source_topic,
+            )
             .await?
             .ok_or_else(|| SqlError::TopicNotFound(query.source_topic.clone()))?;
 

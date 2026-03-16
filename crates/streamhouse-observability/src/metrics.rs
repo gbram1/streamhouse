@@ -769,13 +769,7 @@ mod tests {
             .with_label_values(&["test-org"])
             .inc_by(5);
 
-        assert_eq!(
-            CACHE_HITS_TOTAL.with_label_values(&["test-org"]).get(),
-            1
-        );
-        assert_eq!(
-            CACHE_MISSES_TOTAL.with_label_values(&["test-org"]).get(),
-            5
-        );
+        assert_eq!(CACHE_HITS_TOTAL.with_label_values(&["test-org"]).get(), 1);
+        assert_eq!(CACHE_MISSES_TOTAL.with_label_values(&["test-org"]).get(), 5);
     }
 }

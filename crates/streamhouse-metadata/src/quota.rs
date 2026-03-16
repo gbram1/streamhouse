@@ -46,7 +46,9 @@
 //! | Consumer groups       | 50      | 500      | Unlimited  |
 
 use crate::tenant::TenantContext;
-use crate::{ApiKey, MetadataStore, OrganizationPlan, OrganizationQuota, OrganizationStatus, Result};
+use crate::{
+    ApiKey, MetadataStore, OrganizationPlan, OrganizationQuota, OrganizationStatus, Result,
+};
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicI64, AtomicU64, Ordering};
 use std::sync::Arc;
@@ -298,9 +300,12 @@ impl OrgRateLimitState {
 
     /// Update rates if quota changed.
     fn update_rates(&self, quota: &OrganizationQuota) {
-        self.produce_limiter.update_rate(quota.max_produce_bytes_per_sec);
-        self.consume_limiter.update_rate(quota.max_consume_bytes_per_sec);
-        self.request_limiter.update_rate(quota.max_requests_per_sec as i64);
+        self.produce_limiter
+            .update_rate(quota.max_produce_bytes_per_sec);
+        self.consume_limiter
+            .update_rate(quota.max_consume_bytes_per_sec);
+        self.request_limiter
+            .update_rate(quota.max_requests_per_sec as i64);
     }
 }
 
@@ -320,8 +325,12 @@ impl KeyRateLimitState {
             return None;
         }
         Some(Self {
-            produce_limiter: key.max_produce_bytes_per_sec.map(|r| TokenBucket::new(r as i64)),
-            consume_limiter: key.max_consume_bytes_per_sec.map(|r| TokenBucket::new(r as i64)),
+            produce_limiter: key
+                .max_produce_bytes_per_sec
+                .map(|r| TokenBucket::new(r as i64)),
+            consume_limiter: key
+                .max_consume_bytes_per_sec
+                .map(|r| TokenBucket::new(r as i64)),
             request_limiter: key.max_requests_per_sec.map(|r| TokenBucket::new(r as i64)),
         })
     }
@@ -436,10 +445,7 @@ impl<S: MetadataStore + ?Sized + 'static> QuotaEnforcer<S> {
     }
 
     /// Check if a consumer group can be created.
-    pub async fn check_consumer_group_creation(
-        &self,
-        ctx: &TenantContext,
-    ) -> Result<QuotaCheck> {
+    pub async fn check_consumer_group_creation(&self, ctx: &TenantContext) -> Result<QuotaCheck> {
         if ctx.organization.status != OrganizationStatus::Active {
             return Ok(QuotaCheck::Denied(format!(
                 "Organization is {}",
@@ -447,7 +453,10 @@ impl<S: MetadataStore + ?Sized + 'static> QuotaEnforcer<S> {
             )));
         }
 
-        let groups = self.store.list_consumer_groups_for_org(&ctx.organization.id).await?;
+        let groups = self
+            .store
+            .list_consumer_groups_for_org(&ctx.organization.id)
+            .await?;
         let current_groups = groups.len() as i32;
 
         if current_groups >= ctx.quota.max_consumer_groups {
@@ -684,11 +693,7 @@ impl<S: MetadataStore + ?Sized + 'static> QuotaEnforcer<S> {
 
     /// Compute throttle time for Kafka protocol (how long client should wait).
     /// Returns 0 if not throttled.
-    pub async fn throttle_time_ms(
-        &self,
-        ctx: &TenantContext,
-        api_key: Option<&ApiKey>,
-    ) -> i32 {
+    pub async fn throttle_time_ms(&self, ctx: &TenantContext, api_key: Option<&ApiKey>) -> i32 {
         self.throttle_time_ms_for(ctx, api_key, None, None).await
     }
 
@@ -897,10 +902,7 @@ impl<S: MetadataStore + ?Sized + 'static> QuotaEnforcer<S> {
 
     /// Resolve a TenantContext for quota checking by looking up the real org from the store.
     /// Falls back to Free plan defaults if the org is not found.
-    pub async fn resolve_tenant_context(
-        &self,
-        org_id: &str,
-    ) -> TenantContext {
+    pub async fn resolve_tenant_context(&self, org_id: &str) -> TenantContext {
         match self.store.get_organization(org_id).await {
             Ok(Some(org)) => {
                 let quota = self

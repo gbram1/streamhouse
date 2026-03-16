@@ -252,7 +252,8 @@ pub async fn handle_org_command(
                         .find(|o| o.name.to_lowercase() == query_lower)
                         .map(|o| o.slug.clone())
                         .ok_or_else(|| {
-                            let available: Vec<&str> = orgs.iter().map(|o| o.name.as_str()).collect();
+                            let available: Vec<&str> =
+                                orgs.iter().map(|o| o.name.as_str()).collect();
                             anyhow::anyhow!(
                                 "Organization '{}' not found. Available: {}",
                                 query,
@@ -266,12 +267,19 @@ pub async fn handle_org_command(
                 let items: Vec<String> = orgs
                     .iter()
                     .map(|o| {
-                        let marker = if active_slug.as_deref() == Some(&o.slug) { " (active)" } else { "" };
+                        let marker = if active_slug.as_deref() == Some(&o.slug) {
+                            " (active)"
+                        } else {
+                            ""
+                        };
                         format!("{}{}", o.name, marker)
                     })
                     .collect();
 
-                let default = orgs.iter().position(|o| active_slug.as_deref() == Some(&o.slug)).unwrap_or(0);
+                let default = orgs
+                    .iter()
+                    .position(|o| active_slug.as_deref() == Some(&o.slug))
+                    .unwrap_or(0);
 
                 let selection = dialoguer::Select::new()
                     .with_prompt("Select organization")
@@ -311,10 +319,7 @@ pub async fn handle_org_command(
                 println!("No organizations found");
             } else {
                 println!("Organizations ({}):", orgs.len());
-                println!(
-                    "{:<36} {:<20} {:<15} {:<10}",
-                    "ID", "Name", "Slug", "Plan"
-                );
+                println!("{:<36} {:<20} {:<15} {:<10}", "ID", "Name", "Slug", "Plan");
                 println!("{}", "-".repeat(81));
                 for org in &orgs {
                     println!(
@@ -355,12 +360,21 @@ pub async fn handle_org_command(
 
             println!("Quota for organization {}:", quota.organization_id);
             println!("  Max topics:            {}", quota.max_topics);
-            println!("  Max partitions/topic:  {}", quota.max_partitions_per_topic);
+            println!(
+                "  Max partitions/topic:  {}",
+                quota.max_partitions_per_topic
+            );
             println!("  Max total partitions:  {}", quota.max_total_partitions);
             println!("  Max storage:           {} bytes", quota.max_storage_bytes);
             println!("  Max retention:         {} days", quota.max_retention_days);
-            println!("  Max produce rate:      {} bytes/sec", quota.max_produce_bytes_per_sec);
-            println!("  Max consume rate:      {} bytes/sec", quota.max_consume_bytes_per_sec);
+            println!(
+                "  Max produce rate:      {} bytes/sec",
+                quota.max_produce_bytes_per_sec
+            );
+            println!(
+                "  Max consume rate:      {} bytes/sec",
+                quota.max_consume_bytes_per_sec
+            );
             println!("  Max requests/sec:      {}", quota.max_requests_per_sec);
             println!("  Max consumer groups:   {}", quota.max_consumer_groups);
             println!("  Max schemas:           {}", quota.max_schemas);
@@ -376,8 +390,14 @@ pub async fn handle_org_command(
             println!("  Topics:             {}", usage.topics_count);
             println!("  Partitions:         {}", usage.partitions_count);
             println!("  Storage:            {} bytes", usage.storage_bytes);
-            println!("  Produce (last hr):  {} bytes", usage.produce_bytes_last_hour);
-            println!("  Consume (last hr):  {} bytes", usage.consume_bytes_last_hour);
+            println!(
+                "  Produce (last hr):  {} bytes",
+                usage.produce_bytes_last_hour
+            );
+            println!(
+                "  Consume (last hr):  {} bytes",
+                usage.consume_bytes_last_hour
+            );
             println!("  Requests (last hr): {}", usage.requests_last_hour);
             println!("  Consumer groups:    {}", usage.consumer_groups_count);
             println!("  Schemas:            {}", usage.schemas_count);
@@ -410,10 +430,7 @@ async fn handle_org_api_key_command(
                 expires_in_ms,
             };
             let resp: ApiKeyCreatedResponse = client
-                .post(
-                    &format!("/api/v1/organizations/{}/api-keys", org),
-                    &req,
-                )
+                .post(&format!("/api/v1/organizations/{}/api-keys", org), &req)
                 .await
                 .context("Failed to create API key")?;
 

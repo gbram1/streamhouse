@@ -130,11 +130,7 @@ pub async fn handle_apply(
     let path = Path::new(config_path);
 
     let config = StreamHouseConfig::load(path)?;
-    let client = RestClient::with_org(
-        api_url,
-        api_key.map(String::from),
-        org_id.map(String::from),
-    );
+    let client = RestClient::with_org(api_url, api_key.map(String::from), org_id.map(String::from));
 
     let current = fetch_current_state(&client)
         .await
@@ -172,7 +168,11 @@ pub async fn handle_apply(
         }
         match action.resource_type {
             "topic" => {
-                let topic_config = config.topics.iter().find(|t| t.name == action.name).unwrap();
+                let topic_config = config
+                    .topics
+                    .iter()
+                    .find(|t| t.name == action.name)
+                    .unwrap();
                 let req = CreateTopicRequest {
                     name: topic_config.name.clone(),
                     partitions: topic_config.partitions,
@@ -192,7 +192,11 @@ pub async fn handle_apply(
         if action.operation != DiffOp::Create || action.resource_type != "target" {
             continue;
         }
-        let target_config = config.targets.iter().find(|t| t.name == action.name).unwrap();
+        let target_config = config
+            .targets
+            .iter()
+            .find(|t| t.name == action.name)
+            .unwrap();
         let req = CreateTargetRequest {
             name: target_config.name.clone(),
             target_type: target_config.target_type.clone(),
@@ -271,7 +275,10 @@ pub async fn handle_apply(
     println!();
     println!(
         "Apply complete. {} resource(s) created.",
-        actions.iter().filter(|a| a.operation == DiffOp::Create).count()
+        actions
+            .iter()
+            .filter(|a| a.operation == DiffOp::Create)
+            .count()
     );
 
     Ok(())
@@ -289,11 +296,7 @@ pub async fn handle_destroy(
     let path = Path::new(config_path);
 
     let config = StreamHouseConfig::load(path)?;
-    let client = RestClient::with_org(
-        api_url,
-        api_key.map(String::from),
-        org_id.map(String::from),
-    );
+    let client = RestClient::with_org(api_url, api_key.map(String::from), org_id.map(String::from));
 
     let current = fetch_current_state(&client)
         .await
@@ -348,10 +351,7 @@ pub async fn handle_destroy(
     }
 
     println!();
-    println!(
-        "Destroy complete. {} resource(s) removed.",
-        actions.len()
-    );
+    println!("Destroy complete. {} resource(s) removed.", actions.len());
 
     Ok(())
 }

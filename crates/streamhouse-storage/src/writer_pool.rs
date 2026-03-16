@@ -390,10 +390,7 @@ impl WriterPool {
         if let Ok(orgs) = self.metadata_store.list_organizations().await {
             for org in orgs {
                 if org.id != default_org {
-                    org_prefixes.push((
-                        org.id.clone(),
-                        format!("org-{}/_snapshots", org.id),
-                    ));
+                    org_prefixes.push((org.id.clone(), format!("org-{}/_snapshots", org.id)));
                 }
             }
         }
@@ -423,10 +420,7 @@ impl WriterPool {
             }
 
             let json = backup.to_json_compact().map_err(|e| {
-                crate::error::Error::SegmentError(format!(
-                    "Snapshot serialization failed: {}",
-                    e
-                ))
+                crate::error::Error::SegmentError(format!("Snapshot serialization failed: {}", e))
             })?;
 
             // Gzip compress
@@ -434,10 +428,7 @@ impl WriterPool {
             let mut encoder =
                 flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::default());
             encoder.write_all(json.as_bytes()).map_err(|e| {
-                crate::error::Error::SegmentError(format!(
-                    "Snapshot compression failed: {}",
-                    e
-                ))
+                crate::error::Error::SegmentError(format!("Snapshot compression failed: {}", e))
             })?;
             let compressed = encoder.finish().map_err(|e| {
                 crate::error::Error::SegmentError(format!(
@@ -456,10 +447,7 @@ impl WriterPool {
                 .put(&path, bytes::Bytes::from(compressed).into())
                 .await
                 .map_err(|e| {
-                    crate::error::Error::SegmentError(format!(
-                        "Snapshot upload failed: {}",
-                        e
-                    ))
+                    crate::error::Error::SegmentError(format!("Snapshot upload failed: {}", e))
                 })?;
 
             tracing::info!(
@@ -664,7 +652,10 @@ mod tests {
         let object_store: Arc<dyn ObjectStore> = Arc::new(InMemory::new());
         let pool = WriterPool::new(metadata, object_store, test_config());
 
-        let _w = pool.get_writer(streamhouse_metadata::DEFAULT_ORGANIZATION_ID, "orders", 0).await.unwrap();
+        let _w = pool
+            .get_writer(streamhouse_metadata::DEFAULT_ORGANIZATION_ID, "orders", 0)
+            .await
+            .unwrap();
 
         // Shutdown should call flush_all and succeed
         pool.shutdown().await.unwrap();

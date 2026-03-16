@@ -60,17 +60,23 @@ pub async fn consume(
         .get_topic_for_org(&org_id, &req.topic)
         .await
         .map_err(|_| {
-            metrics::CONSUMER_ERRORS_TOTAL.with_label_values(&[&org_id, &topic_name, "rest-api", "metadata_error"]).inc();
+            metrics::CONSUMER_ERRORS_TOTAL
+                .with_label_values(&[&org_id, &topic_name, "rest-api", "metadata_error"])
+                .inc();
             StatusCode::INTERNAL_SERVER_ERROR
         })?
         .ok_or_else(|| {
-            metrics::CONSUMER_ERRORS_TOTAL.with_label_values(&[&org_id, &topic_name, "rest-api", "topic_not_found"]).inc();
+            metrics::CONSUMER_ERRORS_TOTAL
+                .with_label_values(&[&org_id, &topic_name, "rest-api", "topic_not_found"])
+                .inc();
             StatusCode::NOT_FOUND
         })?;
 
     // Validate partition exists
     if req.partition >= topic.partition_count {
-        metrics::CONSUMER_ERRORS_TOTAL.with_label_values(&[&org_id, &topic_name, "rest-api", "invalid_partition"]).inc();
+        metrics::CONSUMER_ERRORS_TOTAL
+            .with_label_values(&[&org_id, &topic_name, "rest-api", "invalid_partition"])
+            .inc();
         return Err(StatusCode::NOT_FOUND);
     }
 
@@ -107,7 +113,9 @@ pub async fn consume(
             }));
         }
         Err(_) => {
-            metrics::CONSUMER_ERRORS_TOTAL.with_label_values(&[&org_id, &topic_name, "rest-api", "read_error"]).inc();
+            metrics::CONSUMER_ERRORS_TOTAL
+                .with_label_values(&[&org_id, &topic_name, "rest-api", "read_error"])
+                .inc();
             return Err(StatusCode::INTERNAL_SERVER_ERROR);
         }
     };
@@ -138,18 +146,26 @@ pub async fn consume(
         if let Some(ref enforcer) = state.quota_enforcer {
             let tenant_ctx = crate::rate_limit::build_tenant_context(&org_id, enforcer).await;
             if let Some(ctx) = tenant_ctx {
-                let check = enforcer.check_consume(&ctx, consume_bytes as i64, None).await;
+                let check = enforcer
+                    .check_consume(&ctx, consume_bytes as i64, None)
+                    .await;
                 if let Ok(streamhouse_metadata::QuotaCheck::Denied(reason)) = check {
                     streamhouse_observability::metrics::RATE_LIMIT_TOTAL
                         .with_label_values(&[&org_id, "denied", "rest"])
                         .inc();
-                    tracing::warn!("Consume rate limit denied: org={}, reason={}", org_id, reason);
+                    tracing::warn!(
+                        "Consume rate limit denied: org={}, reason={}",
+                        org_id,
+                        reason
+                    );
                     return Err(StatusCode::TOO_MANY_REQUESTS);
                 }
             }
         }
 
-        metrics::CONSUMER_RECORDS_TOTAL.with_label_values(&[&org_id, &topic_name, "rest-api"]).inc_by(records.len() as u64);
+        metrics::CONSUMER_RECORDS_TOTAL
+            .with_label_values(&[&org_id, &topic_name, "rest-api"])
+            .inc_by(records.len() as u64);
     }
 
     Ok(Json(ConsumeResponse {

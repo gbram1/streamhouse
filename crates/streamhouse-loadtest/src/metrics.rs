@@ -40,16 +40,20 @@ pub static CONSUME_ERRORS: LazyLock<IntCounterVec> = LazyLock::new(|| {
 // ─── Latency histograms ─────────────────────────────────────────────────────
 
 pub static PRODUCE_LATENCY: LazyLock<HistogramVec> = LazyLock::new(|| {
-    let opts = HistogramOpts::new("loadtest_produce_latency_seconds", "Produce latency")
-        .buckets(vec![0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0]);
+    let opts =
+        HistogramOpts::new("loadtest_produce_latency_seconds", "Produce latency").buckets(vec![
+            0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0,
+        ]);
     let hist = HistogramVec::new(opts, &["protocol"]).unwrap();
     REGISTRY.register(Box::new(hist.clone())).unwrap();
     hist
 });
 
 pub static CONSUME_LATENCY: LazyLock<Histogram> = LazyLock::new(|| {
-    let opts = HistogramOpts::new("loadtest_consume_latency_seconds", "Consume latency")
-        .buckets(vec![0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0]);
+    let opts =
+        HistogramOpts::new("loadtest_consume_latency_seconds", "Consume latency").buckets(vec![
+            0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0,
+        ]);
     let hist = Histogram::with_opts(opts).unwrap();
     REGISTRY.register(Box::new(hist.clone())).unwrap();
     hist
@@ -66,7 +70,10 @@ pub static SQL_LATENCY: LazyLock<HistogramVec> = LazyLock::new(|| {
 // ─── Integrity ──────────────────────────────────────────────────────────────
 
 pub static DATA_LOSS_EVENTS: LazyLock<IntCounterVec> = LazyLock::new(|| {
-    let opts = Opts::new("loadtest_data_loss_events_total", "Data loss events detected");
+    let opts = Opts::new(
+        "loadtest_data_loss_events_total",
+        "Data loss events detected",
+    );
     let counter = IntCounterVec::new(opts, &["org", "topic"]).unwrap();
     REGISTRY.register(Box::new(counter.clone())).unwrap();
     counter
@@ -95,8 +102,11 @@ pub static SQL_QUERIES_TOTAL: LazyLock<IntCounterVec> = LazyLock::new(|| {
 });
 
 pub static S3_SEGMENTS_VERIFIED: LazyLock<IntCounter> = LazyLock::new(|| {
-    let counter =
-        IntCounter::new("loadtest_s3_segments_verified_total", "S3 segments verified").unwrap();
+    let counter = IntCounter::new(
+        "loadtest_s3_segments_verified_total",
+        "S3 segments verified",
+    )
+    .unwrap();
     REGISTRY.register(Box::new(counter.clone())).unwrap();
     counter
 });

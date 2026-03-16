@@ -23,7 +23,10 @@ async fn test_put_then_get() {
     let (cache, _dir) = create_cache(1024 * 1024).await;
 
     let data = Bytes::from(b"hello segment data".to_vec());
-    cache.put("orders-0-00000", data.clone(), "test-org").await.unwrap();
+    cache
+        .put("orders-0-00000", data.clone(), "test-org")
+        .await
+        .unwrap();
 
     let result = cache.get("orders-0-00000", "test-org").await.unwrap();
     assert_eq!(result.unwrap(), data);
@@ -129,7 +132,11 @@ async fn test_cache_persists_to_disk() {
 
     let cache = SegmentCache::new(&cache_dir, 1024 * 1024).unwrap();
     cache
-        .put("persistent-seg", Bytes::from(b"data on disk".to_vec()), "test-org")
+        .put(
+            "persistent-seg",
+            Bytes::from(b"data on disk".to_vec()),
+            "test-org",
+        )
         .await
         .unwrap();
 

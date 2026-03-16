@@ -207,12 +207,7 @@ impl AuthManager {
         self.credentials.organizations.remove(slug);
         if self.credentials.active_org.as_deref() == Some(slug) {
             // Switch to another org if available
-            self.credentials.active_org = self
-                .credentials
-                .organizations
-                .keys()
-                .next()
-                .cloned();
+            self.credentials.active_org = self.credentials.organizations.keys().next().cloned();
         }
         self.save()
     }

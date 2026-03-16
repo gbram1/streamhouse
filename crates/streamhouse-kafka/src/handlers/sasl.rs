@@ -79,27 +79,18 @@ pub async fn handle_sasl_authenticate(
         } else {
             let actual_len = len - 1;
             if body.len() < actual_len {
-                return Ok((
-                    build_sasl_auth_error(header, "Invalid auth data"),
-                    None,
-                ));
+                return Ok((build_sasl_auth_error(header, "Invalid auth data"), None));
             }
             body.split_to(actual_len).to_vec()
         }
     } else {
         // v0-v1: int32 length + bytes
         if body.len() < 4 {
-            return Ok((
-                build_sasl_auth_error(header, "Invalid auth data"),
-                None,
-            ));
+            return Ok((build_sasl_auth_error(header, "Invalid auth data"), None));
         }
         let len = body.get_i32();
         if len < 0 || body.len() < len as usize {
-            return Ok((
-                build_sasl_auth_error(header, "Invalid auth data"),
-                None,
-            ));
+            return Ok((build_sasl_auth_error(header, "Invalid auth data"), None));
         }
         body.split_to(len as usize).to_vec()
     };

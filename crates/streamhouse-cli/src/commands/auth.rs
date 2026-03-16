@@ -236,10 +236,7 @@ async fn handle_api_key_login(api_key: String, server_url: &str) -> Result<()> {
                         api_key: api_key.clone(),
                         plan: org.plan.clone(),
                     })?;
-                    println!(
-                        "    {} ({}) — using login key ({})",
-                        org.name, org.slug, e
-                    );
+                    println!("    {} ({}) — using login key ({})", org.name, org.slug, e);
                 }
             }
         }
@@ -304,10 +301,7 @@ async fn handle_browser_login(server_url: &str) -> Result<()> {
 
     // Parse the GET request line to extract query params
     let request_line = request.lines().next().unwrap_or("");
-    let path = request_line
-        .split_whitespace()
-        .nth(1)
-        .unwrap_or("");
+    let path = request_line.split_whitespace().nth(1).unwrap_or("");
 
     // Parse query params from the path
     let query_string = path.split('?').nth(1).unwrap_or("");
@@ -419,11 +413,7 @@ async fn handle_browser_login(server_url: &str) -> Result<()> {
 /// Provision a per-org API key for the CLI.
 /// First checks if a "streamctl-cli" key already exists, reuses if so.
 /// Otherwise creates a new one.
-async fn provision_org_key(
-    client: &RestClient,
-    org_id: &str,
-    org_slug: &str,
-) -> Result<String> {
+async fn provision_org_key(client: &RestClient, org_id: &str, org_slug: &str) -> Result<String> {
     let key_name = format!("streamctl-cli-{}", org_slug);
 
     // Check if we already have a CLI key for this org
@@ -452,10 +442,7 @@ async fn provision_org_key(
     };
 
     let resp: ApiKeyCreatedResponse = client
-        .post(
-            &format!("/api/v1/organizations/{}/api-keys", org_id),
-            &req,
-        )
+        .post(&format!("/api/v1/organizations/{}/api-keys", org_id), &req)
         .await
         .context("Failed to create API key for org")?;
 

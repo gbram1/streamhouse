@@ -352,7 +352,10 @@ impl ArrowExecutor {
             let scan_start = offset_start.unwrap_or(0);
             let scan_end = offset_end.unwrap_or(partition.high_watermark);
 
-            let segments = self.metadata.get_segments(DEFAULT_ORGANIZATION_ID, topic_name, partition_id).await?;
+            let segments = self
+                .metadata
+                .get_segments(DEFAULT_ORGANIZATION_ID, topic_name, partition_id)
+                .await?;
 
             for segment in segments {
                 if segment.end_offset < scan_start || segment.base_offset > scan_end {
@@ -386,7 +389,11 @@ impl ArrowExecutor {
         let path = Path::from(segment.s3_key.clone());
         let cache_key = &segment.id;
 
-        let data = if let Ok(Some(cached)) = self.segment_cache.get(cache_key, DEFAULT_ORGANIZATION_ID).await {
+        let data = if let Ok(Some(cached)) = self
+            .segment_cache
+            .get(cache_key, DEFAULT_ORGANIZATION_ID)
+            .await
+        {
             cached
         } else {
             let result = self
@@ -398,7 +405,10 @@ impl ArrowExecutor {
                 .bytes()
                 .await
                 .map_err(|e| SqlError::StorageError(e.to_string()))?;
-            let _ = self.segment_cache.put(cache_key, bytes.clone(), DEFAULT_ORGANIZATION_ID).await;
+            let _ = self
+                .segment_cache
+                .put(cache_key, bytes.clone(), DEFAULT_ORGANIZATION_ID)
+                .await;
             bytes
         };
 

@@ -163,14 +163,20 @@ pub async fn handle_connector_command(
         }
         ConnectorCommands::Pause { name } => {
             let resp: ConnectorResponse = client
-                .put(&format!("/api/v1/connectors/{}/pause", name), &serde_json::json!({}))
+                .put(
+                    &format!("/api/v1/connectors/{}/pause", name),
+                    &serde_json::json!({}),
+                )
                 .await
                 .context("Failed to pause connector")?;
             println!("Connector '{}' paused (state: {})", resp.name, resp.state);
         }
         ConnectorCommands::Resume { name } => {
             let resp: ConnectorResponse = client
-                .put(&format!("/api/v1/connectors/{}/resume", name), &serde_json::json!({}))
+                .put(
+                    &format!("/api/v1/connectors/{}/resume", name),
+                    &serde_json::json!({}),
+                )
                 .await
                 .context("Failed to resume connector")?;
             println!("Connector '{}' resumed (state: {})", resp.name, resp.state);

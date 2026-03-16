@@ -223,7 +223,8 @@ pub async fn handle_join_group(
                 }
                 tracing::warn!(
                     "Consumer group creation denied: org={}, reason={}",
-                    org_id, reason
+                    org_id,
+                    reason
                 );
                 return Ok(response);
             }
@@ -587,7 +588,10 @@ pub async fn handle_describe_groups(
     // Get group details
     let mut group_responses = Vec::new();
     for group_id in &groups {
-        let result = state.group_coordinator.describe_group(org_id, group_id).await;
+        let result = state
+            .group_coordinator
+            .describe_group(org_id, group_id)
+            .await;
         group_responses.push((group_id.clone(), result));
     }
 

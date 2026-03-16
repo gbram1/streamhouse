@@ -52,11 +52,7 @@ pub async fn handle_status(
     api_key: Option<&str>,
     org_id: Option<&str>,
 ) -> Result<()> {
-    let client = RestClient::with_org(
-        api_url,
-        api_key.map(String::from),
-        org_id.map(String::from),
-    );
+    let client = RestClient::with_org(api_url, api_key.map(String::from), org_id.map(String::from));
 
     // Fire all requests in parallel
     let (health_result, topics_result, pipelines_result, connectors_result) = tokio::join!(
@@ -77,10 +73,7 @@ pub async fn handle_status(
                 .as_deref()
                 .map(|v| format!(", {}", v))
                 .unwrap_or_default();
-            println!(
-                "  Server:  {} ({}{})",
-                api_url, health.status, version_str
-            );
+            println!("  Server:  {} ({}{})", api_url, health.status, version_str);
         }
         Err(e) => {
             println!("  Server:  {} (unreachable: {})", api_url, e);

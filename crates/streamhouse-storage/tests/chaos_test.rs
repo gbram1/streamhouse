@@ -554,7 +554,9 @@ async fn chaos_cache_concurrent_reads_writes() {
     let write_handle = tokio::spawn(async move {
         for i in 0..50 {
             let key = format!("new-{}", i);
-            c2.put(&key, Bytes::from(vec![0u8; 50]), "test-org").await.unwrap();
+            c2.put(&key, Bytes::from(vec![0u8; 50]), "test-org")
+                .await
+                .unwrap();
         }
     });
 

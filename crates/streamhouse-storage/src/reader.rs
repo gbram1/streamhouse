@@ -132,8 +132,13 @@ impl PartitionReader {
         cache: Arc<SegmentCache>,
         index_config: SegmentIndexConfig,
     ) -> Self {
-        let segment_index =
-            SegmentIndex::new(org_id.clone(), topic.clone(), partition_id, metadata.clone(), index_config);
+        let segment_index = SegmentIndex::new(
+            org_id.clone(),
+            topic.clone(),
+            partition_id,
+            metadata.clone(),
+            index_config,
+        );
 
         Self {
             org_id,
@@ -258,7 +263,9 @@ impl PartitionReader {
         let data = result.bytes().await?;
 
         // Cache for future reads
-        self.cache.put(&cache_key, data.clone(), &self.org_id).await?;
+        self.cache
+            .put(&cache_key, data.clone(), &self.org_id)
+            .await?;
 
         Ok(data)
     }

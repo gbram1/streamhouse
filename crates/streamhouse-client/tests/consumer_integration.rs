@@ -10,7 +10,9 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 use streamhouse_client::{Consumer, OffsetReset};
-use streamhouse_metadata::{CleanupPolicy, MetadataStore, SqliteMetadataStore, TopicConfig, DEFAULT_ORGANIZATION_ID};
+use streamhouse_metadata::{
+    CleanupPolicy, MetadataStore, SqliteMetadataStore, TopicConfig, DEFAULT_ORGANIZATION_ID,
+};
 use streamhouse_storage::{PartitionWriter, WriteConfig};
 use tempfile::TempDir;
 

@@ -16,9 +16,19 @@ use crate::traits::{SinkConnector, SinkRecord};
 /// A transform function that takes a batch of records and returns transformed records.
 /// This allows the consume loop to apply SQL transforms without depending on streamhouse-sql.
 pub type TransformFn = Box<
-    dyn Fn(Vec<SinkRecord>) -> std::pin::Pin<Box<dyn std::future::Future<Output = std::result::Result<Vec<SinkRecord>, Box<dyn std::error::Error + Send + Sync>>> + Send>>
-    + Send
-    + Sync,
+    dyn Fn(
+            Vec<SinkRecord>,
+        ) -> std::pin::Pin<
+            Box<
+                dyn std::future::Future<
+                        Output = std::result::Result<
+                            Vec<SinkRecord>,
+                            Box<dyn std::error::Error + Send + Sync>,
+                        >,
+                    > + Send,
+            >,
+        > + Send
+        + Sync,
 >;
 
 /// Configuration for the pipeline consume loop.
@@ -145,14 +155,21 @@ impl PipelineConsumeLoop {
     }
 
     /// Poll each partition and sink records. Returns (records_count, max_offset).
-    async fn poll_and_sink(&mut self) -> Result<(usize, i64), Box<dyn std::error::Error + Send + Sync>> {
+    async fn poll_and_sink(
+        &mut self,
+    ) -> Result<(usize, i64), Box<dyn std::error::Error + Send + Sync>> {
         let mut all_records = Vec::new();
         let mut max_offset: i64 = -1;
 
         for partition_id in 0..self.config.partition_count {
             // Get committed offset for this partition
-            let committed = self.metadata
-                .get_committed_offset(&self.config.consumer_group, &self.config.source_topic, partition_id)
+            let committed = self
+                .metadata
+                .get_committed_offset(
+                    &self.config.consumer_group,
+                    &self.config.source_topic,
+                    partition_id,
+                )
                 .await?;
             let start_offset = committed.map(|o| o + 1).unwrap_or(0);
 
@@ -165,7 +182,10 @@ impl PipelineConsumeLoop {
                 self.segment_cache.clone(),
             );
 
-            let result = match reader.read(start_offset, self.config.max_records_per_poll).await {
+            let result = match reader
+                .read(start_offset, self.config.max_records_per_poll)
+                .await
+            {
                 Ok(result) => result,
                 Err(streamhouse_storage::Error::OffsetNotFound(_)) => continue,
                 Err(e) => return Err(Box::new(e)),
@@ -190,13 +210,15 @@ impl PipelineConsumeLoop {
 
             // Commit offset for this partition
             if let Some(last_record) = result.records.last() {
-                self.metadata.commit_offset(
-                    &self.config.consumer_group,
-                    &self.config.source_topic,
-                    partition_id,
-                    last_record.offset,
-                    None,
-                ).await?;
+                self.metadata
+                    .commit_offset(
+                        &self.config.consumer_group,
+                        &self.config.source_topic,
+                        partition_id,
+                        last_record.offset,
+                        None,
+                    )
+                    .await?;
             }
         }
 
@@ -216,8 +238,14 @@ impl PipelineConsumeLoop {
         }
 
         // Sink the records
-        self.sink.put(&all_records).await.map_err(|e| -> Box<dyn std::error::Error + Send + Sync> { Box::new(e) })?;
-        self.sink.flush().await.map_err(|e| -> Box<dyn std::error::Error + Send + Sync> { Box::new(e) })?;
+        self.sink
+            .put(&all_records)
+            .await
+            .map_err(|e| -> Box<dyn std::error::Error + Send + Sync> { Box::new(e) })?;
+        self.sink
+            .flush()
+            .await
+            .map_err(|e| -> Box<dyn std::error::Error + Send + Sync> { Box::new(e) })?;
 
         let count = all_records.len();
         tracing::debug!(

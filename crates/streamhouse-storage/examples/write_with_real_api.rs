@@ -10,10 +10,14 @@ use std::sync::Arc;
 use streamhouse_storage::{PartitionReader, PartitionWriter, SegmentCache, WriteConfig};
 
 #[cfg(feature = "postgres")]
-use streamhouse_metadata::{CleanupPolicy, MetadataStore, PostgresMetadataStore, TopicConfig, DEFAULT_ORGANIZATION_ID};
+use streamhouse_metadata::{
+    CleanupPolicy, MetadataStore, PostgresMetadataStore, TopicConfig, DEFAULT_ORGANIZATION_ID,
+};
 
 #[cfg(not(feature = "postgres"))]
-use streamhouse_metadata::{CleanupPolicy, MetadataStore, SqliteMetadataStore, TopicConfig, DEFAULT_ORGANIZATION_ID};
+use streamhouse_metadata::{
+    CleanupPolicy, MetadataStore, SqliteMetadataStore, TopicConfig, DEFAULT_ORGANIZATION_ID,
+};
 
 fn current_timestamp() -> u64 {
     std::time::SystemTime::now()

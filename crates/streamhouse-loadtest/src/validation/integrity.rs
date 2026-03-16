@@ -41,7 +41,10 @@ pub async fn run_integrity_checker(
                 None => continue,
             };
 
-            let org = topic_org_map.get(topic).map(|s| s.as_str()).unwrap_or("unknown");
+            let org = topic_org_map
+                .get(topic)
+                .map(|s| s.as_str())
+                .unwrap_or("unknown");
 
             if produced > consumed + DATA_LOSS_THRESHOLD {
                 metrics::DATA_LOSS_EVENTS

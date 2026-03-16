@@ -57,10 +57,7 @@ impl RestClient {
     }
 
     /// Apply authorization and organization headers
-    fn apply_headers(
-        &self,
-        builder: reqwest::RequestBuilder,
-    ) -> reqwest::RequestBuilder {
+    fn apply_headers(&self, builder: reqwest::RequestBuilder) -> reqwest::RequestBuilder {
         let builder = if let Some(ref key) = self.api_key {
             builder.header("Authorization", format!("Bearer {}", key))
         } else {

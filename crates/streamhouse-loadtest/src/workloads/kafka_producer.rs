@@ -139,8 +139,9 @@ pub async fn run_kafka_producer(
             })
             .collect();
 
-        let req =
-            kafka_wire::build_batched_produce_request(corr_id, &client_id, &topic, partition, &records);
+        let req = kafka_wire::build_batched_produce_request(
+            corr_id, &client_id, &topic, partition, &records,
+        );
         corr_id += 1;
 
         let start = Instant::now();

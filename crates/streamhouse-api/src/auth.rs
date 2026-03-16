@@ -255,9 +255,11 @@ where
             // Try Clerk JWT auth if token looks like a JWT and Clerk is configured
             if let Some(ref clerk) = clerk_auth {
                 if looks_like_jwt(bearer_token) {
-                    let org_header = request.headers().get("x-organization-id")
-                            .and_then(|v| v.to_str().ok())
-                            .map(|s| s.to_string());
+                    let org_header = request
+                        .headers()
+                        .get("x-organization-id")
+                        .and_then(|v| v.to_str().ok())
+                        .map(|s| s.to_string());
                     match authenticate_clerk_jwt(clerk, bearer_token, org_header).await {
                         Ok(auth_key) => {
                             if !required_permission.is_satisfied_by(&auth_key.permissions) {
@@ -397,9 +399,11 @@ where
             // Try Clerk JWT auth if token looks like a JWT and Clerk is configured
             if let Some(ref clerk) = clerk_auth {
                 if looks_like_jwt(bearer_token) {
-                    let org_header = request.headers().get("x-organization-id")
-                            .and_then(|v| v.to_str().ok())
-                            .map(|s| s.to_string());
+                    let org_header = request
+                        .headers()
+                        .get("x-organization-id")
+                        .and_then(|v| v.to_str().ok())
+                        .map(|s| s.to_string());
                     match authenticate_clerk_jwt(clerk, bearer_token, org_header).await {
                         Ok(auth_key) => {
                             if !required_permission.is_satisfied_by(&auth_key.permissions) {

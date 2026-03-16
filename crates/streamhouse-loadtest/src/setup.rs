@@ -31,7 +31,6 @@ struct OrgResponse {
     id: String,
 }
 
-
 /// Run the full setup phase. All operations are idempotent.
 pub async fn run_setup(client: &HttpClient) -> Result<Vec<OrgContext>> {
     let org_specs = vec![
@@ -64,8 +63,20 @@ pub async fn run_setup(client: &HttpClient) -> Result<Vec<OrgContext>> {
     // use the default org). These are used by the Kafka wire protocol producers.
     let default_org_id = "00000000-0000-0000-0000-000000000000";
     let kafka_topics = vec![
-        TopicSpec { name: "kafka-orders".into(), partitions: 8, keyed: true, schema_subject: None, compacted: false },
-        TopicSpec { name: "kafka-market-data".into(), partitions: 16, keyed: true, schema_subject: None, compacted: false },
+        TopicSpec {
+            name: "kafka-orders".into(),
+            partitions: 8,
+            keyed: true,
+            schema_subject: None,
+            compacted: false,
+        },
+        TopicSpec {
+            name: "kafka-market-data".into(),
+            partitions: 16,
+            keyed: true,
+            schema_subject: None,
+            compacted: false,
+        },
     ];
     for spec in &kafka_topics {
         create_topic(client, default_org_id, spec).await?;
@@ -99,7 +110,10 @@ async fn create_org(client: &HttpClient, name: &str, slug: &str, plan: &str) -> 
         Err(e) => {
             // Try to find existing org by listing
             let err_str = e.to_string();
-            if err_str.contains("409") || err_str.contains("conflict") || err_str.contains("Conflict") {
+            if err_str.contains("409")
+                || err_str.contains("conflict")
+                || err_str.contains("Conflict")
+            {
                 tracing::info!(org = slug, "Organization already exists, looking up");
                 find_org_by_slug(client, slug)
                     .await
@@ -123,7 +137,10 @@ async fn create_org(client: &HttpClient, name: &str, slug: &str, plan: &str) -> 
         .await
     {
         Ok(resp) => {
-            let raw = resp.get("key").and_then(|v| v.as_str()).map(|s| s.to_string());
+            let raw = resp
+                .get("key")
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string());
             if raw.is_some() {
                 tracing::info!(org = slug, name = %key_name, "Created API key for Kafka SASL");
             }
@@ -159,34 +176,178 @@ async fn find_org_by_slug(client: &HttpClient, slug: &str) -> Result<String> {
 fn topic_specs_for_org(org_slug: &str) -> Vec<TopicSpec> {
     match org_slug {
         "loadtest-fintech" => vec![
-            TopicSpec { name: "ft-orders".into(), partitions: 8, keyed: true, schema_subject: None, compacted: false },
-            TopicSpec { name: "ft-transactions".into(), partitions: 16, keyed: true, schema_subject: None, compacted: false },
-            TopicSpec { name: "ft-audit".into(), partitions: 4, keyed: false, schema_subject: None, compacted: false },
-            TopicSpec { name: "ft-user-events".into(), partitions: 8, keyed: true, schema_subject: Some("ft-user-events-value".into()), compacted: false },
-            TopicSpec { name: "ft-alerts".into(), partitions: 2, keyed: false, schema_subject: None, compacted: false },
-            TopicSpec { name: "ft-market-data".into(), partitions: 32, keyed: true, schema_subject: None, compacted: false },
-            TopicSpec { name: "ft-compacted".into(), partitions: 4, keyed: true, schema_subject: None, compacted: true },
-            TopicSpec { name: "ft-analytics".into(), partitions: 8, keyed: false, schema_subject: None, compacted: false },
+            TopicSpec {
+                name: "ft-orders".into(),
+                partitions: 8,
+                keyed: true,
+                schema_subject: None,
+                compacted: false,
+            },
+            TopicSpec {
+                name: "ft-transactions".into(),
+                partitions: 16,
+                keyed: true,
+                schema_subject: None,
+                compacted: false,
+            },
+            TopicSpec {
+                name: "ft-audit".into(),
+                partitions: 4,
+                keyed: false,
+                schema_subject: None,
+                compacted: false,
+            },
+            TopicSpec {
+                name: "ft-user-events".into(),
+                partitions: 8,
+                keyed: true,
+                schema_subject: Some("ft-user-events-value".into()),
+                compacted: false,
+            },
+            TopicSpec {
+                name: "ft-alerts".into(),
+                partitions: 2,
+                keyed: false,
+                schema_subject: None,
+                compacted: false,
+            },
+            TopicSpec {
+                name: "ft-market-data".into(),
+                partitions: 32,
+                keyed: true,
+                schema_subject: None,
+                compacted: false,
+            },
+            TopicSpec {
+                name: "ft-compacted".into(),
+                partitions: 4,
+                keyed: true,
+                schema_subject: None,
+                compacted: true,
+            },
+            TopicSpec {
+                name: "ft-analytics".into(),
+                partitions: 8,
+                keyed: false,
+                schema_subject: None,
+                compacted: false,
+            },
         ],
         "loadtest-ecommerce" => vec![
-            TopicSpec { name: "ec-products".into(), partitions: 8, keyed: true, schema_subject: Some("ec-products-value".into()), compacted: false },
-            TopicSpec { name: "ec-cart-events".into(), partitions: 4, keyed: true, schema_subject: None, compacted: false },
-            TopicSpec { name: "ec-page-views".into(), partitions: 16, keyed: false, schema_subject: None, compacted: false },
-            TopicSpec { name: "ec-inventory".into(), partitions: 4, keyed: true, schema_subject: None, compacted: true },
-            TopicSpec { name: "ec-search".into(), partitions: 8, keyed: false, schema_subject: None, compacted: false },
-            TopicSpec { name: "ec-recommendations".into(), partitions: 4, keyed: true, schema_subject: None, compacted: false },
-            TopicSpec { name: "ec-profiles".into(), partitions: 8, keyed: true, schema_subject: None, compacted: false },
-            TopicSpec { name: "ec-notifications".into(), partitions: 2, keyed: false, schema_subject: None, compacted: false },
+            TopicSpec {
+                name: "ec-products".into(),
+                partitions: 8,
+                keyed: true,
+                schema_subject: Some("ec-products-value".into()),
+                compacted: false,
+            },
+            TopicSpec {
+                name: "ec-cart-events".into(),
+                partitions: 4,
+                keyed: true,
+                schema_subject: None,
+                compacted: false,
+            },
+            TopicSpec {
+                name: "ec-page-views".into(),
+                partitions: 16,
+                keyed: false,
+                schema_subject: None,
+                compacted: false,
+            },
+            TopicSpec {
+                name: "ec-inventory".into(),
+                partitions: 4,
+                keyed: true,
+                schema_subject: None,
+                compacted: true,
+            },
+            TopicSpec {
+                name: "ec-search".into(),
+                partitions: 8,
+                keyed: false,
+                schema_subject: None,
+                compacted: false,
+            },
+            TopicSpec {
+                name: "ec-recommendations".into(),
+                partitions: 4,
+                keyed: true,
+                schema_subject: None,
+                compacted: false,
+            },
+            TopicSpec {
+                name: "ec-profiles".into(),
+                partitions: 8,
+                keyed: true,
+                schema_subject: None,
+                compacted: false,
+            },
+            TopicSpec {
+                name: "ec-notifications".into(),
+                partitions: 2,
+                keyed: false,
+                schema_subject: None,
+                compacted: false,
+            },
         ],
         "loadtest-analytics" => vec![
-            TopicSpec { name: "an-clickstream".into(), partitions: 16, keyed: false, schema_subject: None, compacted: false },
-            TopicSpec { name: "an-sessions".into(), partitions: 8, keyed: true, schema_subject: None, compacted: false },
-            TopicSpec { name: "an-conversions".into(), partitions: 4, keyed: true, schema_subject: None, compacted: false },
-            TopicSpec { name: "an-ab-tests".into(), partitions: 4, keyed: true, schema_subject: None, compacted: false },
-            TopicSpec { name: "an-errors".into(), partitions: 8, keyed: false, schema_subject: None, compacted: false },
-            TopicSpec { name: "an-metrics-raw".into(), partitions: 16, keyed: false, schema_subject: None, compacted: false },
-            TopicSpec { name: "an-metrics-agg".into(), partitions: 4, keyed: true, schema_subject: None, compacted: true },
-            TopicSpec { name: "an-user-segments".into(), partitions: 8, keyed: true, schema_subject: Some("an-user-segments-value".into()), compacted: false },
+            TopicSpec {
+                name: "an-clickstream".into(),
+                partitions: 16,
+                keyed: false,
+                schema_subject: None,
+                compacted: false,
+            },
+            TopicSpec {
+                name: "an-sessions".into(),
+                partitions: 8,
+                keyed: true,
+                schema_subject: None,
+                compacted: false,
+            },
+            TopicSpec {
+                name: "an-conversions".into(),
+                partitions: 4,
+                keyed: true,
+                schema_subject: None,
+                compacted: false,
+            },
+            TopicSpec {
+                name: "an-ab-tests".into(),
+                partitions: 4,
+                keyed: true,
+                schema_subject: None,
+                compacted: false,
+            },
+            TopicSpec {
+                name: "an-errors".into(),
+                partitions: 8,
+                keyed: false,
+                schema_subject: None,
+                compacted: false,
+            },
+            TopicSpec {
+                name: "an-metrics-raw".into(),
+                partitions: 16,
+                keyed: false,
+                schema_subject: None,
+                compacted: false,
+            },
+            TopicSpec {
+                name: "an-metrics-agg".into(),
+                partitions: 4,
+                keyed: true,
+                schema_subject: None,
+                compacted: true,
+            },
+            TopicSpec {
+                name: "an-user-segments".into(),
+                partitions: 8,
+                keyed: true,
+                schema_subject: Some("an-user-segments-value".into()),
+                compacted: false,
+            },
         ],
         _ => vec![],
     }
@@ -236,7 +397,12 @@ async fn register_initial_schemas(client: &HttpClient) -> Result<()> {
     Ok(())
 }
 
-async fn register_schema(client: &HttpClient, subject: &str, schema: &serde_json::Value, schema_type: &str) {
+async fn register_schema(
+    client: &HttpClient,
+    subject: &str,
+    schema: &serde_json::Value,
+    schema_type: &str,
+) {
     let body = json!({
         "schema": schema.to_string(),
         "schemaType": schema_type
@@ -290,4 +456,3 @@ async fn create_topic(client: &HttpClient, org_id: &str, spec: &TopicSpec) -> Re
     }
     Ok(())
 }
-

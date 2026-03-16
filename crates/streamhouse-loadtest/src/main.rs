@@ -158,7 +158,9 @@ async fn main() -> anyhow::Result<()> {
 
     // gRPC producers: ft-transactions and an-clickstream
     for topic_name in &["ft-transactions", "an-clickstream"] {
-        if let Some((org_id, slug, spec)) = all_topics.iter().find(|(_, _, t)| t.name == *topic_name) {
+        if let Some((org_id, slug, spec)) =
+            all_topics.iter().find(|(_, _, t)| t.name == *topic_name)
+        {
             let addr = config.grpc_addr.clone();
             let org_id = org_id.clone();
             let slug = slug.clone();
@@ -200,7 +202,10 @@ async fn main() -> anyhow::Result<()> {
         tasks.spawn(async move {
             workloads::sql_queries::run_sql_queries(org_clients, sql_interval, rx).await;
         });
-        println!("  Started SQL query workload (every {}s)", config.sql_interval);
+        println!(
+            "  Started SQL query workload (every {}s)",
+            config.sql_interval
+        );
     }
 
     // Schema evolution

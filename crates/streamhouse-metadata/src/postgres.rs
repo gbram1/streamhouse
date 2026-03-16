@@ -358,12 +358,10 @@ impl MetadataStore for PostgresMetadataStore {
     }
 
     async fn get_topic_organization_id(&self, topic: &str) -> Result<Option<String>> {
-        let row = sqlx::query(
-            "SELECT organization_id::text FROM topics WHERE name = $1",
-        )
-        .bind(topic)
-        .fetch_optional(&self.pool)
-        .await?;
+        let row = sqlx::query("SELECT organization_id::text FROM topics WHERE name = $1")
+            .bind(topic)
+            .fetch_optional(&self.pool)
+            .await?;
 
         use sqlx::Row;
         Ok(row.map(|r| r.get::<String, _>("organization_id")))
@@ -538,7 +536,12 @@ impl MetadataStore for PostgresMetadataStore {
         Ok(())
     }
 
-    async fn get_partition(&self, org_id: &str, topic: &str, partition_id: u32) -> Result<Option<Partition>> {
+    async fn get_partition(
+        &self,
+        org_id: &str,
+        topic: &str,
+        partition_id: u32,
+    ) -> Result<Option<Partition>> {
         let org_uuid = uuid::Uuid::parse_str(org_id).unwrap_or_else(|_| {
             uuid::Uuid::parse_str("00000000-0000-0000-0000-000000000000").unwrap()
         });
@@ -694,7 +697,12 @@ impl MetadataStore for PostgresMetadataStore {
         Ok(())
     }
 
-    async fn get_segments(&self, org_id: &str, topic: &str, partition_id: u32) -> Result<Vec<SegmentInfo>> {
+    async fn get_segments(
+        &self,
+        org_id: &str,
+        topic: &str,
+        partition_id: u32,
+    ) -> Result<Vec<SegmentInfo>> {
         let org_uuid = uuid::Uuid::parse_str(org_id).unwrap_or_else(|_| {
             uuid::Uuid::parse_str("00000000-0000-0000-0000-000000000000").unwrap()
         });
@@ -804,7 +812,10 @@ impl MetadataStore for PostgresMetadataStore {
             .collect())
     }
 
-    async fn get_segment_storage_stats_for_org(&self, org_id: &str) -> Result<Vec<TopicStorageStats>> {
+    async fn get_segment_storage_stats_for_org(
+        &self,
+        org_id: &str,
+    ) -> Result<Vec<TopicStorageStats>> {
         let rows = sqlx::query(
             "SELECT topic, COUNT(*)::BIGINT as segment_count, COALESCE(SUM(size_bytes), 0)::BIGINT as total_size_bytes
              FROM segments WHERE organization_id = $1::UUID GROUP BY topic",
@@ -1057,11 +1068,13 @@ impl MetadataStore for PostgresMetadataStore {
     }
 
     async fn delete_consumer_group_for_org(&self, org_id: &str, group_id: &str) -> Result<()> {
-        sqlx::query("DELETE FROM consumer_groups WHERE organization_id = $1::UUID AND group_id = $2")
-            .bind(org_id)
-            .bind(group_id)
-            .execute(&self.pool)
-            .await?;
+        sqlx::query(
+            "DELETE FROM consumer_groups WHERE organization_id = $1::UUID AND group_id = $2",
+        )
+        .bind(org_id)
+        .bind(group_id)
+        .execute(&self.pool)
+        .await?;
         Ok(())
     }
 
@@ -1299,7 +1312,8 @@ impl MetadataStore for PostgresMetadataStore {
         .await?;
 
         Ok(row.map(|r| PartitionLease {
-            organization_id: r.try_get::<uuid::Uuid, _>("organization_id")
+            organization_id: r
+                .try_get::<uuid::Uuid, _>("organization_id")
                 .map(|u| u.to_string())
                 .unwrap_or_else(|_| crate::DEFAULT_ORGANIZATION_ID.to_string()),
             topic: r.get("topic"),
@@ -1392,7 +1406,8 @@ impl MetadataStore for PostgresMetadataStore {
         Ok(rows
             .into_iter()
             .map(|r| PartitionLease {
-                organization_id: r.try_get::<uuid::Uuid, _>("organization_id")
+                organization_id: r
+                    .try_get::<uuid::Uuid, _>("organization_id")
                     .map(|u| u.to_string())
                     .unwrap_or_else(|_| crate::DEFAULT_ORGANIZATION_ID.to_string()),
                 topic: r.get("topic"),
@@ -1571,13 +1586,14 @@ impl MetadataStore for PostgresMetadataStore {
             .as_millis() as i64;
         let status_str = status.to_string();
 
-        let result =
-            sqlx::query("UPDATE organizations SET status = $1, updated_at = $2 WHERE id = $3::uuid")
-                .bind(&status_str)
-                .bind(now_ms)
-                .bind(id)
-                .execute(&self.pool)
-                .await?;
+        let result = sqlx::query(
+            "UPDATE organizations SET status = $1, updated_at = $2 WHERE id = $3::uuid",
+        )
+        .bind(&status_str)
+        .bind(now_ms)
+        .bind(id)
+        .execute(&self.pool)
+        .await?;
 
         if result.rows_affected() == 0 {
             return Err(MetadataError::NotFoundError(format!(
@@ -1640,7 +1656,8 @@ impl MetadataStore for PostgresMetadataStore {
         let expires_at = config.expires_in_ms.map(|ms| now_ms + ms);
         let now_dt = chrono::DateTime::<chrono::Utc>::from_timestamp_millis(now_ms)
             .unwrap_or_else(chrono::Utc::now);
-        let expires_at_dt = expires_at.and_then(chrono::DateTime::<chrono::Utc>::from_timestamp_millis);
+        let expires_at_dt =
+            expires_at.and_then(chrono::DateTime::<chrono::Utc>::from_timestamp_millis);
         let permissions_json = serde_json::to_value(&config.permissions)?;
         let scopes_json = serde_json::to_value(&config.scopes)?;
 
@@ -1685,7 +1702,7 @@ impl MetadataStore for PostgresMetadataStore {
                     EXTRACT(EPOCH FROM created_at)::BIGINT * 1000 as created_at_ms,
                     created_by,
                     max_requests_per_sec, max_produce_bytes_per_sec, max_consume_bytes_per_sec
-             FROM api_keys WHERE id = $1::UUID"
+             FROM api_keys WHERE id = $1::UUID",
         )
         .bind(id)
         .fetch_optional(&self.pool)
@@ -1721,7 +1738,7 @@ impl MetadataStore for PostgresMetadataStore {
                     EXTRACT(EPOCH FROM created_at)::BIGINT * 1000 as created_at_ms,
                     created_by,
                     max_requests_per_sec, max_produce_bytes_per_sec, max_consume_bytes_per_sec
-             FROM api_keys WHERE key_hash = $1 AND (expires_at IS NULL OR expires_at > NOW())"
+             FROM api_keys WHERE key_hash = $1 AND (expires_at IS NULL OR expires_at > NOW())",
         )
         .bind(key_hash)
         .fetch_optional(&self.pool)
@@ -1757,7 +1774,7 @@ impl MetadataStore for PostgresMetadataStore {
                     EXTRACT(EPOCH FROM created_at)::BIGINT * 1000 as created_at_ms,
                     created_by,
                     max_requests_per_sec, max_produce_bytes_per_sec, max_consume_bytes_per_sec
-             FROM api_keys WHERE organization_id = $1::UUID ORDER BY created_at DESC"
+             FROM api_keys WHERE organization_id = $1::UUID ORDER BY created_at DESC",
         )
         .bind(organization_id)
         .fetch_all(&self.pool)
@@ -3317,11 +3334,19 @@ impl MetadataStore for PostgresMetadataStore {
 
     // ── Org-scoped connector operations ──────────────────────
 
-    async fn create_connector_for_org(&self, _org_id: &str, connector: ConnectorInfo) -> Result<()> {
+    async fn create_connector_for_org(
+        &self,
+        _org_id: &str,
+        connector: ConnectorInfo,
+    ) -> Result<()> {
         self.create_connector(connector).await
     }
 
-    async fn get_connector_for_org(&self, org_id: &str, name: &str) -> Result<Option<ConnectorInfo>> {
+    async fn get_connector_for_org(
+        &self,
+        org_id: &str,
+        name: &str,
+    ) -> Result<Option<ConnectorInfo>> {
         let org_uuid = uuid::Uuid::parse_str(org_id)
             .unwrap_or_else(|_| uuid::Uuid::parse_str(crate::DEFAULT_ORGANIZATION_ID).unwrap());
 
@@ -3483,11 +3508,7 @@ impl MetadataStore for PostgresMetadataStore {
         }))
     }
 
-    async fn prepare_transaction_for_org(
-        &self,
-        org_id: &str,
-        transaction_id: &str,
-    ) -> Result<()> {
+    async fn prepare_transaction_for_org(&self, org_id: &str, transaction_id: &str) -> Result<()> {
         let now = Self::now_ms();
         let result = sqlx::query(
             "UPDATE transactions SET state = 'preparing', updated_at = $1 \
@@ -3509,11 +3530,7 @@ impl MetadataStore for PostgresMetadataStore {
         Ok(())
     }
 
-    async fn commit_transaction_for_org(
-        &self,
-        org_id: &str,
-        transaction_id: &str,
-    ) -> Result<i64> {
+    async fn commit_transaction_for_org(&self, org_id: &str, transaction_id: &str) -> Result<i64> {
         let now = Self::now_ms();
 
         // Get transaction partitions for writing markers
@@ -3576,11 +3593,7 @@ impl MetadataStore for PostgresMetadataStore {
         Ok(now)
     }
 
-    async fn abort_transaction_for_org(
-        &self,
-        org_id: &str,
-        transaction_id: &str,
-    ) -> Result<()> {
+    async fn abort_transaction_for_org(&self, org_id: &str, transaction_id: &str) -> Result<()> {
         let now = Self::now_ms();
 
         // Get transaction partitions for writing markers
@@ -3756,7 +3769,10 @@ impl MetadataStore for PostgresMetadataStore {
         )
         .fetch_all(&self.pool)
         .await?;
-        Ok(rows.into_iter().map(|r| Self::row_to_pipeline_target(r)).collect())
+        Ok(rows
+            .into_iter()
+            .map(|r| Self::row_to_pipeline_target(r))
+            .collect())
     }
 
     async fn delete_pipeline_target(&self, name: &str) -> Result<()> {
@@ -3825,7 +3841,10 @@ impl MetadataStore for PostgresMetadataStore {
         )
         .fetch_all(&self.pool)
         .await?;
-        Ok(rows.into_iter().map(|r| Self::row_to_pipeline_info(r)).collect())
+        Ok(rows
+            .into_iter()
+            .map(|r| Self::row_to_pipeline_info(r))
+            .collect())
     }
 
     async fn delete_pipeline(&self, name: &str) -> Result<()> {
@@ -4032,7 +4051,10 @@ mod tests {
         assert_eq!(topic.partition_count, 3);
 
         // Should have created 3 partitions
-        let partitions = store.list_partitions(crate::DEFAULT_ORGANIZATION_ID, "pg_test_topic").await.unwrap();
+        let partitions = store
+            .list_partitions(crate::DEFAULT_ORGANIZATION_ID, "pg_test_topic")
+            .await
+            .unwrap();
         assert_eq!(partitions.len(), 3);
 
         // Clean up
@@ -4115,7 +4137,13 @@ mod tests {
 
         // Acquire lease
         let lease = store
-            .acquire_partition_lease(crate::DEFAULT_ORGANIZATION_ID, "lease_test", 0, "lease-agent-1", 30000)
+            .acquire_partition_lease(
+                crate::DEFAULT_ORGANIZATION_ID,
+                "lease_test",
+                0,
+                "lease-agent-1",
+                30000,
+            )
             .await
             .unwrap();
 
@@ -4183,7 +4211,11 @@ mod tests {
 
         for partition_id in [0, 1000, 5000, 9999] {
             let partition = store
-                .get_partition(crate::DEFAULT_ORGANIZATION_ID, "perf_test_10k", partition_id)
+                .get_partition(
+                    crate::DEFAULT_ORGANIZATION_ID,
+                    "perf_test_10k",
+                    partition_id,
+                )
                 .await
                 .unwrap()
                 .unwrap();
@@ -4196,7 +4228,10 @@ mod tests {
         // List all partitions
         println!("Listing all 10,000 partitions...");
         let list_start = std::time::Instant::now();
-        let partitions = store.list_partitions(crate::DEFAULT_ORGANIZATION_ID, "perf_test_10k").await.unwrap();
+        let partitions = store
+            .list_partitions(crate::DEFAULT_ORGANIZATION_ID, "perf_test_10k")
+            .await
+            .unwrap();
         let list_duration = list_start.elapsed();
 
         assert_eq!(partitions.len(), 10_000);
@@ -4279,11 +4314,20 @@ mod tests {
             max_timestamp: 0,
         };
 
-        store.add_segment(crate::DEFAULT_ORGANIZATION_ID, segment1).await.unwrap();
-        store.add_segment(crate::DEFAULT_ORGANIZATION_ID, segment2).await.unwrap();
+        store
+            .add_segment(crate::DEFAULT_ORGANIZATION_ID, segment1)
+            .await
+            .unwrap();
+        store
+            .add_segment(crate::DEFAULT_ORGANIZATION_ID, segment2)
+            .await
+            .unwrap();
 
         // Get all segments
-        let segments = store.get_segments(crate::DEFAULT_ORGANIZATION_ID, "segment_test", 0).await.unwrap();
+        let segments = store
+            .get_segments(crate::DEFAULT_ORGANIZATION_ID, "segment_test", 0)
+            .await
+            .unwrap();
         assert_eq!(segments.len(), 2);
         assert_eq!(segments[0].base_offset, 0);
         assert_eq!(segments[1].base_offset, 1000);
@@ -4319,7 +4363,10 @@ mod tests {
             .unwrap();
         assert_eq!(deleted, 1); // Only seg-1 should be deleted
 
-        let segments = store.get_segments(crate::DEFAULT_ORGANIZATION_ID, "segment_test", 0).await.unwrap();
+        let segments = store
+            .get_segments(crate::DEFAULT_ORGANIZATION_ID, "segment_test", 0)
+            .await
+            .unwrap();
         assert_eq!(segments.len(), 1);
         assert_eq!(segments[0].id, "seg-2");
 
@@ -4590,7 +4637,13 @@ mod tests {
 
         // Agent-1 acquires lease
         let lease = store
-            .acquire_partition_lease(crate::DEFAULT_ORGANIZATION_ID, "lease_conflict_test", 0, "agent-1", 30000)
+            .acquire_partition_lease(
+                crate::DEFAULT_ORGANIZATION_ID,
+                "lease_conflict_test",
+                0,
+                "agent-1",
+                30000,
+            )
             .await
             .unwrap();
         assert_eq!(lease.leader_agent_id, "agent-1");
@@ -4598,14 +4651,26 @@ mod tests {
 
         // Agent-2 tries to acquire the same lease (should fail)
         let result = store
-            .acquire_partition_lease(crate::DEFAULT_ORGANIZATION_ID, "lease_conflict_test", 0, "agent-2", 30000)
+            .acquire_partition_lease(
+                crate::DEFAULT_ORGANIZATION_ID,
+                "lease_conflict_test",
+                0,
+                "agent-2",
+                30000,
+            )
             .await;
         assert!(result.is_err());
         assert!(matches!(result, Err(MetadataError::ConflictError(_))));
 
         // Agent-1 can renew its own lease
         let lease = store
-            .acquire_partition_lease(crate::DEFAULT_ORGANIZATION_ID, "lease_conflict_test", 0, "agent-1", 30000)
+            .acquire_partition_lease(
+                crate::DEFAULT_ORGANIZATION_ID,
+                "lease_conflict_test",
+                0,
+                "agent-1",
+                30000,
+            )
             .await
             .unwrap();
         assert_eq!(lease.leader_agent_id, "agent-1");
@@ -4747,20 +4812,23 @@ mod tests {
 
         // Add segment
         store
-            .add_segment(crate::DEFAULT_ORGANIZATION_ID, SegmentInfo {
-                id: "cascade-seg".to_string(),
-                topic: "cascade_test".to_string(),
-                partition_id: 0,
-                base_offset: 0,
-                end_offset: 999,
-                record_count: 1000,
-                size_bytes: 1024,
-                s3_bucket: "test".to_string(),
-                s3_key: "test/key".to_string(),
-                created_at: chrono::Utc::now().timestamp_millis(),
-                min_timestamp: 0,
-                max_timestamp: 0,
-            })
+            .add_segment(
+                crate::DEFAULT_ORGANIZATION_ID,
+                SegmentInfo {
+                    id: "cascade-seg".to_string(),
+                    topic: "cascade_test".to_string(),
+                    partition_id: 0,
+                    base_offset: 0,
+                    end_offset: 999,
+                    record_count: 1000,
+                    size_bytes: 1024,
+                    s3_bucket: "test".to_string(),
+                    s3_key: "test/key".to_string(),
+                    created_at: chrono::Utc::now().timestamp_millis(),
+                    min_timestamp: 0,
+                    max_timestamp: 0,
+                },
+            )
             .await
             .unwrap();
 
@@ -4772,10 +4840,16 @@ mod tests {
             .unwrap();
 
         // Verify everything exists
-        let partitions = store.list_partitions(crate::DEFAULT_ORGANIZATION_ID, "cascade_test").await.unwrap();
+        let partitions = store
+            .list_partitions(crate::DEFAULT_ORGANIZATION_ID, "cascade_test")
+            .await
+            .unwrap();
         assert_eq!(partitions.len(), 2);
 
-        let segments = store.get_segments(crate::DEFAULT_ORGANIZATION_ID, "cascade_test", 0).await.unwrap();
+        let segments = store
+            .get_segments(crate::DEFAULT_ORGANIZATION_ID, "cascade_test", 0)
+            .await
+            .unwrap();
         assert_eq!(segments.len(), 1);
 
         let offset = store
@@ -4788,10 +4862,16 @@ mod tests {
         store.delete_topic("cascade_test").await.unwrap();
 
         // Verify cascaded deletes
-        let partitions = store.list_partitions(crate::DEFAULT_ORGANIZATION_ID, "cascade_test").await.unwrap();
+        let partitions = store
+            .list_partitions(crate::DEFAULT_ORGANIZATION_ID, "cascade_test")
+            .await
+            .unwrap();
         assert_eq!(partitions.len(), 0);
 
-        let segments = store.get_segments(crate::DEFAULT_ORGANIZATION_ID, "cascade_test", 0).await.unwrap();
+        let segments = store
+            .get_segments(crate::DEFAULT_ORGANIZATION_ID, "cascade_test", 0)
+            .await
+            .unwrap();
         assert_eq!(segments.len(), 0);
 
         // Consumer offsets should also be cleaned up

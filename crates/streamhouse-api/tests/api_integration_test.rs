@@ -452,7 +452,10 @@ async fn test_app_with_quota(max_topics: i32) -> axum::Router {
 
     // Set up the organization and its quota
     let org_id = "quota-test-org";
-    metadata.ensure_organization(org_id, "Quota Test Org").await.unwrap();
+    metadata
+        .ensure_organization(org_id, "Quota Test Org")
+        .await
+        .unwrap();
     metadata
         .set_organization_quota(streamhouse_metadata::OrganizationQuota {
             organization_id: org_id.to_string(),
@@ -530,7 +533,11 @@ async fn test_topic_creation_quota_enforcement() {
         )
         .await
         .unwrap();
-    assert_eq!(resp.status(), StatusCode::CREATED, "First topic should succeed");
+    assert_eq!(
+        resp.status(),
+        StatusCode::CREATED,
+        "First topic should succeed"
+    );
 
     // Create topic 2 — should succeed
     let resp = app
@@ -553,7 +560,11 @@ async fn test_topic_creation_quota_enforcement() {
         )
         .await
         .unwrap();
-    assert_eq!(resp.status(), StatusCode::CREATED, "Second topic should succeed");
+    assert_eq!(
+        resp.status(),
+        StatusCode::CREATED,
+        "Second topic should succeed"
+    );
 
     // Create topic 3 — should be denied (429)
     let resp = app

@@ -4,11 +4,19 @@ use clap::Parser;
 #[command(name = "loadtest", about = "StreamHouse production load test")]
 pub struct Config {
     /// HTTP REST API address
-    #[arg(long, default_value = "http://localhost:8080", env = "LOADTEST_HTTP_ADDR")]
+    #[arg(
+        long,
+        default_value = "http://localhost:8080",
+        env = "LOADTEST_HTTP_ADDR"
+    )]
     pub http_addr: String,
 
     /// gRPC API address
-    #[arg(long, default_value = "http://localhost:50051", env = "LOADTEST_GRPC_ADDR")]
+    #[arg(
+        long,
+        default_value = "http://localhost:50051",
+        env = "LOADTEST_GRPC_ADDR"
+    )]
     pub grpc_addr: String,
 
     /// Kafka protocol address

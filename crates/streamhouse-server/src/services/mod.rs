@@ -176,7 +176,12 @@ impl StreamHouseService {
     }
 
     /// Get a partition reader
-    async fn get_reader(&self, org_id: &str, topic: &str, partition_id: u32) -> Result<PartitionReader, Status> {
+    async fn get_reader(
+        &self,
+        org_id: &str,
+        topic: &str,
+        partition_id: u32,
+    ) -> Result<PartitionReader, Status> {
         // Verify topic exists for this org
         let topic_info = self
             .metadata

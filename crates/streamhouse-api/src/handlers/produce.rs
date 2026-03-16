@@ -187,8 +187,14 @@ pub async fn produce(
         if let Some(ctx) = tenant_ctx {
             let check = enforcer.check_produce(&ctx, value_bytes as i64, None).await;
             if let Ok(streamhouse_metadata::QuotaCheck::Denied(reason)) = check {
-                metrics::RATE_LIMIT_TOTAL.with_label_values(&[&org_id, "denied", "rest"]).inc();
-                tracing::warn!("Produce rate limit denied: org={}, reason={}", org_id, reason);
+                metrics::RATE_LIMIT_TOTAL
+                    .with_label_values(&[&org_id, "denied", "rest"])
+                    .inc();
+                tracing::warn!(
+                    "Produce rate limit denied: org={}, reason={}",
+                    org_id,
+                    reason
+                );
                 return Err(StatusCode::TOO_MANY_REQUESTS);
             }
 
@@ -204,7 +210,9 @@ pub async fn produce(
     let topic = match state.metadata.get_topic_for_org(&org_id, &req.topic).await {
         Ok(Some(t)) => t,
         Ok(None) => {
-            metrics::PRODUCER_ERRORS_TOTAL.with_label_values(&[&org_id, &topic_name, "topic_not_found"]).inc();
+            metrics::PRODUCER_ERRORS_TOTAL
+                .with_label_values(&[&org_id, &topic_name, "topic_not_found"])
+                .inc();
             return Err(StatusCode::NOT_FOUND);
         }
         Err(e) => {
@@ -214,7 +222,9 @@ pub async fn produce(
                 req.topic,
                 e
             );
-            metrics::PRODUCER_ERRORS_TOTAL.with_label_values(&[&org_id, &topic_name, "metadata_error"]).inc();
+            metrics::PRODUCER_ERRORS_TOTAL
+                .with_label_values(&[&org_id, &topic_name, "metadata_error"])
+                .inc();
             return Err(StatusCode::INTERNAL_SERVER_ERROR);
         }
     };
@@ -225,7 +235,9 @@ pub async fn produce(
             validate_value_against_schema(registry, &req.topic, &req.value).await
         {
             tracing::warn!("Schema validation failed: topic={}, err={}", req.topic, msg);
-            metrics::PRODUCER_ERRORS_TOTAL.with_label_values(&[&org_id, &topic_name, "schema_validation"]).inc();
+            metrics::PRODUCER_ERRORS_TOTAL
+                .with_label_values(&[&org_id, &topic_name, "schema_validation"])
+                .inc();
             return Err(status);
         }
     }
@@ -237,7 +249,9 @@ pub async fn produce(
 
         // Validate partition exists
         if partition >= topic.partition_count {
-            metrics::PRODUCER_ERRORS_TOTAL.with_label_values(&[&org_id, &topic_name, "invalid_partition"]).inc();
+            metrics::PRODUCER_ERRORS_TOTAL
+                .with_label_values(&[&org_id, &topic_name, "invalid_partition"])
+                .inc();
             return Err(StatusCode::BAD_REQUEST);
         }
 
@@ -251,7 +265,9 @@ pub async fn produce(
                     partition,
                     e
                 );
-                metrics::PRODUCER_ERRORS_TOTAL.with_label_values(&[&org_id, &topic_name, "writer_error"]).inc();
+                metrics::PRODUCER_ERRORS_TOTAL
+                    .with_label_values(&[&org_id, &topic_name, "writer_error"])
+                    .inc();
                 return Err(StatusCode::INTERNAL_SERVER_ERROR);
             }
         };
@@ -276,16 +292,26 @@ pub async fn produce(
                         partition,
                         e
                     );
-                    metrics::PRODUCER_ERRORS_TOTAL.with_label_values(&[&org_id, &topic_name, "append_error"]).inc();
+                    metrics::PRODUCER_ERRORS_TOTAL
+                        .with_label_values(&[&org_id, &topic_name, "append_error"])
+                        .inc();
                     return Err(StatusCode::INTERNAL_SERVER_ERROR);
                 }
             }
         };
 
-        metrics::PRODUCER_RECORDS_TOTAL.with_label_values(&[&org_id, &topic_name]).inc();
-        metrics::PRODUCER_BYTES_TOTAL.with_label_values(&[&org_id, &topic_name]).inc_by(value_bytes);
-        metrics::PRODUCER_BATCH_SIZE.with_label_values(&[&org_id, &topic_name]).observe(1.0);
-        metrics::PRODUCER_LATENCY.with_label_values(&[&org_id, &topic_name]).observe(start.elapsed().as_secs_f64());
+        metrics::PRODUCER_RECORDS_TOTAL
+            .with_label_values(&[&org_id, &topic_name])
+            .inc();
+        metrics::PRODUCER_BYTES_TOTAL
+            .with_label_values(&[&org_id, &topic_name])
+            .inc_by(value_bytes);
+        metrics::PRODUCER_BATCH_SIZE
+            .with_label_values(&[&org_id, &topic_name])
+            .observe(1.0);
+        metrics::PRODUCER_LATENCY
+            .with_label_values(&[&org_id, &topic_name])
+            .observe(start.elapsed().as_secs_f64());
 
         return Ok(Json(ProduceResponse { offset, partition }));
     }
@@ -301,32 +327,40 @@ pub async fn produce(
             )
             .await
             .map_err(|_| {
-                metrics::PRODUCER_ERRORS_TOTAL.with_label_values(&[&org_id, &topic_name, "send_error"]).inc();
+                metrics::PRODUCER_ERRORS_TOTAL
+                    .with_label_values(&[&org_id, &topic_name, "send_error"])
+                    .inc();
                 StatusCode::INTERNAL_SERVER_ERROR
             })?;
 
         // Immediately flush to send the batch and get the offset
-        producer
-            .flush()
-            .await
-            .map_err(|_| {
-                metrics::PRODUCER_ERRORS_TOTAL.with_label_values(&[&org_id, &topic_name, "flush_error"]).inc();
-                StatusCode::INTERNAL_SERVER_ERROR
-            })?;
+        producer.flush().await.map_err(|_| {
+            metrics::PRODUCER_ERRORS_TOTAL
+                .with_label_values(&[&org_id, &topic_name, "flush_error"])
+                .inc();
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?;
 
         // Wait for the offset to be assigned (should be immediate after flush)
-        let offset = result
-            .wait_offset()
-            .await
-            .map_err(|_| {
-                metrics::PRODUCER_ERRORS_TOTAL.with_label_values(&[&org_id, &topic_name, "offset_error"]).inc();
-                StatusCode::INTERNAL_SERVER_ERROR
-            })?;
+        let offset = result.wait_offset().await.map_err(|_| {
+            metrics::PRODUCER_ERRORS_TOTAL
+                .with_label_values(&[&org_id, &topic_name, "offset_error"])
+                .inc();
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?;
 
-        metrics::PRODUCER_RECORDS_TOTAL.with_label_values(&[&org_id, &topic_name]).inc();
-        metrics::PRODUCER_BYTES_TOTAL.with_label_values(&[&org_id, &topic_name]).inc_by(value_bytes);
-        metrics::PRODUCER_BATCH_SIZE.with_label_values(&[&org_id, &topic_name]).observe(1.0);
-        metrics::PRODUCER_LATENCY.with_label_values(&[&org_id, &topic_name]).observe(start.elapsed().as_secs_f64());
+        metrics::PRODUCER_RECORDS_TOTAL
+            .with_label_values(&[&org_id, &topic_name])
+            .inc();
+        metrics::PRODUCER_BYTES_TOTAL
+            .with_label_values(&[&org_id, &topic_name])
+            .inc_by(value_bytes);
+        metrics::PRODUCER_BATCH_SIZE
+            .with_label_values(&[&org_id, &topic_name])
+            .observe(1.0);
+        metrics::PRODUCER_LATENCY
+            .with_label_values(&[&org_id, &topic_name])
+            .observe(start.elapsed().as_secs_f64());
 
         return Ok(Json(ProduceResponse {
             offset,
@@ -334,7 +368,9 @@ pub async fn produce(
         }));
     }
 
-    metrics::PRODUCER_ERRORS_TOTAL.with_label_values(&[&org_id, &topic_name, "no_writer"]).inc();
+    metrics::PRODUCER_ERRORS_TOTAL
+        .with_label_values(&[&org_id, &topic_name, "no_writer"])
+        .inc();
     Err(StatusCode::INTERNAL_SERVER_ERROR)
 }
 
@@ -369,8 +405,14 @@ pub async fn produce_batch(
         if let Some(ctx) = tenant_ctx {
             let check = enforcer.check_produce(&ctx, total_bytes as i64, None).await;
             if let Ok(streamhouse_metadata::QuotaCheck::Denied(reason)) = check {
-                metrics::RATE_LIMIT_TOTAL.with_label_values(&[&org_id, "denied", "rest"]).inc();
-                tracing::warn!("Produce batch rate limit denied: org={}, reason={}", org_id, reason);
+                metrics::RATE_LIMIT_TOTAL
+                    .with_label_values(&[&org_id, "denied", "rest"])
+                    .inc();
+                tracing::warn!(
+                    "Produce batch rate limit denied: org={}, reason={}",
+                    org_id,
+                    reason
+                );
                 return Err(StatusCode::TOO_MANY_REQUESTS);
             }
 
@@ -388,11 +430,15 @@ pub async fn produce_batch(
         .get_topic_for_org(&org_id, &req.topic)
         .await
         .map_err(|_| {
-            metrics::PRODUCER_ERRORS_TOTAL.with_label_values(&[&org_id, &topic_name, "metadata_error"]).inc();
+            metrics::PRODUCER_ERRORS_TOTAL
+                .with_label_values(&[&org_id, &topic_name, "metadata_error"])
+                .inc();
             StatusCode::INTERNAL_SERVER_ERROR
         })?
         .ok_or_else(|| {
-            metrics::PRODUCER_ERRORS_TOTAL.with_label_values(&[&org_id, &topic_name, "topic_not_found"]).inc();
+            metrics::PRODUCER_ERRORS_TOTAL
+                .with_label_values(&[&org_id, &topic_name, "topic_not_found"])
+                .inc();
             StatusCode::NOT_FOUND
         })?;
 
@@ -408,7 +454,9 @@ pub async fn produce_batch(
                     idx,
                     msg
                 );
-                metrics::PRODUCER_ERRORS_TOTAL.with_label_values(&[&org_id, &topic_name, "schema_validation"]).inc();
+                metrics::PRODUCER_ERRORS_TOTAL
+                    .with_label_values(&[&org_id, &topic_name, "schema_validation"])
+                    .inc();
                 return Err(status);
             }
         }
@@ -421,9 +469,15 @@ pub async fn produce_batch(
         // Group records by partition for efficient batching
         let mut by_partition: HashMap<u32, Vec<(usize, &BatchRecord)>> = HashMap::new();
         for (idx, record) in req.records.iter().enumerate() {
-            let partition = select_partition(record.partition, record.key.as_deref(), topic.partition_count);
+            let partition = select_partition(
+                record.partition,
+                record.key.as_deref(),
+                topic.partition_count,
+            );
             if partition >= topic.partition_count {
-                metrics::PRODUCER_ERRORS_TOTAL.with_label_values(&[&org_id, &topic_name, "invalid_partition"]).inc();
+                metrics::PRODUCER_ERRORS_TOTAL
+                    .with_label_values(&[&org_id, &topic_name, "invalid_partition"])
+                    .inc();
                 return Err(StatusCode::BAD_REQUEST);
             }
             by_partition
@@ -438,7 +492,9 @@ pub async fn produce_batch(
                 .get_writer(&org_id, &req.topic, partition)
                 .await
                 .map_err(|_| {
-                    metrics::PRODUCER_ERRORS_TOTAL.with_label_values(&[&org_id, &topic_name, "writer_error"]).inc();
+                    metrics::PRODUCER_ERRORS_TOTAL
+                        .with_label_values(&[&org_id, &topic_name, "writer_error"])
+                        .inc();
                     StatusCode::INTERNAL_SERVER_ERROR
                 })?;
 
@@ -456,7 +512,9 @@ pub async fn produce_batch(
                     .append(key, value, timestamp)
                     .await
                     .map_err(|_| {
-                        metrics::PRODUCER_ERRORS_TOTAL.with_label_values(&[&org_id, &topic_name, "append_error"]).inc();
+                        metrics::PRODUCER_ERRORS_TOTAL
+                            .with_label_values(&[&org_id, &topic_name, "append_error"])
+                            .inc();
                         StatusCode::INTERNAL_SERVER_ERROR
                     })?;
 
@@ -464,10 +522,18 @@ pub async fn produce_batch(
             }
         }
 
-        metrics::PRODUCER_RECORDS_TOTAL.with_label_values(&[&org_id, &topic_name]).inc_by(record_count as u64);
-        metrics::PRODUCER_BYTES_TOTAL.with_label_values(&[&org_id, &topic_name]).inc_by(total_bytes);
-        metrics::PRODUCER_BATCH_SIZE.with_label_values(&[&org_id, &topic_name]).observe(record_count as f64);
-        metrics::PRODUCER_LATENCY.with_label_values(&[&org_id, &topic_name]).observe(start.elapsed().as_secs_f64());
+        metrics::PRODUCER_RECORDS_TOTAL
+            .with_label_values(&[&org_id, &topic_name])
+            .inc_by(record_count as u64);
+        metrics::PRODUCER_BYTES_TOTAL
+            .with_label_values(&[&org_id, &topic_name])
+            .inc_by(total_bytes);
+        metrics::PRODUCER_BATCH_SIZE
+            .with_label_values(&[&org_id, &topic_name])
+            .observe(record_count as f64);
+        metrics::PRODUCER_LATENCY
+            .with_label_values(&[&org_id, &topic_name])
+            .observe(start.elapsed().as_secs_f64());
 
         return Ok(Json(BatchProduceResponse {
             count: results.len(),
@@ -475,6 +541,8 @@ pub async fn produce_batch(
         }));
     }
 
-    metrics::PRODUCER_ERRORS_TOTAL.with_label_values(&[&org_id, &topic_name, "no_writer"]).inc();
+    metrics::PRODUCER_ERRORS_TOTAL
+        .with_label_values(&[&org_id, &topic_name, "no_writer"])
+        .inc();
     Err(StatusCode::INTERNAL_SERVER_ERROR)
 }

@@ -195,7 +195,11 @@ async fn get_partition_offset(
     }
 
     // Get partition info
-    let partition = match state.metadata.get_partition(org_id, topic_name, partition_id).await {
+    let partition = match state
+        .metadata
+        .get_partition(org_id, topic_name, partition_id)
+        .await
+    {
         Ok(Some(p)) => p,
         Ok(None) => {
             return ListOffsetsPartitionResponse {
@@ -236,7 +240,9 @@ async fn get_partition_offset(
             }
         }
         -2 => 0, // Earliest is always 0 for now
-        ts => match find_offset_by_timestamp(state, org_id, topic_name, partition_id, ts as u64).await {
+        ts => match find_offset_by_timestamp(state, org_id, topic_name, partition_id, ts as u64)
+            .await
+        {
             Ok(Some(offset)) => offset as i64,
             Ok(None) => partition.high_watermark as i64,
             Err(e) => {
@@ -277,7 +283,10 @@ async fn find_offset_by_timestamp(
     partition_id: u32,
     target_timestamp: u64,
 ) -> Result<Option<u64>, Box<dyn std::error::Error + Send + Sync>> {
-    let segments = state.metadata.get_segments(org_id, topic, partition_id).await?;
+    let segments = state
+        .metadata
+        .get_segments(org_id, topic, partition_id)
+        .await?;
 
     if segments.is_empty() {
         return Ok(None);
@@ -302,7 +311,10 @@ async fn find_offset_by_timestamp(
             let result = state.object_store.get(&path).await?;
             let data = result.bytes().await?;
             // Best-effort cache
-            let _ = state.segment_cache.put(&cache_key, data.clone(), org_id).await;
+            let _ = state
+                .segment_cache
+                .put(&cache_key, data.clone(), org_id)
+                .await;
             data
         };
 
@@ -593,8 +605,14 @@ pub async fn handle_offset_fetch(
         let mut partition_responses = Vec::new();
 
         for partition_index in partitions {
-            let (offset, metadata, error) =
-                fetch_offset(state, org_id, &group_id, &topic_name, partition_index as u32).await;
+            let (offset, metadata, error) = fetch_offset(
+                state,
+                org_id,
+                &group_id,
+                &topic_name,
+                partition_index as u32,
+            )
+            .await;
 
             partition_responses.push((partition_index, offset, metadata, error));
         }

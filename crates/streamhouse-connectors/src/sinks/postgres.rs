@@ -238,7 +238,7 @@ impl PostgresSinkConnector {
         }
         if let Some(pool) = &self.pool {
             let rows: Vec<(String,)> = sqlx::query_as(
-                "SELECT column_name FROM information_schema.columns WHERE table_name = $1"
+                "SELECT column_name FROM information_schema.columns WHERE table_name = $1",
             )
             .bind(&self.config.table_name)
             .fetch_all(pool)
@@ -297,7 +297,8 @@ impl PostgresSinkConnector {
         }
 
         // Filter each row to only include the selected columns
-        let columns_set: std::collections::HashSet<&str> = columns.iter().map(|s| s.as_str()).collect();
+        let columns_set: std::collections::HashSet<&str> =
+            columns.iter().map(|s| s.as_str()).collect();
         let filtered_rows: Vec<Vec<&serde_json::Value>> = all_rows
             .iter()
             .map(|row| {

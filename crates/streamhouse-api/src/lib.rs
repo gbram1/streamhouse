@@ -258,11 +258,13 @@ pub fn create_router(state: AppState) -> Router {
         // Pipeline Targets
         .route(
             "/pipeline-targets",
-            get(handlers::pipelines::list_pipeline_targets).post(handlers::pipelines::create_pipeline_target),
+            get(handlers::pipelines::list_pipeline_targets)
+                .post(handlers::pipelines::create_pipeline_target),
         )
         .route(
             "/pipeline-targets/:name",
-            get(handlers::pipelines::get_pipeline_target).delete(handlers::pipelines::delete_pipeline_target),
+            get(handlers::pipelines::get_pipeline_target)
+                .delete(handlers::pipelines::delete_pipeline_target),
         )
         // Pipelines
         .route(
@@ -321,35 +323,38 @@ pub fn create_router(state: AppState) -> Router {
         .with_state(state.clone());
 
     // Apply authentication and rate limiting layers based on configuration
-    let api_routes = if auth_enabled {
-        if clerk_auth.is_some() {
-            tracing::info!("API authentication enabled (API keys + Clerk JWT)");
-        } else {
-            tracing::info!("API authentication enabled (API keys only)");
-        }
+    let api_routes =
+        if auth_enabled {
+            if clerk_auth.is_some() {
+                tracing::info!("API authentication enabled (API keys + Clerk JWT)");
+            } else {
+                tracing::info!("API authentication enabled (API keys only)");
+            }
 
-        // Build api routes with auth. If quota enforcer is available, add rate limiting
-        // Layer order: Auth runs first (sets AuthenticatedKey), then RateLimit checks it
-        let api_with_auth = if let Some(ref enforcer) = state.quota_enforcer {
-            tracing::info!("REST rate limiting enabled");
-            api_routes
-                .layer(rate_limit::RateLimitLayer::new(enforcer.clone()))
-                .layer(auth::SmartAuthLayer::new_with_clerk(metadata.clone(), clerk_auth.clone()))
+            // Build api routes with auth. If quota enforcer is available, add rate limiting
+            // Layer order: Auth runs first (sets AuthenticatedKey), then RateLimit checks it
+            let api_with_auth = if let Some(ref enforcer) = state.quota_enforcer {
+                tracing::info!("REST rate limiting enabled");
+                api_routes
+                    .layer(rate_limit::RateLimitLayer::new(enforcer.clone()))
+                    .layer(auth::SmartAuthLayer::new_with_clerk(
+                        metadata.clone(),
+                        clerk_auth.clone(),
+                    ))
+            } else {
+                api_routes.layer(auth::SmartAuthLayer::new_with_clerk(
+                    metadata.clone(),
+                    clerk_auth.clone(),
+                ))
+            };
+
+            Router::new().merge(api_with_auth).merge(admin_routes.layer(
+                AuthLayer::admin_with_clerk(metadata.clone(), clerk_auth.clone()),
+            ))
         } else {
-            api_routes
-                .layer(auth::SmartAuthLayer::new_with_clerk(metadata.clone(), clerk_auth.clone()))
+            tracing::warn!("API authentication DISABLED - all endpoints are public");
+            Router::new().merge(api_routes).merge(admin_routes)
         };
-
-        Router::new()
-            .merge(api_with_auth)
-            .merge(
-                admin_routes
-                    .layer(AuthLayer::admin_with_clerk(metadata.clone(), clerk_auth.clone())),
-            )
-    } else {
-        tracing::warn!("API authentication DISABLED - all endpoints are public");
-        Router::new().merge(api_routes).merge(admin_routes)
-    };
 
     // OpenAPI documentation
     let swagger = SwaggerUi::new("/swagger-ui").url("/api-docs/openapi.json", ApiDoc::openapi());

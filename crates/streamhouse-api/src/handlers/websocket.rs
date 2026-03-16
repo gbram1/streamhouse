@@ -135,7 +135,12 @@ pub async fn topic_websocket(
     Ok(ws.on_upgrade(move |socket| handle_topic_stream(socket, state, org_id, topic_name)))
 }
 
-async fn handle_topic_stream(socket: WebSocket, state: AppState, org_id: String, topic_name: String) {
+async fn handle_topic_stream(
+    socket: WebSocket,
+    state: AppState,
+    org_id: String,
+    topic_name: String,
+) {
     let (mut sender, mut receiver) = socket.split();
     let mut tick = interval(Duration::from_secs(5));
 
@@ -215,7 +220,12 @@ pub async fn consumer_websocket(
     Ok(ws.on_upgrade(move |socket| handle_consumer_stream(socket, state, org_id, group_id)))
 }
 
-async fn handle_consumer_stream(socket: WebSocket, state: AppState, org_id: String, group_id: String) {
+async fn handle_consumer_stream(
+    socket: WebSocket,
+    state: AppState,
+    org_id: String,
+    group_id: String,
+) {
     let (mut sender, mut receiver) = socket.split();
     let mut tick = interval(Duration::from_secs(5));
 
@@ -256,7 +266,10 @@ async fn collect_consumer_metrics(
     org_id: &str,
     group_id: &str,
 ) -> Result<serde_json::Value, Box<dyn std::error::Error>> {
-    let _offsets = state.metadata.get_consumer_offsets_for_org(org_id, group_id).await?;
+    let _offsets = state
+        .metadata
+        .get_consumer_offsets_for_org(org_id, group_id)
+        .await?;
 
     Ok(json!({
         "groupId": group_id,

@@ -169,7 +169,10 @@ impl CompactionTask {
             );
 
             for topic in compacted_topics {
-                if let Err(e) = self.compact_topic(org_id, &topic.name, topic.partition_count).await {
+                if let Err(e) = self
+                    .compact_topic(org_id, &topic.name, topic.partition_count)
+                    .await
+                {
                     warn!("Failed to compact topic {}/{}: {}", org_id, topic.name, e);
                 }
             }
@@ -606,7 +609,12 @@ mod tests {
             self.segments.lock().unwrap().push(segment);
             Ok(())
         }
-        async fn get_segments(&self, _org_id: &str, topic: &str, partition_id: u32) -> Result<Vec<SegmentInfo>> {
+        async fn get_segments(
+            &self,
+            _org_id: &str,
+            topic: &str,
+            partition_id: u32,
+        ) -> Result<Vec<SegmentInfo>> {
             let segments = self.segments.lock().unwrap();
             let mut matching: Vec<_> = segments
                 .iter()
@@ -747,7 +755,10 @@ mod tests {
         async fn get_organization_by_slug(&self, _slug: &str) -> Result<Option<Organization>> {
             unimplemented!()
         }
-        async fn get_organization_by_clerk_id(&self, _clerk_id: &str) -> Result<Option<Organization>> {
+        async fn get_organization_by_clerk_id(
+            &self,
+            _clerk_id: &str,
+        ) -> Result<Option<Organization>> {
             unimplemented!()
         }
         async fn list_organizations(&self) -> Result<Vec<Organization>> {
@@ -1192,7 +1203,10 @@ mod tests {
         let store: Arc<dyn ObjectStore> = Arc::new(InMemory::new());
         let task = make_task(metadata, store);
 
-        let result = task.compact_partition(DEFAULT_ORGANIZATION_ID, "test-topic", 0).await.unwrap();
+        let result = task
+            .compact_partition(DEFAULT_ORGANIZATION_ID, "test-topic", 0)
+            .await
+            .unwrap();
         assert_eq!(result.records_processed, 0);
         assert_eq!(result.keys_removed, 0);
         assert_eq!(result.segments_compacted, 0);
@@ -1217,7 +1231,10 @@ mod tests {
         let task = make_task(metadata, store);
 
         // Only 1 eligible segment -> should skip compaction
-        let result = task.compact_partition(DEFAULT_ORGANIZATION_ID, "topic", 0).await.unwrap();
+        let result = task
+            .compact_partition(DEFAULT_ORGANIZATION_ID, "topic", 0)
+            .await
+            .unwrap();
         assert_eq!(result.records_processed, 0);
         assert_eq!(result.segments_compacted, 0);
     }
@@ -1261,7 +1278,10 @@ mod tests {
         };
         let task = CompactionTask::new(metadata, store, cache, config);
 
-        let result = task.compact_partition(DEFAULT_ORGANIZATION_ID, "topic", 0).await.unwrap();
+        let result = task
+            .compact_partition(DEFAULT_ORGANIZATION_ID, "topic", 0)
+            .await
+            .unwrap();
         // Both segments are too new -> 0 eligible -> skipped
         assert_eq!(result.records_processed, 0);
         assert_eq!(result.segments_compacted, 0);
@@ -1293,7 +1313,10 @@ mod tests {
         let metadata = Arc::new(MockMetadataStore::with_segments(vec![seg1, seg2]));
         let task = make_task(metadata.clone(), store.clone());
 
-        let result = task.compact_partition(DEFAULT_ORGANIZATION_ID, "topic", 0).await.unwrap();
+        let result = task
+            .compact_partition(DEFAULT_ORGANIZATION_ID, "topic", 0)
+            .await
+            .unwrap();
 
         // 4 records processed, 3 unique keys -> 1 removed
         assert_eq!(result.records_processed, 4);
@@ -1374,7 +1397,10 @@ mod tests {
         let metadata = Arc::new(MockMetadataStore::with_segments(vec![seg1, seg2]));
         let task = make_task(metadata, store.clone());
 
-        let result = task.compact_partition(DEFAULT_ORGANIZATION_ID, "topic", 0).await.unwrap();
+        let result = task
+            .compact_partition(DEFAULT_ORGANIZATION_ID, "topic", 0)
+            .await
+            .unwrap();
 
         // 4 records processed; after compaction: key2(1) + key1_tombstone(2) + key3(3) = 3
         assert_eq!(result.records_processed, 4);
@@ -1443,7 +1469,10 @@ mod tests {
 
         // Tombstone timestamp is 1001ms since epoch, which is definitely expired
         // given tombstone_retention of 1 second relative to now
-        let result = task.compact_partition(DEFAULT_ORGANIZATION_ID, "topic", 0).await.unwrap();
+        let result = task
+            .compact_partition(DEFAULT_ORGANIZATION_ID, "topic", 0)
+            .await
+            .unwrap();
 
         // 2 records processed, tombstone expired, key1 removed by tombstone
         // -> 0 surviving records... but wait, the tombstone removed key1 from key_map,
@@ -1478,7 +1507,10 @@ mod tests {
         let metadata = Arc::new(MockMetadataStore::with_segments(vec![seg1, seg2]));
         let task = make_task(metadata, store.clone());
 
-        let result = task.compact_partition(DEFAULT_ORGANIZATION_ID, "topic", 0).await.unwrap();
+        let result = task
+            .compact_partition(DEFAULT_ORGANIZATION_ID, "topic", 0)
+            .await
+            .unwrap();
 
         // 4 records processed: 2 unkeyed (kept), 1 keyed (deduped to latest) -> 3 output
         assert_eq!(result.records_processed, 4);
@@ -1547,7 +1579,10 @@ mod tests {
         let metadata = Arc::new(MockMetadataStore::with_segments(vec![seg1, seg2]));
         let task = make_task(metadata, store.clone());
 
-        let result = task.compact_partition(DEFAULT_ORGANIZATION_ID, "topic", 0).await.unwrap();
+        let result = task
+            .compact_partition(DEFAULT_ORGANIZATION_ID, "topic", 0)
+            .await
+            .unwrap();
 
         // 20 records processed, 1 unique key -> 19 removed
         assert_eq!(result.records_processed, 20);
@@ -1613,7 +1648,10 @@ mod tests {
         let metadata = Arc::new(MockMetadataStore::with_segments(vec![seg1, seg2, seg3]));
         let task = make_task(metadata, store.clone());
 
-        let result = task.compact_partition(DEFAULT_ORGANIZATION_ID, "topic", 0).await.unwrap();
+        let result = task
+            .compact_partition(DEFAULT_ORGANIZATION_ID, "topic", 0)
+            .await
+            .unwrap();
 
         // 3 records processed, 1 unique key output -> 2 removed
         assert_eq!(result.records_processed, 3);
@@ -1683,7 +1721,10 @@ mod tests {
         };
         let task = CompactionTask::new(metadata, store.clone(), cache, config);
 
-        let result = task.compact_partition(DEFAULT_ORGANIZATION_ID, "topic", 0).await.unwrap();
+        let result = task
+            .compact_partition(DEFAULT_ORGANIZATION_ID, "topic", 0)
+            .await
+            .unwrap();
 
         // Should process only the first segment's records (5), then stop
         assert_eq!(result.records_processed, 5);
@@ -1719,7 +1760,10 @@ mod tests {
         let metadata = Arc::new(MockMetadataStore::with_segments(vec![seg1, seg2]));
         let task = make_task(metadata, store.clone());
 
-        let _result = task.compact_partition(DEFAULT_ORGANIZATION_ID, "topic", 0).await.unwrap();
+        let _result = task
+            .compact_partition(DEFAULT_ORGANIZATION_ID, "topic", 0)
+            .await
+            .unwrap();
 
         // Old segments should have been deleted from object store
         let old_path1 = object_store::path::Path::from(old_key1);

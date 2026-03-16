@@ -2915,7 +2915,10 @@ impl ProducerBuilder {
             max_retries: self.max_retries,
             retry_backoff: self.retry_backoff,
             schema_registry_url: self.schema_registry_url.clone(),
-            org_id: self.organization_id.clone().unwrap_or_else(|| streamhouse_metadata::DEFAULT_ORGANIZATION_ID.to_string()),
+            org_id: self
+                .organization_id
+                .clone()
+                .unwrap_or_else(|| streamhouse_metadata::DEFAULT_ORGANIZATION_ID.to_string()),
         };
 
         let agents = Arc::new(RwLock::new(HashMap::new()));

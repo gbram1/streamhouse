@@ -85,7 +85,11 @@ pub async fn handle_add_partitions_to_txn(
     };
 
     // Find active transaction for this producer
-    let transaction = match state.metadata.begin_transaction_for_org(org_id, &producer.id, 60000).await {
+    let transaction = match state
+        .metadata
+        .begin_transaction_for_org(org_id, &producer.id, 60000)
+        .await
+    {
         Ok(txn) => txn,
         Err(e) => {
             warn!("Failed to get/begin transaction: {}", e);

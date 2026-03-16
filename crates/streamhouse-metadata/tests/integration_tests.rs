@@ -5,13 +5,13 @@
 
 use std::collections::HashMap;
 use std::sync::Arc;
+use streamhouse_metadata::tenant::TenantContext;
 use streamhouse_metadata::{
     CacheConfig, CachedMetadataStore, CleanupPolicy, InitProducerConfig, LeaderChangeReason,
     LeaseTransferState, MetadataStore, OrganizationPlan, OrganizationQuota, OrganizationStatus,
     ProducerState, QuotaCheck, QuotaEnforcer, SegmentInfo, SqliteMetadataStore, TopicConfig,
     TransactionState, DEFAULT_ORGANIZATION_ID,
 };
-use streamhouse_metadata::tenant::TenantContext;
 
 #[cfg(feature = "postgres")]
 use streamhouse_metadata::PostgresMetadataStore;
@@ -160,7 +160,11 @@ async fn test_cache_invalidation_correctness() {
         .unwrap();
 
     // Read partition - should see updated watermark (not cached stale data)
-    let partition = store.get_partition(DEFAULT_ORGANIZATION_ID, "cache_test", 0).await.unwrap().unwrap();
+    let partition = store
+        .get_partition(DEFAULT_ORGANIZATION_ID, "cache_test", 0)
+        .await
+        .unwrap()
+        .unwrap();
     assert_eq!(partition.high_watermark, 1000);
 
     // Delete and recreate topic
@@ -238,7 +242,10 @@ async fn test_full_metadata_workflow<S: MetadataStore>(store: &S) {
     assert_eq!(topic.retention_ms, Some(86400000));
 
     // 3. Verify partitions were created
-    let partitions = store.list_partitions(DEFAULT_ORGANIZATION_ID, topic_name).await.unwrap();
+    let partitions = store
+        .list_partitions(DEFAULT_ORGANIZATION_ID, topic_name)
+        .await
+        .unwrap();
     assert_eq!(partitions.len(), 3);
     for (i, partition) in partitions.iter().enumerate() {
         assert_eq!(partition.partition_id, i as u32);
@@ -249,7 +256,10 @@ async fn test_full_metadata_workflow<S: MetadataStore>(store: &S) {
     // 4. Add segments
     for partition_id in 0..3 {
         let segment = create_test_segment(topic_name, partition_id, 0);
-        store.add_segment(DEFAULT_ORGANIZATION_ID, segment).await.unwrap();
+        store
+            .add_segment(DEFAULT_ORGANIZATION_ID, segment)
+            .await
+            .unwrap();
     }
 
     // 5. Update high watermarks
@@ -333,7 +343,11 @@ async fn test_concurrent_partition_updates<S: MetadataStore>(store: &S) {
     }
 
     // Verify final watermark
-    let partition = store.get_partition(DEFAULT_ORGANIZATION_ID, topic_name, 0).await.unwrap().unwrap();
+    let partition = store
+        .get_partition(DEFAULT_ORGANIZATION_ID, topic_name, 0)
+        .await
+        .unwrap()
+        .unwrap();
     assert_eq!(partition.high_watermark, 1000);
 
     // Clean up
@@ -410,11 +424,17 @@ async fn test_segment_retention_cleanup<S: MetadataStore>(store: &S) {
     // Add multiple segments
     for i in 0..10 {
         let segment = create_test_segment(topic_name, 0, i * 1000);
-        store.add_segment(DEFAULT_ORGANIZATION_ID, segment).await.unwrap();
+        store
+            .add_segment(DEFAULT_ORGANIZATION_ID, segment)
+            .await
+            .unwrap();
     }
 
     // Verify all segments exist
-    let segments = store.get_segments(DEFAULT_ORGANIZATION_ID, topic_name, 0).await.unwrap();
+    let segments = store
+        .get_segments(DEFAULT_ORGANIZATION_ID, topic_name, 0)
+        .await
+        .unwrap();
     assert_eq!(segments.len(), 10);
 
     // Delete segments before offset 5000
@@ -425,7 +445,10 @@ async fn test_segment_retention_cleanup<S: MetadataStore>(store: &S) {
     assert_eq!(deleted, 5); // Should delete segments 0-4999
 
     // Verify remaining segments
-    let segments = store.get_segments(DEFAULT_ORGANIZATION_ID, topic_name, 0).await.unwrap();
+    let segments = store
+        .get_segments(DEFAULT_ORGANIZATION_ID, topic_name, 0)
+        .await
+        .unwrap();
     assert_eq!(segments.len(), 5);
     assert!(segments.iter().all(|s| s.base_offset >= 5000));
 
@@ -493,7 +516,10 @@ async fn test_partition_ordering() {
     let config = create_test_topic_config("order_test", 10);
     store.create_topic(config).await.unwrap();
 
-    let partitions = store.list_partitions(DEFAULT_ORGANIZATION_ID, "order_test").await.unwrap();
+    let partitions = store
+        .list_partitions(DEFAULT_ORGANIZATION_ID, "order_test")
+        .await
+        .unwrap();
     assert_eq!(partitions.len(), 10);
 
     // Should be ordered by partition_id
@@ -512,10 +538,16 @@ async fn test_segment_ordering() {
     // Add segments in reverse order
     for i in (0..5).rev() {
         let segment = create_test_segment("segment_order_test", 0, i * 1000);
-        store.add_segment(DEFAULT_ORGANIZATION_ID, segment).await.unwrap();
+        store
+            .add_segment(DEFAULT_ORGANIZATION_ID, segment)
+            .await
+            .unwrap();
     }
 
-    let segments = store.get_segments(DEFAULT_ORGANIZATION_ID, "segment_order_test", 0).await.unwrap();
+    let segments = store
+        .get_segments(DEFAULT_ORGANIZATION_ID, "segment_order_test", 0)
+        .await
+        .unwrap();
     assert_eq!(segments.len(), 5);
 
     // Should be ordered by base_offset
@@ -949,7 +981,13 @@ async fn test_lease_transfer_lifecycle<S: MetadataStore>(store: &S) {
 
     // 1. Agent 1 acquires lease
     let lease = store
-        .acquire_partition_lease(streamhouse_metadata::DEFAULT_ORGANIZATION_ID, topic_name, 0, "agent-001", 60_000)
+        .acquire_partition_lease(
+            streamhouse_metadata::DEFAULT_ORGANIZATION_ID,
+            topic_name,
+            0,
+            "agent-001",
+            60_000,
+        )
         .await
         .unwrap();
     assert_eq!(lease.leader_agent_id, "agent-001");
@@ -1056,7 +1094,13 @@ async fn test_lease_transfer_rejection<S: MetadataStore>(store: &S) {
 
     // Agent 1 acquires lease
     store
-        .acquire_partition_lease(streamhouse_metadata::DEFAULT_ORGANIZATION_ID, topic_name, 0, "agent-001", 60_000)
+        .acquire_partition_lease(
+            streamhouse_metadata::DEFAULT_ORGANIZATION_ID,
+            topic_name,
+            0,
+            "agent-001",
+            60_000,
+        )
         .await
         .unwrap();
 
@@ -1206,7 +1250,13 @@ async fn test_transfer_timeout_cleanup<S: MetadataStore>(store: &S) {
 
     // Acquire lease for partition 0
     store
-        .acquire_partition_lease(streamhouse_metadata::DEFAULT_ORGANIZATION_ID, topic_name, 0, "agent-001", 60_000)
+        .acquire_partition_lease(
+            streamhouse_metadata::DEFAULT_ORGANIZATION_ID,
+            topic_name,
+            0,
+            "agent-001",
+            60_000,
+        )
         .await
         .unwrap();
 
@@ -1288,17 +1338,35 @@ async fn test_pending_transfers_for_agent<S: MetadataStore>(store: &S) {
 
     // Agent 1 acquires leases for partitions 0 and 1
     store
-        .acquire_partition_lease(streamhouse_metadata::DEFAULT_ORGANIZATION_ID, topic_name, 0, "agent-001", 60_000)
+        .acquire_partition_lease(
+            streamhouse_metadata::DEFAULT_ORGANIZATION_ID,
+            topic_name,
+            0,
+            "agent-001",
+            60_000,
+        )
         .await
         .unwrap();
     store
-        .acquire_partition_lease(streamhouse_metadata::DEFAULT_ORGANIZATION_ID, topic_name, 1, "agent-001", 60_000)
+        .acquire_partition_lease(
+            streamhouse_metadata::DEFAULT_ORGANIZATION_ID,
+            topic_name,
+            1,
+            "agent-001",
+            60_000,
+        )
         .await
         .unwrap();
 
     // Agent 3 acquires lease for partition 2
     store
-        .acquire_partition_lease(streamhouse_metadata::DEFAULT_ORGANIZATION_ID, topic_name, 2, "agent-003", 60_000)
+        .acquire_partition_lease(
+            streamhouse_metadata::DEFAULT_ORGANIZATION_ID,
+            topic_name,
+            2,
+            "agent-003",
+            60_000,
+        )
         .await
         .unwrap();
 
@@ -1408,7 +1476,13 @@ async fn test_transfer_authorization() {
 
     // Agent 1 acquires lease
     store
-        .acquire_partition_lease(streamhouse_metadata::DEFAULT_ORGANIZATION_ID, topic_name, 0, "agent-001", 60_000)
+        .acquire_partition_lease(
+            streamhouse_metadata::DEFAULT_ORGANIZATION_ID,
+            topic_name,
+            0,
+            "agent-001",
+            60_000,
+        )
         .await
         .unwrap();
 
@@ -1472,7 +1546,13 @@ async fn test_concurrent_transfers_different_partitions() {
     // Each agent acquires one partition
     for i in 0..4 {
         store
-            .acquire_partition_lease(streamhouse_metadata::DEFAULT_ORGANIZATION_ID, topic_name, i, &format!("agent-{:03}", i + 1), 60_000)
+            .acquire_partition_lease(
+                streamhouse_metadata::DEFAULT_ORGANIZATION_ID,
+                topic_name,
+                i,
+                &format!("agent-{:03}", i + 1),
+                60_000,
+            )
             .await
             .unwrap();
     }
@@ -1574,28 +1654,37 @@ async fn test_sqlite_quota_topic_creation() {
     let store = Arc::new(SqliteMetadataStore::new(":memory:").await.unwrap());
     let enforcer = QuotaEnforcer::new(store.clone());
 
-    store.ensure_organization("test-org", "Test Org").await.unwrap();
+    store
+        .ensure_organization("test-org", "Test Org")
+        .await
+        .unwrap();
 
-    let ctx = test_quota_tenant_context("test-org", OrganizationQuota {
-        organization_id: "test-org".to_string(),
-        max_topics: 3,
-        max_partitions_per_topic: 4,
-        max_total_partitions: 100,
-        max_storage_bytes: i64::MAX,
-        max_retention_days: 7,
-        max_produce_bytes_per_sec: 10_000_000,
-        max_consume_bytes_per_sec: 50_000_000,
-        max_requests_per_sec: 1000,
-        max_consumer_groups: 50,
-        max_schemas: 100,
-        max_schema_versions_per_subject: 100,
-        max_connections: 100,
-    });
+    let ctx = test_quota_tenant_context(
+        "test-org",
+        OrganizationQuota {
+            organization_id: "test-org".to_string(),
+            max_topics: 3,
+            max_partitions_per_topic: 4,
+            max_total_partitions: 100,
+            max_storage_bytes: i64::MAX,
+            max_retention_days: 7,
+            max_produce_bytes_per_sec: 10_000_000,
+            max_consume_bytes_per_sec: 50_000_000,
+            max_requests_per_sec: 1000,
+            max_consumer_groups: 50,
+            max_schemas: 100,
+            max_schema_versions_per_subject: 100,
+            max_connections: 100,
+        },
+    );
 
     // Create 2 topics
     for i in 0..2 {
         store
-            .create_topic_for_org("test-org", create_test_topic_config(&format!("topic-{}", i), 1))
+            .create_topic_for_org(
+                "test-org",
+                create_test_topic_config(&format!("topic-{}", i), 1),
+            )
             .await
             .unwrap();
     }
@@ -1612,17 +1701,29 @@ async fn test_sqlite_quota_topic_creation() {
 
     // Now at 3/3, should be denied
     let check = enforcer.check_topic_creation(&ctx, 1).await.unwrap();
-    assert!(check.is_denied(), "Expected Denied at limit, got {:?}", check);
+    assert!(
+        check.is_denied(),
+        "Expected Denied at limit, got {:?}",
+        check
+    );
 
     // Partition limit: requesting 5 partitions when max is 4 should be denied
     // (even if topic count is fine — remove one topic to test)
     store.delete_topic("topic-2").await.unwrap();
     let check = enforcer.check_topic_creation(&ctx, 5).await.unwrap();
-    assert!(check.is_denied(), "Expected Denied for partition overflow, got {:?}", check);
+    assert!(
+        check.is_denied(),
+        "Expected Denied for partition overflow, got {:?}",
+        check
+    );
 
     // Requesting 4 partitions (equal to max) should be allowed
     let check = enforcer.check_topic_creation(&ctx, 4).await.unwrap();
-    assert!(check.is_allowed(), "Expected Allowed for 4 partitions, got {:?}", check);
+    assert!(
+        check.is_allowed(),
+        "Expected Allowed for 4 partitions, got {:?}",
+        check
+    );
 }
 
 #[tokio::test]
@@ -1636,11 +1737,17 @@ async fn test_sqlite_quota_topic_org_scoping() {
     // Create 2 topics for each org
     for i in 0..2 {
         store
-            .create_topic_for_org("org-a", create_test_topic_config(&format!("a-topic-{}", i), 1))
+            .create_topic_for_org(
+                "org-a",
+                create_test_topic_config(&format!("a-topic-{}", i), 1),
+            )
             .await
             .unwrap();
         store
-            .create_topic_for_org("org-b", create_test_topic_config(&format!("b-topic-{}", i), 1))
+            .create_topic_for_org(
+                "org-b",
+                create_test_topic_config(&format!("b-topic-{}", i), 1),
+            )
             .await
             .unwrap();
     }
@@ -1661,21 +1768,35 @@ async fn test_sqlite_quota_topic_org_scoping() {
         max_connections: 100,
     };
 
-    let ctx_a = test_quota_tenant_context("org-a", OrganizationQuota {
-        organization_id: "org-a".to_string(),
-        ..base_quota.clone()
-    });
-    let ctx_b = test_quota_tenant_context("org-b", OrganizationQuota {
-        organization_id: "org-b".to_string(),
-        ..base_quota.clone()
-    });
+    let ctx_a = test_quota_tenant_context(
+        "org-a",
+        OrganizationQuota {
+            organization_id: "org-a".to_string(),
+            ..base_quota.clone()
+        },
+    );
+    let ctx_b = test_quota_tenant_context(
+        "org-b",
+        OrganizationQuota {
+            organization_id: "org-b".to_string(),
+            ..base_quota.clone()
+        },
+    );
 
     // Each org has 2/3 topics — both should be allowed
     let check_a = enforcer.check_topic_creation(&ctx_a, 1).await.unwrap();
-    assert!(check_a.is_allowed(), "Expected org-a Allowed, got {:?}", check_a);
+    assert!(
+        check_a.is_allowed(),
+        "Expected org-a Allowed, got {:?}",
+        check_a
+    );
 
     let check_b = enforcer.check_topic_creation(&ctx_b, 1).await.unwrap();
-    assert!(check_b.is_allowed(), "Expected org-b Allowed, got {:?}", check_b);
+    assert!(
+        check_b.is_allowed(),
+        "Expected org-b Allowed, got {:?}",
+        check_b
+    );
 
     // Add a 3rd topic to org-a — org-a should now be denied, org-b still allowed
     store
@@ -1684,10 +1805,18 @@ async fn test_sqlite_quota_topic_org_scoping() {
         .unwrap();
 
     let check_a = enforcer.check_topic_creation(&ctx_a, 1).await.unwrap();
-    assert!(check_a.is_denied(), "Expected org-a Denied at limit, got {:?}", check_a);
+    assert!(
+        check_a.is_denied(),
+        "Expected org-a Denied at limit, got {:?}",
+        check_a
+    );
 
     let check_b = enforcer.check_topic_creation(&ctx_b, 1).await.unwrap();
-    assert!(check_b.is_allowed(), "Expected org-b still Allowed, got {:?}", check_b);
+    assert!(
+        check_b.is_allowed(),
+        "Expected org-b still Allowed, got {:?}",
+        check_b
+    );
 }
 
 #[tokio::test]
@@ -1695,7 +1824,10 @@ async fn test_sqlite_quota_consumer_groups() {
     let store = Arc::new(SqliteMetadataStore::new(":memory:").await.unwrap());
     let enforcer = QuotaEnforcer::new(store.clone());
 
-    store.ensure_organization("test-org", "Test Org").await.unwrap();
+    store
+        .ensure_organization("test-org", "Test Org")
+        .await
+        .unwrap();
 
     // Create a topic so we can commit offsets (which creates consumer groups)
     store
@@ -1703,38 +1835,56 @@ async fn test_sqlite_quota_consumer_groups() {
         .await
         .unwrap();
 
-    let ctx = test_quota_tenant_context("test-org", OrganizationQuota {
-        organization_id: "test-org".to_string(),
-        max_topics: 10,
-        max_partitions_per_topic: 12,
-        max_total_partitions: 100,
-        max_storage_bytes: i64::MAX,
-        max_retention_days: 7,
-        max_produce_bytes_per_sec: 10_000_000,
-        max_consume_bytes_per_sec: 50_000_000,
-        max_requests_per_sec: 1000,
-        max_consumer_groups: 3,
-        max_schemas: 100,
-        max_schema_versions_per_subject: 100,
-        max_connections: 100,
-    });
+    let ctx = test_quota_tenant_context(
+        "test-org",
+        OrganizationQuota {
+            organization_id: "test-org".to_string(),
+            max_topics: 10,
+            max_partitions_per_topic: 12,
+            max_total_partitions: 100,
+            max_storage_bytes: i64::MAX,
+            max_retention_days: 7,
+            max_produce_bytes_per_sec: 10_000_000,
+            max_consume_bytes_per_sec: 50_000_000,
+            max_requests_per_sec: 1000,
+            max_consumer_groups: 3,
+            max_schemas: 100,
+            max_schema_versions_per_subject: 100,
+            max_connections: 100,
+        },
+    );
 
     // Create 3 consumer groups by committing offsets
     for i in 0..3 {
         store
-            .commit_offset_for_org("test-org", &format!("group-{}", i), "cg-topic", 0, i as u64, None)
+            .commit_offset_for_org(
+                "test-org",
+                &format!("group-{}", i),
+                "cg-topic",
+                0,
+                i as u64,
+                None,
+            )
             .await
             .unwrap();
     }
 
     // At 3/3, should be denied
     let check = enforcer.check_consumer_group_creation(&ctx).await.unwrap();
-    assert!(check.is_denied(), "Expected Denied at consumer group limit, got {:?}", check);
+    assert!(
+        check.is_denied(),
+        "Expected Denied at consumer group limit, got {:?}",
+        check
+    );
 
     // With only 2 groups, should be allowed
     store.delete_consumer_group("group-2").await.unwrap();
     let check = enforcer.check_consumer_group_creation(&ctx).await.unwrap();
-    assert!(check.is_allowed(), "Expected Allowed after deleting a group, got {:?}", check);
+    assert!(
+        check.is_allowed(),
+        "Expected Allowed after deleting a group, got {:?}",
+        check
+    );
 }
 
 #[tokio::test]
@@ -1742,21 +1892,24 @@ async fn test_sqlite_quota_connections() {
     let store = Arc::new(SqliteMetadataStore::new(":memory:").await.unwrap());
     let enforcer = QuotaEnforcer::new(store.clone());
 
-    let ctx = test_quota_tenant_context("test-org", OrganizationQuota {
-        organization_id: "test-org".to_string(),
-        max_topics: 10,
-        max_partitions_per_topic: 12,
-        max_total_partitions: 100,
-        max_storage_bytes: i64::MAX,
-        max_retention_days: 7,
-        max_produce_bytes_per_sec: 10_000_000,
-        max_consume_bytes_per_sec: 50_000_000,
-        max_requests_per_sec: 1000,
-        max_consumer_groups: 50,
-        max_schemas: 100,
-        max_schema_versions_per_subject: 100,
-        max_connections: 10,
-    });
+    let ctx = test_quota_tenant_context(
+        "test-org",
+        OrganizationQuota {
+            organization_id: "test-org".to_string(),
+            max_topics: 10,
+            max_partitions_per_topic: 12,
+            max_total_partitions: 100,
+            max_storage_bytes: i64::MAX,
+            max_retention_days: 7,
+            max_produce_bytes_per_sec: 10_000_000,
+            max_consume_bytes_per_sec: 50_000_000,
+            max_requests_per_sec: 1000,
+            max_consumer_groups: 50,
+            max_schemas: 100,
+            max_schema_versions_per_subject: 100,
+            max_connections: 10,
+        },
+    );
 
     // Well under limit — should be allowed
     let check = enforcer.check_connection(&ctx, 2).await.unwrap();
@@ -1768,15 +1921,27 @@ async fn test_sqlite_quota_connections() {
 
     // At 90% (9/10) — should be a warning (> 80%)
     let check = enforcer.check_connection(&ctx, 9).await.unwrap();
-    assert!(matches!(check, QuotaCheck::Warning(_)), "Expected Warning at 90%, got {:?}", check);
+    assert!(
+        matches!(check, QuotaCheck::Warning(_)),
+        "Expected Warning at 90%, got {:?}",
+        check
+    );
 
     // At limit (10/10) — should be denied
     let check = enforcer.check_connection(&ctx, 10).await.unwrap();
-    assert!(check.is_denied(), "Expected Denied at limit, got {:?}", check);
+    assert!(
+        check.is_denied(),
+        "Expected Denied at limit, got {:?}",
+        check
+    );
 
     // Over limit — also denied
     let check = enforcer.check_connection(&ctx, 11).await.unwrap();
-    assert!(check.is_denied(), "Expected Denied over limit, got {:?}", check);
+    assert!(
+        check.is_denied(),
+        "Expected Denied over limit, got {:?}",
+        check
+    );
 }
 
 #[tokio::test]
@@ -1784,23 +1949,29 @@ async fn test_sqlite_quota_storage() {
     let store = Arc::new(SqliteMetadataStore::new(":memory:").await.unwrap());
     let enforcer = QuotaEnforcer::new(store.clone());
 
-    store.ensure_organization("test-org", "Test Org").await.unwrap();
+    store
+        .ensure_organization("test-org", "Test Org")
+        .await
+        .unwrap();
 
-    let ctx = test_quota_tenant_context("test-org", OrganizationQuota {
-        organization_id: "test-org".to_string(),
-        max_topics: 10,
-        max_partitions_per_topic: 12,
-        max_total_partitions: 100,
-        max_storage_bytes: 1000,
-        max_retention_days: 7,
-        max_produce_bytes_per_sec: 10_000_000,
-        max_consume_bytes_per_sec: 50_000_000,
-        max_requests_per_sec: 1000,
-        max_consumer_groups: 50,
-        max_schemas: 100,
-        max_schema_versions_per_subject: 100,
-        max_connections: 100,
-    });
+    let ctx = test_quota_tenant_context(
+        "test-org",
+        OrganizationQuota {
+            organization_id: "test-org".to_string(),
+            max_topics: 10,
+            max_partitions_per_topic: 12,
+            max_total_partitions: 100,
+            max_storage_bytes: 1000,
+            max_retention_days: 7,
+            max_produce_bytes_per_sec: 10_000_000,
+            max_consume_bytes_per_sec: 50_000_000,
+            max_requests_per_sec: 1000,
+            max_consumer_groups: 50,
+            max_schemas: 100,
+            max_schema_versions_per_subject: 100,
+            max_connections: 100,
+        },
+    );
 
     // No storage used — should be allowed
     let check = enforcer.check_storage(&ctx).await.unwrap();
@@ -1820,7 +1991,11 @@ async fn test_sqlite_quota_storage() {
         .await
         .unwrap();
     let check = enforcer.check_storage(&ctx).await.unwrap();
-    assert!(matches!(check, QuotaCheck::Warning(_)), "Expected Warning at 85%, got {:?}", check);
+    assert!(
+        matches!(check, QuotaCheck::Warning(_)),
+        "Expected Warning at 85%, got {:?}",
+        check
+    );
 
     // Use 150 more bytes (1000 total = 100%) — should be denied
     store
@@ -1828,5 +2003,9 @@ async fn test_sqlite_quota_storage() {
         .await
         .unwrap();
     let check = enforcer.check_storage(&ctx).await.unwrap();
-    assert!(check.is_denied(), "Expected Denied at 100%, got {:?}", check);
+    assert!(
+        check.is_denied(),
+        "Expected Denied at 100%, got {:?}",
+        check
+    );
 }

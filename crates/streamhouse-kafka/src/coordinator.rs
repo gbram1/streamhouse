@@ -483,7 +483,11 @@ impl GroupCoordinator {
     }
 
     /// Get group state for DescribeGroups
-    pub async fn describe_group(&self, org_id: &str, group_id: &str) -> Option<DescribeGroupResult> {
+    pub async fn describe_group(
+        &self,
+        org_id: &str,
+        group_id: &str,
+    ) -> Option<DescribeGroupResult> {
         let key = (org_id.to_string(), group_id.to_string());
         let group_entry = self.groups.get(&key)?;
         let group = group_entry.read().await;

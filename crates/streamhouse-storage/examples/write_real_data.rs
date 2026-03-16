@@ -14,7 +14,9 @@ use bytes::Bytes;
 use object_store::{aws::AmazonS3Builder, ObjectStore};
 use std::collections::HashMap;
 use std::sync::Arc;
-use streamhouse_metadata::{CleanupPolicy, MetadataStore, SqliteMetadataStore, TopicConfig, DEFAULT_ORGANIZATION_ID};
+use streamhouse_metadata::{
+    CleanupPolicy, MetadataStore, SqliteMetadataStore, TopicConfig, DEFAULT_ORGANIZATION_ID,
+};
 use streamhouse_storage::{PartitionReader, PartitionWriter, SegmentCache, WriteConfig};
 
 fn current_timestamp() -> u64 {
@@ -180,15 +182,25 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Verify metadata
     println!("🔍 Step 7: Verify data in metadata store");
-    let partition0 = metadata.get_partition(DEFAULT_ORGANIZATION_ID, topic, 0).await?.unwrap();
-    let partition1 = metadata.get_partition(DEFAULT_ORGANIZATION_ID, topic, 1).await?.unwrap();
+    let partition0 = metadata
+        .get_partition(DEFAULT_ORGANIZATION_ID, topic, 0)
+        .await?
+        .unwrap();
+    let partition1 = metadata
+        .get_partition(DEFAULT_ORGANIZATION_ID, topic, 1)
+        .await?
+        .unwrap();
 
     println!("   Partition 0 watermark: {}", partition0.high_watermark);
     println!("   Partition 1 watermark: {}", partition1.high_watermark);
     println!();
 
-    let segments0 = metadata.get_segments(DEFAULT_ORGANIZATION_ID, topic, 0).await?;
-    let segments1 = metadata.get_segments(DEFAULT_ORGANIZATION_ID, topic, 1).await?;
+    let segments0 = metadata
+        .get_segments(DEFAULT_ORGANIZATION_ID, topic, 0)
+        .await?;
+    let segments1 = metadata
+        .get_segments(DEFAULT_ORGANIZATION_ID, topic, 1)
+        .await?;
 
     println!("   Partition 0 segments: {}", segments0.len());
     for seg in &segments0 {

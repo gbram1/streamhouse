@@ -83,8 +83,7 @@ impl MetadataBackup {
 
         // Collect all org IDs so we can fetch segments per-org
         let orgs = store.list_organizations().await?;
-        let mut org_ids: Vec<String> =
-            vec![crate::DEFAULT_ORGANIZATION_ID.to_string()];
+        let mut org_ids: Vec<String> = vec![crate::DEFAULT_ORGANIZATION_ID.to_string()];
         for org in &orgs {
             if org.id != crate::DEFAULT_ORGANIZATION_ID {
                 org_ids.push(org.id.clone());
@@ -97,9 +96,7 @@ impl MetadataBackup {
             let mut all_segments = Vec::new();
             for org_id in &org_ids {
                 for partition in 0..topic.partition_count {
-                    if let Ok(segments) =
-                        store.get_segments(org_id, &topic.name, partition).await
-                    {
+                    if let Ok(segments) = store.get_segments(org_id, &topic.name, partition).await {
                         all_segments.extend(segments);
                     }
                 }

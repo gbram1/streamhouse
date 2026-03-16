@@ -1,6 +1,10 @@
 //! Consumer group endpoints
 
-use axum::{extract::State, http::{HeaderMap, StatusCode}, Extension, Json};
+use axum::{
+    extract::State,
+    http::{HeaderMap, StatusCode},
+    Extension, Json,
+};
 use std::collections::HashSet;
 
 use crate::auth::AuthenticatedKey;
@@ -236,7 +240,14 @@ pub async fn commit_offset(
     // Commit the offset (org-scoped)
     state
         .metadata
-        .commit_offset_for_org(&org_id, &req.group_id, &req.topic, req.partition, req.offset, None)
+        .commit_offset_for_org(
+            &org_id,
+            &req.group_id,
+            &req.topic,
+            req.partition,
+            req.offset,
+            None,
+        )
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
@@ -316,9 +327,15 @@ pub async fn reset_offsets(
                 // For timestamp, we need to find the offset at or after the timestamp
                 // This requires scanning segments - for now, use a simplified approach
                 let timestamp_ms = req.timestamp.ok_or(StatusCode::BAD_REQUEST)?;
-                find_offset_for_timestamp(&state, &org_id, &offset.topic, offset.partition_id, timestamp_ms)
-                    .await
-                    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+                find_offset_for_timestamp(
+                    &state,
+                    &org_id,
+                    &offset.topic,
+                    offset.partition_id,
+                    timestamp_ms,
+                )
+                .await
+                .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
             }
         };
 
@@ -456,14 +473,22 @@ pub async fn seek_to_timestamp(
             .unwrap_or(0);
 
         // Find offset for timestamp
-        let new_offset = find_offset_for_timestamp(&state, &org_id, &req.topic, partition_id, req.timestamp)
-            .await
-            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+        let new_offset =
+            find_offset_for_timestamp(&state, &org_id, &req.topic, partition_id, req.timestamp)
+                .await
+                .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
         // Commit the new offset (org-scoped)
         state
             .metadata
-            .commit_offset_for_org(&org_id, &group_id, &req.topic, partition_id, new_offset, None)
+            .commit_offset_for_org(
+                &org_id,
+                &group_id,
+                &req.topic,
+                partition_id,
+                new_offset,
+                None,
+            )
             .await
             .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 

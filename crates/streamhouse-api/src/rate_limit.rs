@@ -117,19 +117,15 @@ where
                         "retry_after_ms": retry_after_ms,
                     });
 
-                    let mut response = (
-                        StatusCode::TOO_MANY_REQUESTS,
-                        axum::Json(body),
-                    )
-                        .into_response();
+                    let mut response =
+                        (StatusCode::TOO_MANY_REQUESTS, axum::Json(body)).into_response();
 
                     // Set Retry-After header (in seconds, rounded up)
                     let retry_secs = (retry_after_ms as f64 / 1000.0).ceil() as u64;
                     if retry_secs > 0 {
-                        response.headers_mut().insert(
-                            "Retry-After",
-                            retry_secs.to_string().parse().unwrap(),
-                        );
+                        response
+                            .headers_mut()
+                            .insert("Retry-After", retry_secs.to_string().parse().unwrap());
                     }
 
                     Ok(response)

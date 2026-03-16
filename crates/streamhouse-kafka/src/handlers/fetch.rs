@@ -362,10 +362,16 @@ async fn fetch_partition(
     isolation_level: i8,
 ) -> FetchPartitionResponse {
     // Get partition info
-    let partition_info = match state.metadata.get_partition(org_id, topic_name, partition_id).await {
+    let partition_info = match state
+        .metadata
+        .get_partition(org_id, topic_name, partition_id)
+        .await
+    {
         Ok(Some(info)) => info,
         Ok(None) => {
-            metrics::CONSUMER_ERRORS_TOTAL.with_label_values(&[org_id, topic_name, "kafka", "unknown_partition"]).inc();
+            metrics::CONSUMER_ERRORS_TOTAL
+                .with_label_values(&[org_id, topic_name, "kafka", "unknown_partition"])
+                .inc();
             return FetchPartitionResponse {
                 partition_index: partition_id as i32,
                 error_code: ErrorCode::UnknownTopicOrPartition,
@@ -376,7 +382,9 @@ async fn fetch_partition(
             };
         }
         Err(_) => {
-            metrics::CONSUMER_ERRORS_TOTAL.with_label_values(&[org_id, topic_name, "kafka", "metadata_error"]).inc();
+            metrics::CONSUMER_ERRORS_TOTAL
+                .with_label_values(&[org_id, topic_name, "kafka", "metadata_error"])
+                .inc();
             return FetchPartitionResponse {
                 partition_index: partition_id as i32,
                 error_code: ErrorCode::UnknownServerError,
@@ -430,7 +438,9 @@ async fn fetch_partition(
         if data.len() >= 61 {
             let record_count = i32::from_be_bytes([data[57], data[58], data[59], data[60]]);
             if record_count > 0 {
-                metrics::CONSUMER_RECORDS_TOTAL.with_label_values(&[org_id, topic_name, "kafka"]).inc_by(record_count as u64);
+                metrics::CONSUMER_RECORDS_TOTAL
+                    .with_label_values(&[org_id, topic_name, "kafka"])
+                    .inc_by(record_count as u64);
             }
         }
     }

@@ -688,7 +688,11 @@ impl Consumer {
                 // Get high watermark from partition
                 let partition = self
                     .metadata_store
-                    .get_partition(streamhouse_metadata::DEFAULT_ORGANIZATION_ID, topic, partition_id)
+                    .get_partition(
+                        streamhouse_metadata::DEFAULT_ORGANIZATION_ID,
+                        topic,
+                        partition_id,
+                    )
                     .await?
                     .ok_or_else(|| {
                         ClientError::InvalidPartition(partition_id, topic.to_string(), 0)
@@ -876,7 +880,11 @@ impl Consumer {
 
         for (topic, count) in topic_stats {
             streamhouse_observability::metrics::CONSUMER_RECORDS_TOTAL
-                .with_label_values(&[&self.org_id, &topic, self.group_id.as_deref().unwrap_or("default")])
+                .with_label_values(&[
+                    &self.org_id,
+                    &topic,
+                    self.group_id.as_deref().unwrap_or("default"),
+                ])
                 .inc_by(count as u64);
         }
 
@@ -1024,7 +1032,11 @@ impl Consumer {
         // Get partition metadata for high watermark
         let partition_meta = self
             .metadata_store
-            .get_partition(streamhouse_metadata::DEFAULT_ORGANIZATION_ID, topic, partition)
+            .get_partition(
+                streamhouse_metadata::DEFAULT_ORGANIZATION_ID,
+                topic,
+                partition,
+            )
             .await
             .map_err(ClientError::MetadataError)?
             .ok_or_else(|| {
@@ -1056,7 +1068,12 @@ impl Consumer {
 
                 // Update lag metric
                 streamhouse_observability::metrics::CONSUMER_LAG
-                    .with_label_values(&[&self.org_id, &key.topic, &key.partition_id.to_string(), group_id])
+                    .with_label_values(&[
+                        &self.org_id,
+                        &key.topic,
+                        &key.partition_id.to_string(),
+                        group_id,
+                    ])
                     .set(lag_records);
             }
         }

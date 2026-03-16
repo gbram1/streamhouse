@@ -228,7 +228,9 @@ impl SegmentIndex {
 mod tests {
     use super::*;
     use std::collections::HashMap;
-    use streamhouse_metadata::{MetadataStore, SegmentInfo, SqliteMetadataStore, TopicConfig, DEFAULT_ORGANIZATION_ID};
+    use streamhouse_metadata::{
+        MetadataStore, SegmentInfo, SqliteMetadataStore, TopicConfig, DEFAULT_ORGANIZATION_ID,
+    };
 
     async fn create_test_store() -> Arc<SqliteMetadataStore> {
         let store = SqliteMetadataStore::new(":memory:").await.unwrap();
@@ -251,20 +253,23 @@ mod tests {
         for i in 0..5 {
             let base_offset = i * 10000;
             store
-                .add_segment(DEFAULT_ORGANIZATION_ID, SegmentInfo {
-                    id: format!("seg-{}", i),
-                    topic: "test".to_string(),
-                    partition_id: 0,
-                    base_offset,
-                    end_offset: base_offset + 9999,
-                    record_count: 10000,
-                    size_bytes: 1024 * 1024,
-                    s3_bucket: "test".to_string(),
-                    s3_key: format!("test/0/seg_{}.bin", i),
-                    created_at: 0,
-                    min_timestamp: 0,
-                    max_timestamp: 0,
-                })
+                .add_segment(
+                    DEFAULT_ORGANIZATION_ID,
+                    SegmentInfo {
+                        id: format!("seg-{}", i),
+                        topic: "test".to_string(),
+                        partition_id: 0,
+                        base_offset,
+                        end_offset: base_offset + 9999,
+                        record_count: 10000,
+                        size_bytes: 1024 * 1024,
+                        s3_bucket: "test".to_string(),
+                        s3_key: format!("test/0/seg_{}.bin", i),
+                        created_at: 0,
+                        min_timestamp: 0,
+                        max_timestamp: 0,
+                    },
+                )
                 .await
                 .unwrap();
         }
@@ -362,20 +367,23 @@ mod tests {
 
         // Add a new segment
         store
-            .add_segment(DEFAULT_ORGANIZATION_ID, SegmentInfo {
-                id: "seg-5".to_string(),
-                topic: "test".to_string(),
-                partition_id: 0,
-                base_offset: 50000,
-                end_offset: 59999,
-                record_count: 10000,
-                size_bytes: 1024 * 1024,
-                s3_bucket: "test".to_string(),
-                s3_key: "test/0/seg_5.bin".to_string(),
-                created_at: 0,
-                min_timestamp: 0,
-                max_timestamp: 0,
-            })
+            .add_segment(
+                DEFAULT_ORGANIZATION_ID,
+                SegmentInfo {
+                    id: "seg-5".to_string(),
+                    topic: "test".to_string(),
+                    partition_id: 0,
+                    base_offset: 50000,
+                    end_offset: 59999,
+                    record_count: 10000,
+                    size_bytes: 1024 * 1024,
+                    s3_bucket: "test".to_string(),
+                    s3_key: "test/0/seg_5.bin".to_string(),
+                    created_at: 0,
+                    min_timestamp: 0,
+                    max_timestamp: 0,
+                },
+            )
             .await
             .unwrap();
 
@@ -403,20 +411,23 @@ mod tests {
         for i in 0..20 {
             let base_offset = i * 1000;
             store
-                .add_segment(DEFAULT_ORGANIZATION_ID, SegmentInfo {
-                    id: format!("seg-{}", i),
-                    topic: "test".to_string(),
-                    partition_id: 0,
-                    base_offset,
-                    end_offset: base_offset + 999,
-                    record_count: 1000,
-                    size_bytes: 1024,
-                    s3_bucket: "test".to_string(),
-                    s3_key: format!("test/0/seg_{}.bin", i),
-                    created_at: 0,
-                    min_timestamp: 0,
-                    max_timestamp: 0,
-                })
+                .add_segment(
+                    DEFAULT_ORGANIZATION_ID,
+                    SegmentInfo {
+                        id: format!("seg-{}", i),
+                        topic: "test".to_string(),
+                        partition_id: 0,
+                        base_offset,
+                        end_offset: base_offset + 999,
+                        record_count: 1000,
+                        size_bytes: 1024,
+                        s3_bucket: "test".to_string(),
+                        s3_key: format!("test/0/seg_{}.bin", i),
+                        created_at: 0,
+                        min_timestamp: 0,
+                        max_timestamp: 0,
+                    },
+                )
                 .await
                 .unwrap();
         }

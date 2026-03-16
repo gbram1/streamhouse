@@ -109,8 +109,8 @@ use crate::{
     CreateOrganization, InitProducerConfig, LeaderChangeReason, LeaseTransfer, MaterializedView,
     MaterializedViewData, MaterializedViewOffset, MaterializedViewStatus, MetadataStore,
     Organization, OrganizationPlan, OrganizationQuota, OrganizationStatus, OrganizationUsage,
-    Partition, PartitionLease, PipelineInfo, PipelineTarget, Producer, Result, SegmentInfo,
-    Topic, TopicConfig, TopicStorageStats, Transaction, TransactionMarker, TransactionPartition,
+    Partition, PartitionLease, PipelineInfo, PipelineTarget, Producer, Result, SegmentInfo, Topic,
+    TopicConfig, TopicStorageStats, Transaction, TransactionMarker, TransactionPartition,
 };
 use async_trait::async_trait;
 use lru::LruCache;
@@ -324,10 +324,11 @@ impl<S: MetadataStore> CachedMetadataStore<S> {
 
     /// Invalidate partition cache entry
     async fn invalidate_partition(&self, org_id: &str, topic: &str, partition_id: u32) {
-        self.partition_cache
-            .write()
-            .await
-            .pop(&(org_id.to_string(), topic.to_string(), partition_id));
+        self.partition_cache.write().await.pop(&(
+            org_id.to_string(),
+            topic.to_string(),
+            partition_id,
+        ));
     }
 
     /// Invalidate all partition cache entries for a topic
@@ -464,7 +465,12 @@ impl<S: MetadataStore + 'static> MetadataStore for CachedMetadataStore<S> {
     // PARTITION OPERATIONS
     // ========================================================================
 
-    async fn get_partition(&self, org_id: &str, topic: &str, partition_id: u32) -> Result<Option<Partition>> {
+    async fn get_partition(
+        &self,
+        org_id: &str,
+        topic: &str,
+        partition_id: u32,
+    ) -> Result<Option<Partition>> {
         let key = (org_id.to_string(), topic.to_string(), partition_id);
 
         // Try cache first
@@ -485,7 +491,10 @@ impl<S: MetadataStore + 'static> MetadataStore for CachedMetadataStore<S> {
         self.metrics
             .partition_misses
             .fetch_add(1, Ordering::Relaxed);
-        let partition = self.inner.get_partition(org_id, topic, partition_id).await?;
+        let partition = self
+            .inner
+            .get_partition(org_id, topic, partition_id)
+            .await?;
 
         // Store in cache if found
         if let Some(ref p) = partition {
@@ -543,11 +552,17 @@ impl<S: MetadataStore + 'static> MetadataStore for CachedMetadataStore<S> {
             .add_segment_and_update_watermark(org_id, segment, high_watermark)
             .await?;
         // Invalidate partition cache since watermark changed
-        self.invalidate_partition(org_id, &topic, partition_id).await;
+        self.invalidate_partition(org_id, &topic, partition_id)
+            .await;
         Ok(())
     }
 
-    async fn get_segments(&self, org_id: &str, topic: &str, partition_id: u32) -> Result<Vec<SegmentInfo>> {
+    async fn get_segments(
+        &self,
+        org_id: &str,
+        topic: &str,
+        partition_id: u32,
+    ) -> Result<Vec<SegmentInfo>> {
         self.inner.get_segments(org_id, topic, partition_id).await
     }
 
@@ -578,7 +593,10 @@ impl<S: MetadataStore + 'static> MetadataStore for CachedMetadataStore<S> {
         self.inner.get_segment_storage_stats().await
     }
 
-    async fn get_segment_storage_stats_for_org(&self, org_id: &str) -> Result<Vec<TopicStorageStats>> {
+    async fn get_segment_storage_stats_for_org(
+        &self,
+        org_id: &str,
+    ) -> Result<Vec<TopicStorageStats>> {
         self.inner.get_segment_storage_stats_for_org(org_id).await
     }
 
@@ -634,7 +652,9 @@ impl<S: MetadataStore + 'static> MetadataStore for CachedMetadataStore<S> {
     }
 
     async fn ensure_consumer_group_for_org(&self, org_id: &str, group_id: &str) -> Result<()> {
-        self.inner.ensure_consumer_group_for_org(org_id, group_id).await
+        self.inner
+            .ensure_consumer_group_for_org(org_id, group_id)
+            .await
     }
 
     async fn commit_offset_for_org(
@@ -668,11 +688,15 @@ impl<S: MetadataStore + 'static> MetadataStore for CachedMetadataStore<S> {
         org_id: &str,
         group_id: &str,
     ) -> Result<Vec<ConsumerOffset>> {
-        self.inner.get_consumer_offsets_for_org(org_id, group_id).await
+        self.inner
+            .get_consumer_offsets_for_org(org_id, group_id)
+            .await
     }
 
     async fn delete_consumer_group_for_org(&self, org_id: &str, group_id: &str) -> Result<()> {
-        self.inner.delete_consumer_group_for_org(org_id, group_id).await
+        self.inner
+            .delete_consumer_group_for_org(org_id, group_id)
+            .await
     }
 
     // ========================================================================
@@ -710,7 +734,13 @@ impl<S: MetadataStore + 'static> MetadataStore for CachedMetadataStore<S> {
         lease_duration_ms: i64,
     ) -> Result<PartitionLease> {
         self.inner
-            .acquire_partition_lease(organization_id, topic, partition_id, agent_id, lease_duration_ms)
+            .acquire_partition_lease(
+                organization_id,
+                topic,
+                partition_id,
+                agent_id,
+                lease_duration_ms,
+            )
             .await
     }
 
@@ -1247,7 +1277,11 @@ impl<S: MetadataStore + 'static> MetadataStore for CachedMetadataStore<S> {
         self.inner.create_connector_for_org(org_id, connector).await
     }
 
-    async fn get_connector_for_org(&self, org_id: &str, name: &str) -> Result<Option<ConnectorInfo>> {
+    async fn get_connector_for_org(
+        &self,
+        org_id: &str,
+        name: &str,
+    ) -> Result<Option<ConnectorInfo>> {
         self.inner.get_connector_for_org(org_id, name).await
     }
 
@@ -1305,31 +1339,19 @@ impl<S: MetadataStore + 'static> MetadataStore for CachedMetadataStore<S> {
             .await
     }
 
-    async fn prepare_transaction_for_org(
-        &self,
-        org_id: &str,
-        transaction_id: &str,
-    ) -> Result<()> {
+    async fn prepare_transaction_for_org(&self, org_id: &str, transaction_id: &str) -> Result<()> {
         self.inner
             .prepare_transaction_for_org(org_id, transaction_id)
             .await
     }
 
-    async fn commit_transaction_for_org(
-        &self,
-        org_id: &str,
-        transaction_id: &str,
-    ) -> Result<i64> {
+    async fn commit_transaction_for_org(&self, org_id: &str, transaction_id: &str) -> Result<i64> {
         self.inner
             .commit_transaction_for_org(org_id, transaction_id)
             .await
     }
 
-    async fn abort_transaction_for_org(
-        &self,
-        org_id: &str,
-        transaction_id: &str,
-    ) -> Result<()> {
+    async fn abort_transaction_for_org(&self, org_id: &str, transaction_id: &str) -> Result<()> {
         self.inner
             .abort_transaction_for_org(org_id, transaction_id)
             .await
@@ -1344,7 +1366,13 @@ impl<S: MetadataStore + 'static> MetadataStore for CachedMetadataStore<S> {
         first_offset: u64,
     ) -> Result<()> {
         self.inner
-            .add_transaction_partition_for_org(org_id, transaction_id, topic, partition_id, first_offset)
+            .add_transaction_partition_for_org(
+                org_id,
+                transaction_id,
+                topic,
+                partition_id,
+                first_offset,
+            )
             .await
     }
 
@@ -1408,7 +1436,9 @@ impl<S: MetadataStore + 'static> MetadataStore for CachedMetadataStore<S> {
         state: &str,
         error_message: Option<&str>,
     ) -> Result<()> {
-        self.inner.update_pipeline_state(name, state, error_message).await
+        self.inner
+            .update_pipeline_state(name, state, error_message)
+            .await
     }
 
     async fn update_pipeline_progress(
@@ -1417,7 +1447,9 @@ impl<S: MetadataStore + 'static> MetadataStore for CachedMetadataStore<S> {
         records_processed: i64,
         last_offset: i64,
     ) -> Result<()> {
-        self.inner.update_pipeline_progress(name, records_processed, last_offset).await
+        self.inner
+            .update_pipeline_progress(name, records_processed, last_offset)
+            .await
     }
 }
 
@@ -1659,10 +1691,16 @@ mod tests {
         assert!((hit_rate - 0.666).abs() < 0.01); // 2 hits / 3 total = 0.666
 
         // Test partition metrics
-        let _part1 = cached.get_partition(DEFAULT_ORGANIZATION_ID, "metrics_topic", 0).await.unwrap();
+        let _part1 = cached
+            .get_partition(DEFAULT_ORGANIZATION_ID, "metrics_topic", 0)
+            .await
+            .unwrap();
         assert_eq!(cached.metrics().partition_misses.load(Ordering::Relaxed), 1);
 
-        let _part2 = cached.get_partition(DEFAULT_ORGANIZATION_ID, "metrics_topic", 0).await.unwrap();
+        let _part2 = cached
+            .get_partition(DEFAULT_ORGANIZATION_ID, "metrics_topic", 0)
+            .await
+            .unwrap();
         assert_eq!(cached.metrics().partition_hits.load(Ordering::Relaxed), 1);
 
         // Test topic list metrics

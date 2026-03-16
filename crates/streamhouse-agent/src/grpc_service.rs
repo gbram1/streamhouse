@@ -40,7 +40,10 @@
 //! Target: 50K+ records/sec per agent with p99 latency < 10ms
 
 use std::sync::Arc;
-use streamhouse_metadata::{LeaderChangeReason, MetadataStore, ProducerState, DEFAULT_ORGANIZATION_ID};
+use streamhouse_metadata::{
+    LeaderChangeReason, MetadataStore, ProducerState, DEFAULT_ORGANIZATION_ID,
+};
+use streamhouse_observability::metrics;
 use streamhouse_proto::producer::{
     producer_service_server::ProducerService, AbortTransactionRequest, AbortTransactionResponse,
     BeginTransactionRequest, BeginTransactionResponse, CommitTransactionRequest,
@@ -52,7 +55,6 @@ use streamhouse_proto::streamhouse::{
     CompleteTransferRequest, CompleteTransferResponse, HealthCheckRequest, HealthCheckResponse,
     TransferLeaseRequest, TransferLeaseResponse, TransferReason,
 };
-use streamhouse_observability::metrics;
 use streamhouse_storage::writer_pool::WriterPool;
 use tokio::sync::RwLock;
 use tonic::{Request, Response, Status};
@@ -627,7 +629,11 @@ impl ProducerService for ProducerServiceImpl {
         }
 
         // Get writer for partition
-        let writer = match self.writer_pool.get_writer(&org_id, &req.topic, req.partition).await {
+        let writer = match self
+            .writer_pool
+            .get_writer(&org_id, &req.topic, req.partition)
+            .await
+        {
             Ok(writer) => writer,
             Err(e) => {
                 error!(
@@ -636,7 +642,9 @@ impl ProducerService for ProducerServiceImpl {
                     error = %e,
                     "Failed to get writer"
                 );
-                metrics::PRODUCER_ERRORS_TOTAL.with_label_values(&[&org_id, &req.topic, "writer_error"]).inc();
+                metrics::PRODUCER_ERRORS_TOTAL
+                    .with_label_values(&[&org_id, &req.topic, "writer_error"])
+                    .inc();
                 return Err(Status::internal(format!("Failed to get writer: {}", e)));
             }
         };
@@ -674,7 +682,9 @@ impl ProducerService for ProducerServiceImpl {
                             partition = req.partition,
                             "S3 rate limited - rejecting produce request with backpressure"
                         );
-                        metrics::PRODUCER_ERRORS_TOTAL.with_label_values(&[&org_id, &req.topic, "s3_rate_limited"]).inc();
+                        metrics::PRODUCER_ERRORS_TOTAL
+                            .with_label_values(&[&org_id, &req.topic, "s3_rate_limited"])
+                            .inc();
                         return Err(Status::resource_exhausted(
                             "S3 rate limit exceeded - please slow down",
                         ));
@@ -684,7 +694,9 @@ impl ProducerService for ProducerServiceImpl {
                             partition = req.partition,
                             "S3 circuit breaker open - rejecting produce request"
                         );
-                        metrics::PRODUCER_ERRORS_TOTAL.with_label_values(&[&org_id, &req.topic, "s3_circuit_breaker"]).inc();
+                        metrics::PRODUCER_ERRORS_TOTAL
+                            .with_label_values(&[&org_id, &req.topic, "s3_circuit_breaker"])
+                            .inc();
                         return Err(Status::unavailable(
                             "S3 service is temporarily unavailable - circuit breaker open",
                         ));
@@ -696,7 +708,9 @@ impl ProducerService for ProducerServiceImpl {
                         error = %e,
                         "Failed to append batch"
                     );
-                    metrics::PRODUCER_ERRORS_TOTAL.with_label_values(&[&org_id, &req.topic, "append_error"]).inc();
+                    metrics::PRODUCER_ERRORS_TOTAL
+                        .with_label_values(&[&org_id, &req.topic, "append_error"])
+                        .inc();
                     return Err(Status::internal(format!("Failed to append batch: {}", e)));
                 }
             }
@@ -785,10 +799,18 @@ impl ProducerService for ProducerServiceImpl {
         }
 
         // Record Prometheus metrics
-        metrics::PRODUCER_RECORDS_TOTAL.with_label_values(&[&org_id, &req.topic]).inc_by(batch_record_count as u64);
-        metrics::PRODUCER_BYTES_TOTAL.with_label_values(&[&org_id, &req.topic]).inc_by(batch_bytes);
-        metrics::PRODUCER_BATCH_SIZE.with_label_values(&[&org_id, &req.topic]).observe(batch_record_count as f64);
-        metrics::PRODUCER_LATENCY.with_label_values(&[&org_id, &req.topic]).observe(start.elapsed().as_secs_f64());
+        metrics::PRODUCER_RECORDS_TOTAL
+            .with_label_values(&[&org_id, &req.topic])
+            .inc_by(batch_record_count as u64);
+        metrics::PRODUCER_BYTES_TOTAL
+            .with_label_values(&[&org_id, &req.topic])
+            .inc_by(batch_bytes);
+        metrics::PRODUCER_BATCH_SIZE
+            .with_label_values(&[&org_id, &req.topic])
+            .observe(batch_record_count as f64);
+        metrics::PRODUCER_LATENCY
+            .with_label_values(&[&org_id, &req.topic])
+            .observe(start.elapsed().as_secs_f64());
 
         // Record agent-specific metrics (Phase 7)
         #[cfg(feature = "metrics")]
@@ -1206,7 +1228,9 @@ impl AgentCoordination for AgentCoordinationImpl {
         );
 
         // Record metric
-        streamhouse_observability::metrics::LEADER_TRANSFERS_PENDING.with_label_values(&[&org_id]).inc();
+        streamhouse_observability::metrics::LEADER_TRANSFERS_PENDING
+            .with_label_values(&[&org_id])
+            .inc();
 
         match self
             .lease_manager
@@ -1241,7 +1265,9 @@ impl AgentCoordination for AgentCoordinationImpl {
                     "Failed to initiate lease transfer"
                 );
 
-                streamhouse_observability::metrics::LEADER_TRANSFERS_PENDING.with_label_values(&[&org_id]).dec();
+                streamhouse_observability::metrics::LEADER_TRANSFERS_PENDING
+                    .with_label_values(&[&org_id])
+                    .dec();
                 streamhouse_observability::metrics::LEADER_TRANSFERS_TOTAL
                     .with_label_values(&[&org_id, "error"])
                     .inc();
@@ -1368,7 +1394,11 @@ impl AgentCoordination for AgentCoordinationImpl {
         );
 
         // Flush the writer to ensure all data is persisted
-        if let Ok(writer) = self.writer_pool.get_writer(&org_id, &req.topic, req.partition).await {
+        if let Ok(writer) = self
+            .writer_pool
+            .get_writer(&org_id, &req.topic, req.partition)
+            .await
+        {
             let mut writer_guard = writer.lock().await;
             if let Err(e) = writer_guard.flush_durable().await {
                 warn!(
@@ -1398,7 +1428,9 @@ impl AgentCoordination for AgentCoordinationImpl {
                 );
 
                 // Record metrics
-                streamhouse_observability::metrics::LEADER_TRANSFERS_PENDING.with_label_values(&[&org_id]).dec();
+                streamhouse_observability::metrics::LEADER_TRANSFERS_PENDING
+                    .with_label_values(&[&org_id])
+                    .dec();
                 streamhouse_observability::metrics::LEADER_TRANSFERS_TOTAL
                     .with_label_values(&[&org_id, "success"])
                     .inc();
@@ -1426,7 +1458,9 @@ impl AgentCoordination for AgentCoordinationImpl {
                     "Failed to complete lease transfer"
                 );
 
-                streamhouse_observability::metrics::LEADER_TRANSFERS_PENDING.with_label_values(&[&org_id]).dec();
+                streamhouse_observability::metrics::LEADER_TRANSFERS_PENDING
+                    .with_label_values(&[&org_id])
+                    .dec();
                 streamhouse_observability::metrics::LEADER_TRANSFERS_TOTAL
                     .with_label_values(&[&org_id, "error"])
                     .inc();
