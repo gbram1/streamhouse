@@ -1,0 +1,13 @@
+[advisories]
+ignore = [
+    # rsa: Marvin Attack timing sidechannel - no fix available, transitive from sqlx-mysql (we don't use MySQL)
+    "RUSTSEC-2023-0071",
+    # bincode: unmaintained - migration to v2 requires data format changes
+    "RUSTSEC-2024-0334",
+    # instant: unmaintained - transitive from datafusion 43, fixed in newer datafusion
+    "RUSTSEC-2024-0384",
+    # paste: unmaintained - transitive from datafusion 43, fixed in newer datafusion
+    "RUSTSEC-2024-0436",
+    # rustls-pemfile: unmaintained - transitive from axum-server, needs upstream fix
+    "RUSTSEC-2025-0134",
+]
