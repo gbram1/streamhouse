@@ -325,13 +325,9 @@ impl KeyRateLimitState {
             return None;
         }
         Some(Self {
-            produce_limiter: key
-                .max_produce_bytes_per_sec
-                .map(|r| TokenBucket::new(r as i64)),
-            consume_limiter: key
-                .max_consume_bytes_per_sec
-                .map(|r| TokenBucket::new(r as i64)),
-            request_limiter: key.max_requests_per_sec.map(|r| TokenBucket::new(r as i64)),
+            produce_limiter: key.max_produce_bytes_per_sec.map(TokenBucket::new),
+            consume_limiter: key.max_consume_bytes_per_sec.map(TokenBucket::new),
+            request_limiter: key.max_requests_per_sec.map(|r| TokenBucket::new(r.into())),
         })
     }
 }
@@ -542,7 +538,7 @@ impl<S: MetadataStore + ?Sized + 'static> QuotaEnforcer<S> {
 
         // Per-key check
         if let Some(key) = api_key {
-            if key.max_produce_bytes_per_sec.is_some() {
+            if let Some(max_produce) = key.max_produce_bytes_per_sec {
                 self.ensure_key_limiter(&ctx.organization.id, key).await;
                 let map_key = (ctx.organization.id.clone(), key.id.clone());
                 let limiters = self.key_limiters.read().await;
@@ -551,7 +547,7 @@ impl<S: MetadataStore + ?Sized + 'static> QuotaEnforcer<S> {
                         if !limiter.try_acquire(bytes) {
                             return Ok(QuotaCheck::Denied(format!(
                                 "API key produce rate limit exceeded ({} bytes/s)",
-                                key.max_produce_bytes_per_sec.unwrap()
+                                max_produce
                             )));
                         }
                     }
@@ -607,7 +603,7 @@ impl<S: MetadataStore + ?Sized + 'static> QuotaEnforcer<S> {
 
         // Per-key check
         if let Some(key) = api_key {
-            if key.max_consume_bytes_per_sec.is_some() {
+            if let Some(max_consume) = key.max_consume_bytes_per_sec {
                 self.ensure_key_limiter(&ctx.organization.id, key).await;
                 let map_key = (ctx.organization.id.clone(), key.id.clone());
                 let limiters = self.key_limiters.read().await;
@@ -616,7 +612,7 @@ impl<S: MetadataStore + ?Sized + 'static> QuotaEnforcer<S> {
                         if !limiter.try_acquire(bytes) {
                             return Ok(QuotaCheck::Denied(format!(
                                 "API key consume rate limit exceeded ({} bytes/s)",
-                                key.max_consume_bytes_per_sec.unwrap()
+                                max_consume
                             )));
                         }
                     }
@@ -671,7 +667,7 @@ impl<S: MetadataStore + ?Sized + 'static> QuotaEnforcer<S> {
 
         // Per-key check
         if let Some(key) = api_key {
-            if key.max_requests_per_sec.is_some() {
+            if let Some(max_requests) = key.max_requests_per_sec {
                 self.ensure_key_limiter(&ctx.organization.id, key).await;
                 let map_key = (ctx.organization.id.clone(), key.id.clone());
                 let limiters = self.key_limiters.read().await;
@@ -680,7 +676,7 @@ impl<S: MetadataStore + ?Sized + 'static> QuotaEnforcer<S> {
                         if !limiter.try_acquire(1) {
                             return Ok(QuotaCheck::Denied(format!(
                                 "API key request rate limit exceeded ({}/s)",
-                                key.max_requests_per_sec.unwrap()
+                                max_requests
                             )));
                         }
                     }
@@ -1058,6 +1054,7 @@ mod tests {
     use super::*;
     use crate::{Organization, OrganizationStatus};
 
+    #[allow(dead_code)]
     fn test_tenant_context() -> TenantContext {
         TenantContext {
             organization: Organization {

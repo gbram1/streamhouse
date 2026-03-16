@@ -589,7 +589,7 @@ mod tests {
         for err in errors {
             let code = err.status_code();
             assert!(
-                code >= 100 && code < 600,
+                (100..600).contains(&code),
                 "Invalid HTTP status code {} for {:?}",
                 code,
                 err

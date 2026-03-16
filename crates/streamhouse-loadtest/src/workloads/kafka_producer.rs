@@ -10,6 +10,7 @@ use std::time::{Duration, Instant};
 use tokio::net::TcpStream;
 use tokio::sync::watch;
 
+#[allow(clippy::too_many_arguments)]
 pub async fn run_kafka_producer(
     kafka_addr: String,
     org_slug: String,

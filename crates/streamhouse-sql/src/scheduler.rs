@@ -597,7 +597,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_query_status_values() {
-        let statuses = vec![
+        let statuses = [
             QueryStatus::Submitted,
             QueryStatus::Running,
             QueryStatus::Paused,

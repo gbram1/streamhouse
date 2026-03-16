@@ -1233,7 +1233,7 @@ mod tests {
 
         // Test vector norm
         let norm = msg.compute_vector_norm("$.embedding");
-        assert!((norm - 0.7071).abs() < 0.01); // sqrt(0.5)
+        assert!((norm - std::f64::consts::FRAC_1_SQRT_2).abs() < 0.01); // sqrt(0.5)
     }
 
     // ========================================================================
@@ -1791,7 +1791,7 @@ mod tests {
             Ordering::Less
         );
         assert_eq!(
-            compare_json_values(&serde_json::json!(3.14), &serde_json::json!(2.72)),
+            compare_json_values(&serde_json::json!(3.15), &serde_json::json!(2.72)),
             Ordering::Greater
         );
     }

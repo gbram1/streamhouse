@@ -619,7 +619,7 @@ mod tests {
         let (store, _dir) = open_temp_store();
         let cp = store.checkpoint().await.unwrap();
         assert!(!cp.checkpoint_id.is_empty());
-        assert!(cp.state_snapshot.len() > 0);
+        assert!(!cp.state_snapshot.is_empty());
 
         // Restoring empty snapshot should work fine
         store.restore(&cp).await.unwrap();

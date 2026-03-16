@@ -135,6 +135,7 @@ pub struct ProcessingStats {
 /// A simple in-memory implementation of [`StateStore`].
 pub struct InMemoryStateStore {
     /// namespace -> (key -> value)
+    #[allow(clippy::type_complexity)]
     data: RwLock<HashMap<String, HashMap<Vec<u8>, Vec<u8>>>>,
 }
 

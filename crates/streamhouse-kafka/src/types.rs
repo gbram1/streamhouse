@@ -469,7 +469,7 @@ mod tests {
     #[test]
     fn test_api_key_clone_copy() {
         let key = ApiKey::Produce;
-        let cloned = key.clone();
+        let cloned = key;
         let copied = key;
         assert_eq!(key, cloned);
         assert_eq!(key, copied);
@@ -595,7 +595,7 @@ mod tests {
     #[test]
     fn test_coordinator_type_clone_copy() {
         let ct = CoordinatorType::Group;
-        let cloned = ct.clone();
+        let cloned = ct;
         let copied = ct;
         assert_eq!(ct, cloned);
         assert_eq!(ct, copied);

@@ -11,6 +11,7 @@ use streamhouse_proto::streamhouse::{
 };
 use tokio::sync::watch;
 
+#[allow(clippy::too_many_arguments)]
 pub async fn run_grpc_producer(
     grpc_addr: String,
     org_id: String,

@@ -44,9 +44,9 @@ struct BatchRecord {
     value: String,
 }
 
+#[allow(dead_code)]
 #[derive(Deserialize)]
 struct BatchProduceResponse {
-    #[allow(dead_code)]
     offsets: Vec<i64>,
 }
 
@@ -224,7 +224,7 @@ async fn send_messages_parallel(
     total_messages: usize,
     stats: Arc<LoadTestStats>,
 ) {
-    let num_batches = (total_messages + BATCH_SIZE - 1) / BATCH_SIZE;
+    let num_batches = total_messages.div_ceil(BATCH_SIZE);
 
     // Generate all batches
     let batches: Vec<_> = (0..num_batches)
@@ -262,7 +262,7 @@ async fn send_messages_parallel(
 
                         // Progress indicator
                         let sent = stats.messages_sent.load(Ordering::Relaxed);
-                        if sent % 1000 == 0 {
+                        if sent.is_multiple_of(1000) {
                             print!(".");
                             let _ = std::io::Write::flush(&mut std::io::stdout());
                         }

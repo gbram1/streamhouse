@@ -4136,6 +4136,7 @@ impl SqliteMetadataStore {
         }
     }
 
+    #[allow(clippy::type_complexity)]
     fn row_to_pipeline_info(
         &self,
         row: (

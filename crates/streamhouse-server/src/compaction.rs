@@ -410,7 +410,7 @@ impl CompactionTask {
             let compacted_path = object_store::path::Path::from(compacted_key.clone());
 
             self.object_store
-                .put(&compacted_path, Bytes::from(compacted_bytes).into())
+                .put(&compacted_path, Bytes::from(compacted_bytes))
                 .await
                 .map_err(|e| {
                     CompactionError::Storage(format!("Failed to upload compacted segment: {}", e))
@@ -1098,6 +1098,52 @@ mod tests {
         ) -> Result<()> {
             unimplemented!()
         }
+        async fn create_pipeline_target(&self, _target: PipelineTarget) -> Result<()> {
+            unimplemented!()
+        }
+        async fn get_pipeline_target(&self, _name: &str) -> Result<Option<PipelineTarget>> {
+            unimplemented!()
+        }
+        async fn get_pipeline_target_by_id(&self, _id: &str) -> Result<Option<PipelineTarget>> {
+            unimplemented!()
+        }
+        async fn list_pipeline_targets(&self) -> Result<Vec<PipelineTarget>> {
+            unimplemented!()
+        }
+        async fn delete_pipeline_target(&self, _name: &str) -> Result<()> {
+            unimplemented!()
+        }
+        async fn create_pipeline(&self, _pipeline: PipelineInfo) -> Result<()> {
+            unimplemented!()
+        }
+        async fn get_pipeline(&self, _name: &str) -> Result<Option<PipelineInfo>> {
+            unimplemented!()
+        }
+        async fn get_pipeline_by_id(&self, _id: &str) -> Result<Option<PipelineInfo>> {
+            unimplemented!()
+        }
+        async fn list_pipelines(&self) -> Result<Vec<PipelineInfo>> {
+            unimplemented!()
+        }
+        async fn delete_pipeline(&self, _name: &str) -> Result<()> {
+            unimplemented!()
+        }
+        async fn update_pipeline_state(
+            &self,
+            _name: &str,
+            _state: &str,
+            _error_message: Option<&str>,
+        ) -> Result<()> {
+            unimplemented!()
+        }
+        async fn update_pipeline_progress(
+            &self,
+            _name: &str,
+            _records_in: i64,
+            _records_out: i64,
+        ) -> Result<()> {
+            unimplemented!()
+        }
     }
 
     // ---------------------------------------------------------------
@@ -1124,7 +1170,7 @@ mod tests {
         let s3_key = format!("{}/{}/seg_{}.bin", topic, partition_id, base_offset);
         let path = object_store::path::Path::from(s3_key.clone());
         object_store
-            .put(&path, Bytes::from(segment_bytes).into())
+            .put(&path, Bytes::from(segment_bytes))
             .await
             .unwrap();
 
@@ -1834,12 +1880,13 @@ mod tests {
 
     #[test]
     fn test_compaction_stats_clone() {
-        let mut stats = CompactionStats::default();
-        stats.runs_completed = 5;
-        stats.records_processed = 1000;
-        stats.keys_removed = 200;
-        stats.segments_compacted = 10;
-        stats.bytes_saved = 50_000;
+        let stats = CompactionStats {
+            runs_completed: 5,
+            records_processed: 1000,
+            keys_removed: 200,
+            segments_compacted: 10,
+            bytes_saved: 50_000,
+        };
 
         let cloned = stats.clone();
         assert_eq!(cloned.runs_completed, 5);

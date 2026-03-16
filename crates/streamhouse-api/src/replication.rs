@@ -70,18 +70,13 @@ pub enum ReplicationError {
 pub type Result<T> = std::result::Result<T, ReplicationError>;
 
 /// Replication mode
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub enum ReplicationMode {
     /// Asynchronous replication - lower latency, potential data loss window
+    #[default]
     Async,
     /// Synchronous replication - higher latency, zero data loss
     Sync,
-}
-
-impl Default for ReplicationMode {
-    fn default() -> Self {
-        Self::Async
-    }
 }
 
 impl std::fmt::Display for ReplicationMode {
@@ -223,7 +218,7 @@ pub struct ReplicatedSegment {
 }
 
 /// Replication state for a segment in a specific target region
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct RegionReplicationState {
     /// Whether the segment has been replicated to this region
     pub replicated: bool,
@@ -235,18 +230,6 @@ pub struct RegionReplicationState {
     pub error: Option<String>,
     /// Number of retry attempts
     pub retry_count: u32,
-}
-
-impl Default for RegionReplicationState {
-    fn default() -> Self {
-        Self {
-            replicated: false,
-            replicated_at: None,
-            target_path: None,
-            error: None,
-            retry_count: 0,
-        }
-    }
 }
 
 /// Replication lag information for a target region
@@ -487,7 +470,7 @@ impl ReplicationManager {
             let target_object_path = ObjectPath::from(target_path.as_str());
 
             match target_store
-                .put(&target_object_path, segment_data.clone().into())
+                .put(&target_object_path, segment_data.clone())
                 .await
             {
                 Ok(_) => {
@@ -872,7 +855,7 @@ mod tests {
         let source_path = "topics/orders/0/segment-001.strm";
         let test_data = bytes::Bytes::from(b"test segment data".to_vec());
         source_store
-            .put(&ObjectPath::from(source_path), test_data.into())
+            .put(&ObjectPath::from(source_path), test_data)
             .await
             .unwrap();
 

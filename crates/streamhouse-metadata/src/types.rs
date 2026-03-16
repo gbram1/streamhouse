@@ -1713,7 +1713,7 @@ mod tests {
     #[test]
     fn test_cleanup_policy_clone_and_copy() {
         let policy = CleanupPolicy::Compact;
-        let cloned = policy.clone();
+        let cloned = policy;
         let copied = policy;
         assert_eq!(policy, cloned);
         assert_eq!(policy, copied);
@@ -2564,7 +2564,7 @@ mod tests {
     #[test]
     fn test_ack_mode_clone_and_copy() {
         let mode = AckMode::Durable;
-        let cloned = mode.clone();
+        let cloned = mode;
         let copied = mode;
         assert_eq!(mode, cloned);
         assert_eq!(mode, copied);

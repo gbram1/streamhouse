@@ -206,7 +206,7 @@ impl Repl {
         let value = Self::parse_flag_string(args, "--value").context("Missing --value flag")?;
         let key = Self::parse_flag_string(args, "--key");
 
-        let skip_validation = args.iter().any(|&a| a == "--skip-validation");
+        let skip_validation = args.contains(&"--skip-validation");
         let registry_url = if skip_validation {
             None
         } else {

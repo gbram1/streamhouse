@@ -101,9 +101,7 @@ impl FilterPredicate {
     /// Evaluate the predicate against a JSON value.
     pub fn evaluate(&self, json: &serde_json::Value) -> bool {
         match self {
-            FilterPredicate::Equals { field, value } => {
-                json.get(field).map_or(false, |v| v == value)
-            }
+            FilterPredicate::Equals { field, value } => json.get(field) == Some(value),
             FilterPredicate::GreaterThan { field, value } => {
                 match (json.get(field).and_then(|v| v.as_f64()), value.as_f64()) {
                     (Some(a), Some(b)) => a > b,
@@ -119,7 +117,7 @@ impl FilterPredicate {
             FilterPredicate::Contains { field, substring } => json
                 .get(field)
                 .and_then(|v| v.as_str())
-                .map_or(false, |s| s.contains(substring.as_str())),
+                .is_some_and(|s| s.contains(substring.as_str())),
             FilterPredicate::And(left, right) => left.evaluate(json) && right.evaluate(json),
             FilterPredicate::Or(left, right) => left.evaluate(json) || right.evaluate(json),
             FilterPredicate::Not(inner) => !inner.evaluate(json),
@@ -657,6 +655,7 @@ impl OperatorChain {
     }
 
     /// Add an operator to the end of the chain.
+    #[allow(clippy::should_implement_trait)]
     pub fn add(mut self, operator: Box<dyn Operator>) -> Self {
         self.operators.push(operator);
         self

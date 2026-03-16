@@ -33,7 +33,7 @@ mod tests {
         let pool = PgPool::connect(&database_url).await.unwrap();
 
         // Run migrations
-        sqlx::migrate!("../../streamhouse-metadata/migrations")
+        sqlx::migrate!("../streamhouse-metadata/migrations")
             .run(&pool)
             .await
             .unwrap();

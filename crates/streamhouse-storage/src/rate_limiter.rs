@@ -789,7 +789,7 @@ mod tests {
     #[test]
     fn test_s3_operation_clone() {
         let op = S3Operation::Get;
-        let cloned = op.clone();
+        let cloned = op;
         assert_eq!(op, cloned);
     }
 

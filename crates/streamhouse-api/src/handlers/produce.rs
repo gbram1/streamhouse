@@ -153,7 +153,7 @@ fn validate_avro_schema(schema_str: &str, value: &str) -> Result<(), (StatusCode
     } else {
         Err((
             StatusCode::BAD_REQUEST,
-            format!("Value does not conform to Avro schema"),
+            "Value does not conform to Avro schema".to_string(),
         ))
     }
 }

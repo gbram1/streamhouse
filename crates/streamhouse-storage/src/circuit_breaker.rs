@@ -773,7 +773,7 @@ mod tests {
     #[test]
     fn test_circuit_state_clone() {
         let s = CircuitState::HalfOpen;
-        let cloned = s.clone();
+        let cloned = s;
         assert_eq!(s, cloned);
     }
 

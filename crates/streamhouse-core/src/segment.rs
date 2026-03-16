@@ -406,7 +406,7 @@ mod tests {
     #[test]
     fn test_compression_clone() {
         let c = Compression::Lz4;
-        let cloned = c.clone();
+        let cloned = c;
         assert_eq!(c, cloned);
     }
 

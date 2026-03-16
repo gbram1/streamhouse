@@ -93,7 +93,7 @@ async fn test_end_to_end_schema_flow() {
     println!("Message written at offset: {}", offset);
 
     // === CONSUMER: Poll and resolve schema ===
-    let cache = Arc::new(
+    let _cache = Arc::new(
         SegmentCache::new("/tmp/test-cache", 100 * 1024 * 1024).expect("Failed to create cache"),
     );
 

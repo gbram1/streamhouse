@@ -629,8 +629,8 @@ fn print_full_report(run: &FullRunStats) {
     println!("================================================================");
     if run.segment_inventory.len() <= 40 {
         println!(
-            "  {:>4}  {:>10}  {:>10}  {:>8}  {:>10}  {}",
-            "P#", "Base", "End", "Records", "Size KB", "S3 Key"
+            "  {:>4}  {:>10}  {:>10}  {:>8}  {:>10}  S3 Key",
+            "P#", "Base", "End", "Records", "Size KB"
         );
         println!("  {}", "-".repeat(80));
         for sd in &run.segment_inventory {
@@ -726,11 +726,7 @@ fn print_full_report(run: &FullRunStats) {
     println!();
     println!("  Records written:   {}", fmt(total));
     println!("  Records verified:  {}", fmt(total_verified));
-    let lost = if total > total_verified {
-        total - total_verified
-    } else {
-        0
-    };
+    let lost = total.saturating_sub(total_verified);
     println!("  Records lost:      {}", lost);
     println!(
         "  Integrity:         {}",

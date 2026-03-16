@@ -384,11 +384,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         format_number(total_produced_check),
         format_number(total_consumed),
         format_number(total_hw),
-        if total_consumed < total_hw {
-            total_hw - total_consumed
-        } else {
-            0
-        }
+        total_hw.saturating_sub(total_consumed)
     );
 
     println!();
@@ -396,11 +392,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Note: produced count excludes warmup records, but HW includes them
     let warmup_records = (WARMUP_BATCHES * BATCH_SIZE) as u64;
     let expected_total = total_produced_check + warmup_records;
-    let loss = if total_hw > total_consumed {
-        total_hw - total_consumed
-    } else {
-        0
-    };
+    let loss = total_hw.saturating_sub(total_consumed);
 
     if loss == 0 && total_consumed > 0 {
         println!(
@@ -424,11 +416,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             format_number(total_consumed),
         );
     } else {
-        let unflushed = if expected_total > total_hw {
-            expected_total - total_hw
-        } else {
-            0
-        };
+        let unflushed = expected_total.saturating_sub(total_hw);
         println!(
             "  Produced (stress): {}  Warmup: {}  HW total: {}  Consumed: {}",
             format_number(total_produced_check),

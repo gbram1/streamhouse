@@ -53,7 +53,7 @@ impl FaultInjector {
     /// Returns `true` if this call should be treated as a failure.
     fn should_fail(&self) -> bool {
         let count = self.counter.fetch_add(1, Ordering::Relaxed);
-        let fail = (count % self.failure_denominator) == 0;
+        let fail = count.is_multiple_of(self.failure_denominator);
         if fail {
             self.faults_injected.fetch_add(1, Ordering::Relaxed);
         }

@@ -419,18 +419,7 @@ async fn fetch_partition(
         .await
         .ok();
 
-    // For read-committed, filter out records at or beyond the LSO
-    let records = if isolation_level == 1 && last_stable_offset >= 0 {
-        records.map(|data| {
-            // If we have records and the LSO would restrict them, we need to cap.
-            // The records are already in Kafka RecordBatch format, so we return them
-            // as-is but the consumer will use the LSO to know which are committed.
-            // The Kafka protocol handles this via the last_stable_offset field in the response.
-            data
-        })
-    } else {
-        records
-    };
+    // TODO: implement actual LSO-based filtering for read-committed isolation
 
     // Count records from the Kafka RecordBatch for metrics
     // The record count is at offset 57 (4 bytes, big-endian i32) in the batch

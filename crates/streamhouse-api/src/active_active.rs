@@ -58,20 +58,15 @@ pub enum ActiveActiveError {
 pub type Result<T> = std::result::Result<T, ActiveActiveError>;
 
 /// Strategy for resolving conflicts between regions.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub enum ConflictStrategy {
     /// Timestamp-based resolution: most recent write wins.
+    #[default]
     LastWriterWins,
     /// Ordered priority list of region IDs: first region in list wins.
     RegionPriority(Vec<String>),
     /// Custom resolver (uses the ConflictResolver trait).
     Custom,
-}
-
-impl Default for ConflictStrategy {
-    fn default() -> Self {
-        ConflictStrategy::LastWriterWins
-    }
 }
 
 /// Configuration for active-active multi-region coordination.
@@ -550,7 +545,7 @@ impl ActiveActiveCoordinator {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::Arc;
+
     use std::time::Duration;
 
     fn default_config() -> ActiveActiveConfig {

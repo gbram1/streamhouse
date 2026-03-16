@@ -101,6 +101,7 @@ impl ProducerCredits {
     }
 
     #[cfg(test)]
+    #[allow(dead_code)]
     fn new_with_instant(initial_credits: u64, now: Instant) -> Self {
         Self {
             available: initial_credits,

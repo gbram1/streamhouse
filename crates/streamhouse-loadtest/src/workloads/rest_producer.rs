@@ -26,7 +26,7 @@ pub async fn run_rest_producer(
     let producer_id = format!(
         "rest-{}-{}",
         org_slug,
-        uuid::Uuid::new_v4().to_string()[..8].to_string()
+        &uuid::Uuid::new_v4().to_string()[..8]
     );
 
     // Interval for rate limiting: batch_size records every (batch_size / produce_rate) seconds

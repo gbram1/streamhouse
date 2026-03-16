@@ -855,7 +855,7 @@ fn validate_json_schema_client(schema_str: &str, value: &str) -> Result<(), Stri
     if errors.is_empty() {
         Ok(())
     } else {
-        Err(format!("{}", errors.join("; ")))
+        Err(errors.join("; ").to_string())
     }
 }
 

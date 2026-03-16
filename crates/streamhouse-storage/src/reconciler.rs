@@ -446,11 +446,11 @@ mod tests {
         let orphan_key = Path::from("data/orders/0/00000000000000001000.seg");
 
         store
-            .put(&registered_key, Bytes::from("segment-data").into())
+            .put(&registered_key, Bytes::from("segment-data"))
             .await
             .unwrap();
         store
-            .put(&orphan_key, Bytes::from("orphan-data").into())
+            .put(&orphan_key, Bytes::from("orphan-data"))
             .await
             .unwrap();
 
@@ -511,7 +511,7 @@ mod tests {
         // Upload an orphan (just created, within grace period)
         let orphan_key = Path::from("data/logs/0/00000000000000000000.seg");
         store
-            .put(&orphan_key, Bytes::from("recent-orphan").into())
+            .put(&orphan_key, Bytes::from("recent-orphan"))
             .await
             .unwrap();
 

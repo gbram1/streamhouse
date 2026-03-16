@@ -2748,7 +2748,7 @@ mod tests {
                 match &q.window {
                     Some(WindowType::Hop { size_ms, slide_ms }) => {
                         assert_eq!(*size_ms, 10 * 60 * 1000);
-                        assert_eq!(*slide_ms, 1 * 60 * 1000);
+                        assert_eq!(*slide_ms, 60 * 1000);
                     }
                     _ => panic!("Expected Hop window"),
                 }

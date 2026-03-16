@@ -186,7 +186,7 @@ mod tests {
     #[test]
     fn test_schema_format_clone() {
         let format = SchemaFormat::Avro;
-        let cloned = format.clone();
+        let cloned = format;
         assert_eq!(format, cloned);
     }
 
@@ -283,7 +283,7 @@ mod tests {
     #[test]
     fn test_compatibility_mode_clone() {
         let mode = CompatibilityMode::FullTransitive;
-        let cloned = mode.clone();
+        let cloned = mode;
         assert_eq!(mode, cloned);
     }
 

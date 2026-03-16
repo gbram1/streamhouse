@@ -93,6 +93,7 @@ impl PartitionStats {
     }
 
     #[cfg(test)]
+    #[allow(dead_code)]
     fn new_with_instant(now: Instant) -> Self {
         Self {
             records_total: 0,

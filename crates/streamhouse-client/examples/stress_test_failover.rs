@@ -624,11 +624,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         "TOTAL",
         format_number(total_consumed),
         format_number(total_hw),
-        if total_consumed < total_hw {
-            total_hw - total_consumed
-        } else {
-            0
-        }
+        total_hw.saturating_sub(total_consumed)
     );
 
     // =========================================================================
@@ -653,11 +649,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     );
     println!();
 
-    let acked_loss = if total_acked > total_consumed {
-        total_acked - total_consumed
-    } else {
-        0
-    };
+    let acked_loss = total_acked.saturating_sub(total_consumed);
 
     if acked_loss == 0 {
         println!("  ZERO ACKNOWLEDGED MESSAGE LOSS");

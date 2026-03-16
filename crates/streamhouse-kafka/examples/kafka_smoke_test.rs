@@ -139,7 +139,6 @@ async fn main() -> anyhow::Result<()> {
 
     for (topic_idx, topic) in topic_names.iter().enumerate() {
         let topic = topic.clone();
-        let addr = addr;
 
         join_set.spawn(async move {
             let mut stream = TcpStream::connect(addr).await.unwrap();
@@ -215,7 +214,6 @@ async fn main() -> anyhow::Result<()> {
 
     for topic in topic_names.iter() {
         let topic = topic.clone();
-        let addr = addr;
 
         consume_set.spawn(async move {
             let mut stream = TcpStream::connect(addr).await.unwrap();

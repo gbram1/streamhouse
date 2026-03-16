@@ -68,7 +68,7 @@ async fn register_agent(metadata: &Arc<dyn MetadataStore>, agent_id: &str, group
 
 /// A lightweight test agent: lease manager + partition assigner (no heartbeat/gRPC)
 struct TestAgent {
-    agent_id: String,
+    _agent_id: String,
     lease_manager: Arc<LeaseManager>,
     assigner: PartitionAssigner,
 }
@@ -95,7 +95,7 @@ impl TestAgent {
         .with_rebalance_interval(Duration::from_millis(500));
 
         Self {
-            agent_id: agent_id.to_string(),
+            _agent_id: agent_id.to_string(),
             lease_manager,
             assigner,
         }

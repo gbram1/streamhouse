@@ -166,25 +166,22 @@ pub async fn handle_apply(
         if action.operation != DiffOp::Create {
             continue;
         }
-        match action.resource_type {
-            "topic" => {
-                let topic_config = config
-                    .topics
-                    .iter()
-                    .find(|t| t.name == action.name)
-                    .unwrap();
-                let req = CreateTopicRequest {
-                    name: topic_config.name.clone(),
-                    partitions: topic_config.partitions,
-                    replication_factor: 1,
-                };
-                let _: serde_json::Value = client
-                    .post("/api/v1/topics", &req)
-                    .await
-                    .context(format!("Failed to create topic '{}'", action.name))?;
-                println!("  + topic: {}", action.name);
-            }
-            _ => {}
+        if action.resource_type == "topic" {
+            let topic_config = config
+                .topics
+                .iter()
+                .find(|t| t.name == action.name)
+                .unwrap();
+            let req = CreateTopicRequest {
+                name: topic_config.name.clone(),
+                partitions: topic_config.partitions,
+                replication_factor: 1,
+            };
+            let _: serde_json::Value = client
+                .post("/api/v1/topics", &req)
+                .await
+                .context(format!("Failed to create topic '{}'", action.name))?;
+            println!("  + topic: {}", action.name);
         }
     }
 

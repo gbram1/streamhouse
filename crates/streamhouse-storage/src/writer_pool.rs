@@ -82,6 +82,7 @@ pub struct WriterPool {
     writers: WriterMap,
 
     /// Map of (org_id, topic, partition) -> DurableFlushHandle for batched ACK_DURABLE
+    #[allow(clippy::type_complexity)]
     durable_flush_handles: Arc<RwLock<HashMap<(String, String, u32), DurableFlushHandle>>>,
 
     /// Metadata store for segment tracking
@@ -444,7 +445,7 @@ impl WriterPool {
             ));
 
             self.object_store
-                .put(&path, bytes::Bytes::from(compressed).into())
+                .put(&path, bytes::Bytes::from(compressed))
                 .await
                 .map_err(|e| {
                     crate::error::Error::SegmentError(format!("Snapshot upload failed: {}", e))

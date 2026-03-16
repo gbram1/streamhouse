@@ -471,7 +471,7 @@ mod tests {
     #[test]
     fn test_error_code_clone_copy() {
         let code = ErrorCode::None;
-        let cloned = code.clone();
+        let cloned = code;
         let copied = code;
         assert_eq!(code, cloned);
         assert_eq!(code, copied);

@@ -443,6 +443,7 @@ mod tests {
         CompactionScheduler::with_defaults()
     }
 
+    #[allow(clippy::type_complexity)]
     fn make_records(keys: &[(&[u8], Option<&[u8]>, u64, i64)]) -> Vec<CompactionRecord> {
         keys.iter()
             .map(|(key, value, offset, timestamp)| CompactionRecord {

@@ -234,7 +234,7 @@ impl OpaClient {
         })?;
 
         let status = response.status().as_u16();
-        if status < 200 || status >= 300 {
+        if !(200..300).contains(&status) {
             let body_text = response.text().await.unwrap_or_default();
             return Err(OpaError::ServerError(status, body_text));
         }

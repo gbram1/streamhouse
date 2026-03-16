@@ -148,7 +148,7 @@ async fn test_crash_recovery_no_data_loss() {
     let partition_id = 0;
 
     // Step 1: Write 100 records
-    let offsets = {
+    let _offsets = {
         let mut writer = PartitionWriter::new(
             DEFAULT_ORGANIZATION_ID.to_string(),
             topic.to_string(),
@@ -547,7 +547,7 @@ async fn test_concurrent_partition_wals() {
 async fn test_wal_disabled_mode() {
     // This test verifies system works correctly with WAL disabled
 
-    let temp_dir = TempDir::new().unwrap();
+    let _temp_dir = TempDir::new().unwrap();
     let metadata = create_test_metadata().await;
     let object_store = Arc::new(InMemory::new());
 
@@ -592,7 +592,7 @@ async fn test_wal_disabled_mode() {
     drop(writer);
 
     // Restart - should NOT recover (WAL disabled)
-    let writer_after_crash = PartitionWriter::new(
+    let _writer_after_crash = PartitionWriter::new(
         DEFAULT_ORGANIZATION_ID.to_string(),
         "test-topic".to_string(),
         0,
