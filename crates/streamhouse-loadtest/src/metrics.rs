@@ -76,6 +76,7 @@ impl IntCounterRef<'_> {
     pub fn inc_by(&self, v: u64) {
         self.family.get_or_create(&self.labels).inc_by(v);
     }
+    #[allow(dead_code)]
     pub fn get(&self) -> u64 {
         self.family.get_or_create(&self.labels).get()
     }
@@ -173,6 +174,7 @@ impl IntGauge {
     pub fn dec(&self) {
         self.inner.dec();
     }
+    #[allow(dead_code)]
     pub fn get(&self) -> i64 {
         self.inner.get()
     }
