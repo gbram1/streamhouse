@@ -444,6 +444,7 @@ impl WriterPool {
                 snapshot_prefix, timestamp
             ));
 
+            #[allow(clippy::useless_conversion)]
             self.object_store
                 .put(&path, bytes::Bytes::from(compressed).into())
                 .await

@@ -409,6 +409,7 @@ impl CompactionTask {
             );
             let compacted_path = object_store::path::Path::from(compacted_key.clone());
 
+            #[allow(clippy::useless_conversion)]
             self.object_store
                 .put(&compacted_path, Bytes::from(compacted_bytes).into())
                 .await
@@ -1169,6 +1170,7 @@ mod tests {
 
         let s3_key = format!("data/{}/{}/seg_{}.bin", topic, partition_id, base_offset);
         let path = object_store::path::Path::from(s3_key.clone());
+        #[allow(clippy::useless_conversion)]
         object_store
             .put(&path, Bytes::from(segment_bytes).into())
             .await

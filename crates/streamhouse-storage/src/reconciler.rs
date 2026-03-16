@@ -445,10 +445,12 @@ mod tests {
         let registered_key = Path::from("data/orders/0/00000000000000000000.seg");
         let orphan_key = Path::from("data/orders/0/00000000000000001000.seg");
 
+        #[allow(clippy::useless_conversion)]
         store
             .put(&registered_key, Bytes::from("segment-data").into())
             .await
             .unwrap();
+        #[allow(clippy::useless_conversion)]
         store
             .put(&orphan_key, Bytes::from("orphan-data").into())
             .await
@@ -510,6 +512,7 @@ mod tests {
 
         // Upload an orphan (just created, within grace period)
         let orphan_key = Path::from("data/logs/0/00000000000000000000.seg");
+        #[allow(clippy::useless_conversion)]
         store
             .put(&orphan_key, Bytes::from("recent-orphan").into())
             .await

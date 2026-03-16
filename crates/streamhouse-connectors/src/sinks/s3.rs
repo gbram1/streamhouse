@@ -402,6 +402,7 @@ impl S3SinkConnector {
         };
 
         let path = ObjectPath::from(key);
+        #[allow(clippy::useless_conversion)]
         store
             .put(&path, data.into())
             .await
