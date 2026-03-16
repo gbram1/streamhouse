@@ -445,7 +445,7 @@ impl WriterPool {
             ));
 
             self.object_store
-                .put(&path, bytes::Bytes::from(compressed))
+                .put(&path, bytes::Bytes::from(compressed).into())
                 .await
                 .map_err(|e| {
                     crate::error::Error::SegmentError(format!("Snapshot upload failed: {}", e))

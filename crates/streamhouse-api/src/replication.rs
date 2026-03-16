@@ -470,7 +470,7 @@ impl ReplicationManager {
             let target_object_path = ObjectPath::from(target_path.as_str());
 
             match target_store
-                .put(&target_object_path, segment_data.clone())
+                .put(&target_object_path, segment_data.clone().into())
                 .await
             {
                 Ok(_) => {
@@ -855,7 +855,7 @@ mod tests {
         let source_path = "topics/orders/0/segment-001.strm";
         let test_data = bytes::Bytes::from(b"test segment data".to_vec());
         source_store
-            .put(&ObjectPath::from(source_path), test_data)
+            .put(&ObjectPath::from(source_path), test_data.into())
             .await
             .unwrap();
 

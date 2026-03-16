@@ -403,7 +403,7 @@ impl S3SinkConnector {
 
         let path = ObjectPath::from(key);
         store
-            .put(&path, data)
+            .put(&path, data.into())
             .await
             .map_err(|e| ConnectorError::SinkError(format!("S3 put error: {}", e)))?;
 

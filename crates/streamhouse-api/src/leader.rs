@@ -557,9 +557,11 @@ impl LeaderElection {
     async fn release_memory(&self) -> Result<()> {
         let mut record = self.memory_state.write().await;
 
-        if let Some(ref existing) = *record {
+        if let Some(ref mut existing) = *record {
             if existing.leader_id == self.config.node_id {
-                *record = None;
+                // Mark lease as expired rather than clearing the record,
+                // so the fencing token is preserved for the next acquire.
+                existing.expires_at = 0;
             }
         }
 

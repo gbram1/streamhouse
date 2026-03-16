@@ -410,7 +410,7 @@ impl CompactionTask {
             let compacted_path = object_store::path::Path::from(compacted_key.clone());
 
             self.object_store
-                .put(&compacted_path, Bytes::from(compacted_bytes))
+                .put(&compacted_path, Bytes::from(compacted_bytes).into())
                 .await
                 .map_err(|e| {
                     CompactionError::Storage(format!("Failed to upload compacted segment: {}", e))
@@ -1167,10 +1167,10 @@ mod tests {
         let base_offset = records.first().unwrap().offset;
         let end_offset = records.last().unwrap().offset;
 
-        let s3_key = format!("{}/{}/seg_{}.bin", topic, partition_id, base_offset);
+        let s3_key = format!("data/{}/{}/seg_{}.bin", topic, partition_id, base_offset);
         let path = object_store::path::Path::from(s3_key.clone());
         object_store
-            .put(&path, Bytes::from(segment_bytes))
+            .put(&path, Bytes::from(segment_bytes).into())
             .await
             .unwrap();
 
@@ -1370,7 +1370,7 @@ mod tests {
         assert_eq!(result.segments_compacted, 2);
 
         // Verify the compacted segment was uploaded and is readable
-        let compacted_path = object_store::path::Path::from("topic/0/seg_1_compacted.bin");
+        let compacted_path = object_store::path::Path::from("data/topic/0/seg_1_compacted.bin");
         let compacted_data = store
             .get(&compacted_path)
             .await
@@ -1453,7 +1453,7 @@ mod tests {
         assert_eq!(result.keys_removed, 1); // key1's original value removed
 
         // Verify compacted segment content
-        let compacted_path = object_store::path::Path::from("topic/0/seg_1_compacted.bin");
+        let compacted_path = object_store::path::Path::from("data/topic/0/seg_1_compacted.bin");
         let compacted_data = store
             .get(&compacted_path)
             .await
@@ -1563,7 +1563,7 @@ mod tests {
         assert_eq!(result.keys_removed, 1);
 
         // Verify compacted content
-        let compacted_path = object_store::path::Path::from("topic/0/seg_0_compacted.bin");
+        let compacted_path = object_store::path::Path::from("data/topic/0/seg_0_compacted.bin");
         let compacted_data = store
             .get(&compacted_path)
             .await
@@ -1636,7 +1636,7 @@ mod tests {
         assert_eq!(result.segments_compacted, 2);
 
         // Verify only the latest value survives
-        let compacted_path = object_store::path::Path::from("topic/0/seg_19_compacted.bin");
+        let compacted_path = object_store::path::Path::from("data/topic/0/seg_19_compacted.bin");
         let compacted_data = store
             .get(&compacted_path)
             .await
@@ -1704,7 +1704,7 @@ mod tests {
         assert_eq!(result.keys_removed, 2);
 
         // Verify the resurrected value survives (tombstone was superseded)
-        let compacted_path = object_store::path::Path::from("topic/0/seg_2_compacted.bin");
+        let compacted_path = object_store::path::Path::from("data/topic/0/seg_2_compacted.bin");
         let compacted_data = store
             .get(&compacted_path)
             .await
@@ -1818,7 +1818,7 @@ mod tests {
         assert!(store.get(&old_path2).await.is_err());
 
         // New compacted segment should exist
-        let compacted_path = object_store::path::Path::from("topic/0/seg_1_compacted.bin");
+        let compacted_path = object_store::path::Path::from("data/topic/0/seg_1_compacted.bin");
         assert!(store.get(&compacted_path).await.is_ok());
     }
 
