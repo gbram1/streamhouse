@@ -21,9 +21,7 @@ use crate::{models::*, AppState};
     ),
     tag = "agents"
 )]
-pub async fn list_agents(
-    State(state): State<AppState>,
-) -> Result<Json<Vec<Agent>>, StatusCode> {
+pub async fn list_agents(State(state): State<AppState>) -> Result<Json<Vec<Agent>>, StatusCode> {
     let agents = state
         .metadata
         .list_agents(None, None) // No filters

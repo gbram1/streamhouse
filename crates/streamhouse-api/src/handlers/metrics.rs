@@ -536,7 +536,6 @@ pub async fn get_agent_metrics(
     State(state): State<AppState>,
     Path(agent_id): Path<String>,
 ) -> Result<Json<AgentMetricsResponse>, StatusCode> {
-
     // Get agent info
     let agent = state
         .metadata
