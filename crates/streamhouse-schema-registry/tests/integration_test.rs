@@ -152,7 +152,7 @@ async fn test_multiple_schema_formats() {
 
     // Protobuf schema
     let proto_request = RegisterSchemaRequest {
-        schema: "message User { string name = 1; }".to_string(),
+        schema: "syntax = \"proto3\";\nmessage User { string name = 1; }".to_string(),
         schema_type: Some(SchemaFormat::Protobuf),
         references: vec![],
         metadata: None,
