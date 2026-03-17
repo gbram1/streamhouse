@@ -1495,7 +1495,6 @@ mod tests {
     }
 
     #[tokio::test]
-    #[ignore = "SQLite FK mismatch: compaction_state references partitions with mismatched key"]
     async fn test_topic_cache_invalidation_on_delete() {
         let store = SqliteMetadataStore::new(":memory:").await.unwrap();
         let cached = CachedMetadataStore::new(store);

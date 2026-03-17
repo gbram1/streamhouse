@@ -10,21 +10,22 @@ ALTER TABLE topics ADD COLUMN cleanup_policy TEXT NOT NULL DEFAULT 'delete';
 -- Create index for wildcard subscription pattern matching
 CREATE INDEX IF NOT EXISTS idx_topics_name_pattern ON topics(name);
 
--- Ensure (topic, partition_id) is unique so FKs can reference it
+-- Ensure (organization_id, topic, partition_id) is unique so FKs can reference it
 -- (PK is (organization_id, topic, partition_id) after migration 003)
 CREATE UNIQUE INDEX IF NOT EXISTS idx_partitions_topic_partition
-    ON partitions(topic, partition_id);
+    ON partitions(organization_id, topic, partition_id);
 
 -- Create compaction state table to track compaction progress per partition
 CREATE TABLE IF NOT EXISTS compaction_state (
+    organization_id TEXT NOT NULL DEFAULT '00000000-0000-0000-0000-000000000000',
     topic TEXT NOT NULL,
     partition_id INTEGER NOT NULL,
     last_compacted_offset BIGINT NOT NULL DEFAULT 0,
     last_compaction_at BIGINT,
     compacted_segments INTEGER NOT NULL DEFAULT 0,
     keys_removed BIGINT NOT NULL DEFAULT 0,
-    PRIMARY KEY (topic, partition_id),
-    FOREIGN KEY (topic, partition_id) REFERENCES partitions(topic, partition_id) ON DELETE CASCADE
+    PRIMARY KEY (organization_id, topic, partition_id),
+    FOREIGN KEY (organization_id, topic, partition_id) REFERENCES partitions(organization_id, topic, partition_id) ON DELETE CASCADE
 );
 
 -- Index for finding partitions needing compaction

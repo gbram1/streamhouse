@@ -575,13 +575,13 @@ mod tests {
     #[async_trait]
     impl MetadataStore for MockMetadataStore {
         async fn create_topic(&self, _config: TopicConfig) -> Result<()> {
-            unimplemented!()
+            Ok(())
         }
         async fn delete_topic(&self, _name: &str) -> Result<()> {
-            unimplemented!()
+            Ok(())
         }
         async fn get_topic(&self, _name: &str) -> Result<Option<Topic>> {
-            unimplemented!()
+            Ok(None)
         }
         async fn list_topics(&self) -> Result<Vec<Topic>> {
             Ok(self.topics.lock().unwrap().clone())
@@ -592,7 +592,7 @@ mod tests {
             _topic: &str,
             _partition_id: u32,
         ) -> Result<Option<Partition>> {
-            unimplemented!()
+            Ok(None)
         }
         async fn update_high_watermark(
             &self,
@@ -601,10 +601,10 @@ mod tests {
             _partition_id: u32,
             _offset: u64,
         ) -> Result<()> {
-            unimplemented!()
+            Ok(())
         }
         async fn list_partitions(&self, _org_id: &str, _topic: &str) -> Result<Vec<Partition>> {
-            unimplemented!()
+            Ok(Vec::new())
         }
         async fn add_segment(&self, _org_id: &str, segment: SegmentInfo) -> Result<()> {
             self.segments.lock().unwrap().push(segment);
@@ -627,11 +627,20 @@ mod tests {
         }
         async fn find_segment_for_offset(
             &self,
-            _topic: &str,
-            _partition_id: u32,
-            _offset: u64,
+            topic: &str,
+            partition_id: u32,
+            offset: u64,
         ) -> Result<Option<SegmentInfo>> {
-            unimplemented!()
+            let segments = self.segments.lock().unwrap();
+            Ok(segments
+                .iter()
+                .find(|s| {
+                    s.topic == topic
+                        && s.partition_id == partition_id
+                        && s.base_offset <= offset
+                        && s.end_offset >= offset
+                })
+                .cloned())
         }
         async fn delete_segments_before(
             &self,
@@ -670,7 +679,7 @@ mod tests {
                 .collect())
         }
         async fn ensure_consumer_group(&self, _group_id: &str) -> Result<()> {
-            unimplemented!()
+            Ok(())
         }
         async fn commit_offset(
             &self,
@@ -680,7 +689,7 @@ mod tests {
             _offset: u64,
             _metadata: Option<String>,
         ) -> Result<()> {
-            unimplemented!()
+            Ok(())
         }
         async fn get_committed_offset(
             &self,
@@ -688,32 +697,32 @@ mod tests {
             _topic: &str,
             _partition_id: u32,
         ) -> Result<Option<u64>> {
-            unimplemented!()
+            Ok(None)
         }
         async fn get_consumer_offsets(&self, _group_id: &str) -> Result<Vec<ConsumerOffset>> {
-            unimplemented!()
+            Ok(Vec::new())
         }
         async fn list_consumer_groups(&self) -> Result<Vec<String>> {
-            unimplemented!()
+            Ok(Vec::new())
         }
         async fn delete_consumer_group(&self, _group_id: &str) -> Result<()> {
-            unimplemented!()
+            Ok(())
         }
         async fn register_agent(&self, _agent: AgentInfo) -> Result<()> {
-            unimplemented!()
+            Ok(())
         }
         async fn get_agent(&self, _agent_id: &str) -> Result<Option<AgentInfo>> {
-            unimplemented!()
+            Ok(None)
         }
         async fn list_agents(
             &self,
             _agent_group: Option<&str>,
             _availability_zone: Option<&str>,
         ) -> Result<Vec<AgentInfo>> {
-            unimplemented!()
+            Ok(Vec::new())
         }
         async fn deregister_agent(&self, _agent_id: &str) -> Result<()> {
-            unimplemented!()
+            Ok(())
         }
         async fn acquire_partition_lease(
             &self,
@@ -723,14 +732,14 @@ mod tests {
             _agent_id: &str,
             _lease_duration_ms: i64,
         ) -> Result<PartitionLease> {
-            unimplemented!()
+            Err(anyhow::anyhow!("not supported in mock"))
         }
         async fn get_partition_lease(
             &self,
             _topic: &str,
             _partition_id: u32,
         ) -> Result<Option<PartitionLease>> {
-            unimplemented!()
+            Ok(None)
         }
         async fn release_partition_lease(
             &self,
@@ -738,29 +747,29 @@ mod tests {
             _partition_id: u32,
             _agent_id: &str,
         ) -> Result<()> {
-            unimplemented!()
+            Ok(())
         }
         async fn list_partition_leases(
             &self,
             _topic: Option<&str>,
             _agent_id: Option<&str>,
         ) -> Result<Vec<PartitionLease>> {
-            unimplemented!()
+            Ok(Vec::new())
         }
         async fn create_organization(&self, _config: CreateOrganization) -> Result<Organization> {
-            unimplemented!()
+            Err(anyhow::anyhow!("not supported in mock"))
         }
         async fn get_organization(&self, _id: &str) -> Result<Option<Organization>> {
-            unimplemented!()
+            Ok(None)
         }
         async fn get_organization_by_slug(&self, _slug: &str) -> Result<Option<Organization>> {
-            unimplemented!()
+            Ok(None)
         }
         async fn get_organization_by_external_id(
             &self,
             _external_id: &str,
         ) -> Result<Option<Organization>> {
-            unimplemented!()
+            Ok(None)
         }
         async fn list_organizations(&self) -> Result<Vec<Organization>> {
             Ok(Vec::new())
@@ -770,13 +779,13 @@ mod tests {
             _id: &str,
             _status: OrganizationStatus,
         ) -> Result<()> {
-            unimplemented!()
+            Ok(())
         }
         async fn update_organization_plan(&self, _id: &str, _plan: OrganizationPlan) -> Result<()> {
-            unimplemented!()
+            Ok(())
         }
         async fn delete_organization(&self, _id: &str) -> Result<()> {
-            unimplemented!()
+            Ok(())
         }
         async fn create_api_key(
             &self,
@@ -785,37 +794,37 @@ mod tests {
             _key_hash: &str,
             _key_prefix: &str,
         ) -> Result<ApiKey> {
-            unimplemented!()
+            Err(anyhow::anyhow!("not supported in mock"))
         }
         async fn get_api_key(&self, _id: &str) -> Result<Option<ApiKey>> {
-            unimplemented!()
+            Ok(None)
         }
         async fn validate_api_key(&self, _key_hash: &str) -> Result<Option<ApiKey>> {
-            unimplemented!()
+            Ok(None)
         }
         async fn list_api_keys(&self, _organization_id: &str) -> Result<Vec<ApiKey>> {
-            unimplemented!()
+            Ok(Vec::new())
         }
         async fn touch_api_key(&self, _id: &str) -> Result<()> {
-            unimplemented!()
+            Ok(())
         }
         async fn revoke_api_key(&self, _id: &str) -> Result<()> {
-            unimplemented!()
+            Ok(())
         }
         async fn get_organization_quota(
             &self,
             _organization_id: &str,
         ) -> Result<OrganizationQuota> {
-            unimplemented!()
+            Err(anyhow::anyhow!("not supported in mock"))
         }
         async fn set_organization_quota(&self, _quota: OrganizationQuota) -> Result<()> {
-            unimplemented!()
+            Ok(())
         }
         async fn get_organization_usage(
             &self,
             _organization_id: &str,
         ) -> Result<Vec<OrganizationUsage>> {
-            unimplemented!()
+            Ok(Vec::new())
         }
         async fn update_organization_usage(
             &self,
@@ -823,7 +832,7 @@ mod tests {
             _metric: &str,
             _value: i64,
         ) -> Result<()> {
-            unimplemented!()
+            Ok(())
         }
         async fn increment_organization_usage(
             &self,
@@ -831,35 +840,35 @@ mod tests {
             _metric: &str,
             _delta: i64,
         ) -> Result<()> {
-            unimplemented!()
+            Ok(())
         }
         async fn init_producer(&self, _config: InitProducerConfig) -> Result<Producer> {
-            unimplemented!()
+            Err(anyhow::anyhow!("not supported in mock"))
         }
         async fn get_producer(&self, _producer_id: &str) -> Result<Option<Producer>> {
-            unimplemented!()
+            Ok(None)
         }
         async fn get_producer_by_transactional_id(
             &self,
             _transactional_id: &str,
             _organization_id: Option<&str>,
         ) -> Result<Option<Producer>> {
-            unimplemented!()
+            Ok(None)
         }
         async fn update_producer_heartbeat(&self, _producer_id: &str) -> Result<()> {
-            unimplemented!()
+            Ok(())
         }
         async fn fence_producer(&self, _producer_id: &str) -> Result<()> {
-            unimplemented!()
+            Ok(())
         }
         async fn cleanup_expired_producers(&self, _timeout_ms: i64) -> Result<u64> {
-            unimplemented!()
+            Ok(0)
         }
         async fn allocate_numeric_producer_id(&self, _producer_id: &str) -> Result<i64> {
-            unimplemented!()
+            Ok(0)
         }
         async fn get_producer_by_numeric_id(&self, _numeric_id: i64) -> Result<Option<Producer>> {
-            unimplemented!()
+            Ok(None)
         }
         async fn get_producer_sequence(
             &self,
@@ -867,7 +876,7 @@ mod tests {
             _topic: &str,
             _partition_id: u32,
         ) -> Result<Option<i64>> {
-            unimplemented!()
+            Ok(None)
         }
         async fn update_producer_sequence(
             &self,
@@ -876,7 +885,7 @@ mod tests {
             _partition_id: u32,
             _sequence: i64,
         ) -> Result<()> {
-            unimplemented!()
+            Ok(())
         }
         async fn check_and_update_sequence(
             &self,
@@ -886,17 +895,17 @@ mod tests {
             _base_sequence: i64,
             _record_count: u32,
         ) -> Result<bool> {
-            unimplemented!()
+            Ok(true)
         }
         async fn begin_transaction(
             &self,
             _producer_id: &str,
             _timeout_ms: u32,
         ) -> Result<Transaction> {
-            unimplemented!()
+            Err(anyhow::anyhow!("not supported in mock"))
         }
         async fn get_transaction(&self, _transaction_id: &str) -> Result<Option<Transaction>> {
-            unimplemented!()
+            Ok(None)
         }
         async fn add_transaction_partition(
             &self,
@@ -905,7 +914,7 @@ mod tests {
             _partition_id: u32,
             _first_offset: u64,
         ) -> Result<()> {
-            unimplemented!()
+            Ok(())
         }
         async fn update_transaction_partition_offset(
             &self,
@@ -914,28 +923,28 @@ mod tests {
             _partition_id: u32,
             _last_offset: u64,
         ) -> Result<()> {
-            unimplemented!()
+            Ok(())
         }
         async fn get_transaction_partitions(
             &self,
             _transaction_id: &str,
         ) -> Result<Vec<TransactionPartition>> {
-            unimplemented!()
+            Ok(Vec::new())
         }
         async fn prepare_transaction(&self, _transaction_id: &str) -> Result<()> {
-            unimplemented!()
+            Ok(())
         }
         async fn commit_transaction(&self, _transaction_id: &str) -> Result<i64> {
-            unimplemented!()
+            Ok(0)
         }
         async fn abort_transaction(&self, _transaction_id: &str) -> Result<()> {
-            unimplemented!()
+            Ok(())
         }
         async fn cleanup_completed_transactions(&self, _max_age_ms: i64) -> Result<u64> {
-            unimplemented!()
+            Ok(0)
         }
         async fn add_transaction_marker(&self, _marker: TransactionMarker) -> Result<()> {
-            unimplemented!()
+            Ok(())
         }
         async fn get_transaction_markers(
             &self,
@@ -943,10 +952,10 @@ mod tests {
             _partition_id: u32,
             _min_offset: u64,
         ) -> Result<Vec<TransactionMarker>> {
-            unimplemented!()
+            Ok(Vec::new())
         }
         async fn get_last_stable_offset(&self, _topic: &str, _partition_id: u32) -> Result<u64> {
-            unimplemented!()
+            Ok(0)
         }
         async fn update_last_stable_offset(
             &self,
@@ -954,7 +963,7 @@ mod tests {
             _partition_id: u32,
             _lso: u64,
         ) -> Result<()> {
-            unimplemented!()
+            Ok(())
         }
         async fn initiate_lease_transfer(
             &self,
@@ -965,14 +974,14 @@ mod tests {
             _reason: LeaderChangeReason,
             _timeout_ms: u32,
         ) -> Result<LeaseTransfer> {
-            unimplemented!()
+            Err(anyhow::anyhow!("not supported in mock"))
         }
         async fn accept_lease_transfer(
             &self,
             _transfer_id: &str,
             _agent_id: &str,
         ) -> Result<LeaseTransfer> {
-            unimplemented!()
+            Err(anyhow::anyhow!("not supported in mock"))
         }
         async fn complete_lease_transfer(
             &self,
@@ -980,7 +989,7 @@ mod tests {
             _last_flushed_offset: u64,
             _high_watermark: u64,
         ) -> Result<PartitionLease> {
-            unimplemented!()
+            Err(anyhow::anyhow!("not supported in mock"))
         }
         async fn reject_lease_transfer(
             &self,
@@ -988,19 +997,19 @@ mod tests {
             _agent_id: &str,
             _reason: &str,
         ) -> Result<()> {
-            unimplemented!()
+            Ok(())
         }
         async fn get_lease_transfer(&self, _transfer_id: &str) -> Result<Option<LeaseTransfer>> {
-            unimplemented!()
+            Ok(None)
         }
         async fn get_pending_transfers_for_agent(
             &self,
             _agent_id: &str,
         ) -> Result<Vec<LeaseTransfer>> {
-            unimplemented!()
+            Ok(Vec::new())
         }
         async fn cleanup_timed_out_transfers(&self) -> Result<u64> {
-            unimplemented!()
+            Ok(0)
         }
         async fn record_leader_change(
             &self,
@@ -1012,22 +1021,22 @@ mod tests {
             _epoch: u64,
             _gap_ms: i64,
         ) -> Result<()> {
-            unimplemented!()
+            Ok(())
         }
         async fn create_materialized_view(
             &self,
             _config: CreateMaterializedView,
         ) -> Result<MaterializedView> {
-            unimplemented!()
+            Err(anyhow::anyhow!("not supported in mock"))
         }
         async fn get_materialized_view(&self, _name: &str) -> Result<Option<MaterializedView>> {
-            unimplemented!()
+            Ok(None)
         }
         async fn get_materialized_view_by_id(&self, _id: &str) -> Result<Option<MaterializedView>> {
-            unimplemented!()
+            Ok(None)
         }
         async fn list_materialized_views(&self) -> Result<Vec<MaterializedView>> {
-            unimplemented!()
+            Ok(Vec::new())
         }
         async fn update_materialized_view_status(
             &self,
@@ -1035,7 +1044,7 @@ mod tests {
             _status: MaterializedViewStatus,
             _error_message: Option<&str>,
         ) -> Result<()> {
-            unimplemented!()
+            Ok(())
         }
         async fn update_materialized_view_stats(
             &self,
@@ -1043,16 +1052,16 @@ mod tests {
             _row_count: u64,
             _last_refresh_at: i64,
         ) -> Result<()> {
-            unimplemented!()
+            Ok(())
         }
         async fn delete_materialized_view(&self, _name: &str) -> Result<()> {
-            unimplemented!()
+            Ok(())
         }
         async fn get_materialized_view_offsets(
             &self,
             _view_id: &str,
         ) -> Result<Vec<MaterializedViewOffset>> {
-            unimplemented!()
+            Ok(Vec::new())
         }
         async fn update_materialized_view_offset(
             &self,
@@ -1060,29 +1069,29 @@ mod tests {
             _partition_id: u32,
             _last_offset: u64,
         ) -> Result<()> {
-            unimplemented!()
+            Ok(())
         }
         async fn get_materialized_view_data(
             &self,
             _view_id: &str,
             _limit: Option<usize>,
         ) -> Result<Vec<MaterializedViewData>> {
-            unimplemented!()
+            Ok(Vec::new())
         }
         async fn upsert_materialized_view_data(&self, _data: MaterializedViewData) -> Result<()> {
-            unimplemented!()
+            Ok(())
         }
         async fn create_connector(&self, _connector: ConnectorInfo) -> Result<()> {
-            unimplemented!()
+            Ok(())
         }
         async fn get_connector(&self, _name: &str) -> Result<Option<ConnectorInfo>> {
-            unimplemented!()
+            Ok(None)
         }
         async fn list_connectors(&self) -> Result<Vec<ConnectorInfo>> {
-            unimplemented!()
+            Ok(Vec::new())
         }
         async fn delete_connector(&self, _name: &str) -> Result<()> {
-            unimplemented!()
+            Ok(())
         }
         async fn update_connector_state(
             &self,
@@ -1090,44 +1099,44 @@ mod tests {
             _state: &str,
             _error_message: Option<&str>,
         ) -> Result<()> {
-            unimplemented!()
+            Ok(())
         }
         async fn update_connector_records_processed(
             &self,
             _name: &str,
             _records_processed: i64,
         ) -> Result<()> {
-            unimplemented!()
+            Ok(())
         }
         async fn create_pipeline_target(&self, _target: PipelineTarget) -> Result<()> {
-            unimplemented!()
+            Ok(())
         }
         async fn get_pipeline_target(&self, _name: &str) -> Result<Option<PipelineTarget>> {
-            unimplemented!()
+            Ok(None)
         }
         async fn get_pipeline_target_by_id(&self, _id: &str) -> Result<Option<PipelineTarget>> {
-            unimplemented!()
+            Ok(None)
         }
         async fn list_pipeline_targets(&self) -> Result<Vec<PipelineTarget>> {
-            unimplemented!()
+            Ok(Vec::new())
         }
         async fn delete_pipeline_target(&self, _name: &str) -> Result<()> {
-            unimplemented!()
+            Ok(())
         }
         async fn create_pipeline(&self, _pipeline: PipelineInfo) -> Result<()> {
-            unimplemented!()
+            Ok(())
         }
         async fn get_pipeline(&self, _name: &str) -> Result<Option<PipelineInfo>> {
-            unimplemented!()
+            Ok(None)
         }
         async fn get_pipeline_by_id(&self, _id: &str) -> Result<Option<PipelineInfo>> {
-            unimplemented!()
+            Ok(None)
         }
         async fn list_pipelines(&self) -> Result<Vec<PipelineInfo>> {
-            unimplemented!()
+            Ok(Vec::new())
         }
         async fn delete_pipeline(&self, _name: &str) -> Result<()> {
-            unimplemented!()
+            Ok(())
         }
         async fn update_pipeline_state(
             &self,
@@ -1135,7 +1144,7 @@ mod tests {
             _state: &str,
             _error_message: Option<&str>,
         ) -> Result<()> {
-            unimplemented!()
+            Ok(())
         }
         async fn update_pipeline_progress(
             &self,
@@ -1143,7 +1152,7 @@ mod tests {
             _records_in: i64,
             _records_out: i64,
         ) -> Result<()> {
-            unimplemented!()
+            Ok(())
         }
     }
 

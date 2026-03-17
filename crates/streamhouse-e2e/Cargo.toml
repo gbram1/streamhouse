@@ -1,0 +1,54 @@
+[package]
+name = "streamhouse-e2e"
+version.workspace = true
+edition.workspace = true
+publish = false
+
+# This crate is test-only — it has no lib, just integration tests
+[lib]
+path = "src/lib.rs"
+
+[dependencies]
+# Internal crates
+streamhouse-api = { path = "../streamhouse-api" }
+streamhouse-metadata = { path = "../streamhouse-metadata" }
+streamhouse-storage = { path = "../streamhouse-storage" }
+streamhouse-server = { path = "../streamhouse-server" }
+streamhouse-proto = { path = "../streamhouse-proto" }
+streamhouse-kafka = { path = "../streamhouse-kafka" }
+streamhouse-core = { path = "../streamhouse-core" }
+streamhouse-observability = { path = "../streamhouse-observability" }
+streamhouse-schema-registry = { path = "../streamhouse-schema-registry" }
+
+# Async
+tokio = { workspace = true }
+async-trait = { workspace = true }
+
+# HTTP client (REST tests)
+reqwest = { version = "0.12", features = ["json"] }
+
+# gRPC client
+tonic = { workspace = true }
+prost = { workspace = true }
+
+# Storage
+object_store = { workspace = true }
+
+# Serialization
+serde = { workspace = true }
+serde_json = { workspace = true }
+
+# Web
+axum = { workspace = true }
+
+# Utils
+anyhow = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+tempfile = { workspace = true }
+bytes = { workspace = true }
+uuid = { workspace = true }
+dashmap = "6.0"
+
+[features]
+postgres = ["streamhouse-metadata/postgres"]

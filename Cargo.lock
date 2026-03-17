@@ -5761,6 +5761,37 @@ dependencies = [
 ]
 
 [[package]]
+name = "streamhouse-e2e"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "axum 0.7.9",
+ "bytes",
+ "dashmap",
+ "object_store",
+ "prost 0.12.6",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "streamhouse-api",
+ "streamhouse-core",
+ "streamhouse-kafka",
+ "streamhouse-metadata",
+ "streamhouse-observability",
+ "streamhouse-proto",
+ "streamhouse-schema-registry",
+ "streamhouse-server",
+ "streamhouse-storage",
+ "tempfile",
+ "tokio",
+ "tonic",
+ "tracing",
+ "tracing-subscriber",
+ "uuid",
+]
+
+[[package]]
 name = "streamhouse-kafka"
 version = "0.1.0"
 dependencies = [

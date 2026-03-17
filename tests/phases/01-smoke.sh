@@ -1,8 +1,11 @@
 #!/usr/bin/env bash
 # Phase 01 — Smoke Tests
-# Quick health checks and basic produce/consume to validate the server is working
+# Quick validation that the server is alive and basic roundtrip works
 
 phase_header "Phase 01 — Smoke Tests"
+
+TOPIC="smoke-test"
+API="${TEST_HTTP}/api/v1"
 
 # ── Health Checks ─────────────────────────────────────────────────────────────
 assert_status "GET /health returns 200" "200" GET "${TEST_HTTP}/health"
@@ -11,43 +14,66 @@ assert_status "GET /live returns 200" "200" GET "${TEST_HTTP}/live"
 
 assert_status "GET /ready returns 200" "200" GET "${TEST_HTTP}/ready"
 
-# ── Basic Produce / Consume ───────────────────────────────────────────────────
-
-# Create topic
-http_request POST "${TEST_HTTP}/api/v1/topics" '{"name":"smoke-test","partitions":2}'
+# ── Create Topic ──────────────────────────────────────────────────────────────
+http_request POST "$API/topics" "{\"name\":\"$TOPIC\",\"partitions\":2}"
 if [ "$HTTP_STATUS" = "201" ] || [ "$HTTP_STATUS" = "409" ]; then
-    pass "Create topic 'smoke-test'"
+    pass "Create topic '$TOPIC' (2 partitions) -> $HTTP_STATUS"
 else
-    fail "Create topic 'smoke-test'" "got HTTP $HTTP_STATUS"
+    fail "Create topic '$TOPIC'" "expected 201 or 409, got HTTP $HTTP_STATUS"
 fi
 
-# Produce a message
-http_request POST "${TEST_HTTP}/api/v1/produce" \
-    '{"topic":"smoke-test","key":"k1","value":"{\"hello\":\"world\"}"}'
+# ── Produce Single Message ───────────────────────────────────────────────────
+http_request POST "$API/produce" \
+    '{"topic":"smoke-test","key":"smoke-k1","value":"{\"hello\":\"world\"}"}'
 if [ "$HTTP_STATUS" = "200" ]; then
     pass "Produce single message"
 else
     fail "Produce single message" "got HTTP $HTTP_STATUS: $HTTP_BODY"
 fi
 
-# Wait for flush (background flush runs every 5s)
+# ── Wait and Consume ─────────────────────────────────────────────────────────
 wait_flush 8
 
-# Consume it back — STRICT: data MUST be consumable after flush
-# Note: 500 on a partition means no segments exist there (empty partition) — that's OK
-# as long as the total across all partitions is >= 1
 SMOKE_TOTAL=0
 for p in 0 1; do
-    http_request GET "${TEST_HTTP}/api/v1/consume?topic=smoke-test&partition=${p}&offset=0&maxRecords=100"
+    http_request GET "$API/consume?topic=$TOPIC&partition=${p}&offset=0&maxRecords=100"
     if [ "$HTTP_STATUS" = "200" ]; then
         COUNT=$(echo "$HTTP_BODY" | jq '.records | length' 2>/dev/null) || COUNT=0
         SMOKE_TOTAL=$((SMOKE_TOTAL + COUNT))
     fi
-    # 500 = "offset not found" on empty partition — not an error, just no data on that partition
 done
 
 if [ "$SMOKE_TOTAL" -ge 1 ]; then
     pass "Consume message back (got $SMOKE_TOTAL records)"
 else
     fail "Consume message back" "got 0 records after flush — data not reaching storage"
+fi
+
+# ── Produce Batch of 10 ──────────────────────────────────────────────────────
+BATCH=$(make_batch_json "$TOPIC" 0 10 "smoke-batch")
+http_request POST "$API/produce/batch" "$BATCH"
+if [ "$HTTP_STATUS" = "200" ]; then
+    pass "Produce batch of 10 messages"
+else
+    fail "Produce batch of 10 messages" "got HTTP $HTTP_STATUS: $HTTP_BODY"
+fi
+
+# ── Wait and Verify Count Increased ──────────────────────────────────────────
+wait_flush 8
+
+SMOKE_TOTAL_AFTER=0
+for p in 0 1; do
+    http_request GET "$API/consume?topic=$TOPIC&partition=${p}&offset=0&maxRecords=100000"
+    if [ "$HTTP_STATUS" = "200" ]; then
+        COUNT=$(echo "$HTTP_BODY" | jq '.records | length' 2>/dev/null) || COUNT=0
+        SMOKE_TOTAL_AFTER=$((SMOKE_TOTAL_AFTER + COUNT))
+    fi
+done
+
+if [ "$SMOKE_TOTAL_AFTER" -gt "$SMOKE_TOTAL" ]; then
+    pass "Record count increased after batch produce ($SMOKE_TOTAL -> $SMOKE_TOTAL_AFTER)"
+elif [ "$SMOKE_TOTAL_AFTER" -ge 11 ]; then
+    pass "Total record count >= 11 after batch produce (got $SMOKE_TOTAL_AFTER)"
+else
+    fail "Record count after batch produce" "expected > $SMOKE_TOTAL, got $SMOKE_TOTAL_AFTER"
 fi
