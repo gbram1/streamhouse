@@ -15,6 +15,7 @@ on:
       - "docs/**"
       - "LICENSE"
       - ".gitignore"
+  workflow_call:
   schedule:
     - cron: "0 0 * * 0" # Weekly security audit
 
@@ -102,21 +103,6 @@ jobs:
       - name: Run doctests
         if: github.ref == 'refs/heads/main' || github.base_ref == 'main'
         run: cargo test --workspace --doc --locked
-
-      # Step 4: Release build (reuses dependencies)
-      - name: Build release
-        run: cargo build --workspace --release --locked
-
-      - name: Upload release binaries
-        uses: actions/upload-artifact@v4
-        with:
-          name: release-binaries
-          path: |
-            target/release/unified-server
-            target/release/standalone-agent
-            target/release/streamctl
-          retention-days: 3
-          compression-level: 9
 
   # Coverage only on main or PRs to main
   coverage:
