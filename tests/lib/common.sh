@@ -253,6 +253,16 @@ start_server() {
         RUST_LOG=info
     )
 
+    # Enable auth if requested (TEST_AUTH=true or STREAMHOUSE_AUTH_ENABLED=true)
+    if [ "${TEST_AUTH:-${STREAMHOUSE_AUTH_ENABLED:-false}}" = "true" ]; then
+        export STREAMHOUSE_ADMIN_KEY="${STREAMHOUSE_ADMIN_KEY:-streamhouse-test-admin-key}"
+        env_vars+=(
+            STREAMHOUSE_AUTH_ENABLED=true
+            STREAMHOUSE_ADMIN_KEY="${STREAMHOUSE_ADMIN_KEY}"
+        )
+        echo -e "${DIM}  Auth: enabled (admin key set)${NC}"
+    fi
+
     if [ "$TEST_BACKEND" = "postgres-s3" ]; then
         # Postgres + S3/MinIO backend
         env_vars+=(
@@ -336,6 +346,11 @@ http_request() {
     local curl_args=(-s -w "\n%{http_code}" -X "$method")
     if [ -n "$data" ]; then
         curl_args+=(-H "Content-Type: application/json" -d "$data")
+    fi
+
+    # Auto-attach admin key when auth is enabled
+    if [ -n "${STREAMHOUSE_ADMIN_KEY:-}" ]; then
+        curl_args+=(-H "Authorization: Bearer ${STREAMHOUSE_ADMIN_KEY}")
     fi
 
     local result

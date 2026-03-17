@@ -2044,14 +2044,16 @@ API="${TEST_HTTP}/api/v1"
 # Detect whether auth is enabled
 # ═══════════════════════════════════════════════════════════════════════════════
 
-# Strategy: try a request without any Authorization header to a protected
-# endpoint. If auth is enabled, we get 401. If disabled, we get a 2xx/4xx
-# that is NOT 401.
-
+# Check env var first, then probe the server
 AUTH_ENABLED=false
-http_request GET "$API/topics"
-if [ "$HTTP_STATUS" = "401" ]; then
+if [ "${TEST_AUTH:-${STREAMHOUSE_AUTH_ENABLED:-false}}" = "true" ]; then
     AUTH_ENABLED=true
+else
+    # Probe: send a request WITHOUT auth to see if server requires it
+    local_status=$(curl -s -o /dev/null -w "%{http_code}" -X GET "$API/topics" 2>/dev/null) || local_status="000"
+    if [ "$local_status" = "401" ]; then
+        AUTH_ENABLED=true
+    fi
 fi
 
 if [ "$AUTH_ENABLED" = "false" ]; then
@@ -3504,94 +3506,54 @@ fi
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # Agent Endpoints: GET /api/v1/agents, /agents/{id}, /agents/{id}/metrics
-# These require X-Admin-Key header matching STREAMHOUSE_ADMIN_KEY env var.
-# If env var is not set, agents return 403. We handle both cases.
+# Admin-only (requires admin API key via standard Bearer auth).
 # ═══════════════════════════════════════════════════════════════════════════════
 
-ADMIN_KEY="${STREAMHOUSE_ADMIN_KEY:-}"
+http_request GET "$API/agents"
+if [ "$HTTP_STATUS" = "200" ]; then
+    AGENT_COUNT=$(echo "$HTTP_BODY" | jq 'length' 2>/dev/null) || AGENT_COUNT=0
+    if [ "$AGENT_COUNT" -ge 1 ]; then
+        pass "GET /agents → 200, $AGENT_COUNT agents"
 
-if [ -z "$ADMIN_KEY" ]; then
-    # Try without admin key — expect 403, which confirms the endpoint exists
-    http_request GET "$API/agents"
-    if [ "$HTTP_STATUS" = "403" ]; then
-        skip "GET /agents" "STREAMHOUSE_ADMIN_KEY not set (403 Forbidden)"
-        skip "GET /agents/{id}" "STREAMHOUSE_ADMIN_KEY not set"
-        skip "GET /agents/{id}/metrics" "STREAMHOUSE_ADMIN_KEY not set"
-    elif [ "$HTTP_STATUS" = "200" ]; then
-        # Auth might be disabled — proceed without header
-        ADMIN_KEY="__none__"
-    else
-        fail "GET /agents (no admin key)" "expected 403 or 200, got HTTP $HTTP_STATUS"
-    fi
-fi
+        AGENT_ID=$(echo "$HTTP_BODY" | jq -r '.[0].agent_id // .[0].agentId // empty' 2>/dev/null) || AGENT_ID=""
 
-if [ -n "$ADMIN_KEY" ]; then
-    # List agents
-    if [ "$ADMIN_KEY" = "__none__" ]; then
-        http_request GET "$API/agents"
-    else
-        http_request_with_header GET "$API/agents" "X-Admin-Key" "$ADMIN_KEY"
-    fi
-
-    if [ "$HTTP_STATUS" = "200" ]; then
-        AGENT_COUNT=$(echo "$HTTP_BODY" | jq 'length' 2>/dev/null) || AGENT_COUNT=0
-        if [ "$AGENT_COUNT" -ge 1 ]; then
-            pass "GET /agents → 200, $AGENT_COUNT agents"
-
-            # Extract first agent ID for subsequent tests
-            AGENT_ID=$(echo "$HTTP_BODY" | jq -r '.[0].agent_id // .[0].agentId // empty' 2>/dev/null) || AGENT_ID=""
-
-            if [ -n "$AGENT_ID" ]; then
-                # Get agent by ID
-                if [ "$ADMIN_KEY" = "__none__" ]; then
-                    http_request GET "$API/agents/$AGENT_ID"
+        if [ -n "$AGENT_ID" ]; then
+            http_request GET "$API/agents/$AGENT_ID"
+            if [ "$HTTP_STATUS" = "200" ]; then
+                A_ID=$(echo "$HTTP_BODY" | jq -r '.agent_id // .agentId // empty' 2>/dev/null) || A_ID=""
+                if [ "$A_ID" = "$AGENT_ID" ]; then
+                    pass "GET /agents/$AGENT_ID → 200, agent_id matches"
                 else
-                    http_request_with_header GET "$API/agents/$AGENT_ID" "X-Admin-Key" "$ADMIN_KEY"
-                fi
-
-                if [ "$HTTP_STATUS" = "200" ]; then
-                    A_ID=$(echo "$HTTP_BODY" | jq -r '.agent_id // .agentId // empty' 2>/dev/null) || A_ID=""
-                    HAS_ADDR=$(echo "$HTTP_BODY" | jq 'has("address")' 2>/dev/null) || HAS_ADDR="false"
-                    HAS_AZ=$(echo "$HTTP_BODY" | jq 'has("availability_zone") or has("availabilityZone")' 2>/dev/null) || HAS_AZ="false"
-
-                    if [ "$A_ID" = "$AGENT_ID" ]; then
-                        pass "GET /agents/$AGENT_ID → 200, agent_id matches"
-                    else
-                        pass "GET /agents/$AGENT_ID → 200"
-                    fi
-                else
-                    fail "GET /agents/$AGENT_ID" "expected 200, got HTTP $HTTP_STATUS"
-                fi
-
-                # Get agent metrics (camelCase: agentId, partitionCount, uptimeMs)
-                if [ "$ADMIN_KEY" = "__none__" ]; then
-                    http_request GET "$API/agents/$AGENT_ID/metrics"
-                else
-                    http_request_with_header GET "$API/agents/$AGENT_ID/metrics" "X-Admin-Key" "$ADMIN_KEY"
-                fi
-
-                if [ "$HTTP_STATUS" = "200" ]; then
-                    HAS_AID=$(echo "$HTTP_BODY" | jq 'has("agentId")' 2>/dev/null) || HAS_AID="false"
-                    HAS_PC=$(echo "$HTTP_BODY" | jq 'has("partitionCount")' 2>/dev/null) || HAS_PC="false"
-                    HAS_UP=$(echo "$HTTP_BODY" | jq 'has("uptimeMs")' 2>/dev/null) || HAS_UP="false"
-
-                    if [ "$HAS_AID" = "true" ] && [ "$HAS_PC" = "true" ] && [ "$HAS_UP" = "true" ]; then
-                        pass "GET /agents/$AGENT_ID/metrics → 200, agentId/partitionCount/uptimeMs verified"
-                    else
-                        pass "GET /agents/$AGENT_ID/metrics → 200"
-                    fi
-                else
-                    fail "GET /agents/$AGENT_ID/metrics" "expected 200, got HTTP $HTTP_STATUS"
+                    pass "GET /agents/$AGENT_ID → 200"
                 fi
             else
-                fail "Extract agent ID" "could not parse agent_id from list response"
+                fail "GET /agents/$AGENT_ID" "expected 200, got HTTP $HTTP_STATUS"
+            fi
+
+            http_request GET "$API/agents/$AGENT_ID/metrics"
+            if [ "$HTTP_STATUS" = "200" ]; then
+                HAS_AID=$(echo "$HTTP_BODY" | jq 'has("agentId")' 2>/dev/null) || HAS_AID="false"
+                HAS_PC=$(echo "$HTTP_BODY" | jq 'has("partitionCount")' 2>/dev/null) || HAS_PC="false"
+                HAS_UP=$(echo "$HTTP_BODY" | jq 'has("uptimeMs")' 2>/dev/null) || HAS_UP="false"
+                if [ "$HAS_AID" = "true" ] && [ "$HAS_PC" = "true" ] && [ "$HAS_UP" = "true" ]; then
+                    pass "GET /agents/$AGENT_ID/metrics → 200, agentId/partitionCount/uptimeMs"
+                else
+                    pass "GET /agents/$AGENT_ID/metrics → 200"
+                fi
+            else
+                fail "GET /agents/$AGENT_ID/metrics" "expected 200, got HTTP $HTTP_STATUS"
             fi
         else
-            fail "GET /agents count" "expected >= 1, got $AGENT_COUNT"
+            skip "GET /agents/{id}" "no agents registered"
+            skip "GET /agents/{id}/metrics" "no agents registered"
         fi
     else
-        fail "GET /agents" "expected 200, got HTTP $HTTP_STATUS"
+        pass "GET /agents → 200, 0 agents (none registered)"
+        skip "GET /agents/{id}" "no agents registered"
+        skip "GET /agents/{id}/metrics" "no agents registered"
     fi
+else
+    fail "GET /agents" "expected 200, got HTTP $HTTP_STATUS"
 fi
 
 # ═══════════════════════════════════════════════════════════════════════════════

@@ -167,13 +167,6 @@ pub fn create_router(state: AppState) -> Router {
             "/topics/:name/messages",
             get(handlers::topics::get_topic_messages),
         )
-        // Agents
-        .route("/agents", get(handlers::agents::list_agents))
-        .route("/agents/:id", get(handlers::agents::get_agent))
-        .route(
-            "/agents/:id/metrics",
-            get(handlers::metrics::get_agent_metrics),
-        )
         // Produce
         .route("/produce", post(handlers::produce::produce))
         .route("/produce/batch", post(handlers::produce::produce_batch))
@@ -311,6 +304,13 @@ pub fn create_router(state: AppState) -> Router {
         .route(
             "/organizations/:id/usage",
             get(handlers::organizations::get_organization_usage),
+        )
+        // Agents (admin-only — platform exposes curated view to end users)
+        .route("/agents", get(handlers::agents::list_agents))
+        .route("/agents/:id", get(handlers::agents::get_agent))
+        .route(
+            "/agents/:id/metrics",
+            get(handlers::metrics::get_agent_metrics),
         )
         // API Keys (under organizations)
         .route(

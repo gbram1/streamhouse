@@ -27,6 +27,10 @@ while [[ $# -gt 0 ]]; do
             NO_SERVER=true
             shift
             ;;
+        --auth)
+            export TEST_AUTH=true
+            shift
+            ;;
         --ci)
             CI_MODE=true
             export NO_COLOR=1
@@ -39,6 +43,7 @@ while [[ $# -gt 0 ]]; do
             echo "Options:"
             echo "  --backend BACKEND     Storage backend: 'local' (default) or 'postgres-s3'"
             echo "  --no-server           Skip server start/stop (use running server)"
+            echo "  --auth                Enable auth (sets STREAMHOUSE_AUTH_ENABLED=true)"
             echo "  --ci                  CI mode: no color"
             echo "  -h, --help            Show this help"
             exit 0
@@ -128,6 +133,9 @@ echo -e "  Ports:      gRPC=$TEST_GRPC_PORT  HTTP=$TEST_HTTP_PORT  Kafka=$TEST_K
 if [ "$TEST_BACKEND" = "postgres-s3" ]; then
     echo -e "  Postgres:   ${TEST_DATABASE_URL}"
     echo -e "  MinIO:      ${TEST_S3_ENDPOINT} (bucket: ${TEST_S3_BUCKET})"
+fi
+if [ "${TEST_AUTH:-false}" = "true" ]; then
+    echo -e "  Auth:       ${BOLD}enabled${NC}"
 fi
 if [ "$CI_MODE" = true ]; then
     echo -e "  CI mode:    enabled"
