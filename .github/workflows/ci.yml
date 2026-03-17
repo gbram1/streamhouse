@@ -252,17 +252,13 @@ jobs:
       - name: Generate coverage
         run: cargo llvm-cov --workspace --locked --codecov --output-path codecov.json
 
-      - name: Upload coverage
-        uses: actions/upload-artifact@v4
-        with:
-          name: coverage-report
-          path: codecov.json
-          retention-days: 7
-
       - name: Coverage summary
         run: |
-          COVERAGE=$(cargo llvm-cov --workspace --locked --summary-only 2>&1 | grep 'TOTAL' | awk '{print $NF}' | tr -d '%' || echo "0")
-          echo "Total coverage: ${COVERAGE}%"
+          echo "## Coverage Report" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          cargo llvm-cov --workspace --locked --summary-only 2>&1 | tail -n +2 >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
 
   # Security audit - only on main, PRs, or scheduled
   security:
@@ -288,14 +284,15 @@ jobs:
           cargo deny check licenses
           cargo deny check bans
 
-  # Benchmarks only on PRs
+  # Benchmarks - save baseline on main, compare on PRs
   benchmarks:
     name: Benchmarks
     runs-on: ubuntu-latest
-    if: github.event_name == 'pull_request'
+    if: github.event_name == 'pull_request' || github.ref == 'refs/heads/main'
     needs: build-and-test
     permissions:
       pull-requests: write
+      contents: write
     env:
       RUSTC_WRAPPER: sccache
       SCCACHE_GHA_ENABLED: "true"
@@ -319,16 +316,31 @@ jobs:
           save-if: "false"
 
       - name: Run benchmarks
-        run: cargo bench --workspace --locked --no-fail-fast -- --output-format bencher 2>&1 | tee benchmark-results.txt || true
+        run: cargo bench --workspace --locked -- --output-format bencher 2>&1 | tee benchmark-results.txt
 
-      - name: Upload results
-        uses: actions/upload-artifact@v4
-        if: always()
+      - name: Benchmark summary
+        run: |
+          echo "## Benchmark Results" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          grep "^test " benchmark-results.txt | sed 's/test //' | column -t >> $GITHUB_STEP_SUMMARY || cat benchmark-results.txt >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+
+      - name: Compare benchmarks
+        uses: benchmark-action/github-action-benchmark@v1
         with:
-          name: benchmark-results
-          path: benchmark-results.txt
-          retention-days: 7
-          compression-level: 9
+          tool: cargo
+          output-file-path: benchmark-results.txt
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          # Store baseline in gh-pages branch
+          auto-push: ${{ github.ref == 'refs/heads/main' }}
+          # On PRs: comment with comparison table, fail if >15% regression
+          comment-on-alert: true
+          alert-threshold: "115%"
+          fail-on-alert: ${{ github.event_name == 'pull_request' }}
+          alert-comment-cc-users: "@${{ github.actor }}"
+          # Only save baseline from main branch
+          save-data-file: ${{ github.ref == 'refs/heads/main' }}
 
   # Summary job - require only essential jobs to pass
   ci-success:
