@@ -111,7 +111,8 @@ impl KafkaServerState {
                     status: streamhouse_metadata::OrganizationStatus::Active,
                     created_at: 0,
                     settings: std::collections::HashMap::new(),
-                    clerk_id: None,
+                    external_id: None,
+                    deployment_mode: Default::default(),
                 },
                 api_key: None,
                 quota: streamhouse_metadata::QuotaEnforcer::<dyn MetadataStore>::default_quotas_for_plan(

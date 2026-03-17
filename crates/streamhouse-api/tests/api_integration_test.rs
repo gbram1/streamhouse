@@ -40,10 +40,11 @@ async fn test_app() -> axum::Router {
             enabled: false,
             ..Default::default()
         },
-        clerk_auth: None,
+        oidc_auth: None,
         topic_changed: None,
         schema_registry: None,
         quota_enforcer: None,
+        byoc_s3: None,
     };
 
     create_router(state)
@@ -497,10 +498,11 @@ async fn test_app_with_quota(max_topics: i32) -> axum::Router {
             enabled: false,
             ..Default::default()
         },
-        clerk_auth: None,
+        oidc_auth: None,
         topic_changed: None,
         schema_registry: None,
         quota_enforcer: Some(quota_enforcer),
+        byoc_s3: None,
     };
 
     create_router(state)

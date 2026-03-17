@@ -19,7 +19,6 @@ pub mod active_active;
 pub mod audit;
 pub mod audit_store;
 pub mod auth;
-pub mod clerk;
 pub mod cluster;
 pub mod compliance;
 pub mod discovery;
@@ -30,6 +29,7 @@ pub mod jwt;
 pub mod leader;
 pub mod models;
 pub mod oauth;
+pub mod oidc;
 pub mod opa;
 pub mod pitr;
 pub mod prometheus;
@@ -66,7 +66,6 @@ pub use audit_store::{
 pub use auth::{
     AuthConfig, AuthError, AuthLayer, AuthenticatedKey, RequiredPermission, SmartAuthLayer,
 };
-pub use clerk::ClerkAuth;
 pub use compliance::{
     ComplianceError, ComplianceReport, ComplianceReporter, Finding, FindingSeverity, Framework,
     ReportConfig, ReportFormat, ReportMetadata,
@@ -85,6 +84,7 @@ pub use oauth::{
     oauth_router, IdTokenClaims, OAuthConfig, OAuthError, OAuthProvider, OAuthService,
     OAuthSession, OAuthTokens, PkceChallenge, UserInfo,
 };
+pub use oidc::OidcJwksAuth;
 pub use opa::{
     OpaClient, OpaConfig, OpaDecision, OpaDecisionSource, OpaError, OpaInput, OpaLayer,
     OpaRbacManager, OpaResponse, OpaResult, OpaService,
@@ -129,8 +129,8 @@ pub struct AppState {
     pub prometheus: Option<Arc<PrometheusClient>>,
     /// Authentication configuration
     pub auth_config: AuthConfig,
-    /// Clerk JWT authentication (None = Clerk auth disabled)
-    pub clerk_auth: Option<Arc<ClerkAuth>>,
+    /// OIDC JWT authentication (None = OIDC auth disabled)
+    pub oidc_auth: Option<Arc<OidcJwksAuth>>,
     /// Notified when topics are created or deleted so the partition assigner
     /// can immediately discover them.
     pub topic_changed: Option<Arc<Notify>>,
@@ -138,13 +138,15 @@ pub struct AppState {
     pub schema_registry: Option<Arc<streamhouse_schema_registry::SchemaRegistry>>,
     /// Quota enforcer for rate limiting (None = rate limiting disabled)
     pub quota_enforcer: Option<Arc<streamhouse_metadata::QuotaEnforcer<dyn MetadataStore>>>,
+    /// BYOC S3 client pool (None = BYOC disabled)
+    pub byoc_s3: Option<Arc<streamhouse_storage::byoc::ByocS3ClientPool>>,
 }
 
 /// Create the API router with all endpoints
 pub fn create_router(state: AppState) -> Router {
     let auth_enabled = state.auth_config.enabled;
     let metadata = state.metadata.clone();
-    let clerk_auth = state.clerk_auth.clone();
+    let oidc_auth = state.oidc_auth.clone();
 
     // API v1 routes (original structure)
     let api_routes = Router::new()
@@ -164,13 +166,6 @@ pub fn create_router(state: AppState) -> Router {
         .route(
             "/topics/:name/messages",
             get(handlers::topics::get_topic_messages),
-        )
-        // Agents
-        .route("/agents", get(handlers::agents::list_agents))
-        .route("/agents/:id", get(handlers::agents::get_agent))
-        .route(
-            "/agents/:id/metrics",
-            get(handlers::metrics::get_agent_metrics),
         )
         // Produce
         .route("/produce", post(handlers::produce::produce))
@@ -310,6 +305,13 @@ pub fn create_router(state: AppState) -> Router {
             "/organizations/:id/usage",
             get(handlers::organizations::get_organization_usage),
         )
+        // Agents (admin-only — platform exposes curated view to end users)
+        .route("/agents", get(handlers::agents::list_agents))
+        .route("/agents/:id", get(handlers::agents::get_agent))
+        .route(
+            "/agents/:id/metrics",
+            get(handlers::metrics::get_agent_metrics),
+        )
         // API Keys (under organizations)
         .route(
             "/organizations/:org_id/api-keys",
@@ -325,8 +327,8 @@ pub fn create_router(state: AppState) -> Router {
     // Apply authentication and rate limiting layers based on configuration
     let api_routes =
         if auth_enabled {
-            if clerk_auth.is_some() {
-                tracing::info!("API authentication enabled (API keys + Clerk JWT)");
+            if oidc_auth.is_some() {
+                tracing::info!("API authentication enabled (API keys + OIDC JWT)");
             } else {
                 tracing::info!("API authentication enabled (API keys only)");
             }
@@ -337,19 +339,19 @@ pub fn create_router(state: AppState) -> Router {
                 tracing::info!("REST rate limiting enabled");
                 api_routes
                     .layer(rate_limit::RateLimitLayer::new(enforcer.clone()))
-                    .layer(auth::SmartAuthLayer::new_with_clerk(
+                    .layer(auth::SmartAuthLayer::new_with_oidc(
                         metadata.clone(),
-                        clerk_auth.clone(),
+                        oidc_auth.clone(),
                     ))
             } else {
-                api_routes.layer(auth::SmartAuthLayer::new_with_clerk(
+                api_routes.layer(auth::SmartAuthLayer::new_with_oidc(
                     metadata.clone(),
-                    clerk_auth.clone(),
+                    oidc_auth.clone(),
                 ))
             };
 
             Router::new().merge(api_with_auth).merge(admin_routes.layer(
-                AuthLayer::admin_with_clerk(metadata.clone(), clerk_auth.clone()),
+                AuthLayer::admin_with_oidc(metadata.clone(), oidc_auth.clone()),
             ))
         } else {
             tracing::warn!("API authentication DISABLED - all endpoints are public");

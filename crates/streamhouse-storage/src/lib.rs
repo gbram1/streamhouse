@@ -152,6 +152,7 @@
 
 pub mod backpressure;
 pub mod bloom;
+pub mod byoc;
 pub mod cache;
 pub mod circuit_breaker;
 pub mod compaction;

@@ -414,12 +414,50 @@ async fn fetch_partition(
         high_watermark
     };
 
-    // Read records from storage
-    let records = read_records(state, org_id, topic_name, partition_id, offset, max_bytes)
-        .await
-        .ok();
+    // For read-committed isolation, do not return records at or beyond the LSO.
+    // This ensures consumers only see committed transaction records.
+    let effective_max_offset = if isolation_level == 1 {
+        // READ_COMMITTED: cap reads at the last stable offset
+        last_stable_offset as u64
+    } else {
+        u64::MAX
+    };
 
-    // TODO: implement actual LSO-based filtering for read-committed isolation
+    // If the fetch offset is already at or beyond the effective limit, return
+    // no records rather than exposing uncommitted transaction data.
+    let records = if offset >= effective_max_offset {
+        None
+    } else {
+        // Calculate effective max bytes: if LSO limits apply, we may need to
+        // read fewer bytes to avoid returning records beyond the LSO.
+        read_records(state, org_id, topic_name, partition_id, offset, max_bytes)
+            .await
+            .ok()
+            .and_then(|data| {
+                if isolation_level == 1 && !data.is_empty() {
+                    // For read-committed, verify the batch doesn't extend past LSO.
+                    // The base_offset is the first 8 bytes of the record batch.
+                    // The last_offset_delta is at byte offset 23 (i32).
+                    if data.len() >= 27 {
+                        let base = i64::from_be_bytes([
+                            data[0], data[1], data[2], data[3], data[4], data[5], data[6], data[7],
+                        ]) as u64;
+                        let last_offset_delta =
+                            i32::from_be_bytes([data[23], data[24], data[25], data[26]]) as u64;
+                        let last_offset_in_batch = base + last_offset_delta;
+                        if last_offset_in_batch >= effective_max_offset {
+                            // The batch contains records beyond LSO -- for safety,
+                            // return no records. The consumer will retry and get
+                            // data once the transaction commits and the LSO advances.
+                            return None;
+                        }
+                    }
+                    Some(data)
+                } else {
+                    Some(data)
+                }
+            })
+    };
 
     // Count records from the Kafka RecordBatch for metrics
     // The record count is at offset 57 (4 bytes, big-endian i32) in the batch

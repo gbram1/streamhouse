@@ -534,12 +534,8 @@ fn get_simulated_error_metrics(time_range: &str) -> Result<Json<Vec<ErrorMetric>
 )]
 pub async fn get_agent_metrics(
     State(state): State<AppState>,
-    headers: HeaderMap,
     Path(agent_id): Path<String>,
 ) -> Result<Json<AgentMetricsResponse>, StatusCode> {
-    // Agent metrics expose infrastructure details — require admin access
-    crate::handlers::agents::require_admin(&headers)?;
-
     // Get agent info
     let agent = state
         .metadata

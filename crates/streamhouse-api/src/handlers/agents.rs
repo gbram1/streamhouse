@@ -1,48 +1,27 @@
 //! Agent monitoring endpoints
 //!
-//! These endpoints expose internal infrastructure details (agent IDs, IP addresses,
-//! availability zones) and are gated behind admin authentication.
-//! Non-admin users receive 403 Forbidden.
+//! These endpoints expose agent information (IDs, addresses, availability zones).
+//! When auth is enabled, they require a valid API key like any other endpoint.
+//! No special admin privileges needed — useful for BYOC and managed deployments
+//! where users need visibility into their own agents.
 
 use axum::{
     extract::{Path, State},
-    http::{HeaderMap, StatusCode},
+    http::StatusCode,
     Json,
 };
 
 use crate::{models::*, AppState};
-
-/// Validate that the request has admin privileges.
-/// Checks the `X-Admin-Key` header against the `STREAMHOUSE_ADMIN_KEY` env var.
-/// If STREAMHOUSE_ADMIN_KEY is not set, admin endpoints are disabled (always 403).
-pub(crate) fn require_admin(headers: &HeaderMap) -> Result<(), StatusCode> {
-    let expected = std::env::var("STREAMHOUSE_ADMIN_KEY").map_err(|_| StatusCode::FORBIDDEN)?;
-    let provided = headers
-        .get("x-admin-key")
-        .and_then(|v| v.to_str().ok())
-        .ok_or(StatusCode::FORBIDDEN)?;
-    if provided == expected {
-        Ok(())
-    } else {
-        Err(StatusCode::FORBIDDEN)
-    }
-}
 
 #[utoipa::path(
     get,
     path = "/api/v1/agents",
     responses(
         (status = 200, description = "List all agents", body = Vec<Agent>),
-        (status = 403, description = "Admin access required")
     ),
     tag = "agents"
 )]
-pub async fn list_agents(
-    State(state): State<AppState>,
-    headers: HeaderMap,
-) -> Result<Json<Vec<Agent>>, StatusCode> {
-    require_admin(&headers)?;
-
+pub async fn list_agents(State(state): State<AppState>) -> Result<Json<Vec<Agent>>, StatusCode> {
     let agents = state
         .metadata
         .list_agents(None, None) // No filters
@@ -86,18 +65,14 @@ pub async fn list_agents(
     ),
     responses(
         (status = 200, description = "Agent details", body = Agent),
-        (status = 403, description = "Admin access required"),
         (status = 404, description = "Agent not found")
     ),
     tag = "agents"
 )]
 pub async fn get_agent(
     State(state): State<AppState>,
-    headers: HeaderMap,
     Path(id): Path<String>,
 ) -> Result<Json<Agent>, StatusCode> {
-    require_admin(&headers)?;
-
     let agent = state
         .metadata
         .get_agent(&id)

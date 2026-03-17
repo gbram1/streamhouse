@@ -228,10 +228,37 @@ impl SchemaRegistry {
                 })?;
             }
             SchemaFormat::Protobuf => {
-                // Placeholder: validate protobuf schema
                 if schema.is_empty() {
                     return Err(SchemaError::InvalidSchema(
                         "Empty Protobuf schema".to_string(),
+                    ));
+                }
+                // Validate that the schema is syntactically valid protobuf IDL.
+                // We check for required structural elements: syntax declaration
+                // and at least one message or enum definition.
+                let trimmed = schema.trim();
+                if !trimmed.contains("syntax") {
+                    return Err(SchemaError::InvalidSchema(
+                        "Protobuf schema missing 'syntax' declaration".to_string(),
+                    ));
+                }
+                if !trimmed.contains("message") && !trimmed.contains("enum") {
+                    return Err(SchemaError::InvalidSchema(
+                        "Protobuf schema must contain at least one message or enum definition"
+                            .to_string(),
+                    ));
+                }
+                // Validate balanced braces as a basic structural check
+                let open_braces = trimmed.chars().filter(|c| *c == '{').count();
+                let close_braces = trimmed.chars().filter(|c| *c == '}').count();
+                if open_braces != close_braces {
+                    return Err(SchemaError::InvalidSchema(
+                        "Protobuf schema has unbalanced braces".to_string(),
+                    ));
+                }
+                if open_braces == 0 {
+                    return Err(SchemaError::InvalidSchema(
+                        "Protobuf schema has no message or enum bodies".to_string(),
                     ));
                 }
             }

@@ -579,8 +579,48 @@ pub struct Organization {
     /// Organization-specific settings
     pub settings: HashMap<String, String>,
 
-    /// External Clerk organization ID (for mapping Clerk orgs to StreamHouse orgs)
-    pub clerk_id: Option<String>,
+    /// External identity provider organization ID (for mapping external orgs to StreamHouse orgs)
+    pub external_id: Option<String>,
+
+    /// Deployment mode (self_hosted, byoc, managed)
+    #[serde(default)]
+    pub deployment_mode: DeploymentMode,
+}
+
+/// Deployment mode for an organization.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum DeploymentMode {
+    /// Self-hosted deployment (default for open-source users)
+    #[default]
+    SelfHosted,
+    /// Bring Your Own Cloud — customer provides their own S3 bucket and AWS account
+    Byoc,
+    /// Fully managed by StreamHouse Cloud
+    Managed,
+}
+
+impl std::fmt::Display for DeploymentMode {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            DeploymentMode::SelfHosted => write!(f, "self_hosted"),
+            DeploymentMode::Byoc => write!(f, "byoc"),
+            DeploymentMode::Managed => write!(f, "managed"),
+        }
+    }
+}
+
+impl std::str::FromStr for DeploymentMode {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s.to_lowercase().as_str() {
+            "self_hosted" => Ok(DeploymentMode::SelfHosted),
+            "byoc" => Ok(DeploymentMode::Byoc),
+            "managed" => Ok(DeploymentMode::Managed),
+            _ => Err(format!("Unknown deployment mode: {}", s)),
+        }
+    }
 }
 
 /// Organization billing plan.
@@ -672,9 +712,13 @@ pub struct CreateOrganization {
     #[serde(default)]
     pub settings: HashMap<String, String>,
 
-    /// External Clerk organization ID (for mapping Clerk orgs to StreamHouse orgs)
+    /// External identity provider organization ID (for mapping external orgs to StreamHouse orgs)
     #[serde(default)]
-    pub clerk_id: Option<String>,
+    pub external_id: Option<String>,
+
+    /// Deployment mode (defaults to SelfHosted)
+    #[serde(default)]
+    pub deployment_mode: DeploymentMode,
 }
 
 /// API key for programmatic access.
@@ -3144,7 +3188,8 @@ mod tests {
             status: OrganizationStatus::Active,
             created_at: 1700000000000,
             settings: HashMap::from([("theme".to_string(), "dark".to_string())]),
-            clerk_id: None,
+            external_id: None,
+            deployment_mode: DeploymentMode::default(),
         };
 
         let json = serde_json::to_string(&org).unwrap();
@@ -3282,7 +3327,8 @@ mod tests {
             slug: "test-org".to_string(),
             plan: OrganizationPlan::Pro,
             settings: HashMap::from([("region".to_string(), "us-east-1".to_string())]),
-            clerk_id: None,
+            external_id: None,
+            deployment_mode: DeploymentMode::default(),
         };
 
         let json = serde_json::to_string(&create_org).unwrap();

@@ -22,6 +22,7 @@ pub struct OrganizationResponse {
     pub plan: String,
     pub status: String,
     pub created_at: i64,
+    pub deployment_mode: String,
 }
 
 /// Create organization request
@@ -31,6 +32,8 @@ pub struct CreateOrganizationRequest {
     pub slug: String,
     #[serde(default)]
     pub plan: Option<String>,
+    #[serde(default)]
+    pub deployment_mode: Option<String>,
 }
 
 /// Update organization request
@@ -75,13 +78,13 @@ pub struct OrganizationUsageResponse {
     pub schemas_count: i64,
 }
 
-/// Resolve a Clerk organization to a StreamHouse organization.
+/// Resolve an external organization to a StreamHouse organization.
 ///
-/// If a StreamHouse org already exists for the given Clerk ID, returns it.
+/// If a StreamHouse org already exists for the given external ID, returns it.
 /// Otherwise creates a new StreamHouse org and returns it.
 #[derive(Debug, Deserialize, ToSchema)]
 pub struct ResolveOrganizationRequest {
-    pub clerk_id: String,
+    pub external_id: String,
     pub name: String,
     pub slug: String,
 }
@@ -90,13 +93,13 @@ pub async fn resolve_organization(
     State(state): State<AppState>,
     Json(req): Json<ResolveOrganizationRequest>,
 ) -> Result<Json<OrganizationResponse>, StatusCode> {
-    // 1. Try to find existing org by clerk_id
+    // 1. Try to find existing org by external_id
     if let Some(org) = state
         .metadata
-        .get_organization_by_clerk_id(&req.clerk_id)
+        .get_organization_by_external_id(&req.external_id)
         .await
         .map_err(|e| {
-            tracing::error!("Failed to look up organization by clerk_id: {}", e);
+            tracing::error!("Failed to look up organization by external_id: {}", e);
             StatusCode::INTERNAL_SERVER_ERROR
         })?
     {
@@ -107,6 +110,7 @@ pub async fn resolve_organization(
             plan: format!("{:?}", org.plan).to_lowercase(),
             status: format!("{:?}", org.status).to_lowercase(),
             created_at: org.created_at,
+            deployment_mode: org.deployment_mode.to_string(),
         }));
     }
 
@@ -117,7 +121,7 @@ pub async fn resolve_organization(
         .filter(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || *c == '-')
         .collect();
     let base_slug = if base_slug.is_empty() {
-        req.clerk_id
+        req.external_id
             .chars()
             .filter(|c| c.is_ascii_alphanumeric() || *c == '-')
             .collect::<String>()
@@ -149,7 +153,8 @@ pub async fn resolve_organization(
         slug,
         plan: OrganizationPlan::Free,
         settings: std::collections::HashMap::new(),
-        clerk_id: Some(req.clerk_id),
+        external_id: Some(req.external_id),
+        deployment_mode: Default::default(),
     };
 
     let org = state
@@ -168,6 +173,7 @@ pub async fn resolve_organization(
         plan: format!("{:?}", org.plan).to_lowercase(),
         status: format!("{:?}", org.status).to_lowercase(),
         created_at: org.created_at,
+        deployment_mode: org.deployment_mode.to_string(),
     }))
 }
 
@@ -198,6 +204,7 @@ pub async fn list_organizations(
             plan: format!("{:?}", org.plan).to_lowercase(),
             status: format!("{:?}", org.status).to_lowercase(),
             created_at: org.created_at,
+            deployment_mode: org.deployment_mode.to_string(),
         })
         .collect();
 
@@ -238,6 +245,7 @@ pub async fn get_organization(
         plan: format!("{:?}", org.plan).to_lowercase(),
         status: format!("{:?}", org.status).to_lowercase(),
         created_at: org.created_at,
+        deployment_mode: org.deployment_mode.to_string(),
     }))
 }
 
@@ -277,12 +285,19 @@ pub async fn create_organization(
         _ => OrganizationPlan::Free,
     };
 
+    let deployment_mode = match req.deployment_mode.as_deref() {
+        Some("byoc") => streamhouse_metadata::DeploymentMode::Byoc,
+        Some("managed") => streamhouse_metadata::DeploymentMode::Managed,
+        _ => streamhouse_metadata::DeploymentMode::SelfHosted,
+    };
+
     let config = CreateOrganization {
         name: req.name,
         slug: req.slug,
         plan,
         settings: std::collections::HashMap::new(),
-        clerk_id: None,
+        external_id: None,
+        deployment_mode,
     };
 
     let org = state
@@ -303,6 +318,7 @@ pub async fn create_organization(
             plan: format!("{:?}", org.plan).to_lowercase(),
             status: format!("{:?}", org.status).to_lowercase(),
             created_at: org.created_at,
+            deployment_mode: org.deployment_mode.to_string(),
         }),
     ))
 }
@@ -379,6 +395,7 @@ pub async fn update_organization(
         plan: format!("{:?}", org.plan).to_lowercase(),
         status: format!("{:?}", org.status).to_lowercase(),
         created_at: org.created_at,
+        deployment_mode: org.deployment_mode.to_string(),
     }))
 }
 
