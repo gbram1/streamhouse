@@ -125,16 +125,9 @@ impl TestCluster {
 // ---------------------------------------------------------------------------
 
 /// Builder for [`TestCluster`] with optional configuration overrides.
+#[derive(Default)]
 pub struct TestClusterBuilder {
     auth_enabled: bool,
-}
-
-impl Default for TestClusterBuilder {
-    fn default() -> Self {
-        Self {
-            auth_enabled: false,
-        }
-    }
 }
 
 impl TestClusterBuilder {

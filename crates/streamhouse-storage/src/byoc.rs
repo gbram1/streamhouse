@@ -114,7 +114,7 @@ impl ByocS3ClientPool {
         let assume_role_output = sts_client
             .assume_role()
             .role_arn(&config.role_arn)
-            .role_session_name(&format!("streamhouse-byoc-{}", uuid::Uuid::new_v4()))
+            .role_session_name(format!("streamhouse-byoc-{}", uuid::Uuid::new_v4()))
             .external_id(&config.external_id)
             .duration_seconds(self.session_duration_secs)
             .send()

@@ -946,8 +946,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         topic_changed: Some(grpc_service.topic_change_notify()),
         schema_registry: schema_registry_for_validation.clone(),
         quota_enforcer: Some(quota_enforcer.clone()),
-        byoc_s3: streamhouse_storage::byoc::ByocS3ClientPool::from_env()
-            .map(|pool| std::sync::Arc::new(pool)),
+        byoc_s3: streamhouse_storage::byoc::ByocS3ClientPool::from_env().map(std::sync::Arc::new),
     };
 
     // Create REST API router

@@ -732,7 +732,9 @@ mod tests {
             _agent_id: &str,
             _lease_duration_ms: i64,
         ) -> Result<PartitionLease> {
-            Err(anyhow::anyhow!("not supported in mock"))
+            Err(MetadataError::NotImplemented(
+                "not supported in mock".into(),
+            ))
         }
         async fn get_partition_lease(
             &self,
@@ -757,7 +759,9 @@ mod tests {
             Ok(Vec::new())
         }
         async fn create_organization(&self, _config: CreateOrganization) -> Result<Organization> {
-            Err(anyhow::anyhow!("not supported in mock"))
+            Err(MetadataError::NotImplemented(
+                "not supported in mock".into(),
+            ))
         }
         async fn get_organization(&self, _id: &str) -> Result<Option<Organization>> {
             Ok(None)
@@ -794,7 +798,9 @@ mod tests {
             _key_hash: &str,
             _key_prefix: &str,
         ) -> Result<ApiKey> {
-            Err(anyhow::anyhow!("not supported in mock"))
+            Err(MetadataError::NotImplemented(
+                "not supported in mock".into(),
+            ))
         }
         async fn get_api_key(&self, _id: &str) -> Result<Option<ApiKey>> {
             Ok(None)
@@ -815,7 +821,9 @@ mod tests {
             &self,
             _organization_id: &str,
         ) -> Result<OrganizationQuota> {
-            Err(anyhow::anyhow!("not supported in mock"))
+            Err(MetadataError::NotImplemented(
+                "not supported in mock".into(),
+            ))
         }
         async fn set_organization_quota(&self, _quota: OrganizationQuota) -> Result<()> {
             Ok(())
@@ -843,7 +851,9 @@ mod tests {
             Ok(())
         }
         async fn init_producer(&self, _config: InitProducerConfig) -> Result<Producer> {
-            Err(anyhow::anyhow!("not supported in mock"))
+            Err(MetadataError::NotImplemented(
+                "not supported in mock".into(),
+            ))
         }
         async fn get_producer(&self, _producer_id: &str) -> Result<Option<Producer>> {
             Ok(None)
@@ -902,7 +912,9 @@ mod tests {
             _producer_id: &str,
             _timeout_ms: u32,
         ) -> Result<Transaction> {
-            Err(anyhow::anyhow!("not supported in mock"))
+            Err(MetadataError::NotImplemented(
+                "not supported in mock".into(),
+            ))
         }
         async fn get_transaction(&self, _transaction_id: &str) -> Result<Option<Transaction>> {
             Ok(None)
@@ -974,14 +986,18 @@ mod tests {
             _reason: LeaderChangeReason,
             _timeout_ms: u32,
         ) -> Result<LeaseTransfer> {
-            Err(anyhow::anyhow!("not supported in mock"))
+            Err(MetadataError::NotImplemented(
+                "not supported in mock".into(),
+            ))
         }
         async fn accept_lease_transfer(
             &self,
             _transfer_id: &str,
             _agent_id: &str,
         ) -> Result<LeaseTransfer> {
-            Err(anyhow::anyhow!("not supported in mock"))
+            Err(MetadataError::NotImplemented(
+                "not supported in mock".into(),
+            ))
         }
         async fn complete_lease_transfer(
             &self,
@@ -989,7 +1005,9 @@ mod tests {
             _last_flushed_offset: u64,
             _high_watermark: u64,
         ) -> Result<PartitionLease> {
-            Err(anyhow::anyhow!("not supported in mock"))
+            Err(MetadataError::NotImplemented(
+                "not supported in mock".into(),
+            ))
         }
         async fn reject_lease_transfer(
             &self,
@@ -1027,7 +1045,9 @@ mod tests {
             &self,
             _config: CreateMaterializedView,
         ) -> Result<MaterializedView> {
-            Err(anyhow::anyhow!("not supported in mock"))
+            Err(MetadataError::NotImplemented(
+                "not supported in mock".into(),
+            ))
         }
         async fn get_materialized_view(&self, _name: &str) -> Result<Option<MaterializedView>> {
             Ok(None)
