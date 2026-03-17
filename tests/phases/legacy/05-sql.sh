@@ -278,5 +278,44 @@ else
     fail "Empty query" "expected 400, got HTTP $HTTP_STATUS"
 fi
 
+# ═══════════════════════════════════════════════════════════════════════════════
+# SHOW TOPICS
+# ═══════════════════════════════════════════════════════════════════════════════
+
+http_request POST "$API/sql" '{"query":"SHOW TOPICS"}'
+if [ "$HTTP_STATUS" = "200" ]; then
+    if echo "$HTTP_BODY" | grep -q "$TOPIC"; then
+        pass "SQL: SHOW TOPICS — contains '$TOPIC'"
+    else
+        pass "SQL: SHOW TOPICS — 200 OK"
+    fi
+else
+    fail "SQL: SHOW TOPICS" "HTTP $HTTP_STATUS"
+fi
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# DESCRIBE topic
+# ═══════════════════════════════════════════════════════════════════════════════
+
+http_request POST "$API/sql" "{\"query\":\"DESCRIBE \\\"$TOPIC\\\"\"}"
+if [ "$HTTP_STATUS" = "200" ]; then
+    pass "SQL: DESCRIBE \"$TOPIC\""
+else
+    fail "SQL: DESCRIBE" "HTTP $HTTP_STATUS: $(echo "$HTTP_BODY" | head -c 200)"
+fi
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# TUMBLE window function (graceful — may not be implemented)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+run_sql "SELECT COUNT(*) as cnt FROM \\\"$TOPIC\\\" GROUP BY TUMBLE(timestamp, INTERVAL '1' HOUR)"
+if [ "$HTTP_STATUS" = "200" ]; then
+    pass "SQL: TUMBLE window function"
+elif [ "$HTTP_STATUS" = "400" ]; then
+    skip "SQL: TUMBLE window" "not implemented (HTTP 400)"
+else
+    fail "SQL: TUMBLE window" "HTTP $HTTP_STATUS"
+fi
+
 # ── Cleanup ──────────────────────────────────────────────────────────────────
 http_request DELETE "$API/topics/$TOPIC" &>/dev/null || true

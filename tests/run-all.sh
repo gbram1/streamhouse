@@ -2,13 +2,10 @@
 # StreamHouse Comprehensive Test Suite — Master Runner
 #
 # Usage:
-#   ./tests/run-all.sh                              # Run all phases (local backend)
+#   ./tests/run-all.sh                              # Run all tests (local backend)
 #   ./tests/run-all.sh --backend postgres-s3        # Run with Postgres + MinIO
-#   ./tests/run-all.sh --bench                      # Also run benchmarks (phase 08)
-#   ./tests/run-all.sh --bench-duration 60          # Benchmark for 60s (default: 30s)
-#   ./tests/run-all.sh --phase 05                   # Run single phase
 #   ./tests/run-all.sh --no-server                  # Use already-running server
-#   ./tests/run-all.sh --backend postgres-s3 --ci   # CI mode (no color, fail-fast)
+#   ./tests/run-all.sh --backend postgres-s3 --ci   # CI mode (no color)
 
 set -euo pipefail
 
@@ -16,12 +13,8 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 export PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 
 # ── Parse Arguments (before sourcing common.sh so env vars are set) ──────────
-RUN_BENCH=false
-BENCH_DURATION=30
-SINGLE_PHASE=""
 NO_SERVER=false
 CI_MODE=false
-FAIL_FAST=false
 REQUESTED_BACKEND=""
 
 while [[ $# -gt 0 ]]; do
@@ -30,31 +23,14 @@ while [[ $# -gt 0 ]]; do
             REQUESTED_BACKEND="$2"
             shift 2
             ;;
-        --bench)
-            RUN_BENCH=true
-            shift
-            ;;
-        --bench-duration)
-            BENCH_DURATION="$2"
-            shift 2
-            ;;
-        --phase)
-            SINGLE_PHASE="$2"
-            shift 2
-            ;;
         --no-server)
             NO_SERVER=true
             shift
             ;;
         --ci)
             CI_MODE=true
-            FAIL_FAST=true
             export NO_COLOR=1
             export CI=true
-            shift
-            ;;
-        --fail-fast)
-            FAIL_FAST=true
             shift
             ;;
         -h|--help)
@@ -62,12 +38,8 @@ while [[ $# -gt 0 ]]; do
             echo ""
             echo "Options:"
             echo "  --backend BACKEND     Storage backend: 'local' (default) or 'postgres-s3'"
-            echo "  --bench               Also run benchmarks (phase 08)"
-            echo "  --bench-duration N    Benchmark duration in seconds (default: 30)"
-            echo "  --phase NN            Run only phase NN (e.g., 05)"
             echo "  --no-server           Skip server start/stop (use running server)"
-            echo "  --ci                  CI mode: no color, fail-fast"
-            echo "  --fail-fast           Stop on first phase failure"
+            echo "  --ci                  CI mode: no color"
             echo "  -h, --help            Show this help"
             exit 0
             ;;
@@ -82,8 +54,6 @@ done
 if [ -n "$REQUESTED_BACKEND" ]; then
     export TEST_BACKEND="$REQUESTED_BACKEND"
 fi
-
-export BENCH_DURATION
 
 # Source shared library (after env vars are set)
 source "$SCRIPT_DIR/lib/common.sh"
@@ -160,12 +130,7 @@ if [ "$TEST_BACKEND" = "postgres-s3" ]; then
     echo -e "  MinIO:      ${TEST_S3_ENDPOINT} (bucket: ${TEST_S3_BUCKET})"
 fi
 if [ "$CI_MODE" = true ]; then
-    echo -e "  CI mode:    enabled (no color, fail-fast)"
-fi
-if [ "$RUN_BENCH" = true ]; then
-    echo -e "  Benchmarks: ${GREEN}enabled${NC} (${BENCH_DURATION}s)"
-else
-    echo -e "  Benchmarks: ${DIM}disabled (use --bench to enable)${NC}"
+    echo -e "  CI mode:    enabled"
 fi
 echo ""
 
@@ -222,81 +187,16 @@ else
     fi
 fi
 
-# ── Run Phases ────────────────────────────────────────────────────────────────
+# ── Run E2E Tests ────────────────────────────────────────────────────────────
 
-PHASE_DIR="$SCRIPT_DIR/phases"
-PHASES_PASSED=0
-PHASES_FAILED=0
-PHASES_SKIPPED=0
+E2E_TESTS="$SCRIPT_DIR/e2e-tests.sh"
 
-run_phase() {
-    local phase_file="$1"
-    local phase_name
-    phase_name=$(basename "$phase_file" .sh)
-
-    # Reset per-phase counters (but keep global totals)
-    local before_passed=$TESTS_PASSED
-    local before_failed=$TESTS_FAILED
-
-    if [ -f "$phase_file" ]; then
-        source "$phase_file"
-    else
-        echo -e "${RED}Phase file not found: $phase_file${NC}"
-        PHASES_FAILED=$((PHASES_FAILED + 1))
-        return
-    fi
-
-    local phase_passed=$((TESTS_PASSED - before_passed))
-    local phase_failed=$((TESTS_FAILED - before_failed))
-
-    if [ "$phase_failed" -eq 0 ]; then
-        PHASES_PASSED=$((PHASES_PASSED + 1))
-        echo -e "\n  ${GREEN}Phase $phase_name: $phase_passed passed${NC}"
-    else
-        PHASES_FAILED=$((PHASES_FAILED + 1))
-        echo -e "\n  ${RED}Phase $phase_name: $phase_failed failed, $phase_passed passed${NC}"
-
-        if [ "$FAIL_FAST" = true ]; then
-            echo -e "\n  ${RED}Stopping early (--fail-fast / --ci)${NC}"
-            return 1
-        fi
-    fi
-}
-
-if [ -n "$SINGLE_PHASE" ]; then
-    # Run single phase
-    phase_file="$PHASE_DIR/${SINGLE_PHASE}*.sh"
-    # Expand glob
-    matched=false
-    for f in $phase_file; do
-        if [ -f "$f" ]; then
-            matched=true
-            run_phase "$f" || true
-        fi
-    done
-    if [ "$matched" = false ]; then
-        echo -e "${RED}No phase matching: $SINGLE_PHASE${NC}"
-        exit 1
-    fi
-else
-    # Run all phases in order
-    for phase_file in "$PHASE_DIR"/*.sh; do
-        [ -f "$phase_file" ] || continue
-
-        phase_num=$(basename "$phase_file" | cut -c1-2)
-
-        # Skip benchmarks unless --bench flag
-        if [ "$phase_num" = "08" ] && [ "$RUN_BENCH" = false ]; then
-            phase_header "Phase 08 — Benchmarks (skipped, use --bench)"
-            PHASES_SKIPPED=$((PHASES_SKIPPED + 1))
-            continue
-        fi
-
-        if ! run_phase "$phase_file"; then
-            break
-        fi
-    done
+if [ ! -f "$E2E_TESTS" ]; then
+    echo -e "${RED}E2E test file not found: $E2E_TESTS${NC}"
+    exit 1
 fi
+
+source "$E2E_TESTS"
 
 # ── Summary ───────────────────────────────────────────────────────────────────
 END_TIME=$(date +%s)
@@ -309,16 +209,8 @@ echo -e "${BOLD}================================================================
 echo ""
 echo -e "  Backend:        ${BOLD}${TEST_BACKEND}${NC}"
 echo -e "  Duration:       ${DURATION}s"
-echo -e "  Phases passed:  ${GREEN}$PHASES_PASSED${NC}"
-if [ "$PHASES_FAILED" -gt 0 ]; then
-    echo -e "  Phases failed:  ${RED}$PHASES_FAILED${NC}"
-fi
-if [ "$PHASES_SKIPPED" -gt 0 ]; then
-    echo -e "  Phases skipped: ${YELLOW}$PHASES_SKIPPED${NC}"
-fi
 echo ""
 
-# Overall test totals
 test_summary
 
 echo ""

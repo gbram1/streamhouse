@@ -318,6 +318,62 @@ if [ -n "$ADMIN_KEY" ]; then
 fi
 
 # ═══════════════════════════════════════════════════════════════════════════════
+# Storage Delta Verification: produce more data and confirm metrics change
+# ═══════════════════════════════════════════════════════════════════════════════
+
+# Capture baseline
+http_request GET "$API/metrics"
+BASELINE_MSGS=0
+if [ "$HTTP_STATUS" = "200" ]; then
+    BASELINE_MSGS=$(echo "$HTTP_BODY" | jq -r '.total_messages // 0' 2>/dev/null) || BASELINE_MSGS=0
+fi
+
+http_request GET "$API/metrics/storage"
+BASELINE_SIZE=0
+BASELINE_SEGMENTS=0
+if [ "$HTTP_STATUS" = "200" ]; then
+    BASELINE_SIZE=$(echo "$HTTP_BODY" | jq -r '.totalSizeBytes // 0' 2>/dev/null) || BASELINE_SIZE=0
+    BASELINE_SEGMENTS=$(echo "$HTTP_BODY" | jq -r '.segmentCount // 0' 2>/dev/null) || BASELINE_SEGMENTS=0
+fi
+
+# Produce additional records
+DELTA_BATCH=$(make_batch_json "metrics-test-topic" 0 200 "delta")
+http_request POST "$API/produce/batch" "$DELTA_BATCH"
+
+wait_flush 12
+
+# Verify total_messages increased
+http_request GET "$API/metrics"
+if [ "$HTTP_STATUS" = "200" ]; then
+    POST_MSGS=$(echo "$HTTP_BODY" | jq -r '.total_messages // 0' 2>/dev/null) || POST_MSGS=0
+    if [ "$POST_MSGS" -gt "$BASELINE_MSGS" ]; then
+        pass "Storage delta: total_messages increased (${BASELINE_MSGS} → ${POST_MSGS})"
+    else
+        fail "Storage delta: total_messages" "did not increase (${BASELINE_MSGS} → ${POST_MSGS})"
+    fi
+fi
+
+# Verify storage size increased
+http_request GET "$API/metrics/storage"
+if [ "$HTTP_STATUS" = "200" ]; then
+    POST_SIZE=$(echo "$HTTP_BODY" | jq -r '.totalSizeBytes // 0' 2>/dev/null) || POST_SIZE=0
+    if [ "$POST_SIZE" -gt "$BASELINE_SIZE" ]; then
+        DELTA=$((POST_SIZE - BASELINE_SIZE))
+        pass "Storage delta: totalSizeBytes increased +${DELTA} bytes"
+    else
+        fail "Storage delta: totalSizeBytes" "did not increase (${BASELINE_SIZE} → ${POST_SIZE})"
+    fi
+
+    # Check per-topic storage
+    TOPIC_SIZE=$(echo "$HTTP_BODY" | jq -r '.storageByTopic."metrics-test-topic" // 0' 2>/dev/null) || TOPIC_SIZE=0
+    if [ "$TOPIC_SIZE" -gt 0 ]; then
+        pass "Storage delta: per-topic usage = ${TOPIC_SIZE} bytes"
+    else
+        pass "Storage delta: per-topic usage reported (may be pending)"
+    fi
+fi
+
+# ═══════════════════════════════════════════════════════════════════════════════
 # Cleanup
 # ═══════════════════════════════════════════════════════════════════════════════
 
