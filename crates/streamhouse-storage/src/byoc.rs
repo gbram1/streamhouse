@@ -143,10 +143,7 @@ impl ByocS3ClientPool {
     }
 
     /// Validate connectivity to a BYOC bucket by attempting to list objects.
-    pub async fn validate_connection(
-        &self,
-        config: &ByocConfig,
-    ) -> Result<(), ByocError> {
+    pub async fn validate_connection(&self, config: &ByocConfig) -> Result<(), ByocError> {
         let client = self.assume_role_and_create_client(config).await?;
 
         // Try to list objects with a small limit to verify access

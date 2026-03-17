@@ -1511,7 +1511,17 @@ impl MetadataStore for SqliteMetadataStore {
         )> = sqlx::query_as(&query).fetch_optional(&self.pool).await?;
 
         Ok(row.map(
-            |(id, name, slug, plan, status, created_at, settings_json, external_id, deployment_mode)| Organization {
+            |(
+                id,
+                name,
+                slug,
+                plan,
+                status,
+                created_at,
+                settings_json,
+                external_id,
+                deployment_mode,
+            )| Organization {
                 id,
                 name,
                 slug,
@@ -1545,7 +1555,17 @@ impl MetadataStore for SqliteMetadataStore {
         )> = sqlx::query_as(&query).fetch_optional(&self.pool).await?;
 
         Ok(row.map(
-            |(id, name, slug, plan, status, created_at, settings_json, external_id, deployment_mode)| Organization {
+            |(
+                id,
+                name,
+                slug,
+                plan,
+                status,
+                created_at,
+                settings_json,
+                external_id,
+                deployment_mode,
+            )| Organization {
                 id,
                 name,
                 slug,
@@ -1559,7 +1579,10 @@ impl MetadataStore for SqliteMetadataStore {
         ))
     }
 
-    async fn get_organization_by_external_id(&self, external_id: &str) -> Result<Option<Organization>> {
+    async fn get_organization_by_external_id(
+        &self,
+        external_id: &str,
+    ) -> Result<Option<Organization>> {
         let query = format!(
             "SELECT id, name, slug, plan, status, created_at, settings, external_id, deployment_mode \
              FROM organizations WHERE external_id = '{}'",
@@ -1579,7 +1602,17 @@ impl MetadataStore for SqliteMetadataStore {
         )> = sqlx::query_as(&query).fetch_optional(&self.pool).await?;
 
         Ok(row.map(
-            |(id, name, slug, plan, status, created_at, settings_json, external_id, deployment_mode)| Organization {
+            |(
+                id,
+                name,
+                slug,
+                plan,
+                status,
+                created_at,
+                settings_json,
+                external_id,
+                deployment_mode,
+            )| Organization {
                 id,
                 name,
                 slug,
@@ -1614,7 +1647,17 @@ impl MetadataStore for SqliteMetadataStore {
         Ok(rows
             .into_iter()
             .map(
-                |(id, name, slug, plan, status, created_at, settings_json, external_id, deployment_mode)| {
+                |(
+                    id,
+                    name,
+                    slug,
+                    plan,
+                    status,
+                    created_at,
+                    settings_json,
+                    external_id,
+                    deployment_mode,
+                )| {
                     Organization {
                         id,
                         name,

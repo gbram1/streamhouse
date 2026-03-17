@@ -1530,7 +1530,10 @@ impl MetadataStore for PostgresMetadataStore {
         }))
     }
 
-    async fn get_organization_by_external_id(&self, external_id: &str) -> Result<Option<Organization>> {
+    async fn get_organization_by_external_id(
+        &self,
+        external_id: &str,
+    ) -> Result<Option<Organization>> {
         let row = sqlx::query(
             "SELECT id::text, name, slug, plan, status, created_at, settings, external_id, deployment_mode
              FROM organizations WHERE external_id = $1",

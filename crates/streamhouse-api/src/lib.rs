@@ -19,7 +19,6 @@ pub mod active_active;
 pub mod audit;
 pub mod audit_store;
 pub mod auth;
-pub mod oidc;
 pub mod cluster;
 pub mod compliance;
 pub mod discovery;
@@ -30,6 +29,7 @@ pub mod jwt;
 pub mod leader;
 pub mod models;
 pub mod oauth;
+pub mod oidc;
 pub mod opa;
 pub mod pitr;
 pub mod prometheus;
@@ -66,7 +66,6 @@ pub use audit_store::{
 pub use auth::{
     AuthConfig, AuthError, AuthLayer, AuthenticatedKey, RequiredPermission, SmartAuthLayer,
 };
-pub use oidc::OidcJwksAuth;
 pub use compliance::{
     ComplianceError, ComplianceReport, ComplianceReporter, Finding, FindingSeverity, Framework,
     ReportConfig, ReportFormat, ReportMetadata,
@@ -85,6 +84,7 @@ pub use oauth::{
     oauth_router, IdTokenClaims, OAuthConfig, OAuthError, OAuthProvider, OAuthService,
     OAuthSession, OAuthTokens, PkceChallenge, UserInfo,
 };
+pub use oidc::OidcJwksAuth;
 pub use opa::{
     OpaClient, OpaConfig, OpaDecision, OpaDecisionSource, OpaError, OpaInput, OpaLayer,
     OpaRbacManager, OpaResponse, OpaResult, OpaService,

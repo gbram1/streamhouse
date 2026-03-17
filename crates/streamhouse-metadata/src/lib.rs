@@ -1178,7 +1178,10 @@ pub trait MetadataStore: Send + Sync {
     ///
     /// - `Ok(Some(Organization))` if found
     /// - `Ok(None)` if not found
-    async fn get_organization_by_external_id(&self, external_id: &str) -> Result<Option<Organization>>;
+    async fn get_organization_by_external_id(
+        &self,
+        external_id: &str,
+    ) -> Result<Option<Organization>>;
 
     /// List all organizations.
     ///
