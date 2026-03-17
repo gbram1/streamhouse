@@ -96,7 +96,10 @@ async fn test_rest_full_write_read_path() {
         )
         .await
         .expect("Failed to register schema");
-    assert!(schema_result.id > 0, "Schema registration should return an id");
+    assert!(
+        schema_result.id > 0,
+        "Schema registration should return an id"
+    );
 
     // Step 5: Produce 200 records via REST batch
     let records = generate_records(200, "rest");
@@ -670,8 +673,7 @@ async fn test_consumer_group_offsets() {
     );
 
     // Verify the first consumed record starts at the right index
-    let first_value: serde_json::Value =
-        serde_json::from_str(&response.records[0].value).unwrap();
+    let first_value: serde_json::Value = serde_json::from_str(&response.records[0].value).unwrap();
     assert_eq!(
         first_value["index"].as_u64().unwrap(),
         50,

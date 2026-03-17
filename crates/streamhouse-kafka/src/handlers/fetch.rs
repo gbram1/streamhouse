@@ -442,9 +442,8 @@ async fn fetch_partition(
                         let base = i64::from_be_bytes([
                             data[0], data[1], data[2], data[3], data[4], data[5], data[6], data[7],
                         ]) as u64;
-                        let last_offset_delta = i32::from_be_bytes([
-                            data[23], data[24], data[25], data[26],
-                        ]) as u64;
+                        let last_offset_delta =
+                            i32::from_be_bytes([data[23], data[24], data[25], data[26]]) as u64;
                         let last_offset_in_batch = base + last_offset_delta;
                         if last_offset_in_batch >= effective_max_offset {
                             // The batch contains records beyond LSO -- for safety,

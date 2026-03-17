@@ -113,11 +113,10 @@ impl TestCluster {
     /// Create a typed gRPC client connected to this cluster.
     pub async fn grpc_client(
         &self,
-    ) -> Result<streamhouse_proto::streamhouse::stream_house_client::StreamHouseClient<Channel>> {
+    ) -> Result<streamhouse_proto::streamhouse::stream_house_client::StreamHouseClient<Channel>>
+    {
         let channel = self.grpc_channel().await?;
-        Ok(
-            streamhouse_proto::streamhouse::stream_house_client::StreamHouseClient::new(channel),
-        )
+        Ok(streamhouse_proto::streamhouse::stream_house_client::StreamHouseClient::new(channel))
     }
 }
 
@@ -171,8 +170,7 @@ impl TestClusterBuilder {
         );
 
         let cache = Arc::new(
-            SegmentCache::new(&cache_dir, 10 * 1024 * 1024)
-                .context("creating segment cache")?,
+            SegmentCache::new(&cache_dir, 10 * 1024 * 1024).context("creating segment cache")?,
         );
 
         let config = WriteConfig {
@@ -402,11 +400,7 @@ impl TestCluster {
     /// This is a convenience that combines the REST `create_topic` call with
     /// direct metadata manipulation to set up leases (which normally the
     /// embedded agent would handle).
-    pub async fn create_topic_with_leases(
-        &self,
-        name: &str,
-        partitions: u32,
-    ) -> Result<()> {
+    pub async fn create_topic_with_leases(&self, name: &str, partitions: u32) -> Result<()> {
         // Create the topic through metadata (faster than going through REST)
         let topic_config = streamhouse_metadata::TopicConfig {
             name: name.to_string(),
@@ -522,13 +516,12 @@ impl RestClient {
     // -- Organizations (admin) ----------------------------------------------
 
     /// POST /api/v1/organizations
-    pub async fn create_org(
-        &self,
-        name: &str,
-        slug: &str,
-    ) -> Result<serde_json::Value> {
+    pub async fn create_org(&self, name: &str, slug: &str) -> Result<serde_json::Value> {
         let body = serde_json::json!({ "name": name, "slug": slug });
-        let req = self.client.post(self.url("/api/v1/organizations")).json(&body);
+        let req = self
+            .client
+            .post(self.url("/api/v1/organizations"))
+            .json(&body);
         let resp = self.apply_auth(req).send().await?;
         let resp = Self::check_response(resp).await?;
         Ok(resp.json().await?)
@@ -537,11 +530,7 @@ impl RestClient {
     // -- API Keys -----------------------------------------------------------
 
     /// POST /api/v1/organizations/:org_id/api-keys
-    pub async fn create_api_key(
-        &self,
-        org_id: &str,
-        name: &str,
-    ) -> Result<serde_json::Value> {
+    pub async fn create_api_key(&self, org_id: &str, name: &str) -> Result<serde_json::Value> {
         let body = serde_json::json!({
             "name": name,
             "permissions": ["read", "write", "admin"],
@@ -556,11 +545,7 @@ impl RestClient {
     // -- Topics -------------------------------------------------------------
 
     /// POST /api/v1/topics
-    pub async fn create_topic(
-        &self,
-        name: &str,
-        partitions: u32,
-    ) -> Result<TopicResponse> {
+    pub async fn create_topic(&self, name: &str, partitions: u32) -> Result<TopicResponse> {
         let body = serde_json::json!({
             "name": name,
             "partitions": partitions,
@@ -632,7 +617,10 @@ impl RestClient {
             "topic": topic,
             "records": records,
         });
-        let req = self.client.post(self.url("/api/v1/produce/batch")).json(&body);
+        let req = self
+            .client
+            .post(self.url("/api/v1/produce/batch"))
+            .json(&body);
         let resp = self.apply_auth(req).send().await?;
         let resp = Self::check_response(resp).await?;
         Ok(resp.json().await?)

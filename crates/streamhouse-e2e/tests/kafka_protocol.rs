@@ -113,12 +113,12 @@ async fn test_kafka_produce_consume_roundtrip() {
         "-t",
         topic_name,
         "-C",
-        "-e",          // exit after consuming all messages
+        "-e", // exit after consuming all messages
         "-o",
-        "beginning",   // start from the beginning
+        "beginning", // start from the beginning
         "-c",
-        "10",          // consume exactly 10 messages
-        "-J",          // JSON output for structured parsing
+        "10", // consume exactly 10 messages
+        "-J", // JSON output for structured parsing
     ]);
 
     match kcat_output {
@@ -225,8 +225,8 @@ async fn test_kafka_metadata() {
     match metadata_output {
         Ok(output) => {
             // Parse the JSON metadata
-            let metadata: serde_json::Value = serde_json::from_str(&output)
-                .expect("kcat metadata output should be valid JSON");
+            let metadata: serde_json::Value =
+                serde_json::from_str(&output).expect("kcat metadata output should be valid JSON");
 
             // Verify our topic appears in the metadata
             let topics = metadata["topics"]
@@ -262,7 +262,10 @@ async fn test_kafka_metadata() {
             );
         }
         Err(e) => {
-            eprintln!("kcat metadata listing returned error (may be expected): {}", e);
+            eprintln!(
+                "kcat metadata listing returned error (may be expected): {}",
+                e
+            );
         }
     }
 
@@ -300,21 +303,15 @@ async fn test_kafka_produce_rest_consume() {
 
     // Produce 5 messages via kcat with well-defined payloads
     let messages: Vec<String> = (0..5)
-        .map(|i| json!({"index": i, "protocol": "kafka", "data": format!("value-{}", i)}).to_string())
+        .map(|i| {
+            json!({"index": i, "protocol": "kafka", "data": format!("value-{}", i)}).to_string()
+        })
         .collect();
 
     for (i, msg) in messages.iter().enumerate() {
         let input = format!("kafka-key-{}:{}", i, msg);
         let result = Command::new("kcat")
-            .args([
-                "-b",
-                &kafka_addr,
-                "-t",
-                topic_name,
-                "-P",
-                "-K",
-                ":",
-            ])
+            .args(["-b", &kafka_addr, "-t", topic_name, "-P", "-K", ":"])
             .stdin(std::process::Stdio::piped())
             .stdout(std::process::Stdio::piped())
             .stderr(std::process::Stdio::piped())
@@ -383,11 +380,7 @@ async fn test_kafka_produce_rest_consume() {
             idx
         );
     }
-    assert_eq!(
-        seen_indices.len(),
-        5,
-        "Should have 5 unique records"
-    );
+    assert_eq!(seen_indices.len(), 5, "Should have 5 unique records");
 
     // Cleanup
     client
