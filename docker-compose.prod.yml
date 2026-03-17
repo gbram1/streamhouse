@@ -27,7 +27,7 @@ services:
       WAL_DIR: /data/wal
       STREAMHOUSE_CACHE: /data/cache
       STREAMHOUSE_AUTH_ENABLED: ${STREAMHOUSE_AUTH_ENABLED:-false}
-      CLERK_ISSUER_URL: ${CLERK_ISSUER_URL:-}
+      OIDC_ISSUER_URL: ${OIDC_ISSUER_URL:-}
     ports:
       - "8080:8080"
       - "50051:50051"

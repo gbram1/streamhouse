@@ -36,7 +36,7 @@ use std::task::{Context, Poll};
 use streamhouse_metadata::MetadataStore;
 use tower::{Layer, Service};
 
-use crate::clerk::{looks_like_jwt, ClerkAuth};
+use crate::oidc::{looks_like_jwt, OidcJwksAuth};
 
 /// Required permission level for a route
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -107,7 +107,7 @@ impl AuthenticatedKey {
 pub struct AuthLayer {
     metadata: Arc<dyn MetadataStore>,
     required_permission: RequiredPermission,
-    clerk_auth: Option<Arc<ClerkAuth>>,
+    oidc_auth: Option<Arc<OidcJwksAuth>>,
 }
 
 impl AuthLayer {
@@ -116,20 +116,20 @@ impl AuthLayer {
         Self {
             metadata,
             required_permission,
-            clerk_auth: None,
+            oidc_auth: None,
         }
     }
 
-    /// Create a new authentication layer with Clerk JWT support
-    pub fn new_with_clerk(
+    /// Create a new authentication layer with OIDC JWT support
+    pub fn new_with_oidc(
         metadata: Arc<dyn MetadataStore>,
         required_permission: RequiredPermission,
-        clerk_auth: Option<Arc<ClerkAuth>>,
+        oidc_auth: Option<Arc<OidcJwksAuth>>,
     ) -> Self {
         Self {
             metadata,
             required_permission,
-            clerk_auth,
+            oidc_auth,
         }
     }
 
@@ -148,12 +148,12 @@ impl AuthLayer {
         Self::new(metadata, RequiredPermission::Admin)
     }
 
-    /// Create an admin layer with Clerk JWT support
-    pub fn admin_with_clerk(
+    /// Create an admin layer with OIDC JWT support
+    pub fn admin_with_oidc(
         metadata: Arc<dyn MetadataStore>,
-        clerk_auth: Option<Arc<ClerkAuth>>,
+        oidc_auth: Option<Arc<OidcJwksAuth>>,
     ) -> Self {
-        Self::new_with_clerk(metadata, RequiredPermission::Admin, clerk_auth)
+        Self::new_with_oidc(metadata, RequiredPermission::Admin, oidc_auth)
     }
 }
 
@@ -164,24 +164,24 @@ impl AuthLayer {
 #[derive(Clone)]
 pub struct SmartAuthLayer {
     metadata: Arc<dyn MetadataStore>,
-    clerk_auth: Option<Arc<ClerkAuth>>,
+    oidc_auth: Option<Arc<OidcJwksAuth>>,
 }
 
 impl SmartAuthLayer {
     pub fn new(metadata: Arc<dyn MetadataStore>) -> Self {
         Self {
             metadata,
-            clerk_auth: None,
+            oidc_auth: None,
         }
     }
 
-    pub fn new_with_clerk(
+    pub fn new_with_oidc(
         metadata: Arc<dyn MetadataStore>,
-        clerk_auth: Option<Arc<ClerkAuth>>,
+        oidc_auth: Option<Arc<OidcJwksAuth>>,
     ) -> Self {
         Self {
             metadata,
-            clerk_auth,
+            oidc_auth,
         }
     }
 }
@@ -193,7 +193,7 @@ impl<S> Layer<S> for SmartAuthLayer {
         SmartAuthMiddleware {
             inner,
             metadata: self.metadata.clone(),
-            clerk_auth: self.clerk_auth.clone(),
+            oidc_auth: self.oidc_auth.clone(),
         }
     }
 }
@@ -203,7 +203,7 @@ impl<S> Layer<S> for SmartAuthLayer {
 pub struct SmartAuthMiddleware<S> {
     inner: S,
     metadata: Arc<dyn MetadataStore>,
-    clerk_auth: Option<Arc<ClerkAuth>>,
+    oidc_auth: Option<Arc<OidcJwksAuth>>,
 }
 
 impl<S> Service<Request> for SmartAuthMiddleware<S>
@@ -221,7 +221,7 @@ where
 
     fn call(&mut self, mut request: Request) -> Self::Future {
         let metadata = self.metadata.clone();
-        let clerk_auth = self.clerk_auth.clone();
+        let oidc_auth = self.oidc_auth.clone();
         let mut inner = self.inner.clone();
 
         // Determine required permission based on HTTP method
@@ -252,15 +252,15 @@ where
                 return Ok(AuthError::MissingApiKey.into_response());
             }
 
-            // Try Clerk JWT auth if token looks like a JWT and Clerk is configured
-            if let Some(ref clerk) = clerk_auth {
+            // Try OIDC JWT auth if token looks like a JWT and OIDC is configured
+            if let Some(ref oidc) = oidc_auth {
                 if looks_like_jwt(bearer_token) {
                     let org_header = request
                         .headers()
                         .get("x-organization-id")
                         .and_then(|v| v.to_str().ok())
                         .map(|s| s.to_string());
-                    match authenticate_clerk_jwt(clerk, bearer_token, org_header).await {
+                    match authenticate_oidc_jwt(oidc, bearer_token, org_header).await {
                         Ok(auth_key) => {
                             if !required_permission.is_satisfied_by(&auth_key.permissions) {
                                 return Ok(AuthError::InsufficientPermissions.into_response());
@@ -269,7 +269,7 @@ where
                             return inner.call(request).await;
                         }
                         Err(e) => {
-                            tracing::debug!(error = %e, "Clerk JWT validation failed");
+                            tracing::debug!(error = %e, "OIDC JWT validation failed");
                             return Ok(AuthError::InvalidApiKey.into_response());
                         }
                     }
@@ -337,7 +337,7 @@ impl<S> Layer<S> for AuthLayer {
             inner,
             metadata: self.metadata.clone(),
             required_permission: self.required_permission,
-            clerk_auth: self.clerk_auth.clone(),
+            oidc_auth: self.oidc_auth.clone(),
         }
     }
 }
@@ -348,7 +348,7 @@ pub struct AuthMiddleware<S> {
     inner: S,
     metadata: Arc<dyn MetadataStore>,
     required_permission: RequiredPermission,
-    clerk_auth: Option<Arc<ClerkAuth>>,
+    oidc_auth: Option<Arc<OidcJwksAuth>>,
 }
 
 impl<S> Service<Request> for AuthMiddleware<S>
@@ -372,7 +372,7 @@ where
         }
 
         let metadata = self.metadata.clone();
-        let clerk_auth = self.clerk_auth.clone();
+        let oidc_auth = self.oidc_auth.clone();
         let required_permission = self.required_permission;
         let mut inner = self.inner.clone();
 
@@ -396,15 +396,15 @@ where
                 return Ok(AuthError::MissingApiKey.into_response());
             }
 
-            // Try Clerk JWT auth if token looks like a JWT and Clerk is configured
-            if let Some(ref clerk) = clerk_auth {
+            // Try OIDC JWT auth if token looks like a JWT and OIDC is configured
+            if let Some(ref oidc) = oidc_auth {
                 if looks_like_jwt(bearer_token) {
                     let org_header = request
                         .headers()
                         .get("x-organization-id")
                         .and_then(|v| v.to_str().ok())
                         .map(|s| s.to_string());
-                    match authenticate_clerk_jwt(clerk, bearer_token, org_header).await {
+                    match authenticate_oidc_jwt(oidc, bearer_token, org_header).await {
                         Ok(auth_key) => {
                             if !required_permission.is_satisfied_by(&auth_key.permissions) {
                                 return Ok(AuthError::InsufficientPermissions.into_response());
@@ -413,7 +413,7 @@ where
                             return inner.call(request).await;
                         }
                         Err(e) => {
-                            tracing::debug!(error = %e, "Clerk JWT validation failed");
+                            tracing::debug!(error = %e, "OIDC JWT validation failed");
                             return Ok(AuthError::InvalidApiKey.into_response());
                         }
                     }
@@ -472,19 +472,19 @@ where
     }
 }
 
-/// Authenticate a bearer token as a Clerk JWT.
+/// Authenticate a bearer token as an OIDC JWT.
 ///
 /// On success, returns an `AuthenticatedKey` with:
-/// - `key_id`: `"clerk:<user_id>"` (no DB touch needed)
+/// - `key_id`: `"oidc:<subject>"` (no DB touch needed)
 /// - `organization_id`: from `org_id_header` (set by web UI via `X-Organization-Id`)
-/// - `permissions`: `["admin"]` (Clerk users are trusted admins)
+/// - `permissions`: `["admin"]` (OIDC users are trusted admins)
 /// - `scopes`: empty (full access)
-async fn authenticate_clerk_jwt(
-    clerk: &ClerkAuth,
+async fn authenticate_oidc_jwt(
+    oidc: &OidcJwksAuth,
     token: &str,
     org_id_header: Option<String>,
 ) -> Result<AuthenticatedKey, String> {
-    let claims = clerk
+    let claims = oidc
         .validate_token(token)
         .await
         .map_err(|e| format!("{}", e))?;
@@ -499,11 +499,11 @@ async fn authenticate_clerk_jwt(
     tracing::debug!(
         user_id = %claims.sub,
         org_id = %organization_id,
-        "Clerk JWT authenticated"
+        "OIDC JWT authenticated"
     );
 
     Ok(AuthenticatedKey {
-        key_id: format!("clerk:{}", claims.sub),
+        key_id: format!("oidc:{}", claims.sub),
         organization_id,
         permissions: vec!["admin".to_string()],
         scopes: vec![], // full access

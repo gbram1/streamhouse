@@ -900,7 +900,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                                 slug: "default".to_string(),
                                 plan: Default::default(),
                                 settings: Default::default(),
-                                clerk_id: None,
+                                external_id: None,
+                                deployment_mode: Default::default(),
                             })
                             .await;
                         tracing::info!("Created default organization");
@@ -924,10 +925,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     }
 
-    // Initialize Clerk JWT auth if CLERK_ISSUER_URL is set
-    let clerk_auth = streamhouse_api::ClerkAuth::from_env().map(std::sync::Arc::new);
-    if clerk_auth.is_some() {
-        tracing::info!("Clerk JWT authentication enabled");
+    // Initialize OIDC JWT auth if OIDC_ISSUER_URL (or CLERK_ISSUER_URL) is set
+    let oidc_auth = streamhouse_api::OidcJwksAuth::from_env().map(std::sync::Arc::new);
+    if oidc_auth.is_some() {
+        tracing::info!("OIDC JWT authentication enabled");
     }
 
     let api_state = streamhouse_api::AppState {
@@ -941,10 +942,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             enabled: auth_enabled,
             ..Default::default()
         },
-        clerk_auth,
+        oidc_auth,
         topic_changed: Some(grpc_service.topic_change_notify()),
         schema_registry: schema_registry_for_validation.clone(),
         quota_enforcer: Some(quota_enforcer.clone()),
+        byoc_s3: streamhouse_storage::byoc::ByocS3ClientPool::from_env()
+            .map(|pool| std::sync::Arc::new(pool)),
     };
 
     // Create REST API router

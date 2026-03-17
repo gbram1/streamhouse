@@ -1446,14 +1446,15 @@ impl MetadataStore for SqliteMetadataStore {
         let status_str = OrganizationStatus::Active.to_string();
         let settings_json = serde_json::to_string(&config.settings)?;
 
-        let clerk_id_val = config
-            .clerk_id
+        let external_id_val = config
+            .external_id
             .as_deref()
             .map(|s| format!("'{}'", s.replace('\'', "''")));
-        let clerk_id_sql = clerk_id_val.as_deref().unwrap_or("NULL");
+        let external_id_sql = external_id_val.as_deref().unwrap_or("NULL");
+        let deployment_mode_str = config.deployment_mode.to_string();
         let query = format!(
-            "INSERT INTO organizations (id, name, slug, plan, status, created_at, updated_at, settings, clerk_id) \
-             VALUES ('{}', '{}', '{}', '{}', '{}', {}, {}, '{}', {})",
+            "INSERT INTO organizations (id, name, slug, plan, status, created_at, updated_at, settings, external_id, deployment_mode) \
+             VALUES ('{}', '{}', '{}', '{}', '{}', {}, {}, '{}', {}, '{}')",
             id,
             config.name.replace('\'', "''"),
             config.slug.replace('\'', "''"),
@@ -1462,7 +1463,8 @@ impl MetadataStore for SqliteMetadataStore {
             now,
             now,
             settings_json.replace('\'', "''"),
-            clerk_id_sql,
+            external_id_sql,
+            deployment_mode_str,
         );
         let result = sqlx::query(&query).execute(&self.pool).await;
 
@@ -1484,13 +1486,14 @@ impl MetadataStore for SqliteMetadataStore {
             status: OrganizationStatus::Active,
             created_at: now,
             settings: config.settings,
-            clerk_id: config.clerk_id,
+            external_id: config.external_id,
+            deployment_mode: config.deployment_mode,
         })
     }
 
     async fn get_organization(&self, id: &str) -> Result<Option<Organization>> {
         let query = format!(
-            "SELECT id, name, slug, plan, status, created_at, settings, clerk_id \
+            "SELECT id, name, slug, plan, status, created_at, settings, external_id, deployment_mode \
              FROM organizations WHERE id = '{}'",
             id
         );
@@ -1504,10 +1507,11 @@ impl MetadataStore for SqliteMetadataStore {
             i64,
             String,
             Option<String>,
+            String,
         )> = sqlx::query_as(&query).fetch_optional(&self.pool).await?;
 
         Ok(row.map(
-            |(id, name, slug, plan, status, created_at, settings_json, clerk_id)| Organization {
+            |(id, name, slug, plan, status, created_at, settings_json, external_id, deployment_mode)| Organization {
                 id,
                 name,
                 slug,
@@ -1515,14 +1519,15 @@ impl MetadataStore for SqliteMetadataStore {
                 status: status.parse().unwrap_or_default(),
                 created_at,
                 settings: serde_json::from_str(&settings_json).unwrap_or_default(),
-                clerk_id,
+                external_id,
+                deployment_mode: deployment_mode.parse().unwrap_or_default(),
             },
         ))
     }
 
     async fn get_organization_by_slug(&self, slug: &str) -> Result<Option<Organization>> {
         let query = format!(
-            "SELECT id, name, slug, plan, status, created_at, settings, clerk_id \
+            "SELECT id, name, slug, plan, status, created_at, settings, external_id, deployment_mode \
              FROM organizations WHERE slug = '{}'",
             slug
         );
@@ -1536,10 +1541,11 @@ impl MetadataStore for SqliteMetadataStore {
             i64,
             String,
             Option<String>,
+            String,
         )> = sqlx::query_as(&query).fetch_optional(&self.pool).await?;
 
         Ok(row.map(
-            |(id, name, slug, plan, status, created_at, settings_json, clerk_id)| Organization {
+            |(id, name, slug, plan, status, created_at, settings_json, external_id, deployment_mode)| Organization {
                 id,
                 name,
                 slug,
@@ -1547,16 +1553,17 @@ impl MetadataStore for SqliteMetadataStore {
                 status: status.parse().unwrap_or_default(),
                 created_at,
                 settings: serde_json::from_str(&settings_json).unwrap_or_default(),
-                clerk_id,
+                external_id,
+                deployment_mode: deployment_mode.parse().unwrap_or_default(),
             },
         ))
     }
 
-    async fn get_organization_by_clerk_id(&self, clerk_id: &str) -> Result<Option<Organization>> {
+    async fn get_organization_by_external_id(&self, external_id: &str) -> Result<Option<Organization>> {
         let query = format!(
-            "SELECT id, name, slug, plan, status, created_at, settings, clerk_id \
-             FROM organizations WHERE clerk_id = '{}'",
-            clerk_id.replace('\'', "''")
+            "SELECT id, name, slug, plan, status, created_at, settings, external_id, deployment_mode \
+             FROM organizations WHERE external_id = '{}'",
+            external_id.replace('\'', "''")
         );
 
         let row: Option<(
@@ -1568,10 +1575,11 @@ impl MetadataStore for SqliteMetadataStore {
             i64,
             String,
             Option<String>,
+            String,
         )> = sqlx::query_as(&query).fetch_optional(&self.pool).await?;
 
         Ok(row.map(
-            |(id, name, slug, plan, status, created_at, settings_json, clerk_id)| Organization {
+            |(id, name, slug, plan, status, created_at, settings_json, external_id, deployment_mode)| Organization {
                 id,
                 name,
                 slug,
@@ -1579,7 +1587,8 @@ impl MetadataStore for SqliteMetadataStore {
                 status: status.parse().unwrap_or_default(),
                 created_at,
                 settings: serde_json::from_str(&settings_json).unwrap_or_default(),
-                clerk_id,
+                external_id,
+                deployment_mode: deployment_mode.parse().unwrap_or_default(),
             },
         ))
     }
@@ -1594,8 +1603,9 @@ impl MetadataStore for SqliteMetadataStore {
             i64,
             String,
             Option<String>,
+            String,
         )> = sqlx::query_as(
-            "SELECT id, name, slug, plan, status, created_at, settings, clerk_id \
+            "SELECT id, name, slug, plan, status, created_at, settings, external_id, deployment_mode \
              FROM organizations ORDER BY name",
         )
         .fetch_all(&self.pool)
@@ -1604,7 +1614,7 @@ impl MetadataStore for SqliteMetadataStore {
         Ok(rows
             .into_iter()
             .map(
-                |(id, name, slug, plan, status, created_at, settings_json, clerk_id)| {
+                |(id, name, slug, plan, status, created_at, settings_json, external_id, deployment_mode)| {
                     Organization {
                         id,
                         name,
@@ -1613,7 +1623,8 @@ impl MetadataStore for SqliteMetadataStore {
                         status: status.parse().unwrap_or_default(),
                         created_at,
                         settings: serde_json::from_str(&settings_json).unwrap_or_default(),
-                        clerk_id,
+                        external_id,
+                        deployment_mode: deployment_mode.parse().unwrap_or_default(),
                     }
                 },
             )

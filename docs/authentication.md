@@ -200,13 +200,36 @@ curl -H "X-Organization-Id: my-org-uuid" \
 
 ---
 
-## Web UI (Clerk)
+## Web UI (Cloud Platform)
 
-The managed service Web UI uses Clerk for user authentication. The flow:
+The StreamHouse Cloud web UI uses an auth bridge pattern:
 
-1. User signs up / logs in via Clerk on the Web UI
-2. Clerk session identifies the user and organization
-3. Web UI calls backend REST API with the user's API key
-4. Backend validates the key and scopes all operations to the org
+1. User signs in via the platform's identity provider (OIDC)
+2. The platform resolves the user's organization server-side
+3. The platform obtains an API key for that organization
+4. All backend requests use the API key — the backend never sees identity provider tokens
+
+This means the backend remains vendor-neutral. Self-hosted users can plug in any OIDC provider via `OIDC_ISSUER_URL`, or skip external auth entirely and use API keys directly.
 
 API key management is available in the Web UI at `/settings/api-keys`.
+
+---
+
+## OIDC Integration (Self-Hosted)
+
+For self-hosted deployments that want SSO, set `OIDC_ISSUER_URL` to your identity provider:
+
+```bash
+# Auth0
+export OIDC_ISSUER_URL=https://your-tenant.auth0.com/
+
+# Okta
+export OIDC_ISSUER_URL=https://your-org.okta.com/oauth2/default
+
+# Keycloak
+export OIDC_ISSUER_URL=https://keycloak.example.com/realms/streamhouse
+```
+
+The server fetches the JWKS from `{OIDC_ISSUER_URL}/.well-known/jwks.json` and validates incoming JWTs. The JWT `sub` claim is used to resolve the user's organization.
+
+For backwards compatibility, `CLERK_ISSUER_URL` is also accepted as an alias for `OIDC_ISSUER_URL`.

@@ -1168,17 +1168,17 @@ pub trait MetadataStore: Send + Sync {
     /// - `Ok(None)` if not found
     async fn get_organization_by_slug(&self, slug: &str) -> Result<Option<Organization>>;
 
-    /// Get an organization by Clerk ID.
+    /// Get an organization by external identity provider ID.
     ///
     /// # Arguments
     ///
-    /// * `clerk_id` - External Clerk organization ID
+    /// * `external_id` - External identity provider organization ID
     ///
     /// # Returns
     ///
     /// - `Ok(Some(Organization))` if found
     /// - `Ok(None)` if not found
-    async fn get_organization_by_clerk_id(&self, clerk_id: &str) -> Result<Option<Organization>>;
+    async fn get_organization_by_external_id(&self, external_id: &str) -> Result<Option<Organization>>;
 
     /// List all organizations.
     ///

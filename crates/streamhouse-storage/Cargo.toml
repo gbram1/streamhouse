@@ -25,6 +25,9 @@ async-trait = { workspace = true }
 lru = { workspace = true }
 futures = { workspace = true }
 chrono = { workspace = true }
+aws-sdk-sts = { workspace = true }
+aws-config = { workspace = true }
+uuid = { workspace = true }
 bloomfilter = "1.0"
 flate2 = "1"
 

@@ -1434,9 +1434,10 @@ impl MetadataStore for PostgresMetadataStore {
         let status_str = OrganizationStatus::Active.to_string();
         let settings_json = serde_json::to_value(&config.settings)?;
 
+        let deployment_mode_str = config.deployment_mode.to_string();
         sqlx::query(
-            "INSERT INTO organizations (id, name, slug, plan, status, created_at, updated_at, settings, clerk_id)
-             VALUES ($1::uuid, $2, $3, $4, $5, $6, $7, $8, $9)"
+            "INSERT INTO organizations (id, name, slug, plan, status, created_at, updated_at, settings, external_id, deployment_mode)
+             VALUES ($1::uuid, $2, $3, $4, $5, $6, $7, $8, $9, $10)"
         )
         .bind(&id)
         .bind(&config.name)
@@ -1446,7 +1447,8 @@ impl MetadataStore for PostgresMetadataStore {
         .bind(now_ms)
         .bind(now_ms)
         .bind(&settings_json)
-        .bind(&config.clerk_id)
+        .bind(&config.external_id)
+        .bind(&deployment_mode_str)
         .execute(&self.pool)
         .await
         .map_err(|e| {
@@ -1465,13 +1467,14 @@ impl MetadataStore for PostgresMetadataStore {
             status: OrganizationStatus::Active,
             created_at: now_ms,
             settings: config.settings,
-            clerk_id: config.clerk_id,
+            external_id: config.external_id,
+            deployment_mode: config.deployment_mode,
         })
     }
 
     async fn get_organization(&self, id: &str) -> Result<Option<Organization>> {
         let row = sqlx::query(
-            "SELECT id::text, name, slug, plan, status, created_at, settings, clerk_id
+            "SELECT id::text, name, slug, plan, status, created_at, settings, external_id, deployment_mode
              FROM organizations WHERE id = $1::uuid",
         )
         .bind(id)
@@ -1483,6 +1486,7 @@ impl MetadataStore for PostgresMetadataStore {
                 serde_json::from_value(r.get("settings")).unwrap_or_default();
             let plan: String = r.get("plan");
             let status: String = r.get("status");
+            let deployment_mode: String = r.get("deployment_mode");
             Organization {
                 id: r.get("id"),
                 name: r.get("name"),
@@ -1491,14 +1495,15 @@ impl MetadataStore for PostgresMetadataStore {
                 status: status.parse().unwrap_or_default(),
                 created_at: r.get("created_at"),
                 settings,
-                clerk_id: r.get("clerk_id"),
+                external_id: r.get("external_id"),
+                deployment_mode: deployment_mode.parse().unwrap_or_default(),
             }
         }))
     }
 
     async fn get_organization_by_slug(&self, slug: &str) -> Result<Option<Organization>> {
         let row = sqlx::query(
-            "SELECT id::text, name, slug, plan, status, created_at, settings, clerk_id
+            "SELECT id::text, name, slug, plan, status, created_at, settings, external_id, deployment_mode
              FROM organizations WHERE slug = $1",
         )
         .bind(slug)
@@ -1510,6 +1515,7 @@ impl MetadataStore for PostgresMetadataStore {
                 serde_json::from_value(r.get("settings")).unwrap_or_default();
             let plan: String = r.get("plan");
             let status: String = r.get("status");
+            let deployment_mode: String = r.get("deployment_mode");
             Organization {
                 id: r.get("id"),
                 name: r.get("name"),
@@ -1518,17 +1524,18 @@ impl MetadataStore for PostgresMetadataStore {
                 status: status.parse().unwrap_or_default(),
                 created_at: r.get("created_at"),
                 settings,
-                clerk_id: r.get("clerk_id"),
+                external_id: r.get("external_id"),
+                deployment_mode: deployment_mode.parse().unwrap_or_default(),
             }
         }))
     }
 
-    async fn get_organization_by_clerk_id(&self, clerk_id: &str) -> Result<Option<Organization>> {
+    async fn get_organization_by_external_id(&self, external_id: &str) -> Result<Option<Organization>> {
         let row = sqlx::query(
-            "SELECT id::text, name, slug, plan, status, created_at, settings, clerk_id
-             FROM organizations WHERE clerk_id = $1",
+            "SELECT id::text, name, slug, plan, status, created_at, settings, external_id, deployment_mode
+             FROM organizations WHERE external_id = $1",
         )
-        .bind(clerk_id)
+        .bind(external_id)
         .fetch_optional(&self.pool)
         .await?;
 
@@ -1537,6 +1544,7 @@ impl MetadataStore for PostgresMetadataStore {
                 serde_json::from_value(r.get("settings")).unwrap_or_default();
             let plan: String = r.get("plan");
             let status: String = r.get("status");
+            let deployment_mode: String = r.get("deployment_mode");
             Organization {
                 id: r.get("id"),
                 name: r.get("name"),
@@ -1545,14 +1553,15 @@ impl MetadataStore for PostgresMetadataStore {
                 status: status.parse().unwrap_or_default(),
                 created_at: r.get("created_at"),
                 settings,
-                clerk_id: r.get("clerk_id"),
+                external_id: r.get("external_id"),
+                deployment_mode: deployment_mode.parse().unwrap_or_default(),
             }
         }))
     }
 
     async fn list_organizations(&self) -> Result<Vec<Organization>> {
         let rows = sqlx::query(
-            "SELECT id::text, name, slug, plan, status, created_at, settings, clerk_id
+            "SELECT id::text, name, slug, plan, status, created_at, settings, external_id, deployment_mode
              FROM organizations ORDER BY name",
         )
         .fetch_all(&self.pool)
@@ -1565,6 +1574,7 @@ impl MetadataStore for PostgresMetadataStore {
                     serde_json::from_value(r.get("settings")).unwrap_or_default();
                 let plan: String = r.get("plan");
                 let status: String = r.get("status");
+                let deployment_mode: String = r.get("deployment_mode");
                 Organization {
                     id: r.get("id"),
                     name: r.get("name"),
@@ -1573,7 +1583,8 @@ impl MetadataStore for PostgresMetadataStore {
                     status: status.parse().unwrap_or_default(),
                     created_at: r.get("created_at"),
                     settings,
-                    clerk_id: r.get("clerk_id"),
+                    external_id: r.get("external_id"),
+                    deployment_mode: deployment_mode.parse().unwrap_or_default(),
                 }
             })
             .collect())

@@ -756,9 +756,9 @@ mod tests {
         async fn get_organization_by_slug(&self, _slug: &str) -> Result<Option<Organization>> {
             unimplemented!()
         }
-        async fn get_organization_by_clerk_id(
+        async fn get_organization_by_external_id(
             &self,
-            _clerk_id: &str,
+            _external_id: &str,
         ) -> Result<Option<Organization>> {
             unimplemented!()
         }

@@ -789,8 +789,8 @@ impl<S: MetadataStore + 'static> MetadataStore for CachedMetadataStore<S> {
         self.inner.get_organization_by_slug(slug).await
     }
 
-    async fn get_organization_by_clerk_id(&self, clerk_id: &str) -> Result<Option<Organization>> {
-        self.inner.get_organization_by_clerk_id(clerk_id).await
+    async fn get_organization_by_external_id(&self, external_id: &str) -> Result<Option<Organization>> {
+        self.inner.get_organization_by_external_id(external_id).await
     }
 
     async fn list_organizations(&self) -> Result<Vec<Organization>> {
