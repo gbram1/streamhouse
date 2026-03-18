@@ -23,7 +23,7 @@
 //! ## Quick Start
 //!
 //! ```bash
-//! # Connect to server (default: localhost:9090)
+//! # Connect to server (default: localhost:50051)
 //! export STREAMHOUSE_ADDR=http://localhost:9090
 //!
 //! # Create a topic
@@ -91,7 +91,7 @@ struct Cli {
         short,
         long,
         env = "STREAMHOUSE_ADDR",
-        default_value = "http://localhost:9090"
+        default_value = "https://api.streamhouse.app:50051"
     )]
     server: String,
 
@@ -99,7 +99,7 @@ struct Cli {
     #[arg(
         long,
         env = "SCHEMA_REGISTRY_URL",
-        default_value = "http://localhost:8081"
+        default_value = "https://api.streamhouse.app/schemas"
     )]
     schema_registry_url: String,
 
@@ -107,7 +107,7 @@ struct Cli {
     #[arg(
         long,
         env = "STREAMHOUSE_API_URL",
-        default_value = "http://localhost:8080"
+        default_value = "https://api.streamhouse.app"
     )]
     api_url: String,
 
@@ -353,14 +353,14 @@ async fn main() -> Result<()> {
             args[2].clone()
         } else {
             std::env::var("STREAMHOUSE_ADDR")
-                .unwrap_or_else(|_| "http://localhost:9090".to_string())
+                .unwrap_or_else(|_| "https://api.streamhouse.app:50051".to_string())
         };
 
         let schema_registry_url = std::env::var("SCHEMA_REGISTRY_URL")
-            .unwrap_or_else(|_| "http://localhost:8081".to_string());
+            .unwrap_or_else(|_| "https://api.streamhouse.app/schemas".to_string());
 
         let api_url = std::env::var("STREAMHOUSE_API_URL")
-            .unwrap_or_else(|_| "http://localhost:8080".to_string());
+            .unwrap_or_else(|_| "https://api.streamhouse.app".to_string());
 
         let channel = Channel::from_shared(server.clone())
             .context("Invalid server address")?

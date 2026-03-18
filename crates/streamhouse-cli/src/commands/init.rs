@@ -45,8 +45,8 @@ topics:
 
 const ENV_EXAMPLE: &str = r#"# StreamHouse CLI configuration
 STREAMHOUSE_API_URL=http://localhost:8080
-STREAMHOUSE_ADDR=http://localhost:9090
-SCHEMA_REGISTRY_URL=http://localhost:8081
+STREAMHOUSE_ADDR=http://localhost:50051
+SCHEMA_REGISTRY_URL=http://localhost:8080/schemas
 # STREAMHOUSE_API_KEY=your-api-key-here
 "#;
 
