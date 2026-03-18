@@ -211,7 +211,8 @@ impl PipelineConsumeLoop {
             // Commit offset for this partition
             if let Some(last_record) = result.records.last() {
                 self.metadata
-                    .commit_offset(
+                    .commit_offset_for_org(
+                        &self.config.org_id,
                         &self.config.consumer_group,
                         &self.config.source_topic,
                         partition_id,
