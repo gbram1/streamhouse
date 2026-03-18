@@ -30,22 +30,15 @@ pub enum MetricsCommands {
 }
 
 #[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
 struct MetricsSnapshot {
     #[serde(default)]
-    records_per_second: f64,
+    topics_count: i64,
     #[serde(default)]
-    bytes_per_second: f64,
+    agents_count: i64,
     #[serde(default)]
-    total_topics: i64,
+    partitions_count: i64,
     #[serde(default)]
-    total_partitions: i64,
-    #[serde(default)]
-    total_consumer_groups: i64,
-    #[serde(default)]
-    storage_bytes: i64,
-    #[serde(default)]
-    uptime_seconds: i64,
+    total_messages: i64,
 }
 
 #[derive(Debug, Deserialize)]
@@ -136,15 +129,10 @@ pub async fn handle_metrics_command(
                 .context("Failed to get metrics overview")?;
 
             println!("Metrics Overview:");
-            println!(
-                "  Throughput:       {:.1} records/s, {:.1} bytes/s",
-                snapshot.records_per_second, snapshot.bytes_per_second
-            );
-            println!("  Topics:           {}", snapshot.total_topics);
-            println!("  Partitions:       {}", snapshot.total_partitions);
-            println!("  Consumer groups:  {}", snapshot.total_consumer_groups);
-            println!("  Storage:          {} bytes", snapshot.storage_bytes);
-            println!("  Uptime:           {}s", snapshot.uptime_seconds);
+            println!("  Topics:           {}", snapshot.topics_count);
+            println!("  Partitions:       {}", snapshot.partitions_count);
+            println!("  Agents:           {}", snapshot.agents_count);
+            println!("  Total messages:   {}", snapshot.total_messages);
         }
         MetricsCommands::Throughput => {
             let metrics: Vec<ThroughputMetric> = client

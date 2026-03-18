@@ -479,7 +479,7 @@ async fn main() -> Result<()> {
                 partition,
                 key,
                 value,
-                skip_validation: _,
+                skip_validation,
                 file,
                 stdin,
             } => {
@@ -500,6 +500,15 @@ async fn main() -> Result<()> {
                     )
                     .await?
                 } else if let Some(value) = value {
+                    // Client-side schema validation
+                    if !skip_validation {
+                        if let Err(msg) =
+                            validate_value_client_side(&cli.schema_registry_url, &topic, &value)
+                                .await
+                        {
+                            anyhow::bail!("Schema validation failed: {}", msg);
+                        }
+                    }
                     handle_produce_rest(
                         &cli.api_url,
                         cli.api_key.as_deref(),
