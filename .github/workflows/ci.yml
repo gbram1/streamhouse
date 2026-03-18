@@ -253,10 +253,16 @@ jobs:
           save-if: "false"
 
       - name: Build benchmarks
-        run: cargo bench -p streamhouse-storage -p streamhouse-client --locked --no-run
+        run: |
+          cargo bench --bench segment_bench --locked --no-run
+          cargo bench --bench producer_bench --locked --no-run
+          cargo bench --bench consumer_bench --locked --no-run
 
       - name: Run benchmarks
-        run: cargo bench -p streamhouse-storage -p streamhouse-client --locked -- --output-format bencher 2>&1 | tee benchmark-results.txt
+        run: |
+          cargo bench --bench segment_bench --locked -- --output-format bencher 2>&1 | tee benchmark-results.txt
+          cargo bench --bench producer_bench --locked -- --output-format bencher 2>&1 | tee -a benchmark-results.txt
+          cargo bench --bench consumer_bench --locked -- --output-format bencher 2>&1 | tee -a benchmark-results.txt
 
       - name: Benchmark summary
         run: |
