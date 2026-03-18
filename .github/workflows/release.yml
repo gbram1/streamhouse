@@ -70,9 +70,6 @@ jobs:
           - os: macos-latest
             target: aarch64-apple-darwin
             artifact: streamctl-darwin-arm64
-          - os: macos-13
-            target: x86_64-apple-darwin
-            artifact: streamctl-darwin-amd64
     steps:
       - uses: actions/checkout@v4
 
@@ -134,7 +131,6 @@ jobs:
           files: |
             artifacts/streamctl-linux-amd64
             artifacts/streamctl-darwin-arm64
-            artifacts/streamctl-darwin-amd64
             artifacts/checksums.txt
 
   # --- Dispatch deploy ---
