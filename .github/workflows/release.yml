@@ -87,6 +87,11 @@ jobs:
         if: runner.os == 'macOS'
         run: brew install protobuf
 
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: "release-${{ matrix.target }}"
+
       - name: Build streamctl
         run: cargo build --release --locked --bin streamctl
 
