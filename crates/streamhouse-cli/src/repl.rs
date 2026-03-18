@@ -415,7 +415,7 @@ impl Repl {
             }
         };
 
-        commands::schema::handle_schema_command(command, &self.schema_registry_url).await
+        commands::schema::handle_schema_command(command, &self.schema_registry_url, None, None).await
     }
 
     /// Handle SQL commands
@@ -464,7 +464,7 @@ impl Repl {
             }
         };
 
-        commands::sql::handle_sql_command(command, &self.api_url).await
+        commands::sql::handle_sql_command(command, &self.api_url, None, None).await
     }
 
     /// Handle consumer group commands
@@ -549,7 +549,7 @@ impl Repl {
             }
         };
 
-        commands::consumer::handle_consumer_command(command, &self.api_url).await
+        commands::consumer::handle_consumer_command(command, &self.api_url, None, None).await
     }
 
     /// Print help message

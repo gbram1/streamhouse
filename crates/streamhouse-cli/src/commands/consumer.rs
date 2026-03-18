@@ -174,8 +174,13 @@ pub struct DeleteConsumerGroupResponse {
 }
 
 /// Handle consumer group commands
-pub async fn handle_consumer_command(command: ConsumerCommands, api_url: &str) -> Result<()> {
-    let client = RestClient::new(api_url);
+pub async fn handle_consumer_command(
+    command: ConsumerCommands,
+    api_url: &str,
+    api_key: Option<&str>,
+    org_id: Option<&str>,
+) -> Result<()> {
+    let client = RestClient::with_org(api_url, api_key.map(String::from), org_id.map(String::from));
 
     match command {
         ConsumerCommands::List => {

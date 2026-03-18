@@ -81,17 +81,22 @@ struct SqlErrorResponse {
 }
 
 /// Handle SQL commands
-pub async fn handle_sql_command(command: SqlCommands, api_url: &str) -> Result<()> {
+pub async fn handle_sql_command(
+    command: SqlCommands,
+    api_url: &str,
+    api_key: Option<&str>,
+    org_id: Option<&str>,
+) -> Result<()> {
     match command {
         SqlCommands::Query {
             query,
             timeout,
             format,
         } => {
-            execute_and_display_query(api_url, &query, timeout, &format).await?;
+            execute_and_display_query(api_url, &query, timeout, &format, api_key, org_id).await?;
         }
         SqlCommands::Shell => {
-            run_interactive_shell(api_url).await?;
+            println!("Interactive SQL shell not yet supported with auth. Use `stm sql query` instead.");
         }
     }
 
@@ -99,13 +104,15 @@ pub async fn handle_sql_command(command: SqlCommands, api_url: &str) -> Result<(
 }
 
 /// Execute a single SQL query and display results
-async fn execute_and_display_query(
+pub async fn execute_and_display_query(
     api_url: &str,
     query: &str,
     timeout_ms: u64,
     format: &str,
+    api_key: Option<&str>,
+    org_id: Option<&str>,
 ) -> Result<()> {
-    let client = RestClient::new(api_url);
+    let client = RestClient::with_org(api_url, api_key.map(String::from), org_id.map(String::from));
 
     let request = SqlQueryRequest {
         query: query.to_string(),
@@ -311,7 +318,7 @@ async fn run_interactive_shell(api_url: &str) -> Result<()> {
         }
 
         // Execute query
-        match execute_and_display_query(api_url, query, 30000, "table").await {
+        match execute_and_display_query(api_url, query, 30000, "table", None, None).await {
             Ok(()) => {}
             Err(e) => {
                 eprintln!("Error: {}", e);

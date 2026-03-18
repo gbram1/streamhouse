@@ -91,7 +91,7 @@ struct Cli {
         short,
         long,
         env = "STREAMHOUSE_ADDR",
-        default_value = "https://api.streamhouse.app:50051"
+        default_value = "http://api.streamhouse.app:50051"
     )]
     server: String,
 
@@ -99,7 +99,7 @@ struct Cli {
     #[arg(
         long,
         env = "SCHEMA_REGISTRY_URL",
-        default_value = "https://api.streamhouse.app/schemas"
+        default_value = "http://api.streamhouse.app:8080/schemas"
     )]
     schema_registry_url: String,
 
@@ -107,7 +107,7 @@ struct Cli {
     #[arg(
         long,
         env = "STREAMHOUSE_API_URL",
-        default_value = "https://api.streamhouse.app"
+        default_value = "http://api.streamhouse.app:8080"
     )]
     api_url: String,
 
@@ -353,14 +353,14 @@ async fn main() -> Result<()> {
             args[2].clone()
         } else {
             std::env::var("STREAMHOUSE_ADDR")
-                .unwrap_or_else(|_| "https://api.streamhouse.app:50051".to_string())
+                .unwrap_or_else(|_| "http://api.streamhouse.app:50051".to_string())
         };
 
         let schema_registry_url = std::env::var("SCHEMA_REGISTRY_URL")
-            .unwrap_or_else(|_| "https://api.streamhouse.app/schemas".to_string());
+            .unwrap_or_else(|_| "http://api.streamhouse.app:8080/schemas".to_string());
 
         let api_url = std::env::var("STREAMHOUSE_API_URL")
-            .unwrap_or_else(|_| "https://api.streamhouse.app".to_string());
+            .unwrap_or_else(|_| "http://api.streamhouse.app:8080".to_string());
 
         let channel = Channel::from_shared(server.clone())
             .context("Invalid server address")?
@@ -563,16 +563,40 @@ async fn main() -> Result<()> {
 
             // --- Commands that only need REST (no gRPC) ---
             Commands::Schema { command } => {
-                commands::schema::handle_schema_command(command, &cli.schema_registry_url).await?
+                commands::schema::handle_schema_command(
+                    command,
+                    &cli.schema_registry_url,
+                    cli.api_key.as_deref(),
+                    active_org_id.as_deref(),
+                )
+                .await?
             }
             Commands::Consumer { command } => {
-                commands::consumer::handle_consumer_command(command, &cli.api_url).await?
+                commands::consumer::handle_consumer_command(
+                    command,
+                    &cli.api_url,
+                    cli.api_key.as_deref(),
+                    active_org_id.as_deref(),
+                )
+                .await?
             }
             Commands::Sql { command } => {
-                commands::sql::handle_sql_command(command, &cli.api_url).await?
+                commands::sql::handle_sql_command(
+                    command,
+                    &cli.api_url,
+                    cli.api_key.as_deref(),
+                    active_org_id.as_deref(),
+                )
+                .await?
             }
             Commands::Pipeline { command } => {
-                commands::pipeline::handle_pipeline_command(command, &cli.api_url).await?
+                commands::pipeline::handle_pipeline_command(
+                    command,
+                    &cli.api_url,
+                    cli.api_key.as_deref(),
+                    active_org_id.as_deref(),
+                )
+                .await?
             }
             Commands::Auth { command } => {
                 commands::auth::handle_auth_command(command, &cli.api_url, cli.api_key.as_deref())

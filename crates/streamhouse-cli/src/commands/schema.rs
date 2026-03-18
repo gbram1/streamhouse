@@ -105,7 +105,12 @@ pub enum ConfigCommands {
 }
 
 /// Handle schema commands
-pub async fn handle_schema_command(command: SchemaCommands, registry_url: &str) -> Result<()> {
+pub async fn handle_schema_command(
+    command: SchemaCommands,
+    registry_url: &str,
+    _api_key: Option<&str>,
+    _org_id: Option<&str>,
+) -> Result<()> {
     let client = SchemaRegistryClient::new(registry_url);
 
     match command {

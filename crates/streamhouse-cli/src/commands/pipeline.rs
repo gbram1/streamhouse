@@ -165,8 +165,13 @@ struct ValidateTransformResponse {
     warnings: Vec<String>,
 }
 
-pub async fn handle_pipeline_command(command: PipelineCommands, api_url: &str) -> Result<()> {
-    let client = RestClient::new(api_url);
+pub async fn handle_pipeline_command(
+    command: PipelineCommands,
+    api_url: &str,
+    api_key: Option<&str>,
+    org_id: Option<&str>,
+) -> Result<()> {
+    let client = RestClient::with_org(api_url, api_key.map(String::from), org_id.map(String::from));
 
     match command {
         PipelineCommands::Target { command } => handle_target_command(command, &client).await,
