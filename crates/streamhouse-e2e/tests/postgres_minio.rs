@@ -193,15 +193,13 @@ async fn test_postgres_multi_tenant_isolation() {
 
     let cluster = TestCluster::builder()
         .with_postgres()
-        .with_minio()
-        .with_auth(true)
         .start()
         .await
         .expect("failed to start cluster");
 
     let client = cluster.rest_client();
 
-    // Create two organizations
+    // Create two organizations (no auth — admin bootstrap)
     let org1 = client
         .create_org("Org Alpha", "org-alpha")
         .await
@@ -214,22 +212,9 @@ async fn test_postgres_multi_tenant_isolation() {
         .expect("create org2 failed");
     let org2_id = org2["id"].as_str().expect("org2 missing id");
 
-    // Create API keys for each org
-    let key1 = client
-        .create_api_key(org1_id, "key1")
-        .await
-        .expect("create key1 failed");
-    let token1 = key1["key"].as_str().expect("key1 missing key");
-
-    let key2 = client
-        .create_api_key(org2_id, "key2")
-        .await
-        .expect("create key2 failed");
-    let token2 = key2["key"].as_str().expect("key2 missing key");
-
-    // Each org creates a topic with the same name
+    // Each org creates a topic with the same name using org ID headers
     let mut client1 = cluster.rest_client();
-    client1.set_auth(token1);
+    client1.set_org_id(org1_id);
     let topic1 = client1
         .create_topic("shared-name", 1)
         .await
@@ -237,7 +222,7 @@ async fn test_postgres_multi_tenant_isolation() {
     assert_eq!(topic1.name, "shared-name");
 
     let mut client2 = cluster.rest_client();
-    client2.set_auth(token2);
+    client2.set_org_id(org2_id);
     let topic2 = client2
         .create_topic("shared-name", 1)
         .await

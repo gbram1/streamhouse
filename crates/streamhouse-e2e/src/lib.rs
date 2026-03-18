@@ -224,15 +224,23 @@ impl TestClusterBuilder {
                 let endpoint = format!("http://127.0.0.1:{}", host_port);
                 tracing::info!("MinIO testcontainer started on port {}", host_port);
 
-                // Create the test bucket
-                let client = reqwest::Client::new();
-                // MinIO default credentials: minioadmin/minioadmin
-                let bucket_url = format!("{}/test-bucket", &endpoint);
-                let _ = client
-                    .put(&bucket_url)
-                    .basic_auth("minioadmin", Some("minioadmin"))
-                    .send()
-                    .await;
+                // Create the bucket using aws-sdk-s3 (properly signed)
+                let s3_creds = aws_sdk_s3::config::Credentials::new(
+                    "minioadmin",
+                    "minioadmin",
+                    None,
+                    None,
+                    "test",
+                );
+                let s3_config = aws_sdk_s3::Config::builder()
+                    .region(aws_sdk_s3::config::Region::new("us-east-1"))
+                    .endpoint_url(&endpoint)
+                    .credentials_provider(s3_creds)
+                    .force_path_style(true)
+                    .behavior_version_latest()
+                    .build();
+                let s3_client = aws_sdk_s3::Client::from_conf(s3_config);
+                let _ = s3_client.create_bucket().bucket("test-bucket").send().await;
 
                 let store = object_store::aws::AmazonS3Builder::new()
                     .with_bucket_name("test-bucket")

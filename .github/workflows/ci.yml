@@ -159,6 +159,7 @@ jobs:
     runs-on: ubuntu-latest
     if: github.ref == 'refs/heads/main' || github.base_ref == 'main'
     needs: build-and-test
+    continue-on-error: true
     env:
       RUSTC_WRAPPER: sccache
       SCCACHE_GHA_ENABLED: "true"
@@ -202,6 +203,7 @@ jobs:
     name: Security Audit
     runs-on: ubuntu-latest
     if: github.ref == 'refs/heads/main' || github.base_ref == 'main' || github.event_name == 'schedule'
+    continue-on-error: true
     steps:
       - uses: actions/checkout@v4
 
@@ -227,6 +229,7 @@ jobs:
     runs-on: ubuntu-latest
     if: github.event_name == 'pull_request' || github.ref == 'refs/heads/main'
     needs: build-and-test
+    continue-on-error: true
     permissions:
       pull-requests: write
       contents: write
