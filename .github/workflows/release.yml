@@ -146,7 +146,7 @@ jobs:
         uses: peter-evans/repository-dispatch@v3
         with:
           token: ${{ secrets.PLATFORM_DISPATCH_TOKEN }}
-          repository: gbram1/streamhouse
+          repository: gbram1/streamhouse-platform
           event-type: deploy
           client-payload: |
             {
