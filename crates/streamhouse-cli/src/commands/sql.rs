@@ -96,7 +96,9 @@ pub async fn handle_sql_command(
             execute_and_display_query(api_url, &query, timeout, &format, api_key, org_id).await?;
         }
         SqlCommands::Shell => {
-            println!("Interactive SQL shell not yet supported with auth. Use `stm sql query` instead.");
+            println!(
+                "Interactive SQL shell not yet supported with auth. Use `stm sql query` instead."
+            );
         }
     }
 
