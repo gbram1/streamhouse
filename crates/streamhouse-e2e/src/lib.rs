@@ -171,6 +171,7 @@ impl TestClusterBuilder {
         std::fs::create_dir_all(&cache_dir)?;
 
         // ── Metadata store (SQLite or Postgres) ────────────────────────────
+        #[allow(unused_mut)]
         let mut postgres_container = None;
         let metadata: Arc<dyn MetadataStore> = if self.use_postgres {
             #[cfg(feature = "postgres")]
