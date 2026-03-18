@@ -197,9 +197,7 @@ impl TestClusterBuilder {
             }
             #[cfg(not(feature = "postgres"))]
             {
-                anyhow::bail!(
-                    "with_postgres() requires the `postgres` feature to be enabled"
-                );
+                anyhow::bail!("with_postgres() requires the `postgres` feature to be enabled");
             }
         } else {
             Arc::new(

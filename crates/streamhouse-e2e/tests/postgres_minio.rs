@@ -163,11 +163,7 @@ async fn test_postgres_minio_schema_validation() {
     });
 
     let schema_resp = client
-        .register_schema(
-            "schema-pg-topic-value",
-            &schema.to_string(),
-            "JSON",
-        )
+        .register_schema("schema-pg-topic-value", &schema.to_string(), "JSON")
         .await
         .expect("register schema failed");
     assert!(schema_resp.id > 0);
