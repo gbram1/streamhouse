@@ -184,12 +184,12 @@ elif echo "$RESULT" | grep -qi "already exists" 2>/dev/null; then
     dim "  Topic already exists (from previous run), continuing..."
     pass "Topic exists: $TOPIC"
 else
-    # Try streamctl if available
-    if command -v ./target/release/streamctl &>/dev/null; then
-        ./target/release/streamctl topic delete "$TOPIC" 2>/dev/null || true
+    # Try stm if available
+    if command -v ./target/release/stm &>/dev/null; then
+        ./target/release/stm topic delete "$TOPIC" 2>/dev/null || true
         sleep 1
-        if ./target/release/streamctl topic create "$TOPIC" --partitions "$PARTITIONS" 2>/dev/null; then
-            pass "Topic created via streamctl: $TOPIC ($PARTITIONS partitions)"
+        if ./target/release/stm topic create "$TOPIC" --partitions "$PARTITIONS" 2>/dev/null; then
+            pass "Topic created via stm: $TOPIC ($PARTITIONS partitions)"
         else
             fail "Failed to create topic" "$RESULT"
         fi

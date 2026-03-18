@@ -1,4 +1,4 @@
-//! Command handlers for streamctl
+//! Command handlers for stm
 //!
 //! This module contains handlers for different command categories:
 //! - Schema: Schema registry operations

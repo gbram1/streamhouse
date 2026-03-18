@@ -1,13 +1,13 @@
 //! Project scaffolding command
 //!
-//! `streamctl init [directory]` creates a new StreamHouse project with a template config.
+//! `stm init [directory]` creates a new StreamHouse project with a template config.
 
 use anyhow::{Context, Result};
 use std::path::Path;
 
 const TEMPLATE_YAML: &str = r#"# StreamHouse declarative configuration
-# Apply with: streamctl apply
-# Destroy with: streamctl destroy
+# Apply with: stm apply
+# Destroy with: stm destroy
 
 # Topics define your data streams
 topics:
@@ -78,7 +78,7 @@ pub fn handle_init(directory: Option<&str>) -> Result<()> {
     println!("  Created: .env.example");
     println!();
     println!("Edit streamhouse.yaml, then run:");
-    println!("  streamctl apply");
+    println!("  stm apply");
 
     Ok(())
 }

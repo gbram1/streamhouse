@@ -4,7 +4,7 @@ set -euo pipefail
 # E2E test for schema validation on produce
 # Requires: docker compose services running, binaries built
 
-STREAMCTL="./target/release/streamctl"
+STREAMCTL="./target/release/stm"
 API_URL="http://localhost:8080"
 PASS=0
 FAIL=0

@@ -1,6 +1,6 @@
 //! Status dashboard command
 //!
-//! `streamctl status` shows a single-pane overview of the StreamHouse cluster.
+//! `stm status` shows a single-pane overview of the StreamHouse cluster.
 
 use anyhow::Result;
 use serde::Deserialize;

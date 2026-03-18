@@ -1,4 +1,4 @@
-//! Interactive REPL mode for streamctl
+//! Interactive REPL mode for stm
 //!
 //! Provides a rustyline-based interactive shell with:
 //! - Command history (up/down arrows)

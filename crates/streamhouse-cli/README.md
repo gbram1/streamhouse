@@ -1,4 +1,4 @@
-# StreamHouse CLI (`streamctl`)
+# StreamHouse CLI (`stm`)
 
 Command-line tool for interacting with StreamHouse servers.
 
@@ -16,15 +16,15 @@ cargo run -p streamhouse-cli -- <command>
 
 ### Connection
 
-By default, `streamctl` connects to `http://localhost:9090`. Override with:
+By default, `stm` connects to `http://localhost:9090`. Override with:
 
 ```bash
 # Via flag
-streamctl --server http://production:9090 topic list
+stm --server http://production:9090 topic list
 
 # Via environment variable
 export STREAMHOUSE_ADDR=http://production:9090
-streamctl topic list
+stm topic list
 ```
 
 ### Topic Management
@@ -33,19 +33,19 @@ streamctl topic list
 
 ```bash
 # Create with default 1 partition
-streamctl topic create orders
+stm topic create orders
 
 # Create with multiple partitions
-streamctl topic create orders --partitions 3
+stm topic create orders --partitions 3
 
 # Create with retention period (1 day = 86400000ms)
-streamctl topic create orders --partitions 3 --retention-ms 86400000
+stm topic create orders --partitions 3 --retention-ms 86400000
 ```
 
 #### List Topics
 
 ```bash
-streamctl topic list
+stm topic list
 ```
 
 Output:
@@ -58,7 +58,7 @@ Topics (2):
 #### Get Topic Info
 
 ```bash
-streamctl topic get orders
+stm topic get orders
 ```
 
 Output:
@@ -71,7 +71,7 @@ Topic: orders
 #### Delete a Topic
 
 ```bash
-streamctl topic delete orders
+stm topic delete orders
 ```
 
 ### Producing Records
@@ -80,13 +80,13 @@ streamctl topic delete orders
 
 ```bash
 # Produce to partition 0
-streamctl produce orders --partition 0 --value '{"amount": 99.99, "item": "widget"}'
+stm produce orders --partition 0 --value '{"amount": 99.99, "item": "widget"}'
 ```
 
 #### Produce with Key
 
 ```bash
-streamctl produce orders --partition 0 --key "user-123" --value '{"amount": 99.99}'
+stm produce orders --partition 0 --key "user-123" --value '{"amount": 99.99}'
 ```
 
 Output:
@@ -103,14 +103,14 @@ Output:
 #### Consume from Beginning
 
 ```bash
-streamctl consume orders --partition 0 --offset 0
+stm consume orders --partition 0 --offset 0
 ```
 
 #### Consume with Limit
 
 ```bash
 # Get only first 10 records
-streamctl consume orders --partition 0 --offset 0 --limit 10
+stm consume orders --partition 0 --offset 0 --limit 10
 ```
 
 Output:
@@ -138,7 +138,7 @@ Record 2 (offset: 1, timestamp: 1737524860123)
 #### Commit an Offset
 
 ```bash
-streamctl offset commit \
+stm offset commit \
   --group analytics \
   --topic orders \
   --partition 0 \
@@ -157,7 +157,7 @@ Output:
 #### Get Committed Offset
 
 ```bash
-streamctl offset get \
+stm offset get \
   --group analytics \
   --topic orders \
   --partition 0
@@ -177,27 +177,27 @@ Consumer group: analytics
 
 ```bash
 # 1. Create a topic
-streamctl topic create clicks --partitions 2
+stm topic create clicks --partitions 2
 
 # 2. Produce some events
-streamctl produce clicks --partition 0 --value '{"user_id": 1, "url": "/home"}'
-streamctl produce clicks --partition 0 --value '{"user_id": 2, "url": "/products"}'
-streamctl produce clicks --partition 1 --value '{"user_id": 3, "url": "/checkout"}'
+stm produce clicks --partition 0 --value '{"user_id": 1, "url": "/home"}'
+stm produce clicks --partition 0 --value '{"user_id": 2, "url": "/products"}'
+stm produce clicks --partition 1 --value '{"user_id": 3, "url": "/checkout"}'
 
 # 3. Consume from partition 0
-streamctl consume clicks --partition 0 --offset 0
+stm consume clicks --partition 0 --offset 0
 
 # 4. Track consumer progress
-streamctl offset commit --group processor --topic clicks --partition 0 --offset 2
+stm offset commit --group processor --topic clicks --partition 0 --offset 2
 
 # 5. Check committed offset
-streamctl offset get --group processor --topic clicks --partition 0
+stm offset get --group processor --topic clicks --partition 0
 
 # 6. List all topics
-streamctl topic list
+stm topic list
 
 # 7. Clean up
-streamctl topic delete clicks
+stm topic delete clicks
 ```
 
 ### Batch Production Script
@@ -211,7 +211,7 @@ PARTITION=0
 
 for i in {1..100}; do
   VALUE="{\"event_id\": $i, \"timestamp\": $(date +%s)}"
-  streamctl produce $TOPIC --partition $PARTITION --value "$VALUE"
+  stm produce $TOPIC --partition $PARTITION --value "$VALUE"
   echo "Produced event $i"
 done
 ```
@@ -220,13 +220,13 @@ done
 
 ```bash
 # General help
-streamctl --help
+stm --help
 
 # Topic command help
-streamctl topic --help
+stm topic --help
 
 # Create topic help
-streamctl topic create --help
+stm topic create --help
 ```
 
 ## Configuration
@@ -271,10 +271,10 @@ grpcurl -plaintext \
   localhost:9090 streamhouse.StreamHouse/Produce
 ```
 
-**streamctl:**
+**stm:**
 ```bash
 # Produce (no encoding needed)
-streamctl produce orders --partition 0 --value '{"amount": 99.99}'
+stm produce orders --partition 0 --value '{"amount": 99.99}'
 ```
 
 ## Troubleshooting
@@ -299,7 +299,7 @@ Caused by:
     status: NotFound, message: "Topic not found: orders"
 ```
 
-**Solution**: Create the topic first with `streamctl topic create orders`
+**Solution**: Create the topic first with `stm topic create orders`
 
 ### Invalid Partition
 

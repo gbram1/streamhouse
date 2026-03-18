@@ -6,19 +6,19 @@
 //!
 //! ```bash
 //! # List all topics
-//! streamctl sql "SHOW TOPICS"
+//! stm sql "SHOW TOPICS"
 //!
 //! # Query messages from a topic
-//! streamctl sql "SELECT * FROM orders LIMIT 10"
+//! stm sql "SELECT * FROM orders LIMIT 10"
 //!
 //! # Filter by key
-//! streamctl sql "SELECT * FROM orders WHERE key = 'customer-123' LIMIT 50"
+//! stm sql "SELECT * FROM orders WHERE key = 'customer-123' LIMIT 50"
 //!
 //! # Extract JSON fields
-//! streamctl sql "SELECT key, json_extract(value, '$.amount') as amount FROM orders LIMIT 10"
+//! stm sql "SELECT key, json_extract(value, '$.amount') as amount FROM orders LIMIT 10"
 //!
 //! # Interactive mode
-//! streamctl sql --interactive
+//! stm sql --interactive
 //! ```
 
 use anyhow::{Context, Result};

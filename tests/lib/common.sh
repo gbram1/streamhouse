@@ -50,7 +50,7 @@ export TEST_AWS_REGION="${TEST_AWS_REGION:-us-east-1}"
 # Root of the project
 export PROJECT_ROOT="${PROJECT_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)}"
 export BINARY="${PROJECT_ROOT}/target/test-release/unified-server"
-export STREAMCTL="${PROJECT_ROOT}/target/test-release/streamctl"
+export STREAMCTL="${PROJECT_ROOT}/target/test-release/stm"
 
 # Test data directory (isolated per run)
 export TEST_TMPDIR="${TEST_TMPDIR:-$(mktemp -d /tmp/streamhouse-test-XXXXXX)}"
@@ -226,14 +226,14 @@ build_server_postgres() {
 }
 
 build_cli() {
-    echo -e "${BOLD}Building streamctl (test-release, no LTO)...${NC}"
-    cargo build --profile test-release -p streamhouse-cli --bin streamctl --manifest-path "${PROJECT_ROOT}/Cargo.toml" 2>&1
+    echo -e "${BOLD}Building stm (test-release, no LTO)...${NC}"
+    cargo build --profile test-release -p streamhouse-cli --bin stm --manifest-path "${PROJECT_ROOT}/Cargo.toml" 2>&1
     if [ ! -f "$STREAMCTL" ]; then
-        echo -e "${YELLOW}streamctl binary not found — CLI tests will be skipped${NC}"
+        echo -e "${YELLOW}stm binary not found — CLI tests will be skipped${NC}"
         export HAS_STREAMCTL=0
     else
         export HAS_STREAMCTL=1
-        echo -e "${GREEN}streamctl built${NC}"
+        echo -e "${GREEN}stm built${NC}"
     fi
 }
 

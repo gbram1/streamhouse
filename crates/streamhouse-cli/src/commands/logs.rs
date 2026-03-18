@@ -1,6 +1,6 @@
 //! Pipeline log tailing command
 //!
-//! `streamctl logs <pipeline>` polls pipeline state and shows record progress.
+//! `stm logs <pipeline>` polls pipeline state and shows record progress.
 
 use anyhow::{Context, Result};
 use chrono::Local;

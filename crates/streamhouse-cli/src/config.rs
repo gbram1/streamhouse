@@ -1,4 +1,4 @@
-//! Configuration management for streamctl
+//! Configuration management for stm
 
 use anyhow::Result;
 use serde::{Deserialize, Serialize};

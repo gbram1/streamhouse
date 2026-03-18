@@ -58,7 +58,7 @@ Tests: multi-agent coordination, org isolation, topic CRUD, schema validation, p
 ./tests/e2e_observability.sh
 ```
 
-Tests: real Postgres + S3 (MinIO), multi-agent, gRPC produce, REST consume, reconciler, streamctl CLI. Leaves services running for dashboard exploration.
+Tests: real Postgres + S3 (MinIO), multi-agent, gRPC produce, REST consume, reconciler, stm CLI. Leaves services running for dashboard exploration.
 
 Services available after:
 - Grafana: http://localhost:3001 (admin / admin)
@@ -196,7 +196,7 @@ Batch produce via `POST /api/v1/produce/batch`.
 | 06 | Error handling, invalid inputs |
 | 07 | Concurrent writes |
 | 08 | Performance |
-| 09 | streamctl CLI |
+| 09 | stm CLI |
 | 10 | SQL queries |
 | 11 | Kafka wire protocol |
 | 12 | Cross-protocol (REST + gRPC + Kafka interop) |

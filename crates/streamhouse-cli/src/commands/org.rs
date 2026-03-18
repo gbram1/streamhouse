@@ -235,7 +235,7 @@ pub async fn handle_org_command(
             let orgs: Vec<_> = manager.list_orgs().into_iter().cloned().collect();
 
             if orgs.is_empty() {
-                anyhow::bail!("No organizations stored. Run `streamctl auth login` first.");
+                anyhow::bail!("No organizations stored. Run `stm auth login` first.");
             }
 
             let slug = if let Some(name_parts) = name {

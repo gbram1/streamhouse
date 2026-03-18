@@ -135,7 +135,7 @@ pub async fn handle_auth_command(
                 let prefix_len = key.len().min(16);
                 println!("API key: {}...", &key[..prefix_len]);
             } else {
-                println!("Not logged in. Run `streamctl auth login` to authenticate.");
+                println!("Not logged in. Run `stm auth login` to authenticate.");
             }
         }
 
@@ -246,7 +246,7 @@ async fn handle_api_key_login(api_key: String, server_url: &str) -> Result<()> {
             println!("  Active: {} ({})", orgs[0].name, orgs[0].slug);
         } else {
             println!("  Active: {} ({})", orgs[0].name, orgs[0].slug);
-            println!("  Use `streamctl org switch <slug>` to change active org.");
+            println!("  Use `stm org switch <slug>` to change active org.");
         }
 
         manager.save()?;
@@ -404,17 +404,17 @@ async fn handle_browser_login(server_url: &str) -> Result<()> {
 
     if browser_creds.organizations.len() > 1 {
         println!();
-        println!("Use `streamctl org switch <slug>` to change active org.");
+        println!("Use `stm org switch <slug>` to change active org.");
     }
 
     Ok(())
 }
 
 /// Provision a per-org API key for the CLI.
-/// First checks if a "streamctl-cli" key already exists, reuses if so.
+/// First checks if a "stm-cli" key already exists, reuses if so.
 /// Otherwise creates a new one.
 async fn provision_org_key(client: &RestClient, org_id: &str, org_slug: &str) -> Result<String> {
-    let key_name = format!("streamctl-cli-{}", org_slug);
+    let key_name = format!("stm-cli-{}", org_slug);
 
     // Check if we already have a CLI key for this org
     let existing_keys: Vec<ApiKeyListEntry> = client
@@ -431,7 +431,7 @@ async fn provision_org_key(client: &RestClient, org_id: &str, org_slug: &str) ->
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap()
             .as_secs();
-        format!("streamctl-cli-{}-{}", org_slug, ts)
+        format!("stm-cli-{}-{}", org_slug, ts)
     } else {
         key_name
     };

@@ -4265,12 +4265,12 @@ done
 
 # ══════════════════════════════════════════════════════════════════════════════
 # Phase 15 — CLI Integration Tests
-# Tests the streamctl CLI binary against the running server
+# Tests the stm CLI binary against the running server
 
-phase_header "Phase 15 — CLI (streamctl)"
+phase_header "Phase 15 — CLI (stm)"
 
 if [ "${HAS_STREAMCTL:-0}" != "1" ] || [ ! -f "${STREAMCTL:-/nonexistent}" ]; then
-    skip "All CLI tests" "streamctl binary not found"
+    skip "All CLI tests" "stm binary not found"
 else
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -4362,7 +4362,7 @@ if [ "$EXIT_CODE" -eq 0 ]; then
 else
     # SQL via CLI may not be implemented, or topic not yet flushed to segments
     if echo "$RESULT" | grep -qi "not.*supported\|not.*implemented\|unknown\|unrecognized"; then
-        skip "CLI: sql query" "not supported by streamctl"
+        skip "CLI: sql query" "not supported by stm"
     elif echo "$RESULT" | grep -qi "not.*found\|404"; then
         skip "CLI: sql query" "topic not yet visible to SQL engine (needs segment flush)"
     else

@@ -5,15 +5,15 @@ set -euo pipefail
 # Comprehensive E2E Test: Full StreamHouse Flow (Docker Compose)
 #
 # Exercises every major feature end-to-end:
-#   0.  Build (docker image + streamctl CLI)
+#   0.  Build (docker image + stm CLI)
 #   1.  Start infrastructure (postgres, minio)
 #   2.  Start server + 3 agents
 #   3.  Organization isolation (multi-tenant topic scoping)
-#   4.  Create test topics via streamctl CLI
+#   4.  Create test topics via stm CLI
 #   5.  Verify partition assignment across agents
 #   6.  Register JSON schema
 #   7.  Produce messages (with schema validation)
-#   8.  Consume messages via streamctl
+#   8.  Consume messages via stm
 #   9.  Consumer group offsets
 #   10. SQL queries
 #   11. Kill agent-3, verify rebalance
@@ -33,7 +33,7 @@ cd "$PROJECT_DIR"
 
 API_URL="http://localhost:8080"
 GRPC_URL="http://localhost:50051"
-STREAMCTL="./target/release/streamctl"
+STREAMCTL="./target/release/stm"
 REBALANCE_WAIT=60
 
 PASS=0
@@ -160,7 +160,7 @@ if [ "${1:-}" != "--no-build" ]; then
     bold "=== Step 0: Build ==="
     echo "  Building docker images (server + agents)..."
     docker compose build streamhouse agent-1 agent-2 agent-3
-    echo "  Building streamctl CLI..."
+    echo "  Building stm CLI..."
     cargo build --release -p streamhouse-cli
     echo ""
 else
@@ -168,13 +168,13 @@ else
     echo ""
 fi
 
-# Verify streamctl exists
+# Verify stm exists
 if [ ! -x "$STREAMCTL" ]; then
     red "ERROR: $STREAMCTL not found. Run without --no-build first."
     exit 1
 fi
 
-# Set env for streamctl (gRPC) and schema registry
+# Set env for stm (gRPC) and schema registry
 export STREAMHOUSE_ADDR="$GRPC_URL"
 export SCHEMA_REGISTRY_URL="$API_URL/schemas"
 

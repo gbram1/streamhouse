@@ -1,4 +1,4 @@
-//! Declarative configuration types and diff engine for streamctl
+//! Declarative configuration types and diff engine for stm
 //!
 //! Supports `streamhouse.yaml` with topics, targets, pipelines, and connectors.
 

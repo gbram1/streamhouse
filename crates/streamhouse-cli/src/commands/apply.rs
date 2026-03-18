@@ -1,7 +1,7 @@
 //! Declarative apply/destroy commands
 //!
-//! `streamctl apply` reads streamhouse.yaml, diffs against current state, and applies changes.
-//! `streamctl destroy` reads streamhouse.yaml and tears down all declared resources.
+//! `stm apply` reads streamhouse.yaml, diffs against current state, and applies changes.
+//! `stm destroy` reads streamhouse.yaml and tears down all declared resources.
 
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
@@ -118,7 +118,7 @@ async fn fetch_current_state(client: &RestClient) -> Result<CurrentState> {
     })
 }
 
-/// Handle `streamctl apply`
+/// Handle `stm apply`
 pub async fn handle_apply(
     file: Option<&str>,
     yes: bool,
@@ -281,7 +281,7 @@ pub async fn handle_apply(
     Ok(())
 }
 
-/// Handle `streamctl destroy`
+/// Handle `stm destroy`
 pub async fn handle_destroy(
     file: Option<&str>,
     yes: bool,

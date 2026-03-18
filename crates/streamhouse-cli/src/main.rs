@@ -1,11 +1,11 @@
 #![allow(dead_code)]
-//! StreamHouse CLI (streamctl)
+//! StreamHouse CLI (stm)
 //!
 //! Command-line tool for interacting with StreamHouse servers via gRPC.
 //!
 //! ## Overview
 //!
-//! `streamctl` provides an ergonomic interface to StreamHouse operations:
+//! `stm` provides an ergonomic interface to StreamHouse operations:
 //! - **Topic management**: Create, list, get, and delete topics
 //! - **Record production**: Send records with optional keys
 //! - **Record consumption**: Read records from specific offsets
@@ -17,7 +17,7 @@
 //! # Build from source
 //! cargo build --release -p streamhouse-cli
 //!
-//! # Binary will be at ./target/release/streamctl
+//! # Binary will be at ./target/release/stm
 //! ```
 //!
 //! ## Quick Start
@@ -27,17 +27,17 @@
 //! export STREAMHOUSE_ADDR=http://localhost:9090
 //!
 //! # Create a topic
-//! streamctl topic create orders --partitions 3
+//! stm topic create orders --partitions 3
 //!
 //! # Produce a record
-//! streamctl produce orders --partition 0 --value '{"amount": 99.99}'
+//! stm produce orders --partition 0 --value '{"amount": 99.99}'
 //!
 //! # Consume records
-//! streamctl consume orders --partition 0 --offset 0
+//! stm consume orders --partition 0 --offset 0
 //!
 //! # Manage consumer offsets
-//! streamctl offset commit --group analytics --topic orders --partition 0 --offset 42
-//! streamctl offset get --group analytics --topic orders --partition 0
+//! stm offset commit --group analytics --topic orders --partition 0 --offset 42
+//! stm offset get --group analytics --topic orders --partition 0
 //! ```
 //!
 //! ## Configuration
@@ -83,7 +83,7 @@ mod rest_client;
 use pb::stream_house_client::StreamHouseClient;
 
 #[derive(Parser)]
-#[command(name = "streamctl")]
+#[command(name = "stm")]
 #[command(about = "StreamHouse command-line tool", long_about = None)]
 struct Cli {
     /// Server address (gRPC)
@@ -649,7 +649,7 @@ async fn main() -> Result<()> {
             }
             Commands::Completions { shell } => {
                 let mut cmd = <Cli as clap::CommandFactory>::command();
-                clap_complete::generate(shell, &mut cmd, "streamctl", &mut std::io::stdout());
+                clap_complete::generate(shell, &mut cmd, "stm", &mut std::io::stdout());
             }
         }
     }
@@ -764,7 +764,7 @@ pub async fn handle_topic_command(
 ///
 /// ## Example
 /// ```bash
-/// streamctl produce orders --partition 0 --value '{"amount": 99.99}'
+/// stm produce orders --partition 0 --value '{"amount": 99.99}'
 /// ```
 pub async fn handle_produce(
     client: &mut StreamHouseClient<Channel>,
@@ -897,7 +897,7 @@ fn validate_avro_schema_client(schema_str: &str, value: &str) -> Result<(), Stri
 ///
 /// ## Example
 /// ```bash
-/// streamctl consume orders --partition 0 --offset 0 --limit 10
+/// stm consume orders --partition 0 --offset 0 --limit 10
 /// ```
 pub async fn handle_consume(
     client: &mut StreamHouseClient<Channel>,
@@ -989,10 +989,10 @@ pub async fn handle_consume(
 /// ## Example
 /// ```bash
 /// # Mark that we've processed up to offset 100
-/// streamctl offset commit --group analytics --topic orders --partition 0 --offset 100
+/// stm offset commit --group analytics --topic orders --partition 0 --offset 100
 ///
 /// # Later, retrieve where we left off
-/// streamctl offset get --group analytics --topic orders --partition 0
+/// stm offset get --group analytics --topic orders --partition 0
 /// ```
 pub async fn handle_offset_command(
     client: &mut StreamHouseClient<Channel>,

@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
 # Phase 09 — CLI Integration Tests
-# Tests the streamctl CLI binary against the running server
+# Tests the stm CLI binary against the running server
 
-phase_header "Phase 09 — CLI (streamctl)"
+phase_header "Phase 09 — CLI (stm)"
 
 if [ "${HAS_STREAMCTL:-0}" = "0" ] || [ ! -f "$STREAMCTL" ]; then
-    skip "All CLI tests" "streamctl binary not found"
+    skip "All CLI tests" "stm binary not found"
     return 0 2>/dev/null || exit 0
 fi
 

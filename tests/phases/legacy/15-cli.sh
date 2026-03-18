@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
 # Phase 15 — CLI Integration Tests
-# Tests the streamctl CLI binary against the running server
+# Tests the stm CLI binary against the running server
 
-phase_header "Phase 15 — CLI (streamctl)"
+phase_header "Phase 15 — CLI (stm)"
 
 if [ "${HAS_STREAMCTL:-0}" != "1" ] || [ ! -f "$STREAMCTL" ]; then
-    skip "All CLI tests" "streamctl binary not found"
+    skip "All CLI tests" "stm binary not found"
     return 0 2>/dev/null || exit 0
 fi
 
@@ -115,7 +115,7 @@ if [ "$EXIT_CODE" -eq 0 ]; then
 else
     # SQL via CLI may not be implemented — skip rather than fail
     if echo "$RESULT" | grep -qi "not.*supported\|not.*implemented\|unknown\|unrecognized"; then
-        skip "CLI: sql query" "not supported by streamctl"
+        skip "CLI: sql query" "not supported by stm"
     else
         fail "CLI: sql query" "exit $EXIT_CODE: $(echo "$RESULT" | head -c 200)"
     fi

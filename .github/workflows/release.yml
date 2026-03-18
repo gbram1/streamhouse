@@ -66,10 +66,10 @@ jobs:
         include:
           - os: ubuntu-latest
             target: x86_64-unknown-linux-gnu
-            artifact: streamctl-linux-amd64
+            artifact: stm-linux-amd64
           - os: macos-latest
             target: aarch64-apple-darwin
-            artifact: streamctl-darwin-arm64
+            artifact: stm-darwin-arm64
     steps:
       - uses: actions/checkout@v4
 
@@ -89,11 +89,11 @@ jobs:
         with:
           shared-key: "release-${{ matrix.target }}"
 
-      - name: Build streamctl
-        run: cargo build --release --locked --bin streamctl
+      - name: Build stm
+        run: cargo build --release --locked --bin stm
 
       - name: Rename binary
-        run: cp target/release/streamctl ${{ matrix.artifact }}
+        run: cp target/release/stm ${{ matrix.artifact }}
 
       - name: Generate checksum
         run: shasum -a 256 ${{ matrix.artifact }} > ${{ matrix.artifact }}.sha256
@@ -118,7 +118,7 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           path: artifacts
-          pattern: streamctl-*
+          pattern: stm-*
           merge-multiple: true
 
       - name: Create checksums file
@@ -129,8 +129,8 @@ jobs:
         with:
           generate_release_notes: true
           files: |
-            artifacts/streamctl-linux-amd64
-            artifacts/streamctl-darwin-arm64
+            artifacts/stm-linux-amd64
+            artifacts/stm-darwin-arm64
             artifacts/checksums.txt
 
   # --- Dispatch deploy ---

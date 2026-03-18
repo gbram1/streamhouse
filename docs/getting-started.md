@@ -247,7 +247,7 @@ docker compose up -d
 
 ---
 
-## CLI (`streamctl`)
+## CLI (`stm`)
 
 ```bash
 cargo build --release -p streamhouse-cli
@@ -257,30 +257,30 @@ cargo build --release -p streamhouse-cli
 
 ```bash
 # Topics
-streamctl topic create orders --partitions 4
-streamctl topic list
-streamctl topic get orders
-streamctl topic delete orders
+stm topic create orders --partitions 4
+stm topic list
+stm topic get orders
+stm topic delete orders
 
 # Produce & consume
-streamctl produce orders --partition 0 --value '{"event":"signup"}'
-streamctl consume orders --partition 0 --offset 0 --limit 10
+stm produce orders --partition 0 --value '{"event":"signup"}'
+stm consume orders --partition 0 --offset 0 --limit 10
 
 # SQL
-streamctl sql query 'SELECT * FROM orders LIMIT 10'
+stm sql query 'SELECT * FROM orders LIMIT 10'
 
 # Schemas
-streamctl schema list
-streamctl schema register orders-value /tmp/schema.json --schema-type JSON
-streamctl schema get orders-value
+stm schema list
+stm schema register orders-value /tmp/schema.json --schema-type JSON
+stm schema get orders-value
 
 # Consumer groups
-streamctl consumer list
-streamctl consumer lag my-group
-streamctl offset commit --group my-group --topic orders --partition 0 --offset 10
+stm consumer list
+stm consumer lag my-group
+stm offset commit --group my-group --topic orders --partition 0 --offset 10
 
 # Interactive REPL
-streamctl   # (no arguments)
+stm   # (no arguments)
 ```
 
 ### Connection Config

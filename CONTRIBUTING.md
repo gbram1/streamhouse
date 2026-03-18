@@ -81,7 +81,7 @@ crates/
   streamhouse-metadata/    # SQLite + PostgreSQL metadata backends
   streamhouse-server/      # Unified server (gRPC + REST + Kafka protocol)
   streamhouse-client/      # Rust client (Producer + Consumer)
-  streamhouse-cli/         # CLI tool (streamctl)
+  streamhouse-cli/         # CLI tool (stm)
   streamhouse-kafka/       # Kafka protocol compatibility
   streamhouse-sql/         # SQL query engine
   streamhouse-api/         # REST API layer

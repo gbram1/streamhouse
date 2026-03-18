@@ -5,7 +5,7 @@ set -euo pipefail
 # Observability & Benchmark Demo: Full StreamHouse Internals
 #
 # Uses the REAL production path throughout:
-#   - streamctl CLI (gRPC) for topic mgmt, produce, consume, offsets, SQL
+#   - stm CLI (gRPC) for topic mgmt, produce, consume, offsets, SQL
 #   - REST batch endpoint only for throughput benchmarking (labeled clearly)
 #   - Real postgres, real S3, real agents, real reconciler
 #
@@ -24,11 +24,11 @@ cd "$PROJECT_DIR"
 
 API_URL="http://localhost:8080"
 GRPC_URL="http://localhost:50051"
-STREAMCTL="./target/release/streamctl"
+STREAMCTL="./target/release/stm"
 TOPIC="obs-bench"
 PARTITIONS=6
 
-# Configure streamctl to use gRPC
+# Configure stm to use gRPC
 export STREAMHOUSE_ADDR="$GRPC_URL"
 export SCHEMA_REGISTRY_URL="$API_URL/schemas"
 export STREAMHOUSE_API_URL="$API_URL"
@@ -124,14 +124,14 @@ header "Section 0: Start Full Stack (infra + monitoring)"
 if [ "${1:-}" != "--no-build" ]; then
     echo "  Building docker images..."
     docker compose build streamhouse agent-1 agent-2 agent-3
-    echo "  Building streamctl CLI..."
+    echo "  Building stm CLI..."
     cargo build --release -p streamhouse-cli
     echo ""
 else
     dim "  (build skipped with --no-build)"
 fi
 
-# Verify streamctl exists
+# Verify stm exists
 if [ ! -x "$STREAMCTL" ]; then
     red "ERROR: $STREAMCTL not found. Run without --no-build first."
     exit 1
@@ -210,21 +210,21 @@ echo "    MinIO Console:  http://localhost:9001  (minioadmin/minioadmin)"
 set +e
 
 # =============================================================================
-# Section 1: Create Topic & Inspect Postgres (via streamctl)
+# Section 1: Create Topic & Inspect Postgres (via stm)
 # =============================================================================
 
 header "Section 1: Postgres Internals — Initial State"
 
 echo ""
-echo "  Creating topic via streamctl (gRPC)..."
+echo "  Creating topic via stm (gRPC)..."
 $STREAMCTL topic create "$TOPIC" --partitions "$PARTITIONS" 2>&1 | sed 's/^/    /'
 
 echo ""
-echo "  Listing topics via streamctl (gRPC)..."
+echo "  Listing topics via stm (gRPC)..."
 $STREAMCTL topic list 2>&1 | sed 's/^/    /'
 
 echo ""
-echo "  Getting topic info via streamctl (gRPC)..."
+echo "  Getting topic info via stm (gRPC)..."
 $STREAMCTL topic get "$TOPIC" 2>&1 | sed 's/^/    /'
 
 echo ""
@@ -277,13 +277,13 @@ for agent, count in sorted(Counter(leaders).items()):
 "
 
 # =============================================================================
-# Section 3: Produce & Consume via streamctl (real gRPC path)
+# Section 3: Produce & Consume via stm (real gRPC path)
 # =============================================================================
 
-header "Section 3: Produce & Consume via streamctl (gRPC)"
+header "Section 3: Produce & Consume via stm (gRPC)"
 
 echo ""
-echo "  Producing 20 messages via streamctl (gRPC, one-at-a-time)..."
+echo "  Producing 20 messages via stm (gRPC, one-at-a-time)..."
 T_START=$(ms_now)
 for i in $(seq 1 20); do
     $STREAMCTL produce "$TOPIC" --partition 0 --key "order-$i" \
@@ -297,15 +297,15 @@ green "  20 messages produced in ${GRPC_PRODUCE_MS}ms (~${GRPC_PER_MSG}ms per me
 dim "    (each call = new gRPC connection + produce + close)"
 
 echo ""
-echo "  Consuming via streamctl (gRPC)..."
+echo "  Consuming via stm (gRPC)..."
 $STREAMCTL consume "$TOPIC" --partition 0 --offset 0 --limit 5 2>&1 | sed 's/^/    /'
 
 echo ""
-echo "  Committing consumer offset via streamctl (gRPC)..."
+echo "  Committing consumer offset via stm (gRPC)..."
 $STREAMCTL offset commit --group obs-group --topic "$TOPIC" --partition 0 --offset 20 2>&1 | sed 's/^/    /'
 
 echo ""
-echo "  Reading committed offset via streamctl (gRPC)..."
+echo "  Reading committed offset via stm (gRPC)..."
 $STREAMCTL offset get --group obs-group --topic "$TOPIC" --partition 0 2>&1 | sed 's/^/    /'
 
 # =============================================================================
@@ -416,13 +416,13 @@ yellow "  >>> S3 listing after reconciliation:"
 minio_mc "ls myminio/streamhouse/data/$TOPIC/0/" || echo "    (empty)"
 
 # =============================================================================
-# Section 7: SQL Benchmarks (via streamctl + REST timing)
+# Section 7: SQL Benchmarks (via stm + REST timing)
 # =============================================================================
 
 header "Section 7: SQL Benchmarks"
 
 echo ""
-echo "  Running SQL via streamctl (gRPC → REST)..."
+echo "  Running SQL via stm (gRPC → REST)..."
 echo ""
 $STREAMCTL sql query "SHOW TOPICS" 2>&1 | sed 's/^/    /'
 echo ""
@@ -570,9 +570,9 @@ FINAL_AGENTS=$(curl -sf "$API_URL/api/v1/agents" 2>/dev/null \
 echo ""
 bold "  === Observability Test Summary ==="
 echo ""
-printf "    gRPC produce (per msg):  %s ms  (streamctl, new conn each call)\n" "$GRPC_PER_MSG"
-printf "    Buffer read latency:     %s ms  (streamctl consume, from RAM)\n" "$BUFFER_MS"
-printf "    S3 read latency:         %s ms  (streamctl consume, from S3)\n" "$S3_MS"
+printf "    gRPC produce (per msg):  %s ms  (stm, new conn each call)\n" "$GRPC_PER_MSG"
+printf "    Buffer read latency:     %s ms  (stm consume, from RAM)\n" "$BUFFER_MS"
+printf "    S3 read latency:         %s ms  (stm consume, from S3)\n" "$S3_MS"
 printf "    REST batch throughput:   %s msg/s  (%s msgs in %s ms)\n" "$THROUGHPUT" "$LOAD_TOTAL" "$LOAD_MS"
 printf "    SQL SELECT latency:      %s ms  (server-side)\n" "${SQL_SELECT_TIME:-?}"
 printf "    SQL COUNT(*) latency:    %s ms  (server-side)\n" "${SQL_COUNT_TIME:-?}"

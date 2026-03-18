@@ -1,4 +1,4 @@
-//! Output formatting utilities for streamctl
+//! Output formatting utilities for stm
 //!
 //! Supports multiple output formats:
 //! - Table: ASCII tables with borders (default)

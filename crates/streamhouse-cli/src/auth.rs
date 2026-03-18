@@ -172,7 +172,7 @@ impl AuthManager {
                 "Organization '{}' not found. Available: {}",
                 slug,
                 if available.is_empty() {
-                    "(none — run `streamctl auth login` first)".to_string()
+                    "(none — run `stm auth login` first)".to_string()
                 } else {
                     available.join(", ")
                 }

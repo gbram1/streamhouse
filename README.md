@@ -127,7 +127,7 @@ curl -X POST http://localhost:8080/api/v1/sql \
 Or via the interactive CLI:
 
 ```console
-$ cargo run --bin streamctl
+$ cargo run --bin stm
 
 > sql query SELECT * FROM events WHERE value->>'type' = 'signup' LIMIT 5
 ┌────────┬──────────────────────────────────┬─────────────────────────┐
