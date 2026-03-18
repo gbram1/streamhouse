@@ -327,7 +327,19 @@ impl PostgresSinkConnector {
                 let mut query = sqlx::query(&_sql);
                 for row in &filtered_rows {
                     for val in row {
-                        query = query.bind(val.to_string());
+                        // Extract the inner value to avoid extra JSON quoting
+                        match val {
+                            serde_json::Value::String(s) => {
+                                query = query.bind(s.clone());
+                            }
+                            serde_json::Value::Null => {
+                                query = query.bind(None::<String>);
+                            }
+                            _ => {
+                                // Numbers, bools, objects, arrays — bind as text representation
+                                query = query.bind(val.to_string());
+                            }
+                        }
                     }
                 }
                 query.execute(pool).await.map_err(|e| {
