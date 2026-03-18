@@ -108,7 +108,7 @@ jobs:
         if: github.ref == 'refs/heads/main' || github.base_ref == 'main'
         run: cargo test --workspace --doc --locked
 
-  # E2E tests with Postgres + MinIO service containers
+  # E2E tests with Postgres + MinIO via testcontainers (Docker-in-Docker)
   e2e:
     name: E2E Tests
     runs-on: ubuntu-latest
@@ -118,38 +118,6 @@ jobs:
       RUSTC_WRAPPER: sccache
       SCCACHE_GHA_ENABLED: "true"
       RUSTFLAGS: "-C link-arg=-fuse-ld=mold"
-      TEST_BACKEND: postgres-s3
-      TEST_DATABASE_URL: postgres://streamhouse:streamhouse@localhost:5432/streamhouse_test
-      TEST_S3_ENDPOINT: http://localhost:9000
-      TEST_S3_BUCKET: streamhouse-test
-      TEST_AWS_ACCESS_KEY_ID: minioadmin
-      TEST_AWS_SECRET_ACCESS_KEY: minioadmin
-    services:
-      postgres:
-        image: postgres:16-alpine
-        env:
-          POSTGRES_USER: streamhouse
-          POSTGRES_PASSWORD: streamhouse
-          POSTGRES_DB: streamhouse_test
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd pg_isready
-          --health-interval 5s
-          --health-timeout 5s
-          --health-retries 5
-      minio:
-        image: minio/minio:latest
-        env:
-          MINIO_ROOT_USER: minioadmin
-          MINIO_ROOT_PASSWORD: minioadmin
-        ports:
-          - 9000:9000
-        options: >-
-          --health-cmd "curl -f http://localhost:9000/minio/health/live"
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 12
     steps:
       - uses: actions/checkout@v4
 
@@ -179,42 +147,11 @@ jobs:
           shared-key: "ci"
           save-if: "false"
 
-      - name: Install grpcurl
-        run: |
-          GRPCURL_VERSION="1.9.1"
-          curl -sSL "https://github.com/fullstorydev/grpcurl/releases/download/v${GRPCURL_VERSION}/grpcurl_${GRPCURL_VERSION}_linux_x86_64.tar.gz" \
-            | sudo tar -xz -C /usr/local/bin grpcurl
+      - name: Install nextest
+        uses: taiki-e/install-action@nextest
 
-      - name: Install kcat
-        run: sudo apt-get install -y kafkacat || sudo apt-get install -y kcat || true
-
-      - name: Create MinIO test bucket
-        run: |
-          curl -sf -X PUT "http://localhost:9000/${TEST_S3_BUCKET}" \
-            -u "${TEST_AWS_ACCESS_KEY_ID}:${TEST_AWS_SECRET_ACCESS_KEY}" || true
-
-      - name: Build server with postgres feature
-        run: |
-          cargo build --profile test-release -p streamhouse-server --bin unified-server \
-            --features postgres --locked
-
-      - name: Build CLI
-        run: |
-          cargo build --profile test-release -p streamhouse-cli --bin streamctl --locked || true
-
-      - name: Run E2E tests
-        run: |
-          chmod +x ./tests/run-all.sh
-          ./tests/run-all.sh --backend postgres-s3 --auth --ci
-
-      - name: Upload server log on failure
-        if: failure()
-        uses: actions/upload-artifact@v4
-        with:
-          name: e2e-server-log
-          path: /tmp/streamhouse-test-*/server.log
-          retention-days: 7
-          if-no-files-found: ignore
+      - name: Run E2E tests (testcontainers manages Postgres + MinIO)
+        run: cargo nextest run -p streamhouse-e2e --features postgres --locked --retries 2
 
   # Coverage only on main or PRs to main
   coverage:
@@ -316,10 +253,10 @@ jobs:
           save-if: "false"
 
       - name: Build benchmarks
-        run: cargo bench --workspace --locked --no-run
+        run: cargo bench -p streamhouse-storage -p streamhouse-client --locked --no-run
 
       - name: Run benchmarks
-        run: cargo bench --workspace --locked -- --output-format bencher 2>&1 | tee benchmark-results.txt
+        run: cargo bench -p streamhouse-storage -p streamhouse-client --locked -- --output-format bencher 2>&1 | tee benchmark-results.txt
 
       - name: Benchmark summary
         run: |

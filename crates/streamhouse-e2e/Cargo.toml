@@ -50,5 +50,9 @@ bytes = { workspace = true }
 uuid = { workspace = true }
 dashmap = "6.0"
 
+# Testcontainers
+testcontainers = { workspace = true }
+testcontainers-modules = { workspace = true }
+
 [features]
 postgres = ["streamhouse-metadata/postgres"]

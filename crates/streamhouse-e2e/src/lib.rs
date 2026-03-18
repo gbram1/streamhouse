@@ -40,6 +40,8 @@ use streamhouse_metadata::{AgentInfo, MetadataStore, SqliteMetadataStore};
 use streamhouse_schema_registry::{MemorySchemaStorage, SchemaRegistry, SchemaRegistryApi};
 use streamhouse_server::{pb::stream_house_server::StreamHouseServer, StreamHouseService};
 use streamhouse_storage::{SegmentCache, WriteConfig, WriterPool};
+use testcontainers::runners::AsyncRunner;
+use testcontainers::ContainerAsync;
 use tonic::transport::{Channel, Server as GrpcServer};
 
 const TEST_AGENT_ID: &str = "e2e-test-agent";
@@ -74,6 +76,9 @@ pub struct TestCluster {
     _grpc_handle: tokio::task::JoinHandle<()>,
     _kafka_handle: tokio::task::JoinHandle<()>,
     _temp_dir: tempfile::TempDir,
+    // Container handles — kept alive so containers stay running until drop
+    _postgres_container: Option<ContainerAsync<testcontainers_modules::postgres::Postgres>>,
+    _minio_container: Option<ContainerAsync<testcontainers_modules::minio::MinIO>>,
 }
 
 impl TestCluster {
@@ -128,12 +133,26 @@ impl TestCluster {
 #[derive(Default)]
 pub struct TestClusterBuilder {
     auth_enabled: bool,
+    use_postgres: bool,
+    use_minio: bool,
 }
 
 impl TestClusterBuilder {
     /// Enable REST API authentication.
     pub fn with_auth(mut self, enabled: bool) -> Self {
         self.auth_enabled = enabled;
+        self
+    }
+
+    /// Use a real PostgreSQL container (via testcontainers) instead of in-memory SQLite.
+    pub fn with_postgres(mut self) -> Self {
+        self.use_postgres = true;
+        self
+    }
+
+    /// Use a real MinIO container (via testcontainers) instead of local filesystem.
+    pub fn with_minio(mut self) -> Self {
+        self.use_minio = true;
         self
     }
 
@@ -151,16 +170,87 @@ impl TestClusterBuilder {
         std::fs::create_dir_all(&storage_dir)?;
         std::fs::create_dir_all(&cache_dir)?;
 
-        let metadata: Arc<dyn MetadataStore> = Arc::new(
-            SqliteMetadataStore::new_in_memory()
-                .await
-                .context("creating in-memory metadata store")?,
-        );
+        // ── Metadata store (SQLite or Postgres) ────────────────────────────
+        let mut postgres_container = None;
+        let metadata: Arc<dyn MetadataStore> = if self.use_postgres {
+            #[cfg(feature = "postgres")]
+            {
+                use testcontainers_modules::postgres::Postgres;
+                let container = Postgres::default()
+                    .start()
+                    .await
+                    .context("starting postgres container")?;
+                let host_port = container
+                    .get_host_port_ipv4(5432)
+                    .await
+                    .context("getting postgres port")?;
+                let url = format!(
+                    "postgres://postgres:postgres@127.0.0.1:{}/postgres",
+                    host_port
+                );
+                tracing::info!("Postgres testcontainer started on port {}", host_port);
+                let store = streamhouse_metadata::PostgresMetadataStore::new(&url)
+                    .await
+                    .context("connecting to postgres testcontainer")?;
+                postgres_container = Some(container);
+                Arc::new(store)
+            }
+            #[cfg(not(feature = "postgres"))]
+            {
+                anyhow::bail!(
+                    "with_postgres() requires the `postgres` feature to be enabled"
+                );
+            }
+        } else {
+            Arc::new(
+                SqliteMetadataStore::new_in_memory()
+                    .await
+                    .context("creating in-memory metadata store")?,
+            )
+        };
 
-        let object_store: Arc<dyn object_store::ObjectStore> = Arc::new(
-            object_store::local::LocalFileSystem::new_with_prefix(&storage_dir)
-                .context("creating local object store")?,
-        );
+        // ── Object store (local filesystem or MinIO) ───────────────────────
+        let mut minio_container = None;
+        let (object_store, s3_endpoint): (Arc<dyn object_store::ObjectStore>, Option<String>) =
+            if self.use_minio {
+                use testcontainers_modules::minio::MinIO;
+                let container = MinIO::default()
+                    .start()
+                    .await
+                    .context("starting minio container")?;
+                let host_port = container
+                    .get_host_port_ipv4(9000)
+                    .await
+                    .context("getting minio port")?;
+                let endpoint = format!("http://127.0.0.1:{}", host_port);
+                tracing::info!("MinIO testcontainer started on port {}", host_port);
+
+                // Create the test bucket
+                let client = reqwest::Client::new();
+                // MinIO default credentials: minioadmin/minioadmin
+                let bucket_url = format!("{}/test-bucket", &endpoint);
+                let _ = client
+                    .put(&bucket_url)
+                    .basic_auth("minioadmin", Some("minioadmin"))
+                    .send()
+                    .await;
+
+                let store = object_store::aws::AmazonS3Builder::new()
+                    .with_bucket_name("test-bucket")
+                    .with_endpoint(&endpoint)
+                    .with_region("us-east-1")
+                    .with_access_key_id("minioadmin")
+                    .with_secret_access_key("minioadmin")
+                    .with_allow_http(true)
+                    .build()
+                    .context("creating S3 object store for minio")?;
+                minio_container = Some(container);
+                (Arc::new(store), Some(endpoint))
+            } else {
+                let store = object_store::local::LocalFileSystem::new_with_prefix(&storage_dir)
+                    .context("creating local object store")?;
+                (Arc::new(store), None)
+            };
 
         let cache = Arc::new(
             SegmentCache::new(&cache_dir, 10 * 1024 * 1024).context("creating segment cache")?,
@@ -171,7 +261,7 @@ impl TestClusterBuilder {
             segment_max_age_ms: 60_000,
             s3_bucket: "test-bucket".to_string(),
             s3_region: "us-east-1".to_string(),
-            s3_endpoint: None,
+            s3_endpoint: s3_endpoint.clone(),
             block_size_target: 4096,
             s3_upload_retries: 1,
             wal_config: None,
@@ -365,6 +455,8 @@ impl TestClusterBuilder {
             _grpc_handle: grpc_handle,
             _kafka_handle: kafka_handle,
             _temp_dir: temp_dir,
+            _postgres_container: postgres_container,
+            _minio_container: minio_container,
         })
     }
 }
