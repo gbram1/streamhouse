@@ -115,6 +115,7 @@ impl AgentRouter {
     /// Produce a batch of records to a partition, forwarding to the lease-holder agent.
     ///
     /// On lease-moved errors the cache is invalidated and the request is retried once.
+    #[allow(clippy::too_many_arguments)]
     pub async fn produce(
         &self,
         org_id: &str,
@@ -285,6 +286,7 @@ impl AgentRouter {
     // -----------------------------------------------------------------------
 
     /// Single attempt to forward a produce request to the lease-holder agent.
+    #[allow(clippy::too_many_arguments)]
     async fn try_produce(
         &self,
         org_id: &str,

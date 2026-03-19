@@ -16,11 +16,12 @@ use std::time::{Duration, Instant};
 
 use bytes::{Buf, BufMut, BytesMut};
 use object_store::memory::InMemory;
+use streamhouse_client::AgentRouter;
 use streamhouse_metadata::{
     MetadataStore, OrganizationPlan, OrganizationQuota, QuotaEnforcer, SqliteMetadataStore,
     TopicConfig,
 };
-use streamhouse_storage::{SegmentCache, WriteConfig, WriterPool};
+use streamhouse_storage::{SegmentCache, WriteConfig};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
 
@@ -68,7 +69,7 @@ async fn main() -> anyhow::Result<()> {
     let wal_dir = temp_dir.path().join("wal");
     std::fs::create_dir_all(&wal_dir)?;
 
-    let config = WriteConfig {
+    let _config = WriteConfig {
         segment_max_size: 4 * 1024 * 1024,
         segment_max_age_ms: 60_000,
         s3_bucket: "test".to_string(),
@@ -89,13 +90,7 @@ async fn main() -> anyhow::Result<()> {
         ..Default::default()
     };
 
-    let writer_pool = Arc::new(WriterPool::new(
-        metadata.clone(),
-        object_store.clone(),
-        config,
-    ));
-
-    let _flush_handle = Arc::clone(&writer_pool).start_background_flush(Duration::from_secs(2));
+    let agent_router = Arc::new(AgentRouter::new(metadata.clone()));
 
     // Create topic (unauthenticated connections use default org)
     let topic_name = "rate-limit-test";
@@ -169,7 +164,7 @@ async fn main() -> anyhow::Result<()> {
     let state = Arc::new(KafkaServerState {
         config: kafka_config.clone(),
         metadata: metadata.clone(),
-        writer_pool: writer_pool.clone(),
+        agent_router: agent_router.clone(),
         segment_cache: cache,
         object_store,
         group_coordinator,

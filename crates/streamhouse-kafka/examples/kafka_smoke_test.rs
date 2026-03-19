@@ -17,8 +17,9 @@ use std::time::{Duration, Instant};
 
 use bytes::{Buf, BufMut, BytesMut};
 use object_store::memory::InMemory;
+use streamhouse_client::AgentRouter;
 use streamhouse_metadata::{MetadataStore, SqliteMetadataStore, TopicConfig};
-use streamhouse_storage::{SegmentCache, WriteConfig, WriterPool};
+use streamhouse_storage::{SegmentCache, WriteConfig};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
 use tokio::task::JoinSet;
@@ -55,7 +56,7 @@ async fn main() -> anyhow::Result<()> {
     let wal_dir = temp_dir.path().join("wal");
     std::fs::create_dir_all(&wal_dir)?;
 
-    let config = WriteConfig {
+    let _config = WriteConfig {
         segment_max_size: 4 * 1024 * 1024,
         segment_max_age_ms: 60_000,
         s3_bucket: "test".to_string(),
@@ -76,14 +77,7 @@ async fn main() -> anyhow::Result<()> {
         ..Default::default()
     };
 
-    let writer_pool = Arc::new(WriterPool::new(
-        metadata.clone(),
-        object_store.clone(),
-        config,
-    ));
-
-    // Optimization #5: background flush every 2 seconds
-    let _flush_handle = Arc::clone(&writer_pool).start_background_flush(Duration::from_secs(2));
+    let agent_router = Arc::new(AgentRouter::new(metadata.clone()));
 
     // Create topics
     let topic_names: Vec<String> = (0..NUM_TOPICS).map(|i| format!("topic-{i}")).collect();
@@ -111,7 +105,7 @@ async fn main() -> anyhow::Result<()> {
     let bound = KafkaServer::bind(
         kafka_config,
         metadata.clone(),
-        writer_pool.clone(),
+        agent_router.clone(),
         cache,
         object_store,
     )
@@ -204,7 +198,7 @@ async fn main() -> anyhow::Result<()> {
     // ── 3. Flush ─────────────────────────────────────────────────────────
     print!("[flush]   Flushing to storage...");
     let flush_start = Instant::now();
-    writer_pool.flush_all().await?;
+    // Agent handles flush internally
     println!(" done in {:.3}s", flush_start.elapsed().as_secs_f64());
 
     // ── 4. Consume — parallel connections ────────────────────────────────
@@ -381,7 +375,7 @@ async fn main() -> anyhow::Result<()> {
         println!("[sasl] Produce OK (1 message to {sasl_topic})");
 
         // Step 5: Flush and fetch back
-        writer_pool.flush_all().await?;
+        // Agent handles flush internally
 
         let req = build_fetch_request(4, sasl_topic, 0, 0);
         send_request(&mut stream, &req).await?;
