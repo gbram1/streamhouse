@@ -165,7 +165,8 @@ impl PipelineConsumeLoop {
             // Get committed offset for this partition
             let committed = self
                 .metadata
-                .get_committed_offset(
+                .get_committed_offset_for_org(
+                    &self.config.org_id,
                     &self.config.consumer_group,
                     &self.config.source_topic,
                     partition_id,
