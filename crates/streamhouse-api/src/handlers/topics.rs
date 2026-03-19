@@ -262,6 +262,33 @@ pub async fn create_topic(
         notify.notify_waiters();
     }
 
+    // Pre-assign partition leases to available agents so produce works immediately
+    // (agents will take over these leases on their next rebalance cycle)
+    if let Ok(agents) = state.metadata.list_agents(None, None).await {
+        let active_agents: Vec<_> = agents
+            .iter()
+            .filter(|a| {
+                let now_ms = chrono::Utc::now().timestamp_millis();
+                (now_ms - a.last_heartbeat) < 60_000 // Only agents with recent heartbeats
+            })
+            .collect();
+        if !active_agents.is_empty() {
+            for p in 0..req.partitions {
+                let agent = &active_agents[p as usize % active_agents.len()];
+                let _ = state
+                    .metadata
+                    .acquire_partition_lease(&org_id, &req.name, p, &agent.agent_id, 60_000)
+                    .await;
+            }
+            tracing::info!(
+                topic = %req.name,
+                partitions = req.partitions,
+                agents = active_agents.len(),
+                "Pre-assigned partition leases to agents"
+            );
+        }
+    }
+
     let topic = Topic {
         name: req.name,
         partitions: req.partitions,

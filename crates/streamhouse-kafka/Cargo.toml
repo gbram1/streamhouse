@@ -47,7 +47,9 @@ uuid = { version = "1.0", features = ["v4"] }
 
 # StreamHouse dependencies
 streamhouse-core = { path = "../streamhouse-core" }
+streamhouse-client = { path = "../streamhouse-client" }
 streamhouse-metadata = { path = "../streamhouse-metadata" }
+streamhouse-proto = { path = "../streamhouse-proto" }
 streamhouse-storage = { path = "../streamhouse-storage" }
 streamhouse-observability = { path = "../streamhouse-observability" }
 object_store = { workspace = true }

@@ -13,8 +13,9 @@ use tokio::net::{TcpListener, TcpStream};
 use tokio_util::codec::Framed;
 use tracing::{debug, error, info, instrument, warn};
 
+use streamhouse_client::AgentRouter;
 use streamhouse_metadata::MetadataStore;
-use streamhouse_storage::{SegmentCache, WriterPool};
+use streamhouse_storage::SegmentCache;
 
 use crate::codec::{KafkaCodec, RequestHeader, ResponseHeader};
 use crate::coordinator::GroupCoordinator;
@@ -53,8 +54,8 @@ pub struct KafkaServerState {
     pub config: KafkaServerConfig,
     /// Metadata store for topic/partition information
     pub metadata: Arc<dyn MetadataStore>,
-    /// Writer pool for producing messages
-    pub writer_pool: Arc<WriterPool>,
+    /// Agent router for forwarding produce requests to partition-leader agents
+    pub agent_router: Arc<AgentRouter>,
     /// Segment cache for consuming messages
     pub segment_cache: Arc<SegmentCache>,
     /// Object store for segment data
@@ -73,7 +74,7 @@ impl KafkaServerState {
     pub fn new(
         config: KafkaServerConfig,
         metadata: Arc<dyn MetadataStore>,
-        writer_pool: Arc<WriterPool>,
+        agent_router: Arc<AgentRouter>,
         segment_cache: Arc<SegmentCache>,
         object_store: Arc<dyn ObjectStore>,
     ) -> Self {
@@ -82,7 +83,7 @@ impl KafkaServerState {
         Self {
             config,
             metadata,
-            writer_pool,
+            agent_router,
             segment_cache,
             object_store,
             group_coordinator,
@@ -140,7 +141,7 @@ impl KafkaServer {
     pub async fn bind(
         config: KafkaServerConfig,
         metadata: Arc<dyn MetadataStore>,
-        writer_pool: Arc<WriterPool>,
+        agent_router: Arc<AgentRouter>,
         segment_cache: Arc<SegmentCache>,
         object_store: Arc<dyn ObjectStore>,
     ) -> KafkaResult<BoundKafkaServer> {
@@ -151,7 +152,7 @@ impl KafkaServer {
         let state = Arc::new(KafkaServerState::new(
             config,
             metadata,
-            writer_pool,
+            agent_router,
             segment_cache,
             object_store,
         ));

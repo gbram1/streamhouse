@@ -1,10 +1,9 @@
 use crate::pb::{stream_house_server::StreamHouse, *};
 use std::collections::HashMap;
 use std::sync::Arc;
+use streamhouse_client::AgentRouter;
 use streamhouse_metadata::{MetadataStore, ProducerState, TopicConfig, DEFAULT_ORGANIZATION_ID};
-use streamhouse_storage::{
-    PartitionReader, PartitionWriter, SegmentCache, WriteConfig, WriterPool,
-};
+use streamhouse_storage::{PartitionReader, SegmentCache, WriteConfig};
 use tokio::sync::{Notify, RwLock};
 use tonic::{Request, Response, Status};
 use tracing::{debug, error, info, warn};
@@ -27,18 +26,18 @@ fn extract_org_id_from_request<T>(request: &Request<T>) -> String {
 ///
 /// Unified service combining admin, producer (with ack modes, idempotent dedup,
 /// transactions), and consumer operations.
+///
+/// Produce requests are forwarded to the partition-leader agent via the
+/// AgentRouter rather than writing directly to a local WriterPool.
 pub struct StreamHouseService {
     metadata: Arc<dyn MetadataStore>,
     object_store: Arc<dyn object_store::ObjectStore>,
     cache: Arc<SegmentCache>,
-    writer_pool: Arc<WriterPool>,
+    agent_router: Option<Arc<AgentRouter>>,
     #[allow(dead_code)]
     config: WriteConfig,
+    #[allow(dead_code)]
     agent_id: String,
-    /// When true, produce_batch() validates that this agent holds the partition
-    /// lease before writing. Set to true when the embedded agent is active
-    /// (server holds leases), false when standalone agents hold leases.
-    validate_leases: bool,
     shutting_down: Arc<RwLock<bool>>,
     /// Notified when topics are created or deleted so the partition assigner
     /// can immediately discover them instead of waiting for the next poll.
@@ -52,19 +51,17 @@ impl StreamHouseService {
         metadata: Arc<dyn MetadataStore>,
         object_store: Arc<dyn object_store::ObjectStore>,
         cache: Arc<SegmentCache>,
-        writer_pool: Arc<WriterPool>,
+        agent_router: Option<Arc<AgentRouter>>,
         config: WriteConfig,
         agent_id: String,
-        validate_leases: bool,
     ) -> Self {
         Self {
             metadata,
             object_store,
             cache,
-            writer_pool,
+            agent_router,
             config,
             agent_id,
-            validate_leases,
             shutting_down: Arc::new(RwLock::new(false)),
             topic_changed: Arc::new(Notify::new()),
             schema_registry: None,
@@ -145,36 +142,6 @@ impl StreamHouseService {
         *shutting_down = true;
     }
 
-    /// Get partition writer from pool
-    async fn get_writer(
-        &self,
-        org_id: &str,
-        topic: &str,
-        partition_id: u32,
-    ) -> Result<Arc<tokio::sync::Mutex<PartitionWriter>>, Status> {
-        // Verify topic exists for this org
-        let topic_info = self
-            .metadata
-            .get_topic_for_org(org_id, topic)
-            .await
-            .map_err(|e| Status::internal(format!("Metadata error: {}", e)))?
-            .ok_or_else(|| Status::not_found(format!("Topic not found: {}", topic)))?;
-
-        // Verify partition exists
-        if partition_id >= topic_info.partition_count {
-            return Err(Status::invalid_argument(format!(
-                "Invalid partition: {} (topic has {} partitions)",
-                partition_id, topic_info.partition_count
-            )));
-        }
-
-        // Get writer from pool
-        self.writer_pool
-            .get_writer(org_id, topic, partition_id)
-            .await
-            .map_err(|e| Status::internal(format!("Failed to get writer: {}", e)))
-    }
-
     /// Get a partition reader
     async fn get_reader(
         &self,
@@ -211,69 +178,10 @@ impl StreamHouseService {
         Ok(reader)
     }
 
-    /// Check if a partition lease is valid and held by this agent.
-    async fn validate_lease(&self, topic: &str, partition: u32) -> Result<(), Status> {
-        match self.metadata.get_partition_lease(topic, partition).await {
-            Ok(Some(lease)) => {
-                if lease.leader_agent_id != self.agent_id {
-                    debug!(
-                        topic = %topic,
-                        partition = partition,
-                        leader = %lease.leader_agent_id,
-                        agent = %self.agent_id,
-                        "Lease held by different agent"
-                    );
-                    return Err(Status::not_found(format!(
-                        "Agent doesn't hold lease for partition {}/{} (held by {})",
-                        topic, partition, lease.leader_agent_id
-                    )));
-                }
-
-                let now_ms = std::time::SystemTime::now()
-                    .duration_since(std::time::UNIX_EPOCH)
-                    .unwrap()
-                    .as_millis() as i64;
-
-                if lease.lease_expires_at <= now_ms {
-                    warn!(
-                        topic = %topic,
-                        partition = partition,
-                        expires_at = lease.lease_expires_at,
-                        now = now_ms,
-                        "Lease expired"
-                    );
-                    return Err(Status::failed_precondition(format!(
-                        "Lease expired for partition {}/{}",
-                        topic, partition
-                    )));
-                }
-
-                Ok(())
-            }
-            Ok(None) => {
-                debug!(
-                    topic = %topic,
-                    partition = partition,
-                    "No lease exists for partition"
-                );
-                Err(Status::not_found(format!(
-                    "No lease exists for partition {}/{}",
-                    topic, partition
-                )))
-            }
-            Err(e) => {
-                error!(
-                    topic = %topic,
-                    partition = partition,
-                    error = %e,
-                    "Failed to check lease"
-                );
-                Err(Status::internal(format!("Failed to check lease: {}", e)))
-            }
-        }
-    }
-
     /// Validate idempotent producer sequence numbers for deduplication.
+    /// NOTE: Currently unused — the agent handles idempotent validation.
+    /// Kept for potential future use in server-side dedup.
+    #[allow(dead_code)]
     async fn validate_idempotent(
         &self,
         producer_id: &str,
@@ -391,6 +299,19 @@ impl StreamHouse for StreamHouseService {
         // without waiting for the 60-second poll interval.
         self.topic_changed.notify_waiters();
 
+        // Pre-assign partition leases to available agents so produce works immediately
+        let org_id = streamhouse_metadata::DEFAULT_ORGANIZATION_ID;
+        if let Ok(agents) = self.metadata.list_agents(None, None).await {
+            let now_ms = chrono::Utc::now().timestamp_millis();
+            let active: Vec<_> = agents.iter().filter(|a| (now_ms - a.last_heartbeat) < 60_000).collect();
+            if !active.is_empty() {
+                for p in 0..req.partition_count {
+                    let agent = &active[p as usize % active.len()];
+                    let _ = self.metadata.acquire_partition_lease(org_id, &req.name, p, &agent.agent_id, 60_000).await;
+                }
+            }
+        }
+
         Ok(Response::new(CreateTopicResponse {
             topic_id: req.name,
             partition_count: req.partition_count,
@@ -482,22 +403,27 @@ impl StreamHouse for StreamHouseService {
         // Validate value against schema
         self.validate_schema(&req.topic, &req.value).await?;
 
-        let writer = self.get_writer(&org_id, &req.topic, req.partition).await?;
-        let mut writer_guard = writer.lock().await;
+        let agent_router = self
+            .agent_router
+            .as_ref()
+            .ok_or_else(|| Status::internal("AgentRouter not configured"))?;
 
         let timestamp = chrono::Utc::now().timestamp_millis() as u64;
         let key = if req.key.is_empty() {
             None
         } else {
-            Some(bytes::Bytes::from(req.key))
+            Some(req.key.to_vec())
         };
 
-        let offset = writer_guard
-            .append(key, bytes::Bytes::from(req.value), timestamp)
+        let resp = agent_router
+            .produce_single(&org_id, &req.topic, req.partition, key, req.value, timestamp, 0)
             .await
-            .map_err(|e| Status::internal(format!("Write failed: {}", e)))?;
+            .map_err(|e| Status::internal(format!("AgentRouter produce failed: {}", e)))?;
 
-        Ok(Response::new(ProduceResponse { offset, timestamp }))
+        Ok(Response::new(ProduceResponse {
+            offset: resp.base_offset,
+            timestamp,
+        }))
     }
 
     #[tracing::instrument(skip(self, request), fields(
@@ -529,197 +455,71 @@ impl StreamHouse for StreamHouseService {
             self.validate_schema(&req.topic, &record.value).await?;
         }
 
-        // Validate partition lease when the embedded agent is active (server
-        // holds leases).  Skipped in standalone-agent mode where external agents
-        // hold leases and WriterPool handles routing.
-        if self.validate_leases {
-            self.validate_lease(&req.topic, req.partition).await?;
-        }
+        let agent_router = self
+            .agent_router
+            .as_ref()
+            .ok_or_else(|| Status::internal("AgentRouter not configured"))?;
 
-        // Validate idempotent producer (if producer_id is present)
-        let should_write = if let Some(ref producer_id) = req.producer_id {
-            let epoch = req.producer_epoch.unwrap_or(0);
-            let base_seq = req.base_sequence.unwrap_or(0);
-
-            self.validate_idempotent(
-                producer_id,
-                epoch,
-                base_seq,
-                &req.topic,
-                req.partition,
-                req.records.len() as u32,
-            )
-            .await?
-        } else {
-            true
-        };
-
-        // If duplicate detected, return success without writing
-        if !should_write {
-            debug!(
-                topic = %req.topic,
-                partition = req.partition,
-                "Duplicate batch - returning success without write"
-            );
-
-            return Ok(Response::new(ProduceBatchResponse {
-                first_offset: 0,
-                last_offset: 0,
-                count: req.records.len() as u32,
-                duplicates_filtered: true,
-            }));
-        }
-
-        // Get writer for partition
-        let writer = self.get_writer(&org_id, &req.topic, req.partition).await?;
-
-        // Batch append — single WAL write for the entire produce request
+        // Build proto records for the agent
         let timestamp = chrono::Utc::now().timestamp_millis() as u64;
-        let batch: Vec<(Option<bytes::Bytes>, bytes::Bytes, u64)> = req
+        let proto_records: Vec<streamhouse_proto::producer::produce_request::Record> = req
             .records
             .iter()
             .map(|r| {
                 let key = if r.key.is_empty() {
                     None
                 } else {
-                    Some(bytes::Bytes::from(r.key.clone()))
+                    Some(r.key.clone())
                 };
                 let ts = if r.timestamp > 0 {
                     r.timestamp
                 } else {
                     timestamp
                 };
-                (key, bytes::Bytes::from(r.value.clone()), ts)
+                streamhouse_proto::producer::produce_request::Record {
+                    key,
+                    value: r.value.clone(),
+                    timestamp: ts,
+                    headers: std::collections::HashMap::new(),
+                }
             })
             .collect();
 
-        let (base_offset, record_count) = {
-            let mut writer_guard = writer.lock().await;
+        let record_count = proto_records.len();
 
-            match writer_guard.append_batch(&batch).await {
-                Ok(offsets) => {
-                    let base = *offsets
-                        .first()
-                        .ok_or_else(|| Status::internal("No offsets returned from batch append"))?;
-                    (base, offsets.len() as u64)
-                }
-                Err(e) => {
-                    let error_msg = e.to_string();
-                    if error_msg.contains("S3 operation rate limited") {
-                        warn!(
-                            topic = %req.topic,
-                            partition = req.partition,
-                            "S3 rate limited - rejecting produce request with backpressure"
-                        );
-                        return Err(Status::resource_exhausted(
-                            "S3 rate limit exceeded - please slow down",
-                        ));
-                    } else if error_msg.contains("S3 circuit breaker open") {
-                        error!(
-                            topic = %req.topic,
-                            partition = req.partition,
-                            "S3 circuit breaker open - rejecting produce request"
-                        );
-                        return Err(Status::unavailable(
-                            "S3 service is temporarily unavailable - circuit breaker open",
-                        ));
-                    }
+        // Forward to agent via AgentRouter — the agent handles ack modes,
+        // idempotent dedup, lease validation, and transactions.
+        let resp = agent_router
+            .produce(
+                &org_id,
+                &req.topic,
+                req.partition,
+                proto_records,
+                req.ack_mode,
+                req.producer_id,
+                req.producer_epoch,
+                req.base_sequence,
+                req.transaction_id,
+            )
+            .await
+            .map_err(|e| Status::internal(format!("AgentRouter produce failed: {}", e)))?;
 
-                    error!(
-                        topic = %req.topic,
-                        partition = req.partition,
-                        error = %e,
-                        "Failed to append batch"
-                    );
-                    return Err(Status::internal(format!("Failed to append batch: {}", e)));
-                }
-            }
-        };
+        let base_offset = resp.base_offset;
+        let last_offset = base_offset + record_count as u64 - 1;
 
         debug!(
             topic = %req.topic,
             partition = req.partition,
             base_offset = base_offset,
             record_count = record_count,
-            "Successfully produced records"
+            "Successfully forwarded produce to agent"
         );
-
-        // Handle ACK_DURABLE mode - wait for S3 persistence before acknowledging
-        // Uses batched durable flush: writes are collected over a ~200ms window
-        // and flushed to S3 in a single upload, then all waiters are notified.
-        if req.ack_mode == AckMode::AckDurable as i32 {
-            debug!(
-                topic = %req.topic,
-                partition = req.partition,
-                "ACK_DURABLE mode - queuing for batched S3 flush"
-            );
-
-            if let Err(e) = self
-                .writer_pool
-                .request_durable_flush(&org_id, &req.topic, req.partition)
-                .await
-            {
-                error!(
-                    topic = %req.topic,
-                    partition = req.partition,
-                    error = %e,
-                    "Failed batched durable flush - S3 upload failed"
-                );
-                return Err(Status::internal(format!("Failed durable flush: {}", e)));
-            }
-
-            debug!(
-                topic = %req.topic,
-                partition = req.partition,
-                "ACK_DURABLE batched flush completed - data persisted to S3"
-            );
-        }
-
-        // Track transaction partition if this is a transactional write
-        if let Some(ref transaction_id) = req.transaction_id {
-            let last_offset = base_offset + record_count - 1;
-
-            if let Err(e) = self
-                .metadata
-                .add_transaction_partition(transaction_id, &req.topic, req.partition, base_offset)
-                .await
-            {
-                warn!(
-                    transaction_id = %transaction_id,
-                    topic = %req.topic,
-                    partition = req.partition,
-                    error = %e,
-                    "Failed to add partition to transaction (may already exist)"
-                );
-            }
-
-            if let Err(e) = self
-                .metadata
-                .update_transaction_partition_offset(
-                    transaction_id,
-                    &req.topic,
-                    req.partition,
-                    last_offset,
-                )
-                .await
-            {
-                error!(
-                    transaction_id = %transaction_id,
-                    topic = %req.topic,
-                    partition = req.partition,
-                    error = %e,
-                    "Failed to update transaction partition offset"
-                );
-            }
-        }
-
-        let last_offset = base_offset + record_count - 1;
 
         Ok(Response::new(ProduceBatchResponse {
             first_offset: base_offset,
             last_offset,
             count: record_count as u32,
-            duplicates_filtered: false,
+            duplicates_filtered: resp.duplicates_filtered,
         }))
     }
 
@@ -738,16 +538,12 @@ impl StreamHouse for StreamHouseService {
 
         let reader = self.get_reader(&org_id, &req.topic, req.partition).await?;
 
-        // First try reading from S3 segments
+        // Read from S3 segments (agents handle in-memory buffering and flushing)
         let result = match reader.read(req.offset, max_records).await {
             Ok(r) => r,
             Err(streamhouse_storage::Error::OffsetNotFound(_)) => {
-                // Offset not in any S3 segment yet — try the in-memory buffer directly
-                let buffered = self
-                    .writer_pool
-                    .read_buffered(&org_id, &req.topic, req.partition, req.offset, max_records)
-                    .await;
-
+                // Offset not yet flushed to S3 — return empty result with
+                // the current high watermark so the consumer can poll again.
                 let partition = self
                     .metadata
                     .get_partition(&org_id, &req.topic, req.partition)
@@ -756,7 +552,7 @@ impl StreamHouse for StreamHouseService {
                     .ok_or_else(|| Status::not_found("Partition not found"))?;
 
                 streamhouse_storage::ReadResult {
-                    records: buffered,
+                    records: vec![],
                     high_watermark: partition.high_watermark,
                 }
             }
@@ -764,7 +560,7 @@ impl StreamHouse for StreamHouseService {
         };
 
         let high_watermark = result.high_watermark;
-        let mut records: Vec<ConsumedRecord> = result
+        let records: Vec<ConsumedRecord> = result
             .records
             .into_iter()
             .map(|r| ConsumedRecord {
@@ -775,28 +571,6 @@ impl StreamHouse for StreamHouseService {
                 headers: HashMap::new(),
             })
             .collect();
-
-        // If S3 returned fewer than max_records, fill remaining from in-memory buffer
-        if records.len() < max_records {
-            let next_offset = if let Some(last) = records.last() {
-                last.offset + 1
-            } else {
-                req.offset
-            };
-            let remaining = max_records - records.len();
-            let buffered = self
-                .writer_pool
-                .read_buffered(&org_id, &req.topic, req.partition, next_offset, remaining)
-                .await;
-
-            records.extend(buffered.into_iter().map(|r| ConsumedRecord {
-                offset: r.offset,
-                timestamp: r.timestamp,
-                key: r.key.map(|k| k.to_vec()).unwrap_or_default(),
-                value: r.value.to_vec(),
-                headers: HashMap::new(),
-            }));
-        }
 
         let has_more = !records.is_empty() && records.last().unwrap().offset + 1 < high_watermark;
 
@@ -1150,20 +924,13 @@ mod tests {
             ..Default::default()
         };
 
-        let writer_pool = Arc::new(WriterPool::new(
-            metadata.clone(),
-            object_store.clone(),
-            config.clone(),
-        ));
-
         let service = StreamHouseService::new(
             metadata,
             object_store,
             cache,
-            writer_pool,
+            None, // No AgentRouter in tests (admin-only tests)
             config,
             "test-agent".to_string(),
-            false, // no lease validation in tests
         );
         (service, temp_dir)
     }

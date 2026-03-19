@@ -443,17 +443,40 @@ async fn process_records(
         }
     }
 
-    // Get writer from pool
-    let writer = match state
-        .writer_pool
-        .get_writer(org_id, topic_name, partition_id)
+    // Build proto records for the agent
+    let timestamp = chrono::Utc::now().timestamp_millis() as u64;
+    let proto_records: Vec<streamhouse_proto::producer::produce_request::Record> = batch_meta
+        .records
+        .into_iter()
+        .map(|r| streamhouse_proto::producer::produce_request::Record {
+            key: r.key,
+            value: r.value,
+            timestamp,
+            headers: std::collections::HashMap::new(),
+        })
+        .collect();
+
+    // Forward to agent via AgentRouter
+    let resp = match state
+        .agent_router
+        .produce(
+            org_id,
+            topic_name,
+            partition_id,
+            proto_records,
+            0, // ACK_BUFFERED
+            None,
+            None,
+            None,
+            None,
+        )
         .await
     {
-        Ok(w) => w,
+        Ok(r) => r,
         Err(e) => {
-            warn!("Failed to get writer: {}", e);
+            warn!("AgentRouter produce failed: {}", e);
             metrics::PRODUCER_ERRORS_TOTAL
-                .with_label_values(&[org_id, topic_name, "writer_error"])
+                .with_label_values(&[org_id, topic_name, "agent_router_error"])
                 .inc();
             return PartitionProduceResponse {
                 partition_index: partition_id as i32,
@@ -464,38 +487,6 @@ async fn process_records(
             };
         }
     };
-
-    let mut writer_guard = writer.lock().await;
-
-    // Write records
-    let mut base_offset = 0i64;
-    let timestamp = chrono::Utc::now().timestamp_millis() as u64;
-
-    for record in batch_meta.records {
-        let value = bytes::Bytes::from(record.value);
-        let key = record.key.map(bytes::Bytes::from);
-
-        match writer_guard.append(key, value, timestamp).await {
-            Ok(offset) => {
-                if base_offset == 0 {
-                    base_offset = offset as i64;
-                }
-            }
-            Err(e) => {
-                warn!("Failed to write record: {}", e);
-                metrics::PRODUCER_ERRORS_TOTAL
-                    .with_label_values(&[org_id, topic_name, "append_error"])
-                    .inc();
-                return PartitionProduceResponse {
-                    partition_index: partition_id as i32,
-                    error_code: ErrorCode::KafkaStorageError,
-                    base_offset: -1,
-                    log_append_time: -1,
-                    log_start_offset: 0,
-                };
-            }
-        }
-    }
 
     metrics::PRODUCER_RECORDS_TOTAL
         .with_label_values(&[org_id, topic_name])
@@ -513,7 +504,7 @@ async fn process_records(
     PartitionProduceResponse {
         partition_index: partition_id as i32,
         error_code: ErrorCode::None,
-        base_offset,
+        base_offset: resp.base_offset as i64,
         log_append_time: timestamp as i64,
         log_start_offset: 0,
     }

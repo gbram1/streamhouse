@@ -5,7 +5,6 @@ use axum::{
     http::{HeaderMap, StatusCode},
     Extension, Json,
 };
-use bytes::Bytes;
 use std::collections::HashMap;
 
 use crate::auth::AuthenticatedKey;
@@ -256,8 +255,8 @@ pub async fn produce(
         }
     }
 
-    // If WriterPool is available, write directly (unified server mode)
-    if let Some(writer_pool) = &state.writer_pool {
+    // Forward produce to partition-leader agent via AgentRouter
+    if let Some(agent_router) = &state.agent_router {
         // Determine partition: explicit > key hash > round-robin
         let partition = select_partition(req.partition, req.key.as_deref(), topic.partition_count);
 
@@ -269,99 +268,28 @@ pub async fn produce(
             return Err(StatusCode::BAD_REQUEST);
         }
 
-        // Get writer for partition
-        let writer = match writer_pool.get_writer(&org_id, &req.topic, partition).await {
-            Ok(w) => w,
-            Err(e) => {
-                tracing::error!(
-                    "get_writer failed: topic={}, partition={}, err={:?}",
-                    req.topic,
-                    partition,
-                    e
-                );
-                metrics::PRODUCER_ERRORS_TOTAL
-                    .with_label_values(&[&org_id, &topic_name, "writer_error"])
-                    .inc();
-                return Err(StatusCode::INTERNAL_SERVER_ERROR);
-            }
-        };
-
-        // Prepare record
-        let key = req.key.as_deref().map(|k| Bytes::from(k.to_string()));
-        let value = Bytes::from(req.value);
+        let key = req.key.as_deref().map(|k| k.as_bytes().to_vec());
+        let value = req.value.into_bytes();
         let timestamp = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap()
             .as_millis() as u64;
 
-        // Write record
-        let offset = {
-            let mut writer_guard = writer.lock().await;
-            match writer_guard.append(key, value, timestamp).await {
-                Ok(o) => o,
-                Err(e) => {
-                    tracing::error!(
-                        "append failed: topic={}, partition={}, err={:?}",
-                        req.topic,
-                        partition,
-                        e
-                    );
-                    metrics::PRODUCER_ERRORS_TOTAL
-                        .with_label_values(&[&org_id, &topic_name, "append_error"])
-                        .inc();
-                    return Err(StatusCode::INTERNAL_SERVER_ERROR);
-                }
-            }
-        };
-
-        metrics::PRODUCER_RECORDS_TOTAL
-            .with_label_values(&[&org_id, &topic_name])
-            .inc();
-        metrics::PRODUCER_BYTES_TOTAL
-            .with_label_values(&[&org_id, &topic_name])
-            .inc_by(value_bytes);
-        metrics::PRODUCER_BATCH_SIZE
-            .with_label_values(&[&org_id, &topic_name])
-            .observe(1.0);
-        metrics::PRODUCER_LATENCY
-            .with_label_values(&[&org_id, &topic_name])
-            .observe(start.elapsed().as_secs_f64());
-
-        return Ok(Json(ProduceResponse { offset, partition }));
-    }
-
-    // Otherwise, use Producer client (distributed mode)
-    if let Some(producer) = &state.producer {
-        let mut result = producer
-            .send(
-                &req.topic,
-                req.key.as_deref().map(|k| k.as_bytes()),
-                req.value.as_bytes(),
-                req.partition,
-            )
+        let resp = agent_router
+            .produce_single(&org_id, &req.topic, partition, key, value, timestamp, 0)
             .await
-            .map_err(|_| {
+            .map_err(|e| {
+                tracing::error!(
+                    "AgentRouter produce failed: topic={}, partition={}, err={:?}",
+                    topic_name,
+                    partition,
+                    e
+                );
                 metrics::PRODUCER_ERRORS_TOTAL
-                    .with_label_values(&[&org_id, &topic_name, "send_error"])
+                    .with_label_values(&[&org_id, &topic_name, "agent_router_error"])
                     .inc();
                 StatusCode::INTERNAL_SERVER_ERROR
             })?;
-
-        // Immediately flush to send the batch and get the offset
-        producer.flush().await.map_err(|_| {
-            metrics::PRODUCER_ERRORS_TOTAL
-                .with_label_values(&[&org_id, &topic_name, "flush_error"])
-                .inc();
-            StatusCode::INTERNAL_SERVER_ERROR
-        })?;
-
-        // Wait for the offset to be assigned (should be immediate after flush)
-        let offset = result.wait_offset().await.map_err(|_| {
-            metrics::PRODUCER_ERRORS_TOTAL
-                .with_label_values(&[&org_id, &topic_name, "offset_error"])
-                .inc();
-            StatusCode::INTERNAL_SERVER_ERROR
-        })?;
 
         metrics::PRODUCER_RECORDS_TOTAL
             .with_label_values(&[&org_id, &topic_name])
@@ -377,13 +305,13 @@ pub async fn produce(
             .observe(start.elapsed().as_secs_f64());
 
         return Ok(Json(ProduceResponse {
-            offset,
-            partition: result.partition,
+            offset: resp.base_offset,
+            partition,
         }));
     }
 
     metrics::PRODUCER_ERRORS_TOTAL
-        .with_label_values(&[&org_id, &topic_name, "no_writer"])
+        .with_label_values(&[&org_id, &topic_name, "no_router"])
         .inc();
     Err(StatusCode::INTERNAL_SERVER_ERROR)
 }
@@ -476,8 +404,8 @@ pub async fn produce_batch(
         }
     }
 
-    // If WriterPool is available, write directly (unified server mode)
-    if let Some(writer_pool) = &state.writer_pool {
+    // Forward produce to partition-leader agents via AgentRouter
+    if let Some(agent_router) = &state.agent_router {
         let mut results = Vec::with_capacity(req.records.len());
 
         // Group records by partition for efficient batching
@@ -500,39 +428,49 @@ pub async fn produce_batch(
                 .push((idx, record));
         }
 
-        // Write to each partition
+        let timestamp = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_millis() as u64;
+
+        // Forward each partition batch to its lease-holder agent
         for (partition, records) in by_partition {
-            let writer = writer_pool
-                .get_writer(&org_id, &req.topic, partition)
+            use streamhouse_proto::producer::produce_request::Record;
+
+            let proto_records: Vec<Record> = records
+                .iter()
+                .map(|(_, record)| Record {
+                    key: record.key.as_ref().map(|k| k.as_bytes().to_vec()),
+                    value: record.value.as_bytes().to_vec(),
+                    timestamp,
+                    headers: HashMap::new(),
+                })
+                .collect();
+
+            let batch_size = proto_records.len();
+
+            let resp = agent_router
+                .produce(&org_id, &req.topic, partition, proto_records, 0, None, None, None, None)
                 .await
-                .map_err(|_| {
+                .map_err(|e| {
+                    tracing::error!(
+                        "AgentRouter batch produce failed: topic={}, partition={}, err={:?}",
+                        topic_name,
+                        partition,
+                        e
+                    );
                     metrics::PRODUCER_ERRORS_TOTAL
-                        .with_label_values(&[&org_id, &topic_name, "writer_error"])
+                        .with_label_values(&[&org_id, &topic_name, "agent_router_error"])
                         .inc();
                     StatusCode::INTERNAL_SERVER_ERROR
                 })?;
 
-            let mut writer_guard = writer.lock().await;
-            let timestamp = std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_millis() as u64;
-
-            for (_idx, record) in records {
-                let key = record.key.as_deref().map(|k| Bytes::from(k.to_string()));
-                let value = Bytes::from(record.value.clone());
-
-                let offset = writer_guard
-                    .append(key, value, timestamp)
-                    .await
-                    .map_err(|_| {
-                        metrics::PRODUCER_ERRORS_TOTAL
-                            .with_label_values(&[&org_id, &topic_name, "append_error"])
-                            .inc();
-                        StatusCode::INTERNAL_SERVER_ERROR
-                    })?;
-
-                results.push(BatchRecordResult { partition, offset });
+            // Generate results based on base_offset
+            for i in 0..batch_size {
+                results.push(BatchRecordResult {
+                    partition,
+                    offset: resp.base_offset + i as u64,
+                });
             }
         }
 
@@ -556,7 +494,7 @@ pub async fn produce_batch(
     }
 
     metrics::PRODUCER_ERRORS_TOTAL
-        .with_label_values(&[&org_id, &topic_name, "no_writer"])
+        .with_label_values(&[&org_id, &topic_name, "no_router"])
         .inc();
     Err(StatusCode::INTERNAL_SERVER_ERROR)
 }

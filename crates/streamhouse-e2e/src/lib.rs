@@ -39,6 +39,7 @@ use streamhouse_kafka::{
 use streamhouse_metadata::{AgentInfo, MetadataStore, SqliteMetadataStore};
 use streamhouse_schema_registry::{MemorySchemaStorage, SchemaRegistry, SchemaRegistryApi};
 use streamhouse_server::{pb::stream_house_server::StreamHouseServer, StreamHouseService};
+use streamhouse_client::AgentRouter;
 use streamhouse_storage::{SegmentCache, WriteConfig, WriterPool};
 use testcontainers::runners::AsyncRunner;
 use testcontainers::ContainerAsync;
@@ -313,6 +314,8 @@ impl TestClusterBuilder {
         // ── gRPC server ────────────────────────────────────────────────────
         // Bind a TCP listener first to discover the random port, then pass
         // the address to tonic's serve_with_shutdown.
+        let agent_router = Arc::new(AgentRouter::new(metadata.clone()));
+
         let grpc_listener = tokio::net::TcpListener::bind("127.0.0.1:0")
             .await
             .context("binding gRPC listener")?;
@@ -325,10 +328,9 @@ impl TestClusterBuilder {
             metadata.clone(),
             object_store.clone(),
             cache.clone(),
-            writer_pool.clone(),
+            Some(agent_router.clone()),
             config.clone(),
             TEST_AGENT_ID.to_string(),
-            false, // no lease validation in tests
         );
         grpc_service.set_schema_registry(Some(schema_registry.clone()));
 
@@ -355,8 +357,7 @@ impl TestClusterBuilder {
 
         let api_state = AppState {
             metadata: metadata.clone(),
-            producer: None,
-            writer_pool: Some(writer_pool.clone()),
+            agent_router: Some(agent_router.clone()),
             object_store: object_store.clone(),
             segment_cache: cache.clone(),
             prometheus: None,
@@ -409,7 +410,7 @@ impl TestClusterBuilder {
         let kafka_state = Arc::new(KafkaServerState {
             config: kafka_config,
             metadata: metadata.clone(),
-            writer_pool: writer_pool.clone(),
+            agent_router: agent_router.clone(),
             segment_cache: cache.clone(),
             object_store: object_store.clone(),
             group_coordinator: Arc::new(GroupCoordinator::new(metadata.clone())),

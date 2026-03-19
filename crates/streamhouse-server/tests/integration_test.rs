@@ -5,7 +5,7 @@
 use std::sync::Arc;
 use streamhouse_metadata::{AgentInfo, SqliteMetadataStore};
 use streamhouse_server::{pb::stream_house_server::StreamHouse, pb::*, StreamHouseService};
-use streamhouse_storage::{SegmentCache, WriteConfig, WriterPool};
+use streamhouse_storage::{SegmentCache, WriteConfig};
 use tonic::Request;
 
 const TEST_AGENT_ID: &str = "test-agent";
@@ -51,21 +51,13 @@ async fn setup_test_service() -> (StreamHouseService, tempfile::TempDir) {
         ..Default::default()
     };
 
-    // Create writer pool
-    let writer_pool = Arc::new(WriterPool::new(
-        metadata.clone(),
-        object_store.clone(),
-        config.clone(),
-    ));
-
     let service = StreamHouseService::new(
         metadata,
         object_store,
         cache,
-        writer_pool,
+        None, // No AgentRouter in tests
         config,
         TEST_AGENT_ID.to_string(),
-        false,
     );
     (service, temp_dir)
 }
@@ -158,20 +150,13 @@ async fn setup_test_service_with_metadata() -> (
         ..Default::default()
     };
 
-    let writer_pool = Arc::new(WriterPool::new(
-        metadata.clone(),
-        object_store.clone(),
-        config.clone(),
-    ));
-
     let service = StreamHouseService::new(
         metadata.clone(),
         object_store,
         cache,
-        writer_pool,
+        None, // No AgentRouter in tests
         config,
         TEST_AGENT_ID.to_string(),
-        false,
     );
     (service, metadata, temp_dir)
 }

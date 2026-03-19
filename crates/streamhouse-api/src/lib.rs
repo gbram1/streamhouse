@@ -7,7 +7,6 @@ use axum::{
     Router,
 };
 use std::sync::Arc;
-use streamhouse_client::Producer;
 use streamhouse_metadata::MetadataStore;
 use tokio::sync::Notify;
 use tower_http::cors::CorsLayer;
@@ -121,8 +120,7 @@ pub use tls::{
 #[derive(Clone)]
 pub struct AppState {
     pub metadata: Arc<dyn MetadataStore>,
-    pub producer: Option<Arc<Producer>>,
-    pub writer_pool: Option<Arc<streamhouse_storage::writer_pool::WriterPool>>,
+    pub agent_router: Option<Arc<streamhouse_client::AgentRouter>>,
     pub object_store: Arc<dyn object_store::ObjectStore>,
     pub segment_cache: Arc<streamhouse_storage::SegmentCache>,
     /// Optional Prometheus client for real metrics (falls back to simulated if None)

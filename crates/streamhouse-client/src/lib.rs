@@ -44,6 +44,7 @@
 //! }
 //! ```
 
+pub mod agent_router;
 pub mod batch;
 pub mod connection_pool;
 pub mod consumer;
@@ -52,6 +53,7 @@ pub mod producer;
 pub mod retry;
 pub mod schema_registry_client;
 
+pub use agent_router::{AgentRouter, AgentRouterError};
 pub use batch::{BatchManager, BatchRecord};
 pub use connection_pool::ConnectionPool;
 pub use consumer::{

@@ -11,6 +11,7 @@ path = "src/lib.rs"
 [dependencies]
 # Internal crates
 streamhouse-api = { path = "../streamhouse-api" }
+streamhouse-client = { path = "../streamhouse-client" }
 streamhouse-metadata = { path = "../streamhouse-metadata" }
 streamhouse-storage = { path = "../streamhouse-storage" }
 streamhouse-server = { path = "../streamhouse-server" }

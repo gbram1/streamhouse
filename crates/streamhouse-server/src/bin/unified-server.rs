@@ -56,6 +56,7 @@ use axum::Router;
 use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::Duration;
+use streamhouse_client::AgentRouter;
 use streamhouse_kafka::{
     GroupCoordinator, KafkaServer, KafkaServerConfig, KafkaServerState, KafkaTenantResolver,
 };
@@ -64,7 +65,7 @@ use streamhouse_metadata::PostgresMetadataStore;
 use streamhouse_metadata::{MetadataStore, SqliteMetadataStore};
 use streamhouse_schema_registry::{SchemaRegistry, SchemaRegistryApi};
 use streamhouse_server::{pb::stream_house_server::StreamHouseServer, StreamHouseService};
-use streamhouse_storage::{SegmentCache, SyncPolicy, WALConfig, WriteConfig, WriterPool};
+use streamhouse_storage::{SegmentCache, SyncPolicy, WALConfig, WriteConfig};
 use tonic::transport::Server as GrpcServer;
 use tonic_reflection::server::Builder as ReflectionBuilder;
 use tower_http::services::ServeDir;
@@ -340,26 +341,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         durable_batch_max_bytes / (1024 * 1024)
     );
 
-    // Create writer pool
-    tracing::info!("✍️  Initializing writer pool");
-    let writer_pool = Arc::new(WriterPool::new(
-        metadata.clone(),
-        object_store.clone(),
-        config.clone(),
-    ));
-
-    // Start background flush thread
-    let flush_interval_secs = std::env::var("FLUSH_INTERVAL_SECS")
-        .unwrap_or_else(|_| "5".to_string())
-        .parse::<u64>()
-        .unwrap_or(5);
-    tracing::info!(
-        "🔄 Starting background flush thread (interval: {}s)",
-        flush_interval_secs
-    );
-    let _flush_handle = writer_pool
-        .clone()
-        .start_background_flush(Duration::from_secs(flush_interval_secs));
+    // Create AgentRouter (replaces WriterPool — produce requests are forwarded to agents)
+    tracing::info!("🔀 Initializing AgentRouter (produce requests routed to partition-leader agents)");
+    let agent_router = Arc::new(AgentRouter::new(metadata.clone()));
 
     // Start S3 orphan reconciler (configurable via env, default 1h)
     let reconcile_interval = std::env::var("RECONCILE_INTERVAL")
@@ -542,20 +526,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     }
 
-    // Start background metadata snapshot loop (configurable via SNAPSHOT_INTERVAL_SECS)
-    let snapshot_interval_secs: u64 = std::env::var("SNAPSHOT_INTERVAL_SECS")
-        .ok()
-        .and_then(|v| v.parse().ok())
-        .unwrap_or(3600);
-    if snapshot_interval_secs > 0 {
-        let _snapshot_handle = writer_pool
-            .clone()
-            .start_background_snapshot(Duration::from_secs(snapshot_interval_secs));
-        tracing::info!(
-            "📸 Background metadata snapshot started ({}s interval)",
-            snapshot_interval_secs
-        );
-    }
+    // NOTE: Background metadata snapshot is now handled by agents (WriterPool removed
+    // from unified server). Agents flush and snapshot their own partitions.
 
     // Create quota enforcer for rate limiting
     let quota_enforcer: Arc<streamhouse_metadata::QuotaEnforcer<dyn MetadataStore>> =
@@ -579,7 +551,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let kafka_state = Arc::new(KafkaServerState {
         config: kafka_config,
         metadata: metadata.clone(),
-        writer_pool: writer_pool.clone(),
+        agent_router: agent_router.clone(),
         segment_cache: cache.clone(),
         object_store: object_store.clone(),
         group_coordinator: Arc::new(GroupCoordinator::new(metadata.clone())),
@@ -605,15 +577,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .unwrap_or(false);
 
     // Create gRPC service (unified: admin + producer + consumer + lifecycle)
-    // Validate leases only when the embedded agent is active (it holds the leases).
+    // Produce requests are forwarded to agents via AgentRouter.
     let mut grpc_service = StreamHouseService::new(
         metadata.clone(),
         object_store.clone(),
         cache.clone(),
-        writer_pool.clone(),
+        Some(agent_router.clone()),
         config.clone(),
         agent_id.clone(),
-        !embedded_agent_disabled,
     );
 
     if embedded_agent_disabled {
@@ -863,7 +834,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Set schema registry on gRPC service for produce-time validation
     grpc_service.set_schema_registry(schema_registry_for_validation.clone());
 
-    // Create REST API state (use WriterPool directly in unified server)
+    // Create REST API state (produce requests routed via AgentRouter)
     // Auth is disabled by default in development; enable with --enable-auth flag
     let auth_enabled = std::env::var("STREAMHOUSE_AUTH_ENABLED")
         .map(|v| v == "true" || v == "1")
@@ -933,8 +904,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let api_state = streamhouse_api::AppState {
         metadata: metadata.clone(),
-        producer: None,
-        writer_pool: Some(writer_pool.clone()),
+        agent_router: Some(agent_router.clone()),
         object_store: object_store.clone(),
         segment_cache: cache.clone(),
         prometheus: prometheus_client,
@@ -1002,7 +972,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .build()?;
 
     // Set up graceful shutdown
-    let shutdown_pool = writer_pool.clone();
+    let shutdown_router = agent_router.clone();
     let (shutdown_tx, shutdown_rx) = tokio::sync::oneshot::channel::<()>();
     let (http_shutdown_tx, http_shutdown_rx) = tokio::sync::oneshot::channel::<()>();
 
@@ -1034,11 +1004,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             },
         }
 
-        // Flush all writers before shutdown
-        tracing::info!("Flushing all pending writes...");
-        if let Err(e) = shutdown_pool.shutdown().await {
-            tracing::error!("Error during writer pool shutdown: {}", e);
-        }
+        // Shut down agent router (close cached connections)
+        tracing::info!("Shutting down AgentRouter...");
+        shutdown_router.shutdown().await;
 
         let _ = shutdown_tx.send(());
         let _ = http_shutdown_tx.send(());
@@ -1057,7 +1025,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     tracing::info!("Configuration:");
     tracing::info!("   Bucket:         {}", s3_bucket);
     tracing::info!("   Cache:          {} ({} bytes)", cache_dir, cache_size);
-    tracing::info!("   Flush interval: {}s", flush_interval_secs);
+    tracing::info!("   Agent routing: enabled (agents handle flush)");
     tracing::info!("   Web console:    {}", web_console_path);
 
     // Start HTTP server in background

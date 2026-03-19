@@ -24,7 +24,7 @@
 
 use std::sync::Arc;
 use streamhouse_api::{create_router, serve, AppState};
-use streamhouse_client::Producer;
+use streamhouse_client::AgentRouter;
 use streamhouse_metadata::{MetadataStore, SqliteMetadataStore};
 use tracing::{info, Level};
 use tracing_subscriber::FmtSubscriber;
@@ -77,13 +77,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     info!("✓ Metadata store connected");
 
     // Create producer
-    info!("Initializing producer...");
-    let producer = Producer::builder()
-        .metadata_store(metadata.clone())
-        .build()
-        .await?;
-
-    info!("✓ Producer initialized");
+    info!("Initializing AgentRouter...");
+    let agent_router = Arc::new(AgentRouter::new(metadata.clone()));
+    info!("✓ AgentRouter initialized");
 
     // Setup object store for consumer
     info!("Connecting to object store...");
@@ -127,8 +123,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let oidc_auth = streamhouse_api::OidcJwksAuth::from_env().map(Arc::new);
     let state = AppState {
         metadata,
-        producer: Some(Arc::new(producer)),
-        writer_pool: None,
+        agent_router: Some(agent_router),
         object_store,
         segment_cache,
         prometheus: prometheus_client,
