@@ -450,7 +450,17 @@ pub async fn produce_batch(
             let batch_size = proto_records.len();
 
             let resp = agent_router
-                .produce(&org_id, &req.topic, partition, proto_records, 0, None, None, None, None)
+                .produce(
+                    &org_id,
+                    &req.topic,
+                    partition,
+                    proto_records,
+                    0,
+                    None,
+                    None,
+                    None,
+                    None,
+                )
                 .await
                 .map_err(|e| {
                     tracing::error!(

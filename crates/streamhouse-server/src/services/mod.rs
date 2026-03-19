@@ -303,11 +303,17 @@ impl StreamHouse for StreamHouseService {
         let org_id = streamhouse_metadata::DEFAULT_ORGANIZATION_ID;
         if let Ok(agents) = self.metadata.list_agents(None, None).await {
             let now_ms = chrono::Utc::now().timestamp_millis();
-            let active: Vec<_> = agents.iter().filter(|a| (now_ms - a.last_heartbeat) < 60_000).collect();
+            let active: Vec<_> = agents
+                .iter()
+                .filter(|a| (now_ms - a.last_heartbeat) < 60_000)
+                .collect();
             if !active.is_empty() {
                 for p in 0..req.partition_count {
                     let agent = &active[p as usize % active.len()];
-                    let _ = self.metadata.acquire_partition_lease(org_id, &req.name, p, &agent.agent_id, 60_000).await;
+                    let _ = self
+                        .metadata
+                        .acquire_partition_lease(org_id, &req.name, p, &agent.agent_id, 60_000)
+                        .await;
                 }
             }
         }
@@ -416,7 +422,15 @@ impl StreamHouse for StreamHouseService {
         };
 
         let resp = agent_router
-            .produce_single(&org_id, &req.topic, req.partition, key, req.value, timestamp, 0)
+            .produce_single(
+                &org_id,
+                &req.topic,
+                req.partition,
+                key,
+                req.value,
+                timestamp,
+                0,
+            )
             .await
             .map_err(|e| Status::internal(format!("AgentRouter produce failed: {}", e)))?;
 

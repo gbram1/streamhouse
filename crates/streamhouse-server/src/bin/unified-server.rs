@@ -342,7 +342,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     );
 
     // Create AgentRouter (replaces WriterPool — produce requests are forwarded to agents)
-    tracing::info!("🔀 Initializing AgentRouter (produce requests routed to partition-leader agents)");
+    tracing::info!(
+        "🔀 Initializing AgentRouter (produce requests routed to partition-leader agents)"
+    );
     let agent_router = Arc::new(AgentRouter::new(metadata.clone()));
 
     // Start S3 orphan reconciler (configurable via env, default 1h)

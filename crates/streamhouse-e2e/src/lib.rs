@@ -33,13 +33,13 @@ use std::time::Duration;
 use anyhow::{Context, Result};
 use streamhouse_api::auth::AuthConfig;
 use streamhouse_api::{create_router, AppState};
+use streamhouse_client::AgentRouter;
 use streamhouse_kafka::{
     GroupCoordinator, KafkaServerConfig, KafkaServerState, KafkaTenantResolver,
 };
 use streamhouse_metadata::{AgentInfo, MetadataStore, SqliteMetadataStore};
 use streamhouse_schema_registry::{MemorySchemaStorage, SchemaRegistry, SchemaRegistryApi};
 use streamhouse_server::{pb::stream_house_server::StreamHouseServer, StreamHouseService};
-use streamhouse_client::AgentRouter;
 use streamhouse_storage::{SegmentCache, WriteConfig, WriterPool};
 use testcontainers::runners::AsyncRunner;
 use testcontainers::ContainerAsync;

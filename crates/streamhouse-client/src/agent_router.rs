@@ -193,8 +193,18 @@ impl AgentRouter {
             headers: HashMap::new(),
         };
 
-        self.produce(org_id, topic, partition, vec![record], ack_mode, None, None, None, None)
-            .await
+        self.produce(
+            org_id,
+            topic,
+            partition,
+            vec![record],
+            ack_mode,
+            None,
+            None,
+            None,
+            None,
+        )
+        .await
     }
 
     /// Resolve which agent holds the lease for a given partition.
@@ -306,7 +316,9 @@ impl AgentRouter {
         let mut grpc_request = tonic::Request::new(request);
         grpc_request.metadata_mut().insert(
             "x-organization-id",
-            org_id.parse().unwrap_or_else(|_| tonic::metadata::MetadataValue::from_static("")),
+            org_id
+                .parse()
+                .unwrap_or_else(|_| tonic::metadata::MetadataValue::from_static("")),
         );
 
         let response = client
