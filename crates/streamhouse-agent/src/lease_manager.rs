@@ -175,10 +175,17 @@ impl LeaseManager {
             "Acquiring partition lease"
         );
 
+        // Look up the topic's organization ID (defaults to default org for backward compat)
+        let org_id = self
+            .metadata_store
+            .get_topic_organization_id(topic)
+            .await?
+            .unwrap_or_else(|| streamhouse_metadata::DEFAULT_ORGANIZATION_ID.to_string());
+
         let lease = self
             .metadata_store
             .acquire_partition_lease(
-                streamhouse_metadata::DEFAULT_ORGANIZATION_ID,
+                &org_id,
                 topic,
                 partition_id,
                 &self.agent_id,
@@ -664,10 +671,16 @@ impl LeaseRenewalTask {
     }
 
     async fn renew_lease(&self, topic: &str, partition_id: u32) -> Result<()> {
+        let org_id = self
+            .metadata_store
+            .get_topic_organization_id(topic)
+            .await?
+            .unwrap_or_else(|| streamhouse_metadata::DEFAULT_ORGANIZATION_ID.to_string());
+
         let lease = self
             .metadata_store
             .acquire_partition_lease(
-                streamhouse_metadata::DEFAULT_ORGANIZATION_ID,
+                &org_id,
                 topic,
                 partition_id,
                 &self.agent_id,
