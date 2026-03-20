@@ -2027,6 +2027,7 @@ impl Producer {
             producer_epoch,
             base_sequence,
             transaction_id,
+            ack_mode: 0, // ACK_BUFFERED default
         };
 
         // Send with retry

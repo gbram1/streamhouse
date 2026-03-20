@@ -99,6 +99,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             producer_epoch: None,
             base_sequence: None,
             transaction_id: None,
+            ack_mode: 0,
         };
         client.produce_batch(request).await?;
     }
@@ -131,6 +132,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             producer_epoch: None,
             base_sequence: None,
             transaction_id: None,
+            ack_mode: 0,
         };
 
         let response = client.produce_batch(request).await?;

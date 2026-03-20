@@ -121,6 +121,8 @@ pub use tls::{
 pub struct AppState {
     pub metadata: Arc<dyn MetadataStore>,
     pub agent_router: Option<Arc<streamhouse_client::AgentRouter>>,
+    /// Optional WriterPool fallback for tests (when no AgentRouter is available)
+    pub writer_pool: Option<Arc<streamhouse_storage::WriterPool>>,
     pub object_store: Arc<dyn object_store::ObjectStore>,
     pub segment_cache: Arc<streamhouse_storage::SegmentCache>,
     /// Optional Prometheus client for real metrics (falls back to simulated if None)

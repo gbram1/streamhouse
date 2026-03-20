@@ -64,6 +64,9 @@ pub struct ProduceRequest {
     pub value: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub partition: Option<u32>,
+    /// Ack mode: 0 = buffered (default, ack after WAL), 1 = durable (ack after S3), 2 = none (fire-and-forget)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ack_mode: Option<i32>,
 }
 
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
@@ -225,6 +228,9 @@ pub struct CommitOffsetResponse {
 pub struct BatchProduceRequest {
     pub topic: String,
     pub records: Vec<BatchRecord>,
+    /// Ack mode: 0 = buffered (default), 1 = durable, 2 = none
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ack_mode: Option<i32>,
 }
 
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
@@ -674,6 +680,7 @@ mod tests {
             key: Some("user-123".to_string()),
             value: r#"{"item":"widget"}"#.to_string(),
             partition: Some(2),
+            ack_mode: None,
         };
         let json = serde_json::to_string(&req).unwrap();
         let deserialized: ProduceRequest = serde_json::from_str(&json).unwrap();
@@ -700,6 +707,7 @@ mod tests {
             key: None,
             value: "v".to_string(),
             partition: None,
+            ack_mode: None,
         };
         let json = serde_json::to_string(&req).unwrap();
         assert!(!json.contains("key"));
@@ -1184,6 +1192,7 @@ mod tests {
                     partition: None,
                 },
             ],
+            ack_mode: None,
         };
         let json = serde_json::to_string(&req).unwrap();
         let deserialized: BatchProduceRequest = serde_json::from_str(&json).unwrap();
@@ -1457,6 +1466,7 @@ mod tests {
             key: Some("user-42".to_string()),
             value: serde_json::json!({"event": "click", "page": "/home"}).to_string(),
             partition: None,
+            ack_mode: None,
         };
         let json = serde_json::to_string(&req).unwrap();
         let deserialized: ProduceRequest = serde_json::from_str(&json).unwrap();
@@ -1513,6 +1523,7 @@ mod tests {
             key: None,
             value: r#"{"msg":"hello \"world\"\nnewline"}"#.to_string(),
             partition: None,
+            ack_mode: None,
         };
         let json = serde_json::to_string(&req).unwrap();
         let deserialized: ProduceRequest = serde_json::from_str(&json).unwrap();

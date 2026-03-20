@@ -907,6 +907,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let api_state = streamhouse_api::AppState {
         metadata: metadata.clone(),
         agent_router: Some(agent_router.clone()),
+        writer_pool: None,
         object_store: object_store.clone(),
         segment_cache: cache.clone(),
         prometheus: prometheus_client,

@@ -328,11 +328,12 @@ impl TestClusterBuilder {
             metadata.clone(),
             object_store.clone(),
             cache.clone(),
-            Some(agent_router.clone()),
+            None, // No AgentRouter in tests — use WriterPool fallback
             config.clone(),
             TEST_AGENT_ID.to_string(),
         );
         grpc_service.set_schema_registry(Some(schema_registry.clone()));
+        grpc_service.set_writer_pool(Some(writer_pool.clone()));
 
         let grpc_shutdown_rx = shutdown_rx.clone();
         let grpc_handle = tokio::spawn(async move {
@@ -357,7 +358,8 @@ impl TestClusterBuilder {
 
         let api_state = AppState {
             metadata: metadata.clone(),
-            agent_router: Some(agent_router.clone()),
+            agent_router: None,
+            writer_pool: Some(writer_pool.clone()),
             object_store: object_store.clone(),
             segment_cache: cache.clone(),
             prometheus: None,

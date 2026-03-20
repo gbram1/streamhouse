@@ -266,6 +266,7 @@ async fn test_grpc_full_write_read_path() {
             producer_epoch: None,
             base_sequence: None,
             transaction_id: None,
+            ack_mode: 0,
         })
         .await
         .expect("gRPC ProduceBatch failed");
@@ -464,6 +465,7 @@ async fn test_cross_protocol_grpc_produce_rest_consume() {
         producer_epoch: None,
         base_sequence: None,
         transaction_id: None,
+        ack_mode: 0,
     })
     .await
     .expect("gRPC produce failed");

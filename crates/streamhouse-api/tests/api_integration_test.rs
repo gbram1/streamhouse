@@ -32,6 +32,7 @@ async fn test_app() -> axum::Router {
     let state = AppState {
         metadata,
         agent_router: None,
+        writer_pool: None,
         object_store,
         segment_cache,
         prometheus: None,
@@ -489,6 +490,7 @@ async fn test_app_with_quota(max_topics: i32) -> axum::Router {
     let state = AppState {
         metadata,
         agent_router: None,
+        writer_pool: None,
         object_store,
         segment_cache,
         prometheus: None,

@@ -101,6 +101,9 @@ message ProduceBatchRequest {
 
   // Transaction Fields (Phase 16)
   optional string transaction_id = 7;  // Transaction ID if part of a transaction
+
+  // Ack mode: 0 = ACK_BUFFERED (default), 1 = ACK_DURABLE, 2 = ACK_NONE
+  int32 ack_mode = 8;
 }
 
 message ProduceBatchResponse {

@@ -51,7 +51,13 @@ async fn setup_test_service() -> (StreamHouseService, tempfile::TempDir) {
         ..Default::default()
     };
 
-    let service = StreamHouseService::new(
+    let writer_pool = Arc::new(streamhouse_storage::WriterPool::new(
+        metadata.clone(),
+        object_store.clone(),
+        config.clone(),
+    ));
+
+    let mut service = StreamHouseService::new(
         metadata,
         object_store,
         cache,
@@ -59,6 +65,7 @@ async fn setup_test_service() -> (StreamHouseService, tempfile::TempDir) {
         config,
         TEST_AGENT_ID.to_string(),
     );
+    service.set_writer_pool(Some(writer_pool));
     (service, temp_dir)
 }
 
@@ -150,7 +157,13 @@ async fn setup_test_service_with_metadata() -> (
         ..Default::default()
     };
 
-    let service = StreamHouseService::new(
+    let writer_pool = Arc::new(streamhouse_storage::WriterPool::new(
+        metadata.clone(),
+        object_store.clone(),
+        config.clone(),
+    ));
+
+    let mut service = StreamHouseService::new(
         metadata.clone(),
         object_store,
         cache,
@@ -158,6 +171,7 @@ async fn setup_test_service_with_metadata() -> (
         config,
         TEST_AGENT_ID.to_string(),
     );
+    service.set_writer_pool(Some(writer_pool));
     (service, metadata, temp_dir)
 }
 

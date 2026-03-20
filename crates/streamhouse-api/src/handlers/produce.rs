@@ -276,7 +276,15 @@ pub async fn produce(
             .as_millis() as u64;
 
         let resp = agent_router
-            .produce_single(&org_id, &req.topic, partition, key, value, timestamp, 0)
+            .produce_single(
+                &org_id,
+                &req.topic,
+                partition,
+                key,
+                value,
+                timestamp,
+                req.ack_mode.unwrap_or(0),
+            )
             .await
             .map_err(|e| {
                 tracing::error!(
@@ -308,6 +316,43 @@ pub async fn produce(
             offset: resp.base_offset,
             partition,
         }));
+    }
+
+    // Fallback: write directly via WriterPool (used in e2e tests without agents)
+    if let Some(writer_pool) = &state.writer_pool {
+        let partition = select_partition(req.partition, req.key.as_deref(), topic.partition_count);
+        if partition >= topic.partition_count {
+            return Err(StatusCode::BAD_REQUEST);
+        }
+        let key = req
+            .key
+            .as_deref()
+            .map(|k| bytes::Bytes::from(k.as_bytes().to_vec()));
+        let value = bytes::Bytes::from(req.value.into_bytes());
+        let timestamp = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_millis() as u64;
+        let writer = writer_pool
+            .get_writer(&org_id, &req.topic, partition)
+            .await
+            .map_err(|e| {
+                tracing::error!("WriterPool get_writer failed: {:?}", e);
+                StatusCode::INTERNAL_SERVER_ERROR
+            })?;
+        let offset = writer
+            .lock()
+            .await
+            .append(key, value, timestamp)
+            .await
+            .map_err(|e| {
+                tracing::error!("WriterPool append failed: {:?}", e);
+                StatusCode::INTERNAL_SERVER_ERROR
+            })?;
+        metrics::PRODUCER_RECORDS_TOTAL
+            .with_label_values(&[&org_id, &topic_name])
+            .inc();
+        return Ok(Json(ProduceResponse { offset, partition }));
     }
 
     metrics::PRODUCER_ERRORS_TOTAL
@@ -455,7 +500,7 @@ pub async fn produce_batch(
                     &req.topic,
                     partition,
                     proto_records,
-                    0,
+                    req.ack_mode.unwrap_or(0),
                     None,
                     None,
                     None,
@@ -497,6 +542,53 @@ pub async fn produce_batch(
             .with_label_values(&[&org_id, &topic_name])
             .observe(start.elapsed().as_secs_f64());
 
+        return Ok(Json(BatchProduceResponse {
+            count: results.len(),
+            offsets: results,
+        }));
+    }
+
+    // Fallback: write directly via WriterPool (used in e2e tests without agents)
+    if let Some(writer_pool) = &state.writer_pool {
+        let mut results = Vec::with_capacity(req.records.len());
+        let timestamp = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_millis() as u64;
+
+        for record in &req.records {
+            let partition = select_partition(
+                record.partition,
+                record.key.as_deref(),
+                topic.partition_count,
+            );
+            let key = record
+                .key
+                .as_ref()
+                .map(|k| bytes::Bytes::from(k.as_bytes().to_vec()));
+            let value = bytes::Bytes::from(record.value.as_bytes().to_vec());
+            let writer = writer_pool
+                .get_writer(&org_id, &req.topic, partition)
+                .await
+                .map_err(|e| {
+                    tracing::error!("WriterPool get_writer failed: {:?}", e);
+                    StatusCode::INTERNAL_SERVER_ERROR
+                })?;
+            let offset = writer
+                .lock()
+                .await
+                .append(key, value, timestamp)
+                .await
+                .map_err(|e| {
+                    tracing::error!("WriterPool append failed: {:?}", e);
+                    StatusCode::INTERNAL_SERVER_ERROR
+                })?;
+            results.push(BatchRecordResult { partition, offset });
+        }
+
+        metrics::PRODUCER_RECORDS_TOTAL
+            .with_label_values(&[&org_id, &topic_name])
+            .inc_by(record_count as u64);
         return Ok(Json(BatchProduceResponse {
             count: results.len(),
             offsets: results,

@@ -478,6 +478,7 @@ async fn warmup(channel: &Channel) -> Result<(), Box<dyn std::error::Error>> {
             producer_epoch: None,
             base_sequence: None,
             transaction_id: None,
+            ack_mode: 0,
         };
         client.produce_batch(request).await?;
     }
@@ -512,6 +513,7 @@ async fn producer_task(
             producer_epoch: None,
             base_sequence: None,
             transaction_id: None,
+            ack_mode: 0,
         };
 
         let start = Instant::now();

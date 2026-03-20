@@ -124,6 +124,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let state = AppState {
         metadata,
         agent_router: Some(agent_router),
+        writer_pool: None,
         object_store,
         segment_cache,
         prometheus: prometheus_client,

@@ -44,6 +44,8 @@ pub struct StreamHouseService {
     topic_changed: Arc<Notify>,
     /// Schema registry for produce-time validation (None = validation disabled)
     schema_registry: Option<Arc<streamhouse_schema_registry::SchemaRegistry>>,
+    /// Optional WriterPool fallback for tests (when no AgentRouter is available)
+    writer_pool: Option<Arc<streamhouse_storage::WriterPool>>,
 }
 
 impl StreamHouseService {
@@ -65,7 +67,13 @@ impl StreamHouseService {
             shutting_down: Arc::new(RwLock::new(false)),
             topic_changed: Arc::new(Notify::new()),
             schema_registry: None,
+            writer_pool: None,
         }
+    }
+
+    /// Set a WriterPool fallback for testing (when no agents are available)
+    pub fn set_writer_pool(&mut self, pool: Option<Arc<streamhouse_storage::WriterPool>>) {
+        self.writer_pool = pool;
     }
 
     /// Set schema registry for produce-time validation
@@ -406,38 +414,69 @@ impl StreamHouse for StreamHouseService {
         let org_id = extract_org_id_from_request(&request);
         let req = request.into_inner();
 
+        // Validate topic exists and partition is valid
+        let topic = self
+            .metadata
+            .get_topic_for_org(&org_id, &req.topic)
+            .await
+            .map_err(|e| Status::internal(format!("Metadata error: {}", e)))?
+            .ok_or_else(|| Status::not_found(format!("Topic not found: {}", req.topic)))?;
+
+        if req.partition >= topic.partition_count {
+            return Err(Status::invalid_argument(format!(
+                "Invalid partition {} for topic {} (has {} partitions)",
+                req.partition, req.topic, topic.partition_count
+            )));
+        }
+
         // Validate value against schema
         self.validate_schema(&req.topic, &req.value).await?;
 
-        let agent_router = self
-            .agent_router
-            .as_ref()
-            .ok_or_else(|| Status::internal("AgentRouter not configured"))?;
-
         let timestamp = chrono::Utc::now().timestamp_millis() as u64;
-        let key = if req.key.is_empty() {
+        let key_bytes = if req.key.is_empty() {
             None
         } else {
             Some(req.key.to_vec())
         };
 
-        let resp = agent_router
-            .produce_single(
-                &org_id,
-                &req.topic,
-                req.partition,
-                key,
-                req.value,
-                timestamp,
-                0,
-            )
-            .await
-            .map_err(|e| Status::internal(format!("AgentRouter produce failed: {}", e)))?;
+        if let Some(agent_router) = &self.agent_router {
+            let resp = agent_router
+                .produce_single(
+                    &org_id,
+                    &req.topic,
+                    req.partition,
+                    key_bytes,
+                    req.value,
+                    timestamp,
+                    0,
+                )
+                .await
+                .map_err(|e| Status::internal(format!("AgentRouter produce failed: {}", e)))?;
 
-        Ok(Response::new(ProduceResponse {
-            offset: resp.base_offset,
-            timestamp,
-        }))
+            return Ok(Response::new(ProduceResponse {
+                offset: resp.base_offset,
+                timestamp,
+            }));
+        }
+
+        // Fallback: WriterPool (for tests without agents)
+        if let Some(writer_pool) = &self.writer_pool {
+            let key = key_bytes.map(bytes::Bytes::from);
+            let value = bytes::Bytes::from(req.value);
+            let writer = writer_pool
+                .get_writer(&org_id, &req.topic, req.partition)
+                .await
+                .map_err(|e| Status::internal(format!("WriterPool error: {}", e)))?;
+            let offset = writer
+                .lock()
+                .await
+                .append(key, value, timestamp)
+                .await
+                .map_err(|e| Status::internal(format!("WriterPool append error: {}", e)))?;
+            return Ok(Response::new(ProduceResponse { offset, timestamp }));
+        }
+
+        Err(Status::internal("No produce backend configured"))
     }
 
     #[tracing::instrument(skip(self, request), fields(
@@ -469,72 +508,106 @@ impl StreamHouse for StreamHouseService {
             self.validate_schema(&req.topic, &record.value).await?;
         }
 
-        let agent_router = self
-            .agent_router
-            .as_ref()
-            .ok_or_else(|| Status::internal("AgentRouter not configured"))?;
-
-        // Build proto records for the agent
         let timestamp = chrono::Utc::now().timestamp_millis() as u64;
-        let proto_records: Vec<streamhouse_proto::producer::produce_request::Record> = req
-            .records
-            .iter()
-            .map(|r| {
-                let key = if r.key.is_empty() {
+        let record_count = req.records.len();
+
+        if let Some(agent_router) = &self.agent_router {
+            let proto_records: Vec<streamhouse_proto::producer::produce_request::Record> = req
+                .records
+                .iter()
+                .map(|r| {
+                    let key = if r.key.is_empty() {
+                        None
+                    } else {
+                        Some(r.key.clone())
+                    };
+                    let ts = if r.timestamp > 0 {
+                        r.timestamp
+                    } else {
+                        timestamp
+                    };
+                    streamhouse_proto::producer::produce_request::Record {
+                        key,
+                        value: r.value.clone(),
+                        timestamp: ts,
+                        headers: std::collections::HashMap::new(),
+                    }
+                })
+                .collect();
+
+            let resp = agent_router
+                .produce(
+                    &org_id,
+                    &req.topic,
+                    req.partition,
+                    proto_records,
+                    req.ack_mode,
+                    req.producer_id,
+                    req.producer_epoch,
+                    req.base_sequence,
+                    req.transaction_id,
+                )
+                .await
+                .map_err(|e| Status::internal(format!("AgentRouter produce failed: {}", e)))?;
+
+            let base_offset = resp.base_offset;
+            let last_offset = base_offset + record_count as u64 - 1;
+
+            debug!(
+                topic = %req.topic,
+                partition = req.partition,
+                base_offset = base_offset,
+                record_count = record_count,
+                "Successfully forwarded produce to agent"
+            );
+
+            return Ok(Response::new(ProduceBatchResponse {
+                first_offset: base_offset,
+                last_offset,
+                count: record_count as u32,
+                duplicates_filtered: resp.duplicates_filtered,
+            }));
+        }
+
+        // Fallback: WriterPool (for tests without agents)
+        if let Some(writer_pool) = &self.writer_pool {
+            let mut first_offset = 0u64;
+            for (i, record) in req.records.iter().enumerate() {
+                let key = if record.key.is_empty() {
                     None
                 } else {
-                    Some(r.key.clone())
+                    Some(bytes::Bytes::from(record.key.clone()))
                 };
-                let ts = if r.timestamp > 0 {
-                    r.timestamp
+                let value = bytes::Bytes::from(record.value.clone());
+                let ts = if record.timestamp > 0 {
+                    record.timestamp
                 } else {
                     timestamp
                 };
-                streamhouse_proto::producer::produce_request::Record {
-                    key,
-                    value: r.value.clone(),
-                    timestamp: ts,
-                    headers: std::collections::HashMap::new(),
+                let writer = writer_pool
+                    .get_writer(&org_id, &req.topic, req.partition)
+                    .await
+                    .map_err(|e| Status::internal(format!("WriterPool error: {}", e)))?;
+                let offset = writer
+                    .lock()
+                    .await
+                    .append(key, value, ts)
+                    .await
+                    .map_err(|e| Status::internal(format!("WriterPool append error: {}", e)))?;
+                if i == 0 {
+                    first_offset = offset;
                 }
-            })
-            .collect();
+            }
+            let last_offset = first_offset + record_count as u64 - 1;
+            return Ok(Response::new(ProduceBatchResponse {
+                first_offset,
+                last_offset,
+                count: record_count as u32,
+                duplicates_filtered: false,
+            }));
+        }
 
-        let record_count = proto_records.len();
-
-        // Forward to agent via AgentRouter — the agent handles ack modes,
-        // idempotent dedup, lease validation, and transactions.
-        let resp = agent_router
-            .produce(
-                &org_id,
-                &req.topic,
-                req.partition,
-                proto_records,
-                req.ack_mode,
-                req.producer_id,
-                req.producer_epoch,
-                req.base_sequence,
-                req.transaction_id,
-            )
-            .await
-            .map_err(|e| Status::internal(format!("AgentRouter produce failed: {}", e)))?;
-
-        let base_offset = resp.base_offset;
-        let last_offset = base_offset + record_count as u64 - 1;
-
-        debug!(
-            topic = %req.topic,
-            partition = req.partition,
-            base_offset = base_offset,
-            record_count = record_count,
-            "Successfully forwarded produce to agent"
-        );
-
-        Ok(Response::new(ProduceBatchResponse {
-            first_offset: base_offset,
-            last_offset,
-            count: record_count as u32,
-            duplicates_filtered: resp.duplicates_filtered,
-        }))
+        Err(Status::internal("No produce backend configured"))
     }
 
     // ========================================================================

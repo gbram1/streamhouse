@@ -258,6 +258,7 @@ async fn producer_task(
                 producer_epoch: None,
                 base_sequence: None,
                 transaction_id: None,
+                ack_mode: 0,
             };
 
             let start = Instant::now();
