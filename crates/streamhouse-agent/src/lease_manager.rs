@@ -55,7 +55,7 @@ use tokio::task::JoinHandle;
 use tracing::{debug, error, info, warn};
 
 /// Default lease duration (30 seconds)
-const DEFAULT_LEASE_DURATION_MS: i64 = 30_000;
+const DEFAULT_LEASE_DURATION_MS: i64 = 300_000; // 5 minutes
 
 /// Lease renewal interval (10 seconds = renew at 1/3 of lease duration)
 const LEASE_RENEWAL_INTERVAL: Duration = Duration::from_secs(10);
@@ -617,7 +617,7 @@ impl LeaseRenewalTask {
             };
 
             if leases_to_renew.is_empty() {
-                debug!(
+                info!(
                     agent_id = %self.agent_id,
                     "No active leases to renew"
                 );
@@ -635,7 +635,7 @@ impl LeaseRenewalTask {
                 match self.renew_lease(&topic, partition_id).await {
                     Ok(_) => {
                         renewal_count += 1;
-                        debug!(
+                        info!(
                             agent_id = %self.agent_id,
                             topic = %topic,
                             partition_id = partition_id,
