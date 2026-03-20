@@ -99,7 +99,7 @@ struct Cli {
     #[arg(
         long,
         env = "SCHEMA_REGISTRY_URL",
-        default_value = "http://api.streamhouse.app:8080/schemas"
+        default_value = "https://api.streamhouse.app/schemas"
     )]
     schema_registry_url: String,
 
@@ -107,7 +107,7 @@ struct Cli {
     #[arg(
         long,
         env = "STREAMHOUSE_API_URL",
-        default_value = "http://api.streamhouse.app:8080"
+        default_value = "https://api.streamhouse.app"
     )]
     api_url: String,
 
@@ -357,10 +357,10 @@ async fn main() -> Result<()> {
         };
 
         let schema_registry_url = std::env::var("SCHEMA_REGISTRY_URL")
-            .unwrap_or_else(|_| "http://api.streamhouse.app:8080/schemas".to_string());
+            .unwrap_or_else(|_| "https://api.streamhouse.app/schemas".to_string());
 
         let api_url = std::env::var("STREAMHOUSE_API_URL")
-            .unwrap_or_else(|_| "http://api.streamhouse.app:8080".to_string());
+            .unwrap_or_else(|_| "https://api.streamhouse.app".to_string());
 
         let channel = Channel::from_shared(server.clone())
             .context("Invalid server address")?
