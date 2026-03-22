@@ -770,7 +770,7 @@ mod tests {
     use super::*;
     use std::collections::HashMap as StdHashMap;
     use std::sync::Arc;
-    use streamhouse_metadata::{SqliteMetadataStore, TopicConfig};
+    use streamhouse_metadata::{SqliteMetadataStore, TopicConfig, TEST_ORG_ID};
 
     /// Helper: create a metadata store backed by a temp SQLite DB.
     async fn make_store() -> (Arc<dyn MetadataStore>, tempfile::TempDir) {
@@ -789,15 +789,24 @@ mod tests {
         partitions: u32,
         agent_id: &str,
     ) {
-        // Create topic (also creates partition rows)
+        // Ensure the test org exists
         store
-            .create_topic(TopicConfig {
-                name: topic_name.to_string(),
-                partition_count: partitions,
-                retention_ms: None,
-                config: StdHashMap::new(),
-                ..Default::default()
-            })
+            .ensure_organization(TEST_ORG_ID, "Test Org")
+            .await
+            .unwrap();
+
+        // Create topic under the test org (also creates partition rows)
+        store
+            .create_topic_for_org(
+                TEST_ORG_ID,
+                TopicConfig {
+                    name: topic_name.to_string(),
+                    partition_count: partitions,
+                    retention_ms: None,
+                    config: StdHashMap::new(),
+                    ..Default::default()
+                },
+            )
             .await
             .unwrap();
 
