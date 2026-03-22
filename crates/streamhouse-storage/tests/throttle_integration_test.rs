@@ -10,9 +10,7 @@ use bytes::Bytes;
 use object_store::memory::InMemory;
 use std::sync::Arc;
 use std::time::Duration;
-use streamhouse_metadata::{
-    MetadataStore, SqliteMetadataStore, TopicConfig, DEFAULT_ORGANIZATION_ID,
-};
+use streamhouse_metadata::{MetadataStore, SqliteMetadataStore, TopicConfig, TEST_ORG_ID};
 use streamhouse_storage::{
     BucketConfig, CircuitBreakerConfig, PartitionWriter, ThrottleConfig, WriteConfig,
 };
@@ -31,13 +29,20 @@ fn now_ms() -> i64 {
 async fn create_test_metadata() -> Arc<dyn MetadataStore> {
     let store = SqliteMetadataStore::new_in_memory().await.unwrap();
     store
-        .create_topic(TopicConfig {
-            name: "throttle-test".to_string(),
-            partition_count: 1,
-            retention_ms: Some(86400000),
-            config: Default::default(),
-            cleanup_policy: Default::default(),
-        })
+        .ensure_organization(TEST_ORG_ID, "Test Org")
+        .await
+        .unwrap();
+    store
+        .create_topic_for_org(
+            TEST_ORG_ID,
+            TopicConfig {
+                name: "throttle-test".to_string(),
+                partition_count: 1,
+                retention_ms: Some(86400000),
+                config: Default::default(),
+                cleanup_policy: Default::default(),
+            },
+        )
         .await
         .unwrap();
     Arc::new(store)
@@ -79,7 +84,7 @@ async fn test_rate_limiting_rejects_excess_requests() {
     };
 
     let mut writer = PartitionWriter::new(
-        DEFAULT_ORGANIZATION_ID.to_string(),
+        TEST_ORG_ID.to_string(),
         "throttle-test".to_string(),
         0,
         object_store.clone(),
@@ -187,7 +192,7 @@ async fn test_circuit_breaker_opens_on_failures() {
     };
 
     let writer = PartitionWriter::new(
-        DEFAULT_ORGANIZATION_ID.to_string(),
+        TEST_ORG_ID.to_string(),
         "throttle-test".to_string(),
         0,
         object_store.clone(),
@@ -231,7 +236,7 @@ async fn test_throttle_allows_normal_operations() {
     };
 
     let mut writer = PartitionWriter::new(
-        DEFAULT_ORGANIZATION_ID.to_string(),
+        TEST_ORG_ID.to_string(),
         "throttle-test".to_string(),
         0,
         object_store.clone(),
@@ -296,7 +301,7 @@ async fn test_rate_recovery_after_pause() {
     };
 
     let mut writer = PartitionWriter::new(
-        DEFAULT_ORGANIZATION_ID.to_string(),
+        TEST_ORG_ID.to_string(),
         "throttle-test".to_string(),
         0,
         object_store.clone(),

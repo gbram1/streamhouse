@@ -2,7 +2,7 @@ use crate::pb::{stream_house_server::StreamHouse, *};
 use std::collections::HashMap;
 use std::sync::Arc;
 use streamhouse_client::AgentRouter;
-use streamhouse_metadata::{MetadataStore, ProducerState, TopicConfig, DEFAULT_ORGANIZATION_ID};
+use streamhouse_metadata::{MetadataStore, ProducerState, TopicConfig};
 use streamhouse_storage::{PartitionReader, SegmentCache, WriteConfig};
 use tokio::sync::{Notify, RwLock};
 use tonic::{Request, Response, Status};
@@ -10,8 +10,8 @@ use tracing::{debug, error, info, warn};
 
 /// Extract organization ID from gRPC request metadata.
 ///
-/// Checks for `x-organization-id` metadata key, falling back to
-/// `DEFAULT_ORGANIZATION_ID` when not present (backwards-compatible).
+/// Checks for `x-organization-id` metadata key. Returns an empty string
+/// if not present (callers must handle missing org_id).
 fn extract_org_id_from_request<T>(request: &Request<T>) -> String {
     request
         .metadata()
@@ -19,7 +19,7 @@ fn extract_org_id_from_request<T>(request: &Request<T>) -> String {
         .and_then(|v| v.to_str().ok())
         .filter(|s| !s.is_empty())
         .map(|s| s.to_string())
-        .unwrap_or_else(|| DEFAULT_ORGANIZATION_ID.to_string())
+        .unwrap_or_default()
 }
 
 /// StreamHouse gRPC service implementation
@@ -282,6 +282,7 @@ impl StreamHouse for StreamHouseService {
         &self,
         request: Request<CreateTopicRequest>,
     ) -> Result<Response<CreateTopicResponse>, Status> {
+        let org_id = extract_org_id_from_request(&request);
         let req = request.into_inner();
 
         let config = TopicConfig {
@@ -293,7 +294,7 @@ impl StreamHouse for StreamHouseService {
         };
 
         self.metadata
-            .create_topic(config)
+            .create_topic_for_org(&org_id, config)
             .await
             .map_err(|e| Status::internal(format!("Failed to create topic: {}", e)))?;
 
@@ -308,7 +309,6 @@ impl StreamHouse for StreamHouseService {
         self.topic_changed.notify_waiters();
 
         // Pre-assign partition leases to available agents so produce works immediately
-        let org_id = streamhouse_metadata::DEFAULT_ORGANIZATION_ID;
         if let Ok(agents) = self.metadata.list_agents(None, None).await {
             let now_ms = chrono::Utc::now().timestamp_millis();
             let active: Vec<_> = agents
@@ -320,7 +320,7 @@ impl StreamHouse for StreamHouseService {
                     let agent = &active[p as usize % active.len()];
                     let _ = self
                         .metadata
-                        .acquire_partition_lease(org_id, &req.name, p, &agent.agent_id, 60_000)
+                        .acquire_partition_lease(&org_id, &req.name, p, &agent.agent_id, 60_000)
                         .await;
                 }
             }
@@ -387,10 +387,11 @@ impl StreamHouse for StreamHouseService {
         &self,
         request: Request<DeleteTopicRequest>,
     ) -> Result<Response<DeleteTopicResponse>, Status> {
+        let org_id = extract_org_id_from_request(&request);
         let req = request.into_inner();
 
         self.metadata
-            .delete_topic(&req.name)
+            .delete_topic_for_org(&org_id, &req.name)
             .await
             .map_err(|e| Status::internal(format!("Failed to delete topic: {}", e)))?;
 
@@ -976,8 +977,16 @@ impl StreamHouse for StreamHouseService {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use streamhouse_metadata::SqliteMetadataStore;
+    use streamhouse_metadata::{SqliteMetadataStore, TEST_ORG_ID};
     use streamhouse_storage::WriteConfig;
+
+    /// Wrap an inner message in a tonic `Request` with the test org header set.
+    fn org_request<T>(inner: T) -> Request<T> {
+        let mut req = Request::new(inner);
+        req.metadata_mut()
+            .insert("x-organization-id", TEST_ORG_ID.parse().unwrap());
+        req
+    }
 
     /// Helper: create a fully wired StreamHouseService backed by an in-memory
     /// SQLite metadata store and a local-filesystem object store.
@@ -997,6 +1006,12 @@ mod tests {
                 .await
                 .unwrap(),
         );
+
+        // Ensure the test organization exists so FK constraints are satisfied
+        metadata
+            .ensure_organization(TEST_ORG_ID, "Test Org")
+            .await
+            .unwrap();
 
         let object_store =
             Arc::new(object_store::local::LocalFileSystem::new_with_prefix(&storage_dir).unwrap());
@@ -1026,7 +1041,7 @@ mod tests {
     async fn test_create_topic_returns_correct_response() {
         let (service, _temp) = make_test_service().await;
 
-        let req = Request::new(CreateTopicRequest {
+        let req = org_request(CreateTopicRequest {
             name: "my-topic".to_string(),
             partition_count: 4,
             retention_ms: Some(3_600_000),
@@ -1042,7 +1057,7 @@ mod tests {
     async fn test_get_topic_not_found_returns_status_not_found() {
         let (service, _temp) = make_test_service().await;
 
-        let req = Request::new(GetTopicRequest {
+        let req = org_request(GetTopicRequest {
             name: "nonexistent".to_string(),
         });
 
@@ -1056,7 +1071,7 @@ mod tests {
         let (service, _temp) = make_test_service().await;
 
         // Create a topic first
-        let create_req = Request::new(CreateTopicRequest {
+        let create_req = org_request(CreateTopicRequest {
             name: "to-delete".to_string(),
             partition_count: 1,
             retention_ms: None,
@@ -1065,14 +1080,14 @@ mod tests {
         service.create_topic(create_req).await.unwrap();
 
         // Delete it
-        let delete_req = Request::new(DeleteTopicRequest {
+        let delete_req = org_request(DeleteTopicRequest {
             name: "to-delete".to_string(),
         });
         let resp = service.delete_topic(delete_req).await.unwrap().into_inner();
         assert!(resp.success);
 
         // Verify it is gone
-        let get_req = Request::new(GetTopicRequest {
+        let get_req = org_request(GetTopicRequest {
             name: "to-delete".to_string(),
         });
         let err = service.get_topic(get_req).await.unwrap_err();
@@ -1084,7 +1099,7 @@ mod tests {
         let (service, _temp) = make_test_service().await;
 
         // Create topic with 2 partitions
-        let create_req = Request::new(CreateTopicRequest {
+        let create_req = org_request(CreateTopicRequest {
             name: "partitioned".to_string(),
             partition_count: 2,
             retention_ms: None,
@@ -1093,7 +1108,7 @@ mod tests {
         service.create_topic(create_req).await.unwrap();
 
         // Try partition 10 (out of range)
-        let produce_req = Request::new(ProduceRequest {
+        let produce_req = org_request(ProduceRequest {
             topic: "partitioned".to_string(),
             partition: 10,
             key: vec![],

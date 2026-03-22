@@ -104,12 +104,12 @@ impl SchemaStorage for PostgresSchemaStorage {
         let mut tx = self.pool.begin().await?;
 
         // Insert schema into schemas table (or get existing ID if hash matches)
-        // Use default organization for now (multi-tenancy will pass org_id through context)
-        let default_org = "00000000-0000-0000-0000-000000000000";
+        // TODO: pass org_id through context for multi-tenancy
+        let default_org = sqlx::types::Uuid::nil();
         let schema_id: i32 = sqlx::query_scalar(
             r#"
             INSERT INTO schema_registry_schemas (schema_format, schema_definition, schema_hash, organization_id)
-            VALUES ($1, $2, $3, $4::UUID)
+            VALUES ($1, $2, $3, $4)
             ON CONFLICT (schema_hash) DO UPDATE SET schema_hash = schema_registry_schemas.schema_hash
             RETURNING id
             "#,
@@ -125,7 +125,7 @@ impl SchemaStorage for PostgresSchemaStorage {
         sqlx::query(
             r#"
             INSERT INTO schema_registry_versions (subject, version, schema_id, organization_id)
-            VALUES ($1, $2, $3, $4::UUID)
+            VALUES ($1, $2, $3, $4)
             "#,
         )
         .bind(&schema.subject)
@@ -377,11 +377,12 @@ impl SchemaStorage for PostgresSchemaStorage {
     }
 
     async fn set_subject_config(&self, config: SubjectConfig) -> Result<()> {
-        let default_org = "00000000-0000-0000-0000-000000000000";
+        // TODO: pass org_id through context for multi-tenancy
+        let default_org = sqlx::types::Uuid::nil();
         sqlx::query(
             r#"
             INSERT INTO schema_registry_subject_config (subject, compatibility, organization_id, updated_at)
-            VALUES ($1, $2, $3::UUID, NOW())
+            VALUES ($1, $2, $3, NOW())
             ON CONFLICT (subject) DO UPDATE
             SET compatibility = $2, updated_at = NOW()
             "#,

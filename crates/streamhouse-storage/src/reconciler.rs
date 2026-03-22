@@ -70,12 +70,13 @@ impl S3Reconciler {
             .as_millis() as i64;
         let grace_ms = self.grace_period.as_millis() as i64;
 
-        // Build list of S3 prefixes to scan — default org + all non-default orgs
+        // Build list of S3 prefixes to scan — legacy "data/" prefix + per-org prefixes
         let mut prefixes = vec!["data/".to_string()];
         if let Ok(orgs) = self.metadata.list_organizations().await {
             for org in orgs {
-                if org.id != streamhouse_metadata::DEFAULT_ORGANIZATION_ID {
-                    prefixes.push(format!("org-{}/data/", org.id));
+                let org_prefix = format!("org-{}/data/", org.id);
+                if !prefixes.contains(&org_prefix) {
+                    prefixes.push(org_prefix);
                 }
             }
         }
@@ -106,13 +107,10 @@ impl S3Reconciler {
         let mut known_keys: HashSet<String> = HashSet::new();
 
         // Build list of org_ids to check
-        let mut org_ids: Vec<String> =
-            vec![streamhouse_metadata::DEFAULT_ORGANIZATION_ID.to_string()];
+        let mut org_ids: Vec<String> = Vec::new();
         if let Ok(orgs) = self.metadata.list_organizations().await {
             for org in orgs {
-                if org.id != streamhouse_metadata::DEFAULT_ORGANIZATION_ID {
-                    org_ids.push(org.id);
-                }
+                org_ids.push(org.id);
             }
         }
 
@@ -196,28 +194,26 @@ impl S3Reconciler {
 
         let mut stats = ReconcileFromS3Stats::default();
 
-        // Build list of S3 prefixes to scan — default org + all non-default orgs
-        let mut prefixes: Vec<(String, String)> = vec![(
-            "data/".to_string(),
-            streamhouse_metadata::DEFAULT_ORGANIZATION_ID.to_string(),
-        )];
+        // Build list of S3 prefixes to scan — legacy "data/" prefix + per-org prefixes
+        let mut prefixes: Vec<(String, String)> = Vec::new();
         if let Ok(orgs) = self.metadata.list_organizations().await {
-            for org in orgs {
-                if org.id != streamhouse_metadata::DEFAULT_ORGANIZATION_ID {
-                    prefixes.push((format!("org-{}/data/", org.id), org.id.clone()));
-                }
+            for org in &orgs {
+                prefixes.push((format!("org-{}/data/", org.id), org.id.clone()));
             }
+            // Always scan the legacy "data/" prefix; associate with first org if available
+            if let Some(first_org) = orgs.first() {
+                prefixes.insert(0, ("data/".to_string(), first_org.id.clone()));
+            }
+        } else {
+            prefixes.push(("data/".to_string(), String::new()));
         }
 
         // Collect all known s3_keys from metadata
         let mut known_keys: HashSet<String> = HashSet::new();
-        let mut org_ids: Vec<String> =
-            vec![streamhouse_metadata::DEFAULT_ORGANIZATION_ID.to_string()];
+        let mut org_ids: Vec<String> = Vec::new();
         if let Ok(orgs) = self.metadata.list_organizations().await {
             for org in orgs {
-                if org.id != streamhouse_metadata::DEFAULT_ORGANIZATION_ID {
-                    org_ids.push(org.id);
-                }
+                org_ids.push(org.id);
             }
         }
         for org_id in &org_ids {
@@ -431,13 +427,20 @@ mod tests {
 
         // Create a topic so segments can reference it
         metadata
-            .create_topic(TopicConfig {
-                name: "orders".to_string(),
-                partition_count: 1,
-                retention_ms: None,
-                config: std::collections::HashMap::new(),
-                cleanup_policy: Default::default(),
-            })
+            .ensure_organization(streamhouse_metadata::TEST_ORG_ID, "Test Org")
+            .await
+            .unwrap();
+        metadata
+            .create_topic_for_org(
+                streamhouse_metadata::TEST_ORG_ID,
+                TopicConfig {
+                    name: "orders".to_string(),
+                    partition_count: 1,
+                    retention_ms: None,
+                    config: std::collections::HashMap::new(),
+                    cleanup_policy: Default::default(),
+                },
+            )
             .await
             .unwrap();
 
@@ -459,7 +462,7 @@ mod tests {
         // Register only the first segment in metadata
         metadata
             .add_segment(
-                streamhouse_metadata::DEFAULT_ORGANIZATION_ID,
+                streamhouse_metadata::TEST_ORG_ID,
                 streamhouse_metadata::SegmentInfo {
                     id: "orders-0-0".to_string(),
                     topic: "orders".to_string(),
@@ -500,13 +503,20 @@ mod tests {
         let metadata = Arc::new(SqliteMetadataStore::new_in_memory().await.unwrap());
 
         metadata
-            .create_topic(TopicConfig {
-                name: "logs".to_string(),
-                partition_count: 1,
-                retention_ms: None,
-                config: std::collections::HashMap::new(),
-                cleanup_policy: Default::default(),
-            })
+            .ensure_organization(streamhouse_metadata::TEST_ORG_ID, "Test Org")
+            .await
+            .unwrap();
+        metadata
+            .create_topic_for_org(
+                streamhouse_metadata::TEST_ORG_ID,
+                TopicConfig {
+                    name: "logs".to_string(),
+                    partition_count: 1,
+                    retention_ms: None,
+                    config: std::collections::HashMap::new(),
+                    cleanup_policy: Default::default(),
+                },
+            )
             .await
             .unwrap();
 

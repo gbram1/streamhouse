@@ -305,13 +305,6 @@ pub fn create_router(state: AppState) -> Router {
             "/organizations/:id/usage",
             get(handlers::organizations::get_organization_usage),
         )
-        // Agents (admin-only — platform exposes curated view to end users)
-        .route("/agents", get(handlers::agents::list_agents))
-        .route("/agents/:id", get(handlers::agents::get_agent))
-        .route(
-            "/agents/:id/metrics",
-            get(handlers::metrics::get_agent_metrics),
-        )
         // API Keys (under organizations)
         .route(
             "/organizations/:org_id/api-keys",
@@ -358,6 +351,25 @@ pub fn create_router(state: AppState) -> Router {
             Router::new().merge(api_routes).merge(admin_routes)
         };
 
+    // Agent routes (internal only — separate /admin nest)
+    let agent_routes = Router::new()
+        .route("/agents", get(handlers::agents::list_agents))
+        .route("/agents/:id", get(handlers::agents::get_agent))
+        .route(
+            "/agents/:id/metrics",
+            get(handlers::metrics::get_agent_metrics),
+        )
+        .with_state(state.clone());
+
+    let agent_routes = if auth_enabled {
+        agent_routes.layer(AuthLayer::admin_with_oidc(
+            metadata.clone(),
+            oidc_auth.clone(),
+        ))
+    } else {
+        agent_routes
+    };
+
     // OpenAPI documentation
     let swagger = SwaggerUi::new("/swagger-ui").url("/api-docs/openapi.json", ApiDoc::openapi());
 
@@ -374,6 +386,7 @@ pub fn create_router(state: AppState) -> Router {
     // Main router with CORS
     Router::new()
         .nest("/api/v1", api_routes)
+        .nest("/admin", agent_routes)
         .nest("/ws", ws_routes)
         .merge(swagger)
         .route("/health", get(handlers::metrics::health_check))

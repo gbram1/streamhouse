@@ -24,9 +24,9 @@ pub async fn metrics_websocket(
     State(state): State<AppState>,
     headers: HeaderMap,
     auth_key: Option<Extension<AuthenticatedKey>>,
-) -> impl IntoResponse {
-    let org_id = extract_org_id(&headers, auth_key.as_ref().map(|e| &e.0));
-    ws.on_upgrade(|socket| handle_metrics_stream(socket, state, org_id))
+) -> Result<impl IntoResponse, StatusCode> {
+    let org_id = extract_org_id(&headers, auth_key.as_ref().map(|e| &e.0))?;
+    Ok(ws.on_upgrade(|socket| handle_metrics_stream(socket, state, org_id)))
 }
 
 /// Stream cluster metrics every 5 seconds
@@ -122,7 +122,7 @@ pub async fn topic_websocket(
     headers: HeaderMap,
     auth_key: Option<Extension<AuthenticatedKey>>,
 ) -> Result<impl IntoResponse, StatusCode> {
-    let org_id = extract_org_id(&headers, auth_key.as_ref().map(|e| &e.0));
+    let org_id = extract_org_id(&headers, auth_key.as_ref().map(|e| &e.0))?;
 
     // Validate topic belongs to this org before upgrading
     state
@@ -204,7 +204,7 @@ pub async fn consumer_websocket(
     headers: HeaderMap,
     auth_key: Option<Extension<AuthenticatedKey>>,
 ) -> Result<impl IntoResponse, StatusCode> {
-    let org_id = extract_org_id(&headers, auth_key.as_ref().map(|e| &e.0));
+    let org_id = extract_org_id(&headers, auth_key.as_ref().map(|e| &e.0))?;
 
     // Validate consumer group belongs to this org before upgrading
     let offsets = state

@@ -4,7 +4,7 @@
 
 use std::sync::Arc;
 use std::time::Duration;
-use streamhouse_metadata::{CleanupPolicy, MetadataStore, TopicConfig};
+use streamhouse_metadata::{CleanupPolicy, MetadataStore, TopicConfig, TEST_ORG_ID};
 
 /// Test that producer can register schema and consumer can resolve it
 ///
@@ -30,13 +30,20 @@ async fn test_end_to_end_schema_flow() {
 
     // Create test topic
     metadata_store
-        .create_topic(TopicConfig {
-            name: "test-schema-topic".to_string(),
-            partition_count: 1,
-            retention_ms: None,
-            cleanup_policy: CleanupPolicy::default(),
-            config: Default::default(),
-        })
+        .ensure_organization(TEST_ORG_ID, "Test Org")
+        .await
+        .expect("Failed to ensure org");
+    metadata_store
+        .create_topic_for_org(
+            TEST_ORG_ID,
+            TopicConfig {
+                name: "test-schema-topic".to_string(),
+                partition_count: 1,
+                retention_ms: None,
+                cleanup_policy: CleanupPolicy::default(),
+                config: Default::default(),
+            },
+        )
         .await
         .expect("Failed to create topic");
 
@@ -153,13 +160,20 @@ async fn test_schema_caching() {
     );
 
     metadata_store
-        .create_topic(TopicConfig {
-            name: "test-cache-topic".to_string(),
-            partition_count: 1,
-            retention_ms: None,
-            cleanup_policy: CleanupPolicy::default(),
-            config: Default::default(),
-        })
+        .ensure_organization(TEST_ORG_ID, "Test Org")
+        .await
+        .expect("Failed to ensure org");
+    metadata_store
+        .create_topic_for_org(
+            TEST_ORG_ID,
+            TopicConfig {
+                name: "test-cache-topic".to_string(),
+                partition_count: 1,
+                retention_ms: None,
+                cleanup_policy: CleanupPolicy::default(),
+                config: Default::default(),
+            },
+        )
         .await
         .expect("Failed to create topic");
 
@@ -230,13 +244,20 @@ async fn test_compatibility_checking() {
     );
 
     metadata_store
-        .create_topic(TopicConfig {
-            name: "test-compat-topic".to_string(),
-            partition_count: 1,
-            retention_ms: None,
-            cleanup_policy: CleanupPolicy::default(),
-            config: Default::default(),
-        })
+        .ensure_organization(TEST_ORG_ID, "Test Org")
+        .await
+        .expect("Failed to ensure org");
+    metadata_store
+        .create_topic_for_org(
+            TEST_ORG_ID,
+            TopicConfig {
+                name: "test-compat-topic".to_string(),
+                partition_count: 1,
+                retention_ms: None,
+                cleanup_policy: CleanupPolicy::default(),
+                config: Default::default(),
+            },
+        )
         .await
         .expect("Failed to create topic");
 

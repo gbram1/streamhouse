@@ -505,7 +505,11 @@ impl TestCluster {
             config: HashMap::new(),
         };
         self.metadata
-            .create_topic(topic_config)
+            .ensure_organization(streamhouse_metadata::TEST_ORG_ID, "Test Org")
+            .await
+            .context("ensuring organization")?;
+        self.metadata
+            .create_topic_for_org(streamhouse_metadata::TEST_ORG_ID, topic_config)
             .await
             .context("creating topic")?;
 
@@ -513,7 +517,7 @@ impl TestCluster {
         for p in 0..partitions {
             self.metadata
                 .acquire_partition_lease(
-                    streamhouse_metadata::DEFAULT_ORGANIZATION_ID,
+                    streamhouse_metadata::TEST_ORG_ID,
                     name,
                     p,
                     TEST_AGENT_ID,

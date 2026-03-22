@@ -940,11 +940,8 @@ pub struct OrganizationUsage {
     pub period_start: i64,
 }
 
-/// Default organization ID for backwards compatibility.
-///
-/// This is used for existing data that doesn't have an organization_id,
-/// and for single-tenant deployments.
-pub const DEFAULT_ORGANIZATION_ID: &str = "00000000-0000-0000-0000-000000000000";
+/// Organization ID for use in tests (must be valid UUID for Postgres compatibility).
+pub const TEST_ORG_ID: &str = "00000000-0000-0000-0000-000000000001";
 
 // ============================================================================
 // Exactly-Once Semantics Types
@@ -3009,17 +3006,12 @@ mod tests {
     }
 
     // ========================================================================
-    // DEFAULT_ORGANIZATION_ID Constant Test
+    // Organization ID Constant Tests
     // ========================================================================
 
     #[test]
-    fn test_default_organization_id() {
-        assert_eq!(
-            DEFAULT_ORGANIZATION_ID,
-            "00000000-0000-0000-0000-000000000000"
-        );
-        // Should look like a nil UUID
-        assert_eq!(DEFAULT_ORGANIZATION_ID.len(), 36);
+    fn test_test_org_id() {
+        assert_eq!(TEST_ORG_ID, "00000000-0000-0000-0000-000000000001");
     }
 
     // ========================================================================
@@ -3158,7 +3150,7 @@ mod tests {
     #[test]
     fn test_partition_lease_serde_roundtrip() {
         let lease = PartitionLease {
-            organization_id: DEFAULT_ORGANIZATION_ID.to_string(),
+            organization_id: TEST_ORG_ID.to_string(),
             topic: "orders".to_string(),
             partition_id: 0,
             leader_agent_id: "agent-001".to_string(),

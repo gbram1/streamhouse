@@ -8,18 +8,21 @@ use axum::{
 use chrono::{DateTime, Utc};
 
 use crate::{auth::AuthenticatedKey, models::*, AppState};
-use streamhouse_metadata::{TopicConfig, DEFAULT_ORGANIZATION_ID};
+use streamhouse_metadata::TopicConfig;
 
 /// Extract organization ID securely.
 ///
 /// When auth is enabled, the org ID comes from the `AuthenticatedKey` stored in
 /// request extensions by the auth middleware — this cannot be spoofed by clients.
 /// Falls back to the `x-organization-id` header only when auth middleware is not
-/// present (dev/testing without auth).
-pub(crate) fn extract_org_id(headers: &HeaderMap, auth_key: Option<&AuthenticatedKey>) -> String {
+/// present (dev/testing without auth). Returns an error if no org ID is available.
+pub(crate) fn extract_org_id(
+    headers: &HeaderMap,
+    auth_key: Option<&AuthenticatedKey>,
+) -> Result<String, StatusCode> {
     // 1. If AuthenticatedKey is present (auth enabled), use its org_id
     if let Some(key) = auth_key {
-        return key.organization_id.clone();
+        return Ok(key.organization_id.clone());
     }
     // 2. Fallback to header (dev/testing without auth)
     headers
@@ -27,7 +30,7 @@ pub(crate) fn extract_org_id(headers: &HeaderMap, auth_key: Option<&Authenticate
         .and_then(|v| v.to_str().ok())
         .filter(|s| !s.is_empty())
         .map(|s| s.to_string())
-        .unwrap_or_else(|| DEFAULT_ORGANIZATION_ID.to_string())
+        .ok_or(StatusCode::BAD_REQUEST)
 }
 
 /// Decode message value, handling Avro Object Container format
@@ -146,7 +149,7 @@ pub async fn list_topics(
     headers: HeaderMap,
     auth_key: Option<Extension<AuthenticatedKey>>,
 ) -> Result<Json<Vec<Topic>>, StatusCode> {
-    let org_id = extract_org_id(&headers, auth_key.as_ref().map(|e| &e.0));
+    let org_id = extract_org_id(&headers, auth_key.as_ref().map(|e| &e.0))?;
 
     // Ensure the organization exists (lazy creation)
     let _ = state.metadata.ensure_organization(&org_id, &org_id).await;
@@ -206,7 +209,7 @@ pub async fn create_topic(
     auth_key: Option<Extension<AuthenticatedKey>>,
     Json(req): Json<CreateTopicRequest>,
 ) -> Result<(StatusCode, Json<Topic>), StatusCode> {
-    let org_id = extract_org_id(&headers, auth_key.as_ref().map(|e| &e.0));
+    let org_id = extract_org_id(&headers, auth_key.as_ref().map(|e| &e.0))?;
 
     // Ensure the organization exists (lazy creation)
     let _ = state.metadata.ensure_organization(&org_id, &org_id).await;
@@ -319,7 +322,7 @@ pub async fn get_topic(
     auth_key: Option<Extension<AuthenticatedKey>>,
     Path(name): Path<String>,
 ) -> Result<Json<Topic>, StatusCode> {
-    let org_id = extract_org_id(&headers, auth_key.as_ref().map(|e| &e.0));
+    let org_id = extract_org_id(&headers, auth_key.as_ref().map(|e| &e.0))?;
 
     let topic = state
         .metadata
@@ -373,7 +376,7 @@ pub async fn delete_topic(
     auth_key: Option<Extension<AuthenticatedKey>>,
     Path(name): Path<String>,
 ) -> Result<StatusCode, StatusCode> {
-    let org_id = extract_org_id(&headers, auth_key.as_ref().map(|e| &e.0));
+    let org_id = extract_org_id(&headers, auth_key.as_ref().map(|e| &e.0))?;
 
     // Check if topic exists for this org
     state
@@ -416,7 +419,7 @@ pub async fn list_partitions(
     auth_key: Option<Extension<AuthenticatedKey>>,
     Path(name): Path<String>,
 ) -> Result<Json<Vec<Partition>>, StatusCode> {
-    let org_id = extract_org_id(&headers, auth_key.as_ref().map(|e| &e.0));
+    let org_id = extract_org_id(&headers, auth_key.as_ref().map(|e| &e.0))?;
 
     // Check if topic exists for this org
     state
@@ -486,7 +489,7 @@ pub async fn get_topic_messages(
     use object_store::path::Path as ObjectPath;
     use streamhouse_storage::segment::SegmentReader;
 
-    let org_id = extract_org_id(&headers, auth_key.as_ref().map(|e| &e.0));
+    let org_id = extract_org_id(&headers, auth_key.as_ref().map(|e| &e.0))?;
 
     // Validate topic exists for this org
     state

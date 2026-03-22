@@ -190,7 +190,7 @@ pub async fn produce(
     Json(req): Json<ProduceRequest>,
 ) -> Result<Json<ProduceResponse>, StatusCode> {
     let start = std::time::Instant::now();
-    let org_id = extract_org_id(&headers, auth_key.as_ref().map(|e| &e.0));
+    let org_id = extract_org_id(&headers, auth_key.as_ref().map(|e| &e.0))?;
     let topic_name = req.topic.clone();
     let value_bytes = req.value.len() as u64;
 
@@ -381,7 +381,7 @@ pub async fn produce_batch(
     Json(req): Json<BatchProduceRequest>,
 ) -> Result<Json<BatchProduceResponse>, StatusCode> {
     let start = std::time::Instant::now();
-    let org_id = extract_org_id(&headers, auth_key.as_ref().map(|e| &e.0));
+    let org_id = extract_org_id(&headers, auth_key.as_ref().map(|e| &e.0))?;
     let topic_name = req.topic.clone();
     let total_bytes: u64 = req.records.iter().map(|r| r.value.len() as u64).sum();
     let record_count = req.records.len();

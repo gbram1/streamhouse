@@ -23,9 +23,7 @@
 //! }
 //! ```
 
-use crate::{
-    ApiKey, MetadataStore, Organization, OrganizationQuota, Result, DEFAULT_ORGANIZATION_ID,
-};
+use crate::{ApiKey, MetadataStore, Organization, OrganizationQuota, Result, TEST_ORG_ID};
 use sha2::{Digest, Sha256};
 use std::sync::Arc;
 
@@ -50,7 +48,7 @@ impl TenantContext {
     pub fn default_context() -> Self {
         Self {
             organization: Organization {
-                id: DEFAULT_ORGANIZATION_ID.to_string(),
+                id: TEST_ORG_ID.to_string(),
                 name: "Default Organization".to_string(),
                 slug: "default".to_string(),
                 plan: crate::OrganizationPlan::Enterprise,
@@ -245,7 +243,7 @@ impl<S: MetadataStore> ApiKeyValidator<S> {
     /// Get tenant context for the default organization (single-tenant mode)
     pub async fn default_context(&self) -> Result<TenantContext> {
         // Try to get the default organization
-        if let Some(org) = self.store.get_organization(DEFAULT_ORGANIZATION_ID).await? {
+        if let Some(org) = self.store.get_organization(TEST_ORG_ID).await? {
             let quota = self.store.get_organization_quota(&org.id).await?;
             Ok(TenantContext {
                 organization: org,

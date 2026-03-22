@@ -11,7 +11,7 @@ use std::sync::Arc;
 use std::time::Duration;
 use streamhouse_client::{Consumer, OffsetReset};
 use streamhouse_metadata::{
-    CleanupPolicy, MetadataStore, SqliteMetadataStore, TopicConfig, DEFAULT_ORGANIZATION_ID,
+    CleanupPolicy, MetadataStore, SqliteMetadataStore, TopicConfig, TEST_ORG_ID,
 };
 use streamhouse_storage::{PartitionWriter, WriteConfig};
 use tempfile::TempDir;
@@ -47,7 +47,14 @@ async fn setup_test_env_with_topic(
         cleanup_policy: CleanupPolicy::default(),
         config: HashMap::new(),
     };
-    metadata.create_topic(config).await.unwrap();
+    metadata
+        .ensure_organization(TEST_ORG_ID, "Test Org")
+        .await
+        .unwrap();
+    metadata
+        .create_topic_for_org(TEST_ORG_ID, config)
+        .await
+        .unwrap();
 
     (metadata, object_store, temp_dir)
 }
@@ -72,6 +79,7 @@ async fn test_consumer_basic_poll() {
         .topics(vec!["topic_basic_poll".to_string()])
         .metadata_store(metadata.clone())
         .object_store(object_store.clone())
+        .organization_id(TEST_ORG_ID)
         .offset_reset(OffsetReset::Earliest)
         .build()
         .await
@@ -92,7 +100,7 @@ async fn test_consumer_read_after_produce() {
 
     // Write records using storage layer directly
     let mut writer = PartitionWriter::new(
-        DEFAULT_ORGANIZATION_ID.to_string(),
+        TEST_ORG_ID.to_string(),
         "topic_read_after_produce".to_string(),
         0,
         object_store.clone(),
@@ -126,6 +134,7 @@ async fn test_consumer_read_after_produce() {
         .topics(vec!["topic_read_after_produce".to_string()])
         .metadata_store(metadata.clone())
         .object_store(object_store.clone())
+        .organization_id(TEST_ORG_ID)
         .offset_reset(OffsetReset::Earliest)
         .build()
         .await
@@ -162,7 +171,7 @@ async fn test_consumer_offset_commit() {
 
     // Write records
     let mut writer = PartitionWriter::new(
-        DEFAULT_ORGANIZATION_ID.to_string(),
+        TEST_ORG_ID.to_string(),
         "topic_offset_commit".to_string(),
         0,
         object_store.clone(),
@@ -195,6 +204,7 @@ async fn test_consumer_offset_commit() {
             .topics(vec!["topic_offset_commit".to_string()])
             .metadata_store(metadata.clone())
             .object_store(object_store.clone())
+            .organization_id(TEST_ORG_ID)
             .offset_reset(OffsetReset::Earliest)
             .auto_commit(false)
             .build()
@@ -219,6 +229,7 @@ async fn test_consumer_offset_commit() {
             .topics(vec!["topic_offset_commit".to_string()])
             .metadata_store(metadata.clone())
             .object_store(object_store.clone())
+            .organization_id(TEST_ORG_ID)
             .offset_reset(OffsetReset::Earliest)
             .build()
             .await
@@ -238,7 +249,7 @@ async fn test_consumer_auto_commit() {
 
     // Write records
     let mut writer = PartitionWriter::new(
-        DEFAULT_ORGANIZATION_ID.to_string(),
+        TEST_ORG_ID.to_string(),
         "topic_auto_commit".to_string(),
         0,
         object_store.clone(),
@@ -270,6 +281,7 @@ async fn test_consumer_auto_commit() {
         .topics(vec!["topic_auto_commit".to_string()])
         .metadata_store(metadata.clone())
         .object_store(object_store.clone())
+        .organization_id(TEST_ORG_ID)
         .offset_reset(OffsetReset::Earliest)
         .auto_commit(true)
         .auto_commit_interval(Duration::from_millis(100))
@@ -303,7 +315,7 @@ async fn test_consumer_multiple_partitions() {
     // Write to both partitions
     for partition_id in 0..2 {
         let mut writer = PartitionWriter::new(
-            DEFAULT_ORGANIZATION_ID.to_string(),
+            TEST_ORG_ID.to_string(),
             "topic_multi_part".to_string(),
             partition_id,
             object_store.clone(),
@@ -336,6 +348,7 @@ async fn test_consumer_multiple_partitions() {
         .topics(vec!["topic_multi_part".to_string()])
         .metadata_store(metadata.clone())
         .object_store(object_store.clone())
+        .organization_id(TEST_ORG_ID)
         .offset_reset(OffsetReset::Earliest)
         .build()
         .await
@@ -363,7 +376,7 @@ async fn test_consumer_offset_reset_earliest() {
 
     // Write records
     let mut writer = PartitionWriter::new(
-        DEFAULT_ORGANIZATION_ID.to_string(),
+        TEST_ORG_ID.to_string(),
         "topic_reset_earliest".to_string(),
         0,
         object_store.clone(),
@@ -395,6 +408,7 @@ async fn test_consumer_offset_reset_earliest() {
         .topics(vec!["topic_reset_earliest".to_string()])
         .metadata_store(metadata.clone())
         .object_store(object_store.clone())
+        .organization_id(TEST_ORG_ID)
         .offset_reset(OffsetReset::Earliest)
         .build()
         .await
@@ -418,7 +432,7 @@ async fn test_consumer_offset_reset_latest() {
 
     // Write records
     let mut writer = PartitionWriter::new(
-        DEFAULT_ORGANIZATION_ID.to_string(),
+        TEST_ORG_ID.to_string(),
         "topic_reset_latest".to_string(),
         0,
         object_store.clone(),
@@ -450,6 +464,7 @@ async fn test_consumer_offset_reset_latest() {
         .topics(vec!["topic_reset_latest".to_string()])
         .metadata_store(metadata.clone())
         .object_store(object_store.clone())
+        .organization_id(TEST_ORG_ID)
         .offset_reset(OffsetReset::Latest)
         .build()
         .await
@@ -473,7 +488,7 @@ async fn test_consumer_throughput() {
 
     // Write many records
     let mut writer = PartitionWriter::new(
-        DEFAULT_ORGANIZATION_ID.to_string(),
+        TEST_ORG_ID.to_string(),
         "topic_throughput".to_string(),
         0,
         object_store.clone(),
@@ -507,6 +522,7 @@ async fn test_consumer_throughput() {
         .topics(vec!["topic_throughput".to_string()])
         .metadata_store(metadata.clone())
         .object_store(object_store.clone())
+        .organization_id(TEST_ORG_ID)
         .offset_reset(OffsetReset::Earliest)
         .build()
         .await

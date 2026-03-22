@@ -24,6 +24,7 @@
 //!
 //! // Create consumer (part of "analytics-group")
 //! let mut consumer = Consumer::new(
+//!     org_id.to_string(),
 //!     "orders".to_string(),
 //!     0,  // partition
 //!     Some("analytics-group".to_string()),
@@ -51,6 +52,7 @@ use streamhouse_metadata::MetadataStore;
 
 /// High-level consumer for reading from a partition
 pub struct Consumer {
+    org_id: String,
     group_id: Option<String>,
     topic: String,
     partition_id: u32,
@@ -65,6 +67,7 @@ impl Consumer {
     /// If `group_id` is provided, consumer will resume from last committed offset.
     /// Otherwise, starts from offset 0.
     pub async fn new(
+        org_id: String,
         topic: String,
         partition_id: u32,
         group_id: Option<String>,
@@ -84,6 +87,7 @@ impl Consumer {
         };
 
         Ok(Self {
+            org_id,
             group_id,
             topic,
             partition_id,
@@ -114,7 +118,8 @@ impl Consumer {
     pub async fn commit(&self) -> Result<()> {
         if let Some(ref group) = self.group_id {
             self.metadata
-                .commit_offset(
+                .commit_offset_for_org(
+                    &self.org_id,
                     group,
                     &self.topic,
                     self.partition_id,
@@ -158,13 +163,20 @@ mod tests {
     async fn create_test_metadata(topic: &str, partitions: u32) -> Arc<dyn MetadataStore> {
         let store = SqliteMetadataStore::new_in_memory().await.unwrap();
         store
-            .create_topic(TopicConfig {
-                name: topic.to_string(),
-                partition_count: partitions,
-                retention_ms: Some(86400000),
-                config: Default::default(),
-                cleanup_policy: Default::default(),
-            })
+            .ensure_organization(streamhouse_metadata::TEST_ORG_ID, "Test Org")
+            .await
+            .unwrap();
+        store
+            .create_topic_for_org(
+                streamhouse_metadata::TEST_ORG_ID,
+                TopicConfig {
+                    name: topic.to_string(),
+                    partition_count: partitions,
+                    retention_ms: Some(86400000),
+                    config: Default::default(),
+                    cleanup_policy: Default::default(),
+                },
+            )
             .await
             .unwrap();
         Arc::new(store)
@@ -178,7 +190,7 @@ mod tests {
     ) -> Arc<PartitionReader> {
         let object_store: Arc<dyn ObjectStore> = Arc::new(InMemory::new());
         Arc::new(PartitionReader::new(
-            streamhouse_metadata::DEFAULT_ORGANIZATION_ID.to_string(),
+            streamhouse_metadata::TEST_ORG_ID.to_string(),
             topic.to_string(),
             partition_id,
             metadata.clone(),
@@ -195,9 +207,16 @@ mod tests {
             Arc::new(SegmentCache::new(temp_dir.path().join("cache"), 1024 * 1024).unwrap());
         let reader = create_test_reader("orders", 0, metadata.clone(), cache);
 
-        let consumer = Consumer::new("orders".to_string(), 0, None, reader, metadata)
-            .await
-            .unwrap();
+        let consumer = Consumer::new(
+            streamhouse_metadata::TEST_ORG_ID.to_string(),
+            "orders".to_string(),
+            0,
+            None,
+            reader,
+            metadata,
+        )
+        .await
+        .unwrap();
 
         assert_eq!(consumer.position(), 0);
     }
@@ -211,6 +230,7 @@ mod tests {
         let reader = create_test_reader("orders", 0, metadata.clone(), cache);
 
         let consumer = Consumer::new(
+            streamhouse_metadata::TEST_ORG_ID.to_string(),
             "orders".to_string(),
             0,
             Some("my-group".to_string()),
@@ -229,7 +249,14 @@ mod tests {
 
         // Commit an offset first
         metadata
-            .commit_offset("my-group", "orders", 0, 42, None)
+            .commit_offset_for_org(
+                streamhouse_metadata::TEST_ORG_ID,
+                "my-group",
+                "orders",
+                0,
+                42,
+                None,
+            )
             .await
             .unwrap();
 
@@ -239,6 +266,7 @@ mod tests {
         let reader = create_test_reader("orders", 0, metadata.clone(), cache);
 
         let consumer = Consumer::new(
+            streamhouse_metadata::TEST_ORG_ID.to_string(),
             "orders".to_string(),
             0,
             Some("my-group".to_string()),
@@ -259,9 +287,16 @@ mod tests {
             Arc::new(SegmentCache::new(temp_dir.path().join("cache"), 1024 * 1024).unwrap());
         let reader = create_test_reader("orders", 0, metadata.clone(), cache);
 
-        let mut consumer = Consumer::new("orders".to_string(), 0, None, reader, metadata)
-            .await
-            .unwrap();
+        let mut consumer = Consumer::new(
+            streamhouse_metadata::TEST_ORG_ID.to_string(),
+            "orders".to_string(),
+            0,
+            None,
+            reader,
+            metadata,
+        )
+        .await
+        .unwrap();
 
         assert_eq!(consumer.position(), 0);
 
@@ -283,9 +318,16 @@ mod tests {
             Arc::new(SegmentCache::new(temp_dir.path().join("cache"), 1024 * 1024).unwrap());
         let reader = create_test_reader("orders", 0, metadata.clone(), cache);
 
-        let consumer = Consumer::new("orders".to_string(), 0, None, reader, metadata.clone())
-            .await
-            .unwrap();
+        let consumer = Consumer::new(
+            streamhouse_metadata::TEST_ORG_ID.to_string(),
+            "orders".to_string(),
+            0,
+            None,
+            reader,
+            metadata.clone(),
+        )
+        .await
+        .unwrap();
 
         // commit without group should be a no-op (not an error)
         consumer.commit().await.unwrap();
@@ -307,6 +349,7 @@ mod tests {
         let reader = create_test_reader("orders", 0, metadata.clone(), cache);
 
         let mut consumer = Consumer::new(
+            streamhouse_metadata::TEST_ORG_ID.to_string(),
             "orders".to_string(),
             0,
             Some("test-group".to_string()),
@@ -338,9 +381,16 @@ mod tests {
             Arc::new(SegmentCache::new(temp_dir.path().join("cache"), 1024 * 1024).unwrap());
         let reader = create_test_reader("events", 0, metadata.clone(), cache);
 
-        let mut consumer = Consumer::new("events".to_string(), 0, None, reader, metadata)
-            .await
-            .unwrap();
+        let mut consumer = Consumer::new(
+            streamhouse_metadata::TEST_ORG_ID.to_string(),
+            "events".to_string(),
+            0,
+            None,
+            reader,
+            metadata,
+        )
+        .await
+        .unwrap();
 
         // Multiple seeks should always reflect the latest position
         for target in [10, 20, 5, 1000, 0] {

@@ -20,13 +20,6 @@ pub enum MetricsCommands {
     Errors,
     /// Get storage metrics
     Storage,
-    /// List all agents
-    Agents,
-    /// Get agent details
-    Agent {
-        /// Agent ID
-        id: String,
-    },
 }
 
 #[derive(Debug, Deserialize)]
@@ -85,23 +78,6 @@ struct TopicStorageMetric {
     topic: String,
     size_bytes: i64,
     partition_count: i64,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct AgentMetricsResponse {
-    id: String,
-    #[serde(default)]
-    hostname: Option<String>,
-    state: String,
-    #[serde(default)]
-    topics_assigned: Vec<String>,
-    #[serde(default)]
-    uptime_seconds: i64,
-    #[serde(default)]
-    records_processed: i64,
-    #[serde(default)]
-    last_heartbeat: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -231,54 +207,6 @@ pub async fn handle_metrics_command(
                         t.topic, t.size_bytes, t.partition_count
                     );
                 }
-            }
-        }
-        MetricsCommands::Agents => {
-            let agents: Vec<AgentMetricsResponse> = client
-                .get("/api/v1/agents")
-                .await
-                .context("Failed to list agents")?;
-
-            if agents.is_empty() {
-                println!("No agents found");
-            } else {
-                println!("Agents ({}):", agents.len());
-                println!(
-                    "{:<36} {:<15} {:<10} {:<15} {:<10}",
-                    "ID", "Hostname", "State", "Records", "Uptime(s)"
-                );
-                println!("{}", "-".repeat(86));
-                for a in &agents {
-                    println!(
-                        "{:<36} {:<15} {:<10} {:<15} {:<10}",
-                        a.id,
-                        a.hostname.as_deref().unwrap_or("unknown"),
-                        a.state,
-                        a.records_processed,
-                        a.uptime_seconds,
-                    );
-                }
-            }
-        }
-        MetricsCommands::Agent { id } => {
-            let agent: AgentMetricsResponse = client
-                .get(&format!("/api/v1/agents/{}", id))
-                .await
-                .context("Agent not found")?;
-
-            println!("Agent:");
-            println!("  ID:               {}", agent.id);
-            if let Some(ref host) = agent.hostname {
-                println!("  Hostname:         {}", host);
-            }
-            println!("  State:            {}", agent.state);
-            println!("  Records processed: {}", agent.records_processed);
-            println!("  Uptime:           {}s", agent.uptime_seconds);
-            if !agent.topics_assigned.is_empty() {
-                println!("  Topics:           {}", agent.topics_assigned.join(", "));
-            }
-            if let Some(ref hb) = agent.last_heartbeat {
-                println!("  Last heartbeat:   {}", hb);
             }
         }
     }

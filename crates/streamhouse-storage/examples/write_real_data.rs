@@ -15,7 +15,7 @@ use object_store::{aws::AmazonS3Builder, ObjectStore};
 use std::collections::HashMap;
 use std::sync::Arc;
 use streamhouse_metadata::{
-    CleanupPolicy, MetadataStore, SqliteMetadataStore, TopicConfig, DEFAULT_ORGANIZATION_ID,
+    CleanupPolicy, MetadataStore, SqliteMetadataStore, TopicConfig, TEST_ORG_ID,
 };
 use streamhouse_storage::{PartitionReader, PartitionWriter, SegmentCache, WriteConfig};
 
@@ -101,7 +101,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     };
 
     let mut writer = PartitionWriter::new(
-        DEFAULT_ORGANIZATION_ID.to_string(),
+        TEST_ORG_ID.to_string(),
         topic.to_string(),
         0,
         object_store.clone(),
@@ -148,7 +148,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Write to partition 1
     println!("✍️  Step 6: Write 50 records to partition 1");
     let mut writer = PartitionWriter::new(
-        DEFAULT_ORGANIZATION_ID.to_string(),
+        TEST_ORG_ID.to_string(),
         topic.to_string(),
         1,
         object_store.clone(),
@@ -183,11 +183,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Verify metadata
     println!("🔍 Step 7: Verify data in metadata store");
     let partition0 = metadata
-        .get_partition(DEFAULT_ORGANIZATION_ID, topic, 0)
+        .get_partition(TEST_ORG_ID, topic, 0)
         .await?
         .unwrap();
     let partition1 = metadata
-        .get_partition(DEFAULT_ORGANIZATION_ID, topic, 1)
+        .get_partition(TEST_ORG_ID, topic, 1)
         .await?
         .unwrap();
 
@@ -195,12 +195,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("   Partition 1 watermark: {}", partition1.high_watermark);
     println!();
 
-    let segments0 = metadata
-        .get_segments(DEFAULT_ORGANIZATION_ID, topic, 0)
-        .await?;
-    let segments1 = metadata
-        .get_segments(DEFAULT_ORGANIZATION_ID, topic, 1)
-        .await?;
+    let segments0 = metadata.get_segments(TEST_ORG_ID, topic, 0).await?;
+    let segments1 = metadata.get_segments(TEST_ORG_ID, topic, 1).await?;
 
     println!("   Partition 0 segments: {}", segments0.len());
     for seg in &segments0 {
@@ -225,7 +221,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Read back using Phase 3.4 segment index
     println!("📖 Step 8: Read records using PartitionReader (Phase 3.4)");
     let reader = PartitionReader::new(
-        streamhouse_metadata::DEFAULT_ORGANIZATION_ID.to_string(),
+        streamhouse_metadata::TEST_ORG_ID.to_string(),
         topic.to_string(),
         0,
         metadata.clone(),

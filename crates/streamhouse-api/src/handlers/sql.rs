@@ -72,7 +72,15 @@ pub async fn execute_sql(
     auth_key: Option<Extension<AuthenticatedKey>>,
     Json(req): Json<SqlQueryRequest>,
 ) -> Result<Json<SqlQueryResponse>, (StatusCode, Json<SqlErrorResponse>)> {
-    let org_id = extract_org_id(&headers, auth_key.as_ref().map(|e| &e.0));
+    let org_id = extract_org_id(&headers, auth_key.as_ref().map(|e| &e.0)).map_err(|status| {
+        (
+            status,
+            Json(SqlErrorResponse {
+                error: "bad_request".to_string(),
+                message: "Organization ID is required".to_string(),
+            }),
+        )
+    })?;
 
     // Create SQL executor scoped to the requesting organization
     let executor = streamhouse_sql::SqlExecutor::new(

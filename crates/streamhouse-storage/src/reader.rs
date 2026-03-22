@@ -55,7 +55,7 @@
 //! let cache = Arc::new(SegmentCache::new("/tmp/cache", 1024*1024*1024)?);
 //!
 //! let reader = PartitionReader::new(
-//!     streamhouse_metadata::DEFAULT_ORGANIZATION_ID.to_string(),
+//!     "my-org-id".to_string(),
 //!     "orders".to_string(),
 //!     0,  // partition_id
 //!     metadata,

@@ -17,9 +17,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 use streamhouse_core::segment::Compression;
 use streamhouse_core::Record;
-use streamhouse_metadata::{
-    MetadataStore, SqliteMetadataStore, TopicConfig, DEFAULT_ORGANIZATION_ID,
-};
+use streamhouse_metadata::{MetadataStore, SqliteMetadataStore, TopicConfig, TEST_ORG_ID};
 use streamhouse_storage::wal::{SyncPolicy, WALConfig, WAL};
 use streamhouse_storage::{PartitionWriter, SegmentReader, SegmentWriter, WriteConfig};
 
@@ -308,7 +306,7 @@ async fn run_full_write_path(value: &Bytes) -> anyhow::Result<FullRunStats> {
     for pid in 0..PARTITION_COUNT {
         writers.push(
             PartitionWriter::new(
-                DEFAULT_ORGANIZATION_ID.to_string(),
+                TEST_ORG_ID.to_string(),
                 topic.to_string(),
                 pid,
                 object_store.clone(),
@@ -373,9 +371,7 @@ async fn run_full_write_path(value: &Bytes) -> anyhow::Result<FullRunStats> {
     let mut segment_inventory: Vec<SegmentDetail> = Vec::new();
 
     for pid in 0..PARTITION_COUNT {
-        let segments = metadata
-            .get_segments(DEFAULT_ORGANIZATION_ID, topic, pid)
-            .await?;
+        let segments = metadata.get_segments(TEST_ORG_ID, topic, pid).await?;
         let total_seg_bytes: u64 = segments.iter().map(|s| s.size_bytes).sum();
         let total_records_in_segs: u64 = segments.iter().map(|s| s.record_count as u64).sum();
 
@@ -410,9 +406,7 @@ async fn run_full_write_path(value: &Bytes) -> anyhow::Result<FullRunStats> {
     let mut verification: Vec<VerificationResult> = Vec::new();
 
     for pid in 0..PARTITION_COUNT {
-        let segments = metadata
-            .get_segments(DEFAULT_ORGANIZATION_ID, topic, pid)
-            .await?;
+        let segments = metadata.get_segments(TEST_ORG_ID, topic, pid).await?;
         let mut records_verified = 0u64;
         let mut offset_gaps: Vec<(u64, u64)> = Vec::new();
         let mut expected_offset: Option<u64> = None;

@@ -408,10 +408,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             // Discover org prefixes from S3 top-level listing
             // Default org: _snapshots/*.json.gz
             // Non-default: org-{uuid}/_snapshots/*.json.gz
-            let mut org_snapshot_prefixes: Vec<(String, String)> = vec![(
-                streamhouse_metadata::DEFAULT_ORGANIZATION_ID.to_string(),
-                "_snapshots/".to_string(),
-            )];
+            // Legacy default org uses "_snapshots/" prefix; org-specific use "org-{uuid}/_snapshots/"
+            let mut org_snapshot_prefixes: Vec<(String, String)> = Vec::new();
+
+            // Always check the legacy "_snapshots/" prefix (data migrated from older versions)
+            org_snapshot_prefixes.push(("_legacy".to_string(), "_snapshots/".to_string()));
 
             if let Ok(list_result) = object_store.list_with_delimiter(None).await {
                 for prefix in &list_result.common_prefixes {
@@ -858,40 +859,49 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     tracing::debug!("Admin API key already exists in metadata store");
                 }
                 _ => {
-                    // Ensure default org exists
-                    let org_id = streamhouse_metadata::DEFAULT_ORGANIZATION_ID;
-                    if metadata
-                        .get_organization(org_id)
-                        .await
-                        .ok()
-                        .flatten()
-                        .is_none()
-                    {
-                        let _ = metadata
-                            .create_organization(streamhouse_metadata::CreateOrganization {
-                                name: "Default".to_string(),
-                                slug: "default".to_string(),
-                                plan: Default::default(),
-                                settings: Default::default(),
-                                external_id: None,
-                                deployment_mode: Default::default(),
-                            })
-                            .await;
-                        tracing::info!("Created default organization");
-                    }
-
-                    let config = streamhouse_metadata::CreateApiKey {
-                        name: "admin".to_string(),
-                        permissions: vec!["admin".to_string()],
-                        scopes: vec![],
-                        expires_in_ms: None,
+                    // Ensure an admin org exists for the API key
+                    let org_id = match metadata.get_organization_by_slug("default").await {
+                        Ok(Some(org)) => org.id,
+                        _ => {
+                            match metadata
+                                .create_organization(streamhouse_metadata::CreateOrganization {
+                                    name: "Default".to_string(),
+                                    slug: "default".to_string(),
+                                    plan: Default::default(),
+                                    settings: Default::default(),
+                                    external_id: None,
+                                    deployment_mode: Default::default(),
+                                })
+                                .await
+                            {
+                                Ok(org) => {
+                                    tracing::info!("Created default organization");
+                                    org.id
+                                }
+                                Err(e) => {
+                                    tracing::warn!(error = %e, "Failed to create default org for admin key");
+                                    String::new()
+                                }
+                            }
+                        }
                     };
-                    match metadata
-                        .create_api_key(org_id, config, &key_hash, &key_prefix)
-                        .await
-                    {
-                        Ok(_) => tracing::info!("Seeded admin API key from STREAMHOUSE_ADMIN_KEY"),
-                        Err(e) => tracing::warn!(error = %e, "Failed to seed admin API key"),
+
+                    if !org_id.is_empty() {
+                        let config = streamhouse_metadata::CreateApiKey {
+                            name: "admin".to_string(),
+                            permissions: vec!["admin".to_string()],
+                            scopes: vec![],
+                            expires_in_ms: None,
+                        };
+                        match metadata
+                            .create_api_key(&org_id, config, &key_hash, &key_prefix)
+                            .await
+                        {
+                            Ok(_) => {
+                                tracing::info!("Seeded admin API key from STREAMHOUSE_ADMIN_KEY")
+                            }
+                            Err(e) => tracing::warn!(error = %e, "Failed to seed admin API key"),
+                        }
                     }
                 }
             }

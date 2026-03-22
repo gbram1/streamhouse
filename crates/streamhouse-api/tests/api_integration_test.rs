@@ -13,12 +13,18 @@ use tower::ServiceExt;
 use streamhouse_api::auth::AuthConfig;
 use streamhouse_api::models::{CreateTopicRequest, Topic};
 use streamhouse_api::{create_router, AppState};
-use streamhouse_metadata::SqliteMetadataStore;
+use streamhouse_metadata::{SqliteMetadataStore, TEST_ORG_ID};
 
 /// Create a test app with in-memory stores and auth disabled
 async fn test_app() -> axum::Router {
     let metadata = Arc::new(SqliteMetadataStore::new_in_memory().await.unwrap())
         as Arc<dyn streamhouse_metadata::MetadataStore>;
+
+    // Ensure the test org exists so requests with x-organization-id header work
+    metadata
+        .ensure_organization(TEST_ORG_ID, "Test Org")
+        .await
+        .unwrap();
 
     let object_store =
         Arc::new(object_store::memory::InMemory::new()) as Arc<dyn object_store::ObjectStore>;
@@ -53,6 +59,36 @@ async fn test_app() -> axum::Router {
 /// Helper to read response body as bytes
 async fn body_bytes(body: Body) -> Vec<u8> {
     body.collect().await.unwrap().to_bytes().to_vec()
+}
+
+/// Helper: build a GET request with the test org header
+fn get(uri: &str) -> Request<Body> {
+    Request::builder()
+        .uri(uri)
+        .header("x-organization-id", TEST_ORG_ID)
+        .body(Body::empty())
+        .unwrap()
+}
+
+/// Helper: build a POST request with the test org header + JSON body
+fn post_json(uri: &str, body: String) -> Request<Body> {
+    Request::builder()
+        .method("POST")
+        .uri(uri)
+        .header("content-type", "application/json")
+        .header("x-organization-id", TEST_ORG_ID)
+        .body(Body::from(body))
+        .unwrap()
+}
+
+/// Helper: build a DELETE request with the test org header
+fn delete(uri: &str) -> Request<Body> {
+    Request::builder()
+        .method("DELETE")
+        .uri(uri)
+        .header("x-organization-id", TEST_ORG_ID)
+        .body(Body::empty())
+        .unwrap()
 }
 
 // ---------------------------------------------------------------
@@ -117,15 +153,7 @@ async fn test_readiness_check() {
 async fn test_list_topics_empty() {
     let app = test_app().await;
 
-    let resp = app
-        .oneshot(
-            Request::builder()
-                .uri("/api/v1/topics")
-                .body(Body::empty())
-                .unwrap(),
-        )
-        .await
-        .unwrap();
+    let resp = app.oneshot(get("/api/v1/topics")).await.unwrap();
 
     assert_eq!(resp.status(), StatusCode::OK);
 
@@ -146,14 +174,7 @@ async fn test_create_topic() {
     .unwrap();
 
     let resp = app
-        .oneshot(
-            Request::builder()
-                .method("POST")
-                .uri("/api/v1/topics")
-                .header("content-type", "application/json")
-                .body(Body::from(req_body))
-                .unwrap(),
-        )
+        .oneshot(post_json("/api/v1/topics", req_body))
         .await
         .unwrap();
 
@@ -179,28 +200,13 @@ async fn test_create_and_get_topic() {
 
     let resp = app
         .clone()
-        .oneshot(
-            Request::builder()
-                .method("POST")
-                .uri("/api/v1/topics")
-                .header("content-type", "application/json")
-                .body(Body::from(req_body))
-                .unwrap(),
-        )
+        .oneshot(post_json("/api/v1/topics", req_body))
         .await
         .unwrap();
     assert_eq!(resp.status(), StatusCode::CREATED);
 
     // Get
-    let resp = app
-        .oneshot(
-            Request::builder()
-                .uri("/api/v1/topics/events")
-                .body(Body::empty())
-                .unwrap(),
-        )
-        .await
-        .unwrap();
+    let resp = app.oneshot(get("/api/v1/topics/events")).await.unwrap();
     assert_eq!(resp.status(), StatusCode::OK);
 
     let body = body_bytes(resp.into_body()).await;
@@ -214,12 +220,7 @@ async fn test_get_topic_not_found() {
     let app = test_app().await;
 
     let resp = app
-        .oneshot(
-            Request::builder()
-                .uri("/api/v1/topics/nonexistent")
-                .body(Body::empty())
-                .unwrap(),
-        )
+        .oneshot(get("/api/v1/topics/nonexistent"))
         .await
         .unwrap();
 
@@ -240,14 +241,7 @@ async fn test_create_and_delete_topic() {
 
     let resp = app
         .clone()
-        .oneshot(
-            Request::builder()
-                .method("POST")
-                .uri("/api/v1/topics")
-                .header("content-type", "application/json")
-                .body(Body::from(req_body))
-                .unwrap(),
-        )
+        .oneshot(post_json("/api/v1/topics", req_body))
         .await
         .unwrap();
     assert_eq!(resp.status(), StatusCode::CREATED);
@@ -255,13 +249,7 @@ async fn test_create_and_delete_topic() {
     // Delete
     let resp = app
         .clone()
-        .oneshot(
-            Request::builder()
-                .method("DELETE")
-                .uri("/api/v1/topics/to-delete")
-                .body(Body::empty())
-                .unwrap(),
-        )
+        .oneshot(delete("/api/v1/topics/to-delete"))
         .await
         .unwrap();
     assert!(
@@ -271,15 +259,7 @@ async fn test_create_and_delete_topic() {
     );
 
     // Verify it's gone
-    let resp = app
-        .oneshot(
-            Request::builder()
-                .uri("/api/v1/topics/to-delete")
-                .body(Body::empty())
-                .unwrap(),
-        )
-        .await
-        .unwrap();
+    let resp = app.oneshot(get("/api/v1/topics/to-delete")).await.unwrap();
     assert_eq!(resp.status(), StatusCode::NOT_FOUND);
 }
 
@@ -297,28 +277,14 @@ async fn test_create_topic_duplicate() {
     // First create — should succeed
     let resp = app
         .clone()
-        .oneshot(
-            Request::builder()
-                .method("POST")
-                .uri("/api/v1/topics")
-                .header("content-type", "application/json")
-                .body(Body::from(req_body.clone()))
-                .unwrap(),
-        )
+        .oneshot(post_json("/api/v1/topics", req_body.clone()))
         .await
         .unwrap();
     assert_eq!(resp.status(), StatusCode::CREATED);
 
     // Second create — should fail with conflict
     let resp = app
-        .oneshot(
-            Request::builder()
-                .method("POST")
-                .uri("/api/v1/topics")
-                .header("content-type", "application/json")
-                .body(Body::from(req_body))
-                .unwrap(),
-        )
+        .oneshot(post_json("/api/v1/topics", req_body))
         .await
         .unwrap();
     assert!(
@@ -343,29 +309,14 @@ async fn test_list_topics_after_create() {
 
         let resp = app
             .clone()
-            .oneshot(
-                Request::builder()
-                    .method("POST")
-                    .uri("/api/v1/topics")
-                    .header("content-type", "application/json")
-                    .body(Body::from(req_body))
-                    .unwrap(),
-            )
+            .oneshot(post_json("/api/v1/topics", req_body))
             .await
             .unwrap();
         assert_eq!(resp.status(), StatusCode::CREATED);
     }
 
     // List
-    let resp = app
-        .oneshot(
-            Request::builder()
-                .uri("/api/v1/topics")
-                .body(Body::empty())
-                .unwrap(),
-        )
-        .await
-        .unwrap();
+    let resp = app.oneshot(get("/api/v1/topics")).await.unwrap();
     assert_eq!(resp.status(), StatusCode::OK);
 
     let body = body_bytes(resp.into_body()).await;
@@ -381,15 +332,7 @@ async fn test_list_topics_after_create() {
 async fn test_list_consumer_groups_empty() {
     let app = test_app().await;
 
-    let resp = app
-        .oneshot(
-            Request::builder()
-                .uri("/api/v1/consumer-groups")
-                .body(Body::empty())
-                .unwrap(),
-        )
-        .await
-        .unwrap();
+    let resp = app.oneshot(get("/api/v1/consumer-groups")).await.unwrap();
 
     assert_eq!(resp.status(), StatusCode::OK);
 
@@ -407,14 +350,7 @@ async fn test_create_topic_invalid_json() {
     let app = test_app().await;
 
     let resp = app
-        .oneshot(
-            Request::builder()
-                .method("POST")
-                .uri("/api/v1/topics")
-                .header("content-type", "application/json")
-                .body(Body::from("not valid json"))
-                .unwrap(),
-        )
+        .oneshot(post_json("/api/v1/topics", "not valid json".to_string()))
         .await
         .unwrap();
 
@@ -429,15 +365,7 @@ async fn test_create_topic_invalid_json() {
 async fn test_unknown_route_returns_404() {
     let app = test_app().await;
 
-    let resp = app
-        .oneshot(
-            Request::builder()
-                .uri("/api/v1/nonexistent")
-                .body(Body::empty())
-                .unwrap(),
-        )
-        .await
-        .unwrap();
+    let resp = app.oneshot(get("/api/v1/nonexistent")).await.unwrap();
 
     assert_eq!(resp.status(), StatusCode::NOT_FOUND);
 }

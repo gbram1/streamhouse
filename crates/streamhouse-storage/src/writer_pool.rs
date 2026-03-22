@@ -176,13 +176,10 @@ impl WriterPool {
         );
 
         // Resolve org-scoped S3 prefix
-        let s3_data_prefix = {
-            const DEFAULT_ORG: &str = "00000000-0000-0000-0000-000000000000";
-            if org_id != DEFAULT_ORG {
-                format!("org-{}/data", org_id)
-            } else {
-                "data".to_string()
-            }
+        let s3_data_prefix = if org_id.is_empty() {
+            "data".to_string()
+        } else {
+            format!("org-{}/data", org_id)
         };
 
         let partition_writer = PartitionWriter::new(
@@ -385,15 +382,17 @@ impl WriterPool {
         self.flush_all().await?;
 
         // Step 2: Enumerate all organizations
-        let default_org = streamhouse_metadata::DEFAULT_ORGANIZATION_ID.to_string();
-        let mut org_prefixes: Vec<(String, String)> =
-            vec![(default_org.clone(), "_snapshots".to_string())];
+        let mut org_prefixes: Vec<(String, String)> = Vec::new();
         if let Ok(orgs) = self.metadata_store.list_organizations().await {
             for org in orgs {
-                if org.id != default_org {
-                    org_prefixes.push((org.id.clone(), format!("org-{}/_snapshots", org.id)));
-                }
+                org_prefixes.push((org.id.clone(), format!("org-{}/_snapshots", org.id)));
             }
+        }
+        // Always include legacy "_snapshots" prefix for the first org (backwards compat)
+        if org_prefixes.is_empty() {
+            // No orgs found — nothing to snapshot
+        } else if !org_prefixes.iter().any(|(_, p)| p == "_snapshots") {
+            org_prefixes.insert(0, (org_prefixes[0].0.clone(), "_snapshots".to_string()));
         }
 
         let timestamp = std::time::SystemTime::now()
@@ -538,13 +537,20 @@ mod tests {
     async fn create_test_metadata(topic: &str, partition_count: u32) -> Arc<dyn MetadataStore> {
         let store = SqliteMetadataStore::new_in_memory().await.unwrap();
         store
-            .create_topic(TopicConfig {
-                name: topic.to_string(),
-                partition_count,
-                retention_ms: Some(86400000),
-                config: Default::default(),
-                cleanup_policy: Default::default(),
-            })
+            .ensure_organization(streamhouse_metadata::TEST_ORG_ID, "Test Org")
+            .await
+            .unwrap();
+        store
+            .create_topic_for_org(
+                streamhouse_metadata::TEST_ORG_ID,
+                TopicConfig {
+                    name: topic.to_string(),
+                    partition_count,
+                    retention_ms: Some(86400000),
+                    config: Default::default(),
+                    cleanup_policy: Default::default(),
+                },
+            )
             .await
             .unwrap();
         Arc::new(store)
@@ -572,7 +578,7 @@ mod tests {
         let metadata = create_test_metadata("orders", 3).await;
         let object_store: Arc<dyn ObjectStore> = Arc::new(InMemory::new());
         let pool = WriterPool::new(metadata, object_store, test_config());
-        let org = streamhouse_metadata::DEFAULT_ORGANIZATION_ID;
+        let org = streamhouse_metadata::TEST_ORG_ID;
 
         assert_eq!(pool.writer_count().await, 0);
 
@@ -588,7 +594,7 @@ mod tests {
         let metadata = create_test_metadata("orders", 3).await;
         let object_store: Arc<dyn ObjectStore> = Arc::new(InMemory::new());
         let pool = WriterPool::new(metadata, object_store, test_config());
-        let org = streamhouse_metadata::DEFAULT_ORGANIZATION_ID;
+        let org = streamhouse_metadata::TEST_ORG_ID;
 
         let w1 = pool.get_writer(org, "orders", 0).await.unwrap();
         let w2 = pool.get_writer(org, "orders", 0).await.unwrap();
@@ -603,7 +609,7 @@ mod tests {
         let metadata = create_test_metadata("orders", 3).await;
         let object_store: Arc<dyn ObjectStore> = Arc::new(InMemory::new());
         let pool = WriterPool::new(metadata, object_store, test_config());
-        let org = streamhouse_metadata::DEFAULT_ORGANIZATION_ID;
+        let org = streamhouse_metadata::TEST_ORG_ID;
 
         let w0 = pool.get_writer(org, "orders", 0).await.unwrap();
         let w1 = pool.get_writer(org, "orders", 1).await.unwrap();
@@ -628,7 +634,7 @@ mod tests {
         let metadata = create_test_metadata("orders", 3).await;
         let object_store: Arc<dyn ObjectStore> = Arc::new(InMemory::new());
         let pool = WriterPool::new(metadata, object_store, test_config());
-        let org = streamhouse_metadata::DEFAULT_ORGANIZATION_ID;
+        let org = streamhouse_metadata::TEST_ORG_ID;
 
         let _w0 = pool.get_writer(org, "orders", 0).await.unwrap();
         let _w1 = pool.get_writer(org, "orders", 1).await.unwrap();
@@ -655,7 +661,7 @@ mod tests {
         let pool = WriterPool::new(metadata, object_store, test_config());
 
         let _w = pool
-            .get_writer(streamhouse_metadata::DEFAULT_ORGANIZATION_ID, "orders", 0)
+            .get_writer(streamhouse_metadata::TEST_ORG_ID, "orders", 0)
             .await
             .unwrap();
 

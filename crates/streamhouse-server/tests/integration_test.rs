@@ -3,12 +3,20 @@
 //! Tests the full write and read flow through the gRPC API
 
 use std::sync::Arc;
-use streamhouse_metadata::{AgentInfo, SqliteMetadataStore};
+use streamhouse_metadata::{AgentInfo, MetadataStore, SqliteMetadataStore, TEST_ORG_ID};
 use streamhouse_server::{pb::stream_house_server::StreamHouse, pb::*, StreamHouseService};
 use streamhouse_storage::{SegmentCache, WriteConfig};
 use tonic::Request;
 
 const TEST_AGENT_ID: &str = "test-agent";
+
+/// Wrap an inner message in a tonic `Request` with the test org header set.
+fn org_request<T>(inner: T) -> Request<T> {
+    let mut req = Request::new(inner);
+    req.metadata_mut()
+        .insert("x-organization-id", TEST_ORG_ID.parse().unwrap());
+    req
+}
 
 async fn setup_test_service() -> (StreamHouseService, tempfile::TempDir) {
     // Create temp directory for test data (return it to keep it alive)
@@ -57,6 +65,20 @@ async fn setup_test_service() -> (StreamHouseService, tempfile::TempDir) {
         config.clone(),
     ));
 
+    // Ensure the test organization exists (required by foreign key constraints)
+    metadata
+        .ensure_organization(TEST_ORG_ID, "Test Org")
+        .await
+        .unwrap();
+    // Also ensure the default org used by non-org-scoped methods
+    metadata
+        .ensure_organization(
+            "00000000-0000-0000-0000-000000000000",
+            "Default Organization",
+        )
+        .await
+        .unwrap();
+
     let mut service = StreamHouseService::new(
         metadata,
         object_store,
@@ -77,7 +99,7 @@ async fn create_topic_with_leases(
     partitions: u32,
 ) {
     // Create topic
-    let create_req = Request::new(CreateTopicRequest {
+    let create_req = org_request(CreateTopicRequest {
         name: name.to_string(),
         partition_count: partitions,
         retention_ms: None,
@@ -105,7 +127,7 @@ async fn create_topic_with_leases(
     for p in 0..partitions {
         metadata
             .acquire_partition_lease(
-                streamhouse_metadata::DEFAULT_ORGANIZATION_ID,
+                streamhouse_metadata::TEST_ORG_ID,
                 name,
                 p,
                 TEST_AGENT_ID,
@@ -163,6 +185,12 @@ async fn setup_test_service_with_metadata() -> (
         config.clone(),
     ));
 
+    // Ensure the test organization exists (required by foreign key constraints)
+    metadata
+        .ensure_organization(TEST_ORG_ID, "Test Org")
+        .await
+        .unwrap();
+
     let mut service = StreamHouseService::new(
         metadata.clone(),
         object_store,
@@ -180,7 +208,7 @@ async fn test_create_and_get_topic() {
     let (service, _temp) = setup_test_service().await;
 
     // Create topic
-    let create_req = Request::new(CreateTopicRequest {
+    let create_req = org_request(CreateTopicRequest {
         name: "test-topic".to_string(),
         partition_count: 3,
         retention_ms: Some(86400000), // 1 day
@@ -193,7 +221,7 @@ async fn test_create_and_get_topic() {
     assert_eq!(create_data.partition_count, 3);
 
     // Get topic
-    let get_req = Request::new(GetTopicRequest {
+    let get_req = org_request(GetTopicRequest {
         name: "test-topic".to_string(),
     });
 
@@ -211,7 +239,7 @@ async fn test_list_topics() {
 
     // Create multiple topics
     for i in 0..3 {
-        let req = Request::new(CreateTopicRequest {
+        let req = org_request(CreateTopicRequest {
             name: format!("topic-{}", i),
             partition_count: 2,
             retention_ms: None,
@@ -221,7 +249,7 @@ async fn test_list_topics() {
     }
 
     // List topics
-    let list_req = Request::new(ListTopicsRequest {});
+    let list_req = org_request(ListTopicsRequest {});
     let list_resp = service.list_topics(list_req).await.unwrap();
     let list_data = list_resp.into_inner();
     assert_eq!(list_data.topics.len(), 3);
@@ -234,7 +262,7 @@ async fn test_produce_and_consume() {
     create_topic_with_leases(&service, &metadata, "events", 1).await;
 
     // Produce records using batch
-    let batch_req = Request::new(ProduceBatchRequest {
+    let batch_req = org_request(ProduceBatchRequest {
         topic: "events".to_string(),
         partition: 0,
         records: vec![
@@ -294,7 +322,7 @@ async fn test_produce_batch() {
         },
     ];
 
-    let batch_req = Request::new(ProduceBatchRequest {
+    let batch_req = org_request(ProduceBatchRequest {
         topic: "logs".to_string(),
         partition: 0,
         records,
@@ -317,7 +345,7 @@ async fn test_consumer_offset_commit() {
     let (service, _temp) = setup_test_service().await;
 
     // Create topic
-    let create_req = Request::new(CreateTopicRequest {
+    let create_req = org_request(CreateTopicRequest {
         name: "stream".to_string(),
         partition_count: 1,
         retention_ms: None,
@@ -326,7 +354,7 @@ async fn test_consumer_offset_commit() {
     service.create_topic(create_req).await.unwrap();
 
     // Commit offset
-    let commit_req = Request::new(CommitOffsetRequest {
+    let commit_req = org_request(CommitOffsetRequest {
         consumer_group: "my-group".to_string(),
         topic: "stream".to_string(),
         partition: 0,
@@ -338,7 +366,7 @@ async fn test_consumer_offset_commit() {
     assert!(commit_resp.into_inner().success);
 
     // Get offset
-    let get_req = Request::new(GetOffsetRequest {
+    let get_req = org_request(GetOffsetRequest {
         consumer_group: "my-group".to_string(),
         topic: "stream".to_string(),
         partition: 0,
@@ -354,7 +382,7 @@ async fn test_invalid_partition() {
     let (service, _temp) = setup_test_service().await;
 
     // Create topic with 2 partitions
-    let create_req = Request::new(CreateTopicRequest {
+    let create_req = org_request(CreateTopicRequest {
         name: "test".to_string(),
         partition_count: 2,
         retention_ms: None,
@@ -363,7 +391,7 @@ async fn test_invalid_partition() {
     service.create_topic(create_req).await.unwrap();
 
     // Try to produce to partition 5 (doesn't exist)
-    let produce_req = Request::new(ProduceRequest {
+    let produce_req = org_request(ProduceRequest {
         topic: "test".to_string(),
         partition: 5,
         key: vec![],
@@ -381,7 +409,7 @@ async fn test_topic_not_found() {
     let (service, _temp) = setup_test_service().await;
 
     // Try to produce to non-existent topic
-    let produce_req = Request::new(ProduceRequest {
+    let produce_req = org_request(ProduceRequest {
         topic: "does-not-exist".to_string(),
         partition: 0,
         key: vec![],

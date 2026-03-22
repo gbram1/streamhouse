@@ -175,12 +175,17 @@ impl LeaseManager {
             "Acquiring partition lease"
         );
 
-        // Look up the topic's organization ID (defaults to default org for backward compat)
+        // Look up the topic's organization ID — every topic must belong to an org
         let org_id = self
             .metadata_store
             .get_topic_organization_id(topic)
             .await?
-            .unwrap_or_else(|| streamhouse_metadata::DEFAULT_ORGANIZATION_ID.to_string());
+            .ok_or_else(|| {
+                AgentError::Metadata(streamhouse_metadata::MetadataError::InternalError(format!(
+                    "Topic '{}' has no organization ID — cannot acquire lease",
+                    topic
+                )))
+            })?;
 
         let lease = self
             .metadata_store
@@ -675,7 +680,12 @@ impl LeaseRenewalTask {
             .metadata_store
             .get_topic_organization_id(topic)
             .await?
-            .unwrap_or_else(|| streamhouse_metadata::DEFAULT_ORGANIZATION_ID.to_string());
+            .ok_or_else(|| {
+                AgentError::Metadata(streamhouse_metadata::MetadataError::InternalError(format!(
+                    "Topic '{}' has no organization ID — cannot renew lease",
+                    topic
+                )))
+            })?;
 
         let lease = self
             .metadata_store
@@ -760,7 +770,7 @@ mod tests {
     use super::*;
     use std::collections::HashMap as StdHashMap;
     use std::sync::Arc;
-    use streamhouse_metadata::{SqliteMetadataStore, TopicConfig};
+    use streamhouse_metadata::{SqliteMetadataStore, TopicConfig, TEST_ORG_ID};
 
     /// Helper: create a metadata store backed by a temp SQLite DB.
     async fn make_store() -> (Arc<dyn MetadataStore>, tempfile::TempDir) {
@@ -779,15 +789,24 @@ mod tests {
         partitions: u32,
         agent_id: &str,
     ) {
-        // Create topic (also creates partition rows)
+        // Ensure the test org exists
         store
-            .create_topic(TopicConfig {
-                name: topic_name.to_string(),
-                partition_count: partitions,
-                retention_ms: None,
-                config: StdHashMap::new(),
-                ..Default::default()
-            })
+            .ensure_organization(TEST_ORG_ID, "Test Org")
+            .await
+            .unwrap();
+
+        // Create topic under the test org (also creates partition rows)
+        store
+            .create_topic_for_org(
+                TEST_ORG_ID,
+                TopicConfig {
+                    name: topic_name.to_string(),
+                    partition_count: partitions,
+                    retention_ms: None,
+                    config: StdHashMap::new(),
+                    ..Default::default()
+                },
+            )
             .await
             .unwrap();
 

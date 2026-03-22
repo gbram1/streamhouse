@@ -23,7 +23,8 @@ use arrow::datatypes::{DataType, Field, Schema};
 use datafusion::execution::context::SessionContext;
 use tokio::sync::Mutex;
 
-use streamhouse_metadata::{MetadataStore, DEFAULT_ORGANIZATION_ID};
+use streamhouse_metadata::MetadataStore;
+
 use streamhouse_storage::SegmentCache;
 
 use crate::error::SqlError;
@@ -273,6 +274,7 @@ impl ArrowExecutor {
     /// Load messages from a topic with filters applied
     async fn load_topic_messages(
         &self,
+        org_id: &str,
         topic_name: &str,
         filters: &[Filter],
         start: Instant,
@@ -342,7 +344,7 @@ impl ArrowExecutor {
 
             let partition = match self
                 .metadata
-                .get_partition(DEFAULT_ORGANIZATION_ID, topic_name, partition_id)
+                .get_partition(org_id, topic_name, partition_id)
                 .await?
             {
                 Some(p) => p,
@@ -354,7 +356,7 @@ impl ArrowExecutor {
 
             let segments = self
                 .metadata
-                .get_segments(DEFAULT_ORGANIZATION_ID, topic_name, partition_id)
+                .get_segments(org_id, topic_name, partition_id)
                 .await?;
 
             for segment in segments {
@@ -363,7 +365,7 @@ impl ArrowExecutor {
                 }
 
                 let messages = self
-                    .read_segment_messages(&segment, ts_start, ts_end)
+                    .read_segment_messages(org_id, &segment, ts_start, ts_end)
                     .await?;
                 all_messages.extend(messages);
 
@@ -380,6 +382,7 @@ impl ArrowExecutor {
     /// Read messages from a segment with optional timestamp filtering
     async fn read_segment_messages(
         &self,
+        org_id: &str,
         segment: &streamhouse_metadata::SegmentInfo,
         ts_start: Option<i64>,
         ts_end: Option<i64>,
@@ -389,11 +392,7 @@ impl ArrowExecutor {
         let path = Path::from(segment.s3_key.clone());
         let cache_key = &segment.id;
 
-        let data = if let Ok(Some(cached)) = self
-            .segment_cache
-            .get(cache_key, DEFAULT_ORGANIZATION_ID)
-            .await
-        {
+        let data = if let Ok(Some(cached)) = self.segment_cache.get(cache_key, org_id).await {
             cached
         } else {
             let result = self
@@ -407,7 +406,7 @@ impl ArrowExecutor {
                 .map_err(|e| SqlError::StorageError(e.to_string()))?;
             let _ = self
                 .segment_cache
-                .put(cache_key, bytes.clone(), DEFAULT_ORGANIZATION_ID)
+                .put(cache_key, bytes.clone(), org_id)
                 .await;
             bytes
         };
@@ -502,12 +501,13 @@ impl ArrowExecutor {
     /// Execute a COUNT query using Arrow's optimized counting
     pub async fn execute_count(
         &self,
+        org_id: &str,
         query: CountQuery,
         start: Instant,
         timeout_ms: u64,
     ) -> Result<QueryResult> {
         let messages = self
-            .load_topic_messages(&query.topic, &query.filters, start, timeout_ms)
+            .load_topic_messages(org_id, &query.topic, &query.filters, start, timeout_ms)
             .await?;
         let count = messages.len() as i64;
 
@@ -528,6 +528,7 @@ impl ArrowExecutor {
     #[allow(clippy::too_many_arguments)]
     pub async fn execute_tumble_aggregate(
         &self,
+        org_id: &str,
         topic: &str,
         window_size_ms: i64,
         aggregations: &[WindowAggregation],
@@ -537,7 +538,7 @@ impl ArrowExecutor {
         timeout_ms: u64,
     ) -> Result<QueryResult> {
         let messages = self
-            .load_topic_messages(topic, filters, start, timeout_ms)
+            .load_topic_messages(org_id, topic, filters, start, timeout_ms)
             .await?;
 
         if messages.is_empty() {
@@ -622,6 +623,7 @@ impl ArrowExecutor {
     #[allow(clippy::too_many_arguments)]
     pub async fn execute_group_by_aggregate(
         &self,
+        org_id: &str,
         topic: &str,
         aggregations: &[WindowAggregation],
         group_by: &[String],
@@ -631,7 +633,7 @@ impl ArrowExecutor {
         timeout_ms: u64,
     ) -> Result<QueryResult> {
         let messages = self
-            .load_topic_messages(topic, filters, start, timeout_ms)
+            .load_topic_messages(org_id, topic, filters, start, timeout_ms)
             .await?;
 
         if messages.is_empty() {

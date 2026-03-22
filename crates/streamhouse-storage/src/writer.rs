@@ -1142,11 +1142,10 @@ impl TopicWriter {
     }
 
     /// Resolve the S3 data prefix for a topic based on its organization.
-    /// Default org → "data", other orgs → "org-{id}/data"
+    /// No org → "data", with org → "org-{id}/data"
     async fn resolve_s3_prefix(metadata: &dyn MetadataStore, topic: &str) -> String {
-        const DEFAULT_ORG: &str = "00000000-0000-0000-0000-000000000000";
         match metadata.get_topic_organization_id(topic).await {
-            Ok(Some(org_id)) if org_id != DEFAULT_ORG => format!("org-{}/data", org_id),
+            Ok(Some(org_id)) if !org_id.is_empty() => format!("org-{}/data", org_id),
             _ => "data".to_string(),
         }
     }

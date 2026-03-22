@@ -120,7 +120,7 @@ impl KafkaServerState {
                     streamhouse_metadata::OrganizationPlan::Free,
                     org_id,
                 ),
-                is_default: org_id == streamhouse_metadata::DEFAULT_ORGANIZATION_ID,
+                is_default: false,
             }
         }
     }
@@ -413,7 +413,7 @@ async fn handle_request(
         .tenant
         .as_ref()
         .map(|t| t.tenant.organization.id.as_str())
-        .unwrap_or(streamhouse_metadata::DEFAULT_ORGANIZATION_ID);
+        .unwrap_or("");
 
     // Compute throttle_time_ms for Kafka backpressure
     let throttle_time_ms = if let Some(ref enforcer) = state.quota_enforcer {

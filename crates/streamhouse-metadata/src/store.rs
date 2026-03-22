@@ -1325,7 +1325,7 @@ impl MetadataStore for SqliteMetadataStore {
         Ok(row.map(|r| PartitionLease {
             organization_id: r
                 .try_get::<String, _>("organization_id")
-                .unwrap_or_else(|_| crate::DEFAULT_ORGANIZATION_ID.to_string()),
+                .unwrap_or_default(),
             topic: r.get("topic"),
             partition_id: r.get::<i32, _>("partition_id") as u32,
             leader_agent_id: r.get("leader_agent_id"),
@@ -1421,8 +1421,7 @@ impl MetadataStore for SqliteMetadataStore {
                     epoch,
                 )| {
                     PartitionLease {
-                        organization_id: organization_id
-                            .unwrap_or_else(|| crate::DEFAULT_ORGANIZATION_ID.to_string()),
+                        organization_id: organization_id.unwrap_or_default(),
                         topic,
                         partition_id: partition_id as u32,
                         leader_agent_id,
@@ -3044,7 +3043,7 @@ impl MetadataStore for SqliteMetadataStore {
         tx.commit().await?;
 
         Ok(PartitionLease {
-            organization_id: crate::DEFAULT_ORGANIZATION_ID.to_string(),
+            organization_id: String::new(),
             topic: transfer.topic,
             partition_id: transfer.partition_id,
             leader_agent_id: transfer.to_agent_id,
@@ -3264,10 +3263,7 @@ impl MetadataStore for SqliteMetadataStore {
     ) -> Result<MaterializedView> {
         let now = Self::now_ms();
         let id = format!("mv-{}-{}", &config.name, uuid::Uuid::new_v4());
-        let org_id = config
-            .organization_id
-            .clone()
-            .unwrap_or_else(|| "00000000-0000-0000-0000-000000000000".to_string());
+        let org_id = config.organization_id.clone().unwrap_or_default();
 
         let (refresh_mode_str, interval_ms): (&str, Option<i64>) = match &config.refresh_mode {
             MaterializedViewRefreshMode::Continuous => ("continuous", None),
@@ -4233,7 +4229,12 @@ mod tests {
     use std::collections::HashMap;
 
     async fn setup_test_store() -> SqliteMetadataStore {
-        SqliteMetadataStore::new_in_memory().await.unwrap()
+        let store = SqliteMetadataStore::new_in_memory().await.unwrap();
+        store
+            .ensure_organization(crate::TEST_ORG_ID, "Test Org")
+            .await
+            .unwrap();
+        store
     }
 
     #[tokio::test]
@@ -4248,7 +4249,10 @@ mod tests {
             config: HashMap::new(),
         };
 
-        store.create_topic(config.clone()).await.unwrap();
+        store
+            .create_topic_for_org(crate::TEST_ORG_ID, config.clone())
+            .await
+            .unwrap();
 
         let topic = store.get_topic("test").await.unwrap().unwrap();
         assert_eq!(topic.name, "test");
@@ -4256,7 +4260,7 @@ mod tests {
 
         // Should have created 3 partitions
         let partitions = store
-            .list_partitions(crate::DEFAULT_ORGANIZATION_ID, "test")
+            .list_partitions(crate::TEST_ORG_ID, "test")
             .await
             .unwrap();
         assert_eq!(partitions.len(), 3);
@@ -4274,10 +4278,13 @@ mod tests {
             config: HashMap::new(),
         };
 
-        store.create_topic(config.clone()).await.unwrap();
+        store
+            .create_topic_for_org(crate::TEST_ORG_ID, config.clone())
+            .await
+            .unwrap();
 
         // Second create should fail
-        let result = store.create_topic(config).await;
+        let result = store.create_topic_for_org(crate::TEST_ORG_ID, config).await;
         assert!(matches!(result, Err(MetadataError::TopicAlreadyExists(_))));
     }
 
@@ -4287,20 +4294,23 @@ mod tests {
 
         // Create topic
         store
-            .create_topic(TopicConfig {
-                name: "test".to_string(),
-                partition_count: 1,
-                retention_ms: None,
-                cleanup_policy: CleanupPolicy::default(),
-                config: HashMap::new(),
-            })
+            .create_topic_for_org(
+                crate::TEST_ORG_ID,
+                TopicConfig {
+                    name: "test".to_string(),
+                    partition_count: 1,
+                    retention_ms: None,
+                    cleanup_policy: CleanupPolicy::default(),
+                    config: HashMap::new(),
+                },
+            )
             .await
             .unwrap();
 
         // Add segments
         store
             .add_segment(
-                crate::DEFAULT_ORGANIZATION_ID,
+                crate::TEST_ORG_ID,
                 SegmentInfo {
                     id: "seg1".to_string(),
                     topic: "test".to_string(),
@@ -4321,7 +4331,7 @@ mod tests {
 
         store
             .add_segment(
-                crate::DEFAULT_ORGANIZATION_ID,
+                crate::TEST_ORG_ID,
                 SegmentInfo {
                     id: "seg2".to_string(),
                     topic: "test".to_string(),
@@ -4370,43 +4380,46 @@ mod tests {
 
         // Create topic
         store
-            .create_topic(TopicConfig {
-                name: "test".to_string(),
-                partition_count: 1,
-                retention_ms: None,
-                cleanup_policy: CleanupPolicy::default(),
-                config: HashMap::new(),
-            })
+            .create_topic_for_org(
+                crate::TEST_ORG_ID,
+                TopicConfig {
+                    name: "test".to_string(),
+                    partition_count: 1,
+                    retention_ms: None,
+                    cleanup_policy: CleanupPolicy::default(),
+                    config: HashMap::new(),
+                },
+            )
             .await
             .unwrap();
 
         // Initially no offset
         let offset = store
-            .get_committed_offset("group1", "test", 0)
+            .get_committed_offset_for_org(crate::TEST_ORG_ID, "group1", "test", 0)
             .await
             .unwrap();
         assert!(offset.is_none());
 
         // Commit offset
         store
-            .commit_offset("group1", "test", 0, 100, None)
+            .commit_offset_for_org(crate::TEST_ORG_ID, "group1", "test", 0, 100, None)
             .await
             .unwrap();
 
         // Should be retrievable
         let offset = store
-            .get_committed_offset("group1", "test", 0)
+            .get_committed_offset_for_org(crate::TEST_ORG_ID, "group1", "test", 0)
             .await
             .unwrap();
         assert_eq!(offset, Some(100));
 
         // Update offset
         store
-            .commit_offset("group1", "test", 0, 200, None)
+            .commit_offset_for_org(crate::TEST_ORG_ID, "group1", "test", 0, 200, None)
             .await
             .unwrap();
         let offset = store
-            .get_committed_offset("group1", "test", 0)
+            .get_committed_offset_for_org(crate::TEST_ORG_ID, "group1", "test", 0)
             .await
             .unwrap();
         assert_eq!(offset, Some(200));

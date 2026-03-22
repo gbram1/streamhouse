@@ -1461,7 +1461,7 @@ impl<S: MetadataStore + 'static> MetadataStore for CachedMetadataStore<S> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{CleanupPolicy, SqliteMetadataStore, TopicConfig, DEFAULT_ORGANIZATION_ID};
+    use crate::{CleanupPolicy, SqliteMetadataStore, TopicConfig, TEST_ORG_ID};
     use std::collections::HashMap;
     use std::sync::atomic::Ordering;
 
@@ -1475,14 +1475,36 @@ mod tests {
         }
     }
 
+    async fn setup_cached_store() -> CachedMetadataStore<SqliteMetadataStore> {
+        let store = SqliteMetadataStore::new(":memory:").await.unwrap();
+        store
+            .ensure_organization(TEST_ORG_ID, "Test Org")
+            .await
+            .unwrap();
+        CachedMetadataStore::new(store)
+    }
+
+    async fn setup_cached_store_with_config(
+        config: CacheConfig,
+    ) -> CachedMetadataStore<SqliteMetadataStore> {
+        let store = SqliteMetadataStore::new(":memory:").await.unwrap();
+        store
+            .ensure_organization(TEST_ORG_ID, "Test Org")
+            .await
+            .unwrap();
+        CachedMetadataStore::with_config(store, config)
+    }
+
     #[tokio::test]
     async fn test_topic_cache_hit() {
-        let store = SqliteMetadataStore::new(":memory:").await.unwrap();
-        let cached = CachedMetadataStore::new(store);
+        let cached = setup_cached_store().await;
 
         // Create topic
         let config = test_topic_config("test_topic");
-        cached.create_topic(config).await.unwrap();
+        cached
+            .create_topic_for_org(TEST_ORG_ID, config)
+            .await
+            .unwrap();
 
         // First read - cache miss
         let topic1 = cached.get_topic("test_topic").await.unwrap().unwrap();
@@ -1496,12 +1518,14 @@ mod tests {
 
     #[tokio::test]
     async fn test_topic_cache_invalidation_on_delete() {
-        let store = SqliteMetadataStore::new(":memory:").await.unwrap();
-        let cached = CachedMetadataStore::new(store);
+        let cached = setup_cached_store().await;
 
         // Create and cache topic
         let config = test_topic_config("test_topic");
-        cached.create_topic(config).await.unwrap();
+        cached
+            .create_topic_for_org(TEST_ORG_ID, config)
+            .await
+            .unwrap();
         let _topic = cached.get_topic("test_topic").await.unwrap();
 
         // Delete should invalidate cache
@@ -1514,16 +1538,18 @@ mod tests {
 
     #[tokio::test]
     async fn test_partition_cache_hit() {
-        let store = SqliteMetadataStore::new(":memory:").await.unwrap();
-        let cached = CachedMetadataStore::new(store);
+        let cached = setup_cached_store().await;
 
         // Create topic (creates partitions)
         let config = test_topic_config("test_topic");
-        cached.create_topic(config).await.unwrap();
+        cached
+            .create_topic_for_org(TEST_ORG_ID, config)
+            .await
+            .unwrap();
 
         // First read - cache miss
         let part1 = cached
-            .get_partition(DEFAULT_ORGANIZATION_ID, "test_topic", 0)
+            .get_partition(TEST_ORG_ID, "test_topic", 0)
             .await
             .unwrap()
             .unwrap();
@@ -1531,7 +1557,7 @@ mod tests {
 
         // Second read - cache hit
         let part2 = cached
-            .get_partition(DEFAULT_ORGANIZATION_ID, "test_topic", 0)
+            .get_partition(TEST_ORG_ID, "test_topic", 0)
             .await
             .unwrap()
             .unwrap();
@@ -1541,14 +1567,16 @@ mod tests {
 
     #[tokio::test]
     async fn test_partition_cache_invalidation_on_watermark_update() {
-        let store = SqliteMetadataStore::new(":memory:").await.unwrap();
-        let cached = CachedMetadataStore::new(store);
+        let cached = setup_cached_store().await;
 
         // Create topic and cache partition
         let config = test_topic_config("test_topic");
-        cached.create_topic(config).await.unwrap();
+        cached
+            .create_topic_for_org(TEST_ORG_ID, config)
+            .await
+            .unwrap();
         let part1 = cached
-            .get_partition(DEFAULT_ORGANIZATION_ID, "test_topic", 0)
+            .get_partition(TEST_ORG_ID, "test_topic", 0)
             .await
             .unwrap()
             .unwrap();
@@ -1556,13 +1584,13 @@ mod tests {
 
         // Update watermark - should invalidate cache
         cached
-            .update_high_watermark(DEFAULT_ORGANIZATION_ID, "test_topic", 0, 100)
+            .update_high_watermark(TEST_ORG_ID, "test_topic", 0, 100)
             .await
             .unwrap();
 
         // Should read fresh data from database
         let part2 = cached
-            .get_partition(DEFAULT_ORGANIZATION_ID, "test_topic", 0)
+            .get_partition(TEST_ORG_ID, "test_topic", 0)
             .await
             .unwrap()
             .unwrap();
@@ -1571,13 +1599,15 @@ mod tests {
 
     #[tokio::test]
     async fn test_topic_list_cache() {
-        let store = SqliteMetadataStore::new(":memory:").await.unwrap();
-        let cached = CachedMetadataStore::new(store);
+        let cached = setup_cached_store().await;
 
         // Create multiple topics
         for i in 0..5 {
             let config = test_topic_config(&format!("topic_{}", i));
-            cached.create_topic(config).await.unwrap();
+            cached
+                .create_topic_for_org(TEST_ORG_ID, config)
+                .await
+                .unwrap();
         }
 
         // First list - cache miss
@@ -1591,19 +1621,20 @@ mod tests {
 
     #[tokio::test]
     async fn test_cache_ttl_expiration() {
-        let store = SqliteMetadataStore::new(":memory:").await.unwrap();
-
         // Create cache with very short TTL for testing
         let config = CacheConfig {
             topic_capacity: 1000,
             topic_ttl_ms: 100, // 100ms TTL
             ..Default::default()
         };
-        let cached = CachedMetadataStore::with_config(store, config);
+        let cached = setup_cached_store_with_config(config).await;
 
         // Create topic
         let topic_config = test_topic_config("test_topic");
-        cached.create_topic(topic_config).await.unwrap();
+        cached
+            .create_topic_for_org(TEST_ORG_ID, topic_config)
+            .await
+            .unwrap();
 
         // Cache the topic
         let _topic1 = cached.get_topic("test_topic").await.unwrap();
@@ -1619,20 +1650,21 @@ mod tests {
 
     #[tokio::test]
     async fn test_lru_eviction() {
-        let store = SqliteMetadataStore::new(":memory:").await.unwrap();
-
         // Create cache with tiny capacity to force eviction
         let config = CacheConfig {
             topic_capacity: 2, // Only 2 topics
             topic_ttl_ms: 60000,
             ..Default::default()
         };
-        let cached = CachedMetadataStore::with_config(store, config);
+        let cached = setup_cached_store_with_config(config).await;
 
         // Create 3 topics
         for i in 0..3 {
             let topic_config = test_topic_config(&format!("topic_{}", i));
-            cached.create_topic(topic_config).await.unwrap();
+            cached
+                .create_topic_for_org(TEST_ORG_ID, topic_config)
+                .await
+                .unwrap();
         }
 
         // Access topic_0 and topic_1 (cache them)
@@ -1650,12 +1682,14 @@ mod tests {
 
     #[tokio::test]
     async fn test_cache_clear() {
-        let store = SqliteMetadataStore::new(":memory:").await.unwrap();
-        let cached = CachedMetadataStore::new(store);
+        let cached = setup_cached_store().await;
 
         // Create and cache topic
         let config = test_topic_config("test_topic");
-        cached.create_topic(config).await.unwrap();
+        cached
+            .create_topic_for_org(TEST_ORG_ID, config)
+            .await
+            .unwrap();
         let _topic = cached.get_topic("test_topic").await.unwrap();
 
         // Clear cache
@@ -1668,12 +1702,14 @@ mod tests {
 
     #[tokio::test]
     async fn test_cache_metrics() {
-        let store = SqliteMetadataStore::new(":memory:").await.unwrap();
-        let cached = CachedMetadataStore::new(store);
+        let cached = setup_cached_store().await;
 
         // Create topic
         let config = test_topic_config("metrics_topic");
-        cached.create_topic(config).await.unwrap();
+        cached
+            .create_topic_for_org(TEST_ORG_ID, config)
+            .await
+            .unwrap();
 
         // First read - cache miss
         let _topic1 = cached.get_topic("metrics_topic").await.unwrap();
@@ -1696,13 +1732,13 @@ mod tests {
 
         // Test partition metrics
         let _part1 = cached
-            .get_partition(DEFAULT_ORGANIZATION_ID, "metrics_topic", 0)
+            .get_partition(TEST_ORG_ID, "metrics_topic", 0)
             .await
             .unwrap();
         assert_eq!(cached.metrics().partition_misses.load(Ordering::Relaxed), 1);
 
         let _part2 = cached
-            .get_partition(DEFAULT_ORGANIZATION_ID, "metrics_topic", 0)
+            .get_partition(TEST_ORG_ID, "metrics_topic", 0)
             .await
             .unwrap();
         assert_eq!(cached.metrics().partition_hits.load(Ordering::Relaxed), 1);
@@ -1720,12 +1756,14 @@ mod tests {
 
     #[tokio::test]
     async fn test_cache_metrics_reset() {
-        let store = SqliteMetadataStore::new(":memory:").await.unwrap();
-        let cached = CachedMetadataStore::new(store);
+        let cached = setup_cached_store().await;
 
         // Create topic and generate some metrics
         let config = test_topic_config("reset_topic");
-        cached.create_topic(config).await.unwrap();
+        cached
+            .create_topic_for_org(TEST_ORG_ID, config)
+            .await
+            .unwrap();
         let _topic1 = cached.get_topic("reset_topic").await.unwrap();
         let _topic2 = cached.get_topic("reset_topic").await.unwrap();
 

@@ -53,13 +53,13 @@ header() {
 
 pg() {
     docker compose exec -T postgres psql -U streamhouse -d streamhouse --pset border=2 \
-        -c "SET app.current_organization_id = '00000000-0000-0000-0000-000000000000'; $1" 2>/dev/null \
+        -c "SET app.current_organization_id = '00000000-0000-0000-0000-000000000001'; $1" 2>/dev/null \
         | grep -v "^SET$"
 }
 
 pg_scalar() {
     docker compose exec -T postgres psql -U streamhouse -d streamhouse -t -A \
-        -c "SET app.current_organization_id = '00000000-0000-0000-0000-000000000000'; $1" 2>/dev/null \
+        -c "SET app.current_organization_id = '00000000-0000-0000-0000-000000000001'; $1" 2>/dev/null \
         | grep -v "^SET$" | head -1 | tr -d ' '
 }
 

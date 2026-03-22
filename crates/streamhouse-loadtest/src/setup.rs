@@ -59,9 +59,9 @@ pub async fn run_setup(client: &HttpClient) -> Result<Vec<OrgContext>> {
     // The schema_evolution workload will later evolve these with backward-compatible changes.
     register_initial_schemas(client).await?;
 
-    // Create Kafka-specific topics in the default org (unauthenticated Kafka connections
-    // use the default org). These are used by the Kafka wire protocol producers.
-    let default_org_id = "00000000-0000-0000-0000-000000000000";
+    // Create Kafka-specific topics in the test org (unauthenticated Kafka connections).
+    // These are used by the Kafka wire protocol producers.
+    let default_org_id = "00000000-0000-0000-0000-000000000001";
     let kafka_topics = vec![
         TopicSpec {
             name: "kafka-orders".into(),

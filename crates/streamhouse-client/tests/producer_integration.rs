@@ -13,7 +13,7 @@ use std::time::Duration;
 use streamhouse_agent::grpc_service::ProducerServiceImpl;
 use streamhouse_client::Producer;
 use streamhouse_metadata::{
-    AgentInfo, CleanupPolicy, MetadataStore, SqliteMetadataStore, TopicConfig,
+    AgentInfo, CleanupPolicy, MetadataStore, SqliteMetadataStore, TopicConfig, TEST_ORG_ID,
 };
 use streamhouse_proto::producer::producer_service_server::ProducerServiceServer;
 use streamhouse_storage::writer_pool::WriterPool;
@@ -39,7 +39,14 @@ async fn create_test_metadata_store(agent_id: &str) -> (Arc<dyn MetadataStore>, 
         cleanup_policy: CleanupPolicy::default(),
         config: HashMap::new(),
     };
-    store.create_topic(config).await.unwrap();
+    store
+        .ensure_organization(TEST_ORG_ID, "Test Org")
+        .await
+        .unwrap();
+    store
+        .create_topic_for_org(TEST_ORG_ID, config)
+        .await
+        .unwrap();
 
     // Register agent
     let agent_info = AgentInfo {
@@ -56,7 +63,7 @@ async fn create_test_metadata_store(agent_id: &str) -> (Arc<dyn MetadataStore>, 
     // Create partition lease for agent
     store
         .acquire_partition_lease(
-            streamhouse_metadata::DEFAULT_ORGANIZATION_ID,
+            streamhouse_metadata::TEST_ORG_ID,
             "test_topic",
             0,
             agent_id,
@@ -147,6 +154,7 @@ async fn test_producer_to_agent_basic() {
     // Create Producer
     let producer = Producer::builder()
         .metadata_store(metadata_store.clone())
+        .organization_id(TEST_ORG_ID)
         .agent_group("default")
         .batch_size(10)
         .batch_timeout(Duration::from_millis(100))
@@ -203,6 +211,7 @@ async fn test_producer_batch_accumulation() {
     // Create Producer with small batch size
     let producer = Producer::builder()
         .metadata_store(metadata_store.clone())
+        .organization_id(TEST_ORG_ID)
         .agent_group("default")
         .batch_size(3) // Small batch size for testing
         .batch_timeout(Duration::from_secs(10)) // Long timeout to test size trigger
@@ -261,6 +270,7 @@ async fn test_producer_time_based_flush() {
     // Create Producer with short batch timeout
     let producer = Producer::builder()
         .metadata_store(metadata_store.clone())
+        .organization_id(TEST_ORG_ID)
         .agent_group("default")
         .batch_size(1000) // Large batch size to test time trigger
         .batch_timeout(Duration::from_millis(100)) // Short timeout
@@ -317,6 +327,7 @@ async fn test_producer_concurrent_sends() {
     let producer = Arc::new(
         Producer::builder()
             .metadata_store(metadata_store.clone())
+            .organization_id(TEST_ORG_ID)
             .agent_group("default")
             .batch_size(100)
             .batch_timeout(Duration::from_millis(100))
@@ -386,6 +397,7 @@ async fn test_producer_throughput() {
     // Create Producer
     let producer = Producer::builder()
         .metadata_store(metadata_store.clone())
+        .organization_id(TEST_ORG_ID)
         .agent_group("default")
         .batch_size(100)
         .batch_timeout(Duration::from_millis(100))
@@ -465,6 +477,7 @@ async fn test_producer_offset_tracking() {
     // Create producer
     let producer = Producer::builder()
         .metadata_store(Arc::clone(&metadata_store))
+        .organization_id(TEST_ORG_ID)
         .agent_group("default")
         .batch_size(10)
         .batch_timeout(Duration::from_millis(50))
@@ -542,6 +555,7 @@ async fn test_producer_send_and_wait() {
     // Create producer
     let producer = Producer::builder()
         .metadata_store(Arc::clone(&metadata_store))
+        .organization_id(TEST_ORG_ID)
         .agent_group("default")
         .batch_size(10)
         .batch_timeout(Duration::from_millis(50))
@@ -595,6 +609,7 @@ async fn test_producer_offset_batch_flush() {
     // Create producer with small batch size to force multiple batches
     let producer = Producer::builder()
         .metadata_store(Arc::clone(&metadata_store))
+        .organization_id(TEST_ORG_ID)
         .agent_group("default")
         .batch_size(5) // Force flush after 5 records
         .batch_timeout(Duration::from_millis(1000))

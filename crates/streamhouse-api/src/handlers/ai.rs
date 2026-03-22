@@ -523,7 +523,17 @@ pub async fn ask_query(
     auth_key: Option<Extension<AuthenticatedKey>>,
     Json(req): Json<AskQueryRequest>,
 ) -> Result<Json<AskQueryResponse>, (StatusCode, Json<AskQueryError>)> {
-    let org_id = extract_org_id(&headers, auth_key.as_ref().map(|e| &e.0));
+    let org_id = extract_org_id(&headers, auth_key.as_ref().map(|e| &e.0)).map_err(|status| {
+        (
+            status,
+            Json(AskQueryError {
+                error: "bad_request".to_string(),
+                message: "Organization ID is required".to_string(),
+                sql: None,
+                suggestions: vec![],
+            }),
+        )
+    })?;
     // Detect AI provider
     let provider = require_ai_provider()?;
 
@@ -947,7 +957,17 @@ pub async fn refine_query(
     Path(id): Path<String>,
     Json(req): Json<RefineQueryRequest>,
 ) -> Result<Json<AskQueryResponse>, (StatusCode, Json<AskQueryError>)> {
-    let org_id = extract_org_id(&headers, auth_key.as_ref().map(|e| &e.0));
+    let org_id = extract_org_id(&headers, auth_key.as_ref().map(|e| &e.0)).map_err(|status| {
+        (
+            status,
+            Json(AskQueryError {
+                error: "bad_request".to_string(),
+                message: "Organization ID is required".to_string(),
+                sql: None,
+                suggestions: vec![],
+            }),
+        )
+    })?;
     // Get the original query
     let original = {
         let history = QUERY_HISTORY.read().await;
@@ -1046,7 +1066,17 @@ pub async fn estimate_cost(
     auth_key: Option<Extension<AuthenticatedKey>>,
     Json(req): Json<EstimateCostRequest>,
 ) -> Result<Json<CostEstimate>, (StatusCode, Json<AskQueryError>)> {
-    let org_id = extract_org_id(&headers, auth_key.as_ref().map(|e| &e.0));
+    let org_id = extract_org_id(&headers, auth_key.as_ref().map(|e| &e.0)).map_err(|status| {
+        (
+            status,
+            Json(AskQueryError {
+                error: "bad_request".to_string(),
+                message: "Organization ID is required".to_string(),
+                sql: None,
+                suggestions: vec![],
+            }),
+        )
+    })?;
     let (sql, topics) = if req.is_sql {
         // Parse SQL to extract topics
         let topics = extract_topics_from_sql(&req.query);
@@ -1252,7 +1282,17 @@ pub async fn infer_schema(
     auth_key: Option<Extension<AuthenticatedKey>>,
     Json(req): Json<InferSchemaRequest>,
 ) -> Result<Json<InferredSchema>, (StatusCode, Json<AskQueryError>)> {
-    let org_id = extract_org_id(&headers, auth_key.as_ref().map(|e| &e.0));
+    let org_id = extract_org_id(&headers, auth_key.as_ref().map(|e| &e.0)).map_err(|status| {
+        (
+            status,
+            Json(AskQueryError {
+                error: "bad_request".to_string(),
+                message: "Organization ID is required".to_string(),
+                sql: None,
+                suggestions: vec![],
+            }),
+        )
+    })?;
 
     // Check if topic exists (org-scoped)
     let topic = state

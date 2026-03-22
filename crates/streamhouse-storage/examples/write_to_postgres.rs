@@ -11,9 +11,7 @@ use std::collections::HashMap;
 #[cfg(feature = "postgres")]
 use std::sync::Arc;
 #[cfg(feature = "postgres")]
-use streamhouse_metadata::{
-    MetadataStore, PostgresMetadataStore, TopicConfig, DEFAULT_ORGANIZATION_ID,
-};
+use streamhouse_metadata::{MetadataStore, PostgresMetadataStore, TopicConfig, TEST_ORG_ID};
 #[cfg(feature = "postgres")]
 use streamhouse_storage::{PartitionReader, PartitionWriter, SegmentCache, WriteConfig};
 
@@ -101,7 +99,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("✍️  Writing to 'orders' topic...");
     for partition in 0..3 {
         let mut writer = PartitionWriter::new(
-            DEFAULT_ORGANIZATION_ID.to_string(),
+            TEST_ORG_ID.to_string(),
             "orders".to_string(),
             partition,
             object_store.clone(),
@@ -144,7 +142,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("✍️  Writing to 'user-events' topic...");
     for partition in 0..2 {
         let mut writer = PartitionWriter::new(
-            DEFAULT_ORGANIZATION_ID.to_string(),
+            TEST_ORG_ID.to_string(),
             "user-events".to_string(),
             partition,
             object_store.clone(),
@@ -188,7 +186,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("✍️  Writing to 'metrics' topic...");
     for partition in 0..4 {
         let mut writer = PartitionWriter::new(
-            DEFAULT_ORGANIZATION_ID.to_string(),
+            TEST_ORG_ID.to_string(),
             "metrics".to_string(),
             partition,
             object_store.clone(),
@@ -220,7 +218,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Verify by reading back
     println!("📖 Verifying reads with Phase 3.4 segment index...");
     let reader = PartitionReader::new(
-        streamhouse_metadata::DEFAULT_ORGANIZATION_ID.to_string(),
+        TEST_ORG_ID.to_string(),
         "orders".to_string(),
         0,
         metadata.clone(),

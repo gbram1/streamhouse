@@ -330,8 +330,8 @@ pub trait MetadataStore: Send + Sync {
 
     /// Get the organization_id that owns a topic.
     async fn get_topic_organization_id(&self, _topic: &str) -> Result<Option<String>> {
-        // Default: return default org (backward compat for SQLite without org column)
-        Ok(Some("00000000-0000-0000-0000-000000000000".to_string()))
+        // Default: return None (SQLite without org column)
+        Ok(None)
     }
 
     /// Ensure an organization exists, creating it if necessary (lazy sync from external auth).
@@ -612,7 +612,7 @@ pub trait MetadataStore: Send + Sync {
     ///
     /// ```ignore
     /// // Delete segments older than offset 100,000
-    /// let deleted = store.delete_segments_before(DEFAULT_ORGANIZATION_ID, "orders", 0, 100_000).await?;
+    /// let deleted = store.delete_segments_before("my-org-id", "orders", 0, 100_000).await?;
     /// println!("Deleted {} segment metadata entries", deleted);
     /// // Now delete corresponding S3 files...
     /// ```

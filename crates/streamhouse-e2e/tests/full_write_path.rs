@@ -7,6 +7,7 @@ use std::collections::HashSet;
 
 use serde_json::json;
 use streamhouse_e2e::{BatchRecord, TestCluster};
+use streamhouse_metadata::TEST_ORG_ID;
 
 /// Helper: generate a batch of JSON records with checksums for integrity verification.
 fn generate_records(count: usize, prefix: &str) -> Vec<serde_json::Value> {
@@ -53,7 +54,8 @@ async fn wait_for_flush() {
 #[tokio::test]
 async fn test_rest_full_write_read_path() {
     let cluster = TestCluster::start().await.unwrap();
-    let client = cluster.rest_client();
+    let mut client = cluster.rest_client();
+    client.set_org_id(TEST_ORG_ID);
 
     // Step 1: Create organization
     let org = client
@@ -70,10 +72,14 @@ async fn test_rest_full_write_read_path() {
 
     // Step 3: Create topic with 4 partitions
     let topic_name = "rest-e2e";
-    let topic = client
-        .create_topic(topic_name, 4)
+    cluster
+        .create_topic_with_leases(topic_name, 4)
         .await
         .expect("Failed to create topic");
+    let topic = client
+        .get_topic(topic_name)
+        .await
+        .expect("Failed to get topic");
     assert_eq!(topic.name, topic_name, "Topic name should match");
     assert_eq!(topic.partitions, 4, "Topic should have 4 partitions");
 
@@ -225,22 +231,12 @@ async fn test_grpc_full_write_read_path() {
     let cluster = TestCluster::start().await.unwrap();
     let mut grpc = cluster.grpc_client().await.unwrap();
 
-    // Step 1: Create topic via gRPC
+    // Step 1: Create topic via metadata (ensures org + leases)
     let topic_name = "grpc-e2e";
-    let create_resp = grpc
-        .create_topic(streamhouse_proto::streamhouse::CreateTopicRequest {
-            name: topic_name.to_string(),
-            partition_count: 2,
-            retention_ms: None,
-            config: Default::default(),
-        })
+    cluster
+        .create_topic_with_leases(topic_name, 2)
         .await
-        .expect("gRPC CreateTopic failed");
-    let create_resp = create_resp.into_inner();
-    assert_eq!(
-        create_resp.partition_count, 2,
-        "gRPC topic should have 2 partitions"
-    );
+        .expect("Failed to create topic with leases");
 
     // Step 2: Produce 200 records via gRPC ProduceBatch
     let records: Vec<streamhouse_proto::streamhouse::Record> = (0..200)
@@ -257,17 +253,22 @@ async fn test_grpc_full_write_read_path() {
         })
         .collect();
 
+    let mut batch_req = tonic::Request::new(streamhouse_proto::streamhouse::ProduceBatchRequest {
+        topic: topic_name.to_string(),
+        partition: 0,
+        records,
+        producer_id: None,
+        producer_epoch: None,
+        base_sequence: None,
+        transaction_id: None,
+        ack_mode: 0,
+    });
+    batch_req
+        .metadata_mut()
+        .insert("x-organization-id", TEST_ORG_ID.parse().unwrap());
+
     let batch_resp = grpc
-        .produce_batch(streamhouse_proto::streamhouse::ProduceBatchRequest {
-            topic: topic_name.to_string(),
-            partition: 0,
-            records,
-            producer_id: None,
-            producer_epoch: None,
-            base_sequence: None,
-            transaction_id: None,
-            ack_mode: 0,
-        })
+        .produce_batch(batch_req)
         .await
         .expect("gRPC ProduceBatch failed");
     let batch_resp = batch_resp.into_inner();
@@ -283,14 +284,19 @@ async fn test_grpc_full_write_read_path() {
     let mut all_records = Vec::new();
     let mut offset = 0u64;
     loop {
+        let mut consume_req = tonic::Request::new(streamhouse_proto::streamhouse::ConsumeRequest {
+            topic: topic_name.to_string(),
+            partition: 0,
+            offset,
+            max_records: 100,
+            consumer_group: None,
+        });
+        consume_req
+            .metadata_mut()
+            .insert("x-organization-id", TEST_ORG_ID.parse().unwrap());
+
         let consume_resp = grpc
-            .consume(streamhouse_proto::streamhouse::ConsumeRequest {
-                topic: topic_name.to_string(),
-                partition: 0,
-                offset,
-                max_records: 100,
-                consumer_group: None,
-            })
+            .consume(consume_req)
             .await
             .expect("gRPC Consume failed");
         let consume_resp = consume_resp.into_inner();
@@ -329,10 +335,15 @@ async fn test_grpc_full_write_read_path() {
     }
 
     // Step 6: Cleanup via gRPC
+    let mut delete_req = tonic::Request::new(streamhouse_proto::streamhouse::DeleteTopicRequest {
+        name: topic_name.to_string(),
+    });
+    delete_req
+        .metadata_mut()
+        .insert("x-organization-id", TEST_ORG_ID.parse().unwrap());
+
     let delete_resp = grpc
-        .delete_topic(streamhouse_proto::streamhouse::DeleteTopicRequest {
-            name: topic_name.to_string(),
-        })
+        .delete_topic(delete_req)
         .await
         .expect("gRPC DeleteTopic failed");
     assert!(
@@ -348,14 +359,15 @@ async fn test_grpc_full_write_read_path() {
 #[tokio::test]
 async fn test_cross_protocol_rest_produce_grpc_consume() {
     let cluster = TestCluster::start().await.unwrap();
-    let client = cluster.rest_client();
+    let mut client = cluster.rest_client();
+    client.set_org_id(TEST_ORG_ID);
     let mut grpc = cluster.grpc_client().await.unwrap();
 
     let topic_name = "cross-rest-grpc";
 
-    // Create topic via REST
-    client
-        .create_topic(topic_name, 1)
+    // Create topic with leases
+    cluster
+        .create_topic_with_leases(topic_name, 1)
         .await
         .expect("Failed to create topic");
 
@@ -379,14 +391,19 @@ async fn test_cross_protocol_rest_produce_grpc_consume() {
     let mut all_records = Vec::new();
     let mut offset = 0u64;
     loop {
+        let mut consume_req = tonic::Request::new(streamhouse_proto::streamhouse::ConsumeRequest {
+            topic: topic_name.to_string(),
+            partition: 0,
+            offset,
+            max_records: 100,
+            consumer_group: None,
+        });
+        consume_req
+            .metadata_mut()
+            .insert("x-organization-id", TEST_ORG_ID.parse().unwrap());
+
         let resp = grpc
-            .consume(streamhouse_proto::streamhouse::ConsumeRequest {
-                topic: topic_name.to_string(),
-                partition: 0,
-                offset,
-                max_records: 100,
-                consumer_group: None,
-            })
+            .consume(consume_req)
             .await
             .expect("gRPC consume failed");
         let resp = resp.into_inner();
@@ -420,7 +437,7 @@ async fn test_cross_protocol_rest_produce_grpc_consume() {
         );
     }
 
-    // Cleanup
+    // Cleanup via REST
     client
         .delete_topic(topic_name)
         .await
@@ -434,14 +451,15 @@ async fn test_cross_protocol_rest_produce_grpc_consume() {
 #[tokio::test]
 async fn test_cross_protocol_grpc_produce_rest_consume() {
     let cluster = TestCluster::start().await.unwrap();
-    let client = cluster.rest_client();
+    let mut client = cluster.rest_client();
+    client.set_org_id(TEST_ORG_ID);
     let mut grpc = cluster.grpc_client().await.unwrap();
 
     let topic_name = "cross-grpc-rest";
 
-    // Create topic via REST
-    client
-        .create_topic(topic_name, 1)
+    // Create topic with leases
+    cluster
+        .create_topic_with_leases(topic_name, 1)
         .await
         .expect("Failed to create topic");
 
@@ -457,7 +475,7 @@ async fn test_cross_protocol_grpc_produce_rest_consume() {
         })
         .collect();
 
-    grpc.produce_batch(streamhouse_proto::streamhouse::ProduceBatchRequest {
+    let mut batch_req = tonic::Request::new(streamhouse_proto::streamhouse::ProduceBatchRequest {
         topic: topic_name.to_string(),
         partition: 0,
         records,
@@ -466,9 +484,14 @@ async fn test_cross_protocol_grpc_produce_rest_consume() {
         base_sequence: None,
         transaction_id: None,
         ack_mode: 0,
-    })
-    .await
-    .expect("gRPC produce failed");
+    });
+    batch_req
+        .metadata_mut()
+        .insert("x-organization-id", TEST_ORG_ID.parse().unwrap());
+
+    grpc.produce_batch(batch_req)
+        .await
+        .expect("gRPC produce failed");
 
     wait_for_flush().await;
 
@@ -525,13 +548,14 @@ async fn test_cross_protocol_grpc_produce_rest_consume() {
 #[tokio::test]
 async fn test_schema_enforced_produce() {
     let cluster = TestCluster::start().await.unwrap();
-    let client = cluster.rest_client();
+    let mut client = cluster.rest_client();
+    client.set_org_id(TEST_ORG_ID);
 
     let topic_name = "schema-enforced";
 
-    // Create topic
-    client
-        .create_topic(topic_name, 1)
+    // Create topic with leases
+    cluster
+        .create_topic_with_leases(topic_name, 1)
         .await
         .expect("Failed to create topic");
 
@@ -608,14 +632,15 @@ async fn test_schema_enforced_produce() {
 #[tokio::test]
 async fn test_consumer_group_offsets() {
     let cluster = TestCluster::start().await.unwrap();
-    let client = cluster.rest_client();
+    let mut client = cluster.rest_client();
+    client.set_org_id(TEST_ORG_ID);
 
     let topic_name = "consumer-group-test";
     let group_id = "test-group";
 
-    // Create topic and produce 100 records
-    client
-        .create_topic(topic_name, 1)
+    // Create topic with leases and produce 100 records
+    cluster
+        .create_topic_with_leases(topic_name, 1)
         .await
         .expect("Failed to create topic");
 
@@ -696,13 +721,14 @@ async fn test_consumer_group_offsets() {
 #[tokio::test]
 async fn test_sql_queries() {
     let cluster = TestCluster::start().await.unwrap();
-    let client = cluster.rest_client();
+    let mut client = cluster.rest_client();
+    client.set_org_id(TEST_ORG_ID);
 
     let topic_name = "sql-test";
 
-    // Create topic
-    client
-        .create_topic(topic_name, 2)
+    // Create topic with leases
+    cluster
+        .create_topic_with_leases(topic_name, 2)
         .await
         .expect("Failed to create topic");
 
@@ -813,13 +839,14 @@ async fn test_sql_queries() {
 #[tokio::test]
 async fn test_ordering_guarantees() {
     let cluster = TestCluster::start().await.unwrap();
-    let client = cluster.rest_client();
+    let mut client = cluster.rest_client();
+    client.set_org_id(TEST_ORG_ID);
 
     let topic_name = "ordering-test";
 
     // Create topic with 1 partition to guarantee total ordering
-    client
-        .create_topic(topic_name, 1)
+    cluster
+        .create_topic_with_leases(topic_name, 1)
         .await
         .expect("Failed to create topic");
 

@@ -7,9 +7,7 @@ use bytes::Bytes;
 use object_store::memory::InMemory;
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
-use streamhouse_metadata::{
-    MetadataStore, SqliteMetadataStore, TopicConfig, DEFAULT_ORGANIZATION_ID,
-};
+use streamhouse_metadata::{MetadataStore, SqliteMetadataStore, TopicConfig, TEST_ORG_ID};
 use streamhouse_storage::wal::{SyncPolicy, WALConfig};
 use streamhouse_storage::writer::PartitionWriter;
 use streamhouse_storage::WriteConfig;
@@ -29,13 +27,20 @@ async fn create_test_metadata() -> Arc<dyn MetadataStore> {
 
     // Create test topic
     store
-        .create_topic(TopicConfig {
-            name: "test-topic".to_string(),
-            partition_count: 1,
-            retention_ms: Some(86400000),
-            config: Default::default(),
-            cleanup_policy: Default::default(),
-        })
+        .ensure_organization(TEST_ORG_ID, "Test Org")
+        .await
+        .unwrap();
+    store
+        .create_topic_for_org(
+            TEST_ORG_ID,
+            TopicConfig {
+                name: "test-topic".to_string(),
+                partition_count: 1,
+                retention_ms: Some(86400000),
+                config: Default::default(),
+                cleanup_policy: Default::default(),
+            },
+        )
         .await
         .unwrap();
 
@@ -76,7 +81,7 @@ async fn test_wal_recovery_offset_continuity() {
     // Write 50 records, then crash (drop without flush)
     {
         let mut writer = PartitionWriter::new(
-            DEFAULT_ORGANIZATION_ID.to_string(),
+            TEST_ORG_ID.to_string(),
             "test-topic".to_string(),
             0,
             object_store.clone(),
@@ -103,7 +108,7 @@ async fn test_wal_recovery_offset_continuity() {
 
     // Metadata still shows HW=0 (nothing flushed to S3)
     let partition = metadata
-        .get_partition(DEFAULT_ORGANIZATION_ID, "test-topic", 0)
+        .get_partition(TEST_ORG_ID, "test-topic", 0)
         .await
         .unwrap()
         .unwrap();
@@ -112,7 +117,7 @@ async fn test_wal_recovery_offset_continuity() {
     // Restart: WAL recovery should replay 50 records into the segment buffer
     {
         let mut writer = PartitionWriter::new(
-            DEFAULT_ORGANIZATION_ID.to_string(),
+            TEST_ORG_ID.to_string(),
             "test-topic".to_string(),
             0,
             object_store.clone(),
@@ -150,7 +155,7 @@ async fn test_crash_recovery_no_data_loss() {
     // Step 1: Write 100 records
     let _offsets = {
         let mut writer = PartitionWriter::new(
-            DEFAULT_ORGANIZATION_ID.to_string(),
+            TEST_ORG_ID.to_string(),
             topic.to_string(),
             partition_id,
             object_store.clone(),
@@ -183,7 +188,7 @@ async fn test_crash_recovery_no_data_loss() {
     // Step 2: Restart and verify recovery
     {
         let mut writer = PartitionWriter::new(
-            DEFAULT_ORGANIZATION_ID.to_string(),
+            TEST_ORG_ID.to_string(),
             topic.to_string(),
             partition_id,
             object_store.clone(),
@@ -208,7 +213,7 @@ async fn test_crash_recovery_no_data_loss() {
 
     // Step 3: Verify segment in metadata has 101 records (100 recovered + 1 new)
     let segments = metadata
-        .get_segments(DEFAULT_ORGANIZATION_ID, topic, partition_id)
+        .get_segments(TEST_ORG_ID, topic, partition_id)
         .await
         .unwrap();
     assert_eq!(segments.len(), 1, "Should have 1 segment after flush");
@@ -219,7 +224,7 @@ async fn test_crash_recovery_no_data_loss() {
 
     // Verify high watermark in metadata
     let partition = metadata
-        .get_partition(DEFAULT_ORGANIZATION_ID, topic, partition_id)
+        .get_partition(TEST_ORG_ID, topic, partition_id)
         .await
         .unwrap()
         .unwrap();
@@ -239,7 +244,7 @@ async fn test_wal_truncated_after_flush() {
     let write_config = create_write_config_with_wal(temp_dir.path().to_path_buf());
 
     let mut writer = PartitionWriter::new(
-        DEFAULT_ORGANIZATION_ID.to_string(),
+        TEST_ORG_ID.to_string(),
         "test-topic".to_string(),
         0,
         object_store.clone(),
@@ -267,7 +272,7 @@ async fn test_wal_truncated_after_flush() {
 
     // Verify metadata shows 50 records
     let partition = metadata
-        .get_partition(DEFAULT_ORGANIZATION_ID, "test-topic", 0)
+        .get_partition(TEST_ORG_ID, "test-topic", 0)
         .await
         .unwrap()
         .unwrap();
@@ -281,7 +286,7 @@ async fn test_wal_truncated_after_flush() {
 
     let write_config2 = create_write_config_with_wal(temp_dir.path().to_path_buf());
     let mut writer_after_flush = PartitionWriter::new(
-        DEFAULT_ORGANIZATION_ID.to_string(),
+        TEST_ORG_ID.to_string(),
         "test-topic".to_string(),
         0,
         object_store.clone(),
@@ -306,7 +311,7 @@ async fn test_wal_truncated_after_flush() {
 
     // Verify final state
     let partition = metadata
-        .get_partition(DEFAULT_ORGANIZATION_ID, "test-topic", 0)
+        .get_partition(TEST_ORG_ID, "test-topic", 0)
         .await
         .unwrap()
         .unwrap();
@@ -325,7 +330,7 @@ async fn test_multiple_crash_recovery_cycles() {
     // Cycle 1: Write 20, crash
     {
         let mut writer = PartitionWriter::new(
-            DEFAULT_ORGANIZATION_ID.to_string(),
+            TEST_ORG_ID.to_string(),
             "test-topic".to_string(),
             0,
             object_store.clone(),
@@ -352,7 +357,7 @@ async fn test_multiple_crash_recovery_cycles() {
     // Cycle 2: Recover 20, write 1 more, flush, write 30 more, crash
     {
         let mut writer = PartitionWriter::new(
-            DEFAULT_ORGANIZATION_ID.to_string(),
+            TEST_ORG_ID.to_string(),
             "test-topic".to_string(),
             0,
             object_store.clone(),
@@ -371,7 +376,7 @@ async fn test_multiple_crash_recovery_cycles() {
         writer.flush_durable().await.unwrap();
 
         let partition = metadata
-            .get_partition(DEFAULT_ORGANIZATION_ID, "test-topic", 0)
+            .get_partition(TEST_ORG_ID, "test-topic", 0)
             .await
             .unwrap()
             .unwrap();
@@ -397,7 +402,7 @@ async fn test_multiple_crash_recovery_cycles() {
     // Cycle 3: Recover 30 from WAL, flush
     {
         let mut writer = PartitionWriter::new(
-            DEFAULT_ORGANIZATION_ID.to_string(),
+            TEST_ORG_ID.to_string(),
             "test-topic".to_string(),
             0,
             object_store.clone(),
@@ -412,7 +417,7 @@ async fn test_multiple_crash_recovery_cycles() {
         writer.flush_durable().await.unwrap();
 
         let partition = metadata
-            .get_partition(DEFAULT_ORGANIZATION_ID, "test-topic", 0)
+            .get_partition(TEST_ORG_ID, "test-topic", 0)
             .await
             .unwrap()
             .unwrap();
@@ -425,7 +430,7 @@ async fn test_multiple_crash_recovery_cycles() {
 
     // Verify final state: 2 segments from 2 flush_durable calls
     let segments = metadata
-        .get_segments(DEFAULT_ORGANIZATION_ID, "test-topic", 0)
+        .get_segments(TEST_ORG_ID, "test-topic", 0)
         .await
         .unwrap();
     assert_eq!(
@@ -449,13 +454,20 @@ async fn test_concurrent_partition_wals() {
 
     // Create topic with 3 partitions
     metadata
-        .create_topic(TopicConfig {
-            name: "test-topic".to_string(),
-            partition_count: 3,
-            retention_ms: Some(86400000),
-            config: Default::default(),
-            cleanup_policy: Default::default(),
-        })
+        .ensure_organization(TEST_ORG_ID, "Test Org")
+        .await
+        .unwrap();
+    metadata
+        .create_topic_for_org(
+            TEST_ORG_ID,
+            TopicConfig {
+                name: "test-topic".to_string(),
+                partition_count: 3,
+                retention_ms: Some(86400000),
+                config: Default::default(),
+                cleanup_policy: Default::default(),
+            },
+        )
         .await
         .unwrap();
 
@@ -471,7 +483,7 @@ async fn test_concurrent_partition_wals() {
 
         let handle = tokio::spawn(async move {
             let mut writer = PartitionWriter::new(
-                DEFAULT_ORGANIZATION_ID.to_string(),
+                TEST_ORG_ID.to_string(),
                 "test-topic".to_string(),
                 partition_id,
                 object_store,
@@ -506,7 +518,7 @@ async fn test_concurrent_partition_wals() {
     // Recover all partitions
     for partition_id in 0..3 {
         let mut writer = PartitionWriter::new(
-            DEFAULT_ORGANIZATION_ID.to_string(),
+            TEST_ORG_ID.to_string(),
             "test-topic".to_string(),
             partition_id,
             object_store.clone(),
@@ -531,7 +543,7 @@ async fn test_concurrent_partition_wals() {
         writer.flush_durable().await.unwrap();
 
         let partition = metadata
-            .get_partition(DEFAULT_ORGANIZATION_ID, "test-topic", partition_id)
+            .get_partition(TEST_ORG_ID, "test-topic", partition_id)
             .await
             .unwrap()
             .unwrap();
@@ -565,7 +577,7 @@ async fn test_wal_disabled_mode() {
     };
 
     let mut writer = PartitionWriter::new(
-        DEFAULT_ORGANIZATION_ID.to_string(),
+        TEST_ORG_ID.to_string(),
         "test-topic".to_string(),
         0,
         object_store.clone(),
@@ -593,7 +605,7 @@ async fn test_wal_disabled_mode() {
 
     // Restart - should NOT recover (WAL disabled)
     let _writer_after_crash = PartitionWriter::new(
-        DEFAULT_ORGANIZATION_ID.to_string(),
+        TEST_ORG_ID.to_string(),
         "test-topic".to_string(),
         0,
         object_store.clone(),
@@ -606,7 +618,7 @@ async fn test_wal_disabled_mode() {
 
     // Offset should be 0 (no recovery without WAL)
     let partition = metadata
-        .get_partition(DEFAULT_ORGANIZATION_ID, "test-topic", 0)
+        .get_partition(TEST_ORG_ID, "test-topic", 0)
         .await
         .unwrap()
         .unwrap();

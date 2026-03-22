@@ -324,6 +324,7 @@ pub struct ConsumerBuilder {
     metrics: Option<Arc<ConsumerMetrics>>,
     schema_registry_url: Option<String>,
     isolation_level: IsolationLevel,
+    organization_id: Option<String>,
 }
 
 impl ConsumerBuilder {
@@ -344,7 +345,14 @@ impl ConsumerBuilder {
             metrics: None,
             schema_registry_url: None,
             isolation_level: IsolationLevel::ReadUncommitted, // Phase 16: default for compatibility
+            organization_id: None,
         }
+    }
+
+    /// Set the organization ID (required).
+    pub fn organization_id(mut self, org_id: impl Into<String>) -> Self {
+        self.organization_id = Some(org_id.into());
+        self
     }
 
     /// Set the consumer group ID.
@@ -558,9 +566,17 @@ impl ConsumerBuilder {
                 .map_err(|e| ClientError::StorageError(e.to_string()))?,
         );
 
+        // Resolve organization_id early (needed for consumer group registration)
+        let org_id = self
+            .organization_id
+            .clone()
+            .ok_or_else(|| ClientError::ConfigError("organization_id is required".to_string()))?;
+
         // Register consumer group if specified
         if let Some(ref group_id) = self.group_id {
-            metadata_store.ensure_consumer_group(group_id).await?;
+            metadata_store
+                .ensure_consumer_group_for_org(&org_id, group_id)
+                .await?;
         }
 
         // Initialize schema registry client if URL provided (Phase 9+)
@@ -598,7 +614,7 @@ impl ConsumerBuilder {
             auto_commit_interval: self.auto_commit_interval,
             last_commit: tokio::time::Instant::now(),
             last_lag_update: tokio::time::Instant::now(),
-            org_id: streamhouse_metadata::DEFAULT_ORGANIZATION_ID.to_string(),
+            org_id,
             schema_registry,
             schema_cache,
         };
@@ -643,7 +659,7 @@ impl Consumer {
 
                 // Create PartitionReader
                 let reader = Arc::new(PartitionReader::new(
-                    streamhouse_metadata::DEFAULT_ORGANIZATION_ID.to_string(),
+                    self.org_id.clone(),
                     topic.clone(),
                     partition_id,
                     Arc::clone(&self.metadata_store),
@@ -688,11 +704,7 @@ impl Consumer {
                 // Get high watermark from partition
                 let partition = self
                     .metadata_store
-                    .get_partition(
-                        streamhouse_metadata::DEFAULT_ORGANIZATION_ID,
-                        topic,
-                        partition_id,
-                    )
+                    .get_partition(&self.org_id, topic, partition_id)
                     .await?
                     .ok_or_else(|| {
                         ClientError::InvalidPartition(partition_id, topic.to_string(), 0)
@@ -1032,11 +1044,7 @@ impl Consumer {
         // Get partition metadata for high watermark
         let partition_meta = self
             .metadata_store
-            .get_partition(
-                streamhouse_metadata::DEFAULT_ORGANIZATION_ID,
-                topic,
-                partition,
-            )
+            .get_partition(&self.org_id, topic, partition)
             .await
             .map_err(ClientError::MetadataError)?
             .ok_or_else(|| {
