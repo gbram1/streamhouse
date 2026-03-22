@@ -239,13 +239,20 @@ mod tests {
 
     async fn setup_test_partition(store: &Arc<SqliteMetadataStore>) {
         store
-            .create_topic(TopicConfig {
-                name: "test".to_string(),
-                partition_count: 1,
-                retention_ms: None,
-                config: HashMap::new(),
-                cleanup_policy: Default::default(),
-            })
+            .ensure_organization(TEST_ORG_ID, "Test Org")
+            .await
+            .unwrap();
+        store
+            .create_topic_for_org(
+                TEST_ORG_ID,
+                TopicConfig {
+                    name: "test".to_string(),
+                    partition_count: 1,
+                    retention_ms: None,
+                    config: HashMap::new(),
+                    cleanup_policy: Default::default(),
+                },
+            )
             .await
             .unwrap();
 
@@ -397,13 +404,20 @@ mod tests {
     async fn test_segment_index_max_segments() {
         let store = create_test_store().await;
         store
-            .create_topic(TopicConfig {
-                name: "test".to_string(),
-                partition_count: 1,
-                retention_ms: None,
-                config: HashMap::new(),
-                cleanup_policy: Default::default(),
-            })
+            .ensure_organization(TEST_ORG_ID, "Test Org")
+            .await
+            .unwrap();
+        store
+            .create_topic_for_org(
+                TEST_ORG_ID,
+                TopicConfig {
+                    name: "test".to_string(),
+                    partition_count: 1,
+                    retention_ms: None,
+                    config: HashMap::new(),
+                    cleanup_policy: Default::default(),
+                },
+            )
             .await
             .unwrap();
 

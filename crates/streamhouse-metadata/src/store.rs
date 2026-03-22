@@ -4229,7 +4229,12 @@ mod tests {
     use std::collections::HashMap;
 
     async fn setup_test_store() -> SqliteMetadataStore {
-        SqliteMetadataStore::new_in_memory().await.unwrap()
+        let store = SqliteMetadataStore::new_in_memory().await.unwrap();
+        store
+            .ensure_organization(crate::TEST_ORG_ID, "Test Org")
+            .await
+            .unwrap();
+        store
     }
 
     #[tokio::test]
@@ -4244,7 +4249,10 @@ mod tests {
             config: HashMap::new(),
         };
 
-        store.create_topic(config.clone()).await.unwrap();
+        store
+            .create_topic_for_org(crate::TEST_ORG_ID, config.clone())
+            .await
+            .unwrap();
 
         let topic = store.get_topic("test").await.unwrap().unwrap();
         assert_eq!(topic.name, "test");
@@ -4270,10 +4278,13 @@ mod tests {
             config: HashMap::new(),
         };
 
-        store.create_topic(config.clone()).await.unwrap();
+        store
+            .create_topic_for_org(crate::TEST_ORG_ID, config.clone())
+            .await
+            .unwrap();
 
         // Second create should fail
-        let result = store.create_topic(config).await;
+        let result = store.create_topic_for_org(crate::TEST_ORG_ID, config).await;
         assert!(matches!(result, Err(MetadataError::TopicAlreadyExists(_))));
     }
 
@@ -4283,13 +4294,16 @@ mod tests {
 
         // Create topic
         store
-            .create_topic(TopicConfig {
-                name: "test".to_string(),
-                partition_count: 1,
-                retention_ms: None,
-                cleanup_policy: CleanupPolicy::default(),
-                config: HashMap::new(),
-            })
+            .create_topic_for_org(
+                crate::TEST_ORG_ID,
+                TopicConfig {
+                    name: "test".to_string(),
+                    partition_count: 1,
+                    retention_ms: None,
+                    cleanup_policy: CleanupPolicy::default(),
+                    config: HashMap::new(),
+                },
+            )
             .await
             .unwrap();
 
@@ -4366,43 +4380,46 @@ mod tests {
 
         // Create topic
         store
-            .create_topic(TopicConfig {
-                name: "test".to_string(),
-                partition_count: 1,
-                retention_ms: None,
-                cleanup_policy: CleanupPolicy::default(),
-                config: HashMap::new(),
-            })
+            .create_topic_for_org(
+                crate::TEST_ORG_ID,
+                TopicConfig {
+                    name: "test".to_string(),
+                    partition_count: 1,
+                    retention_ms: None,
+                    cleanup_policy: CleanupPolicy::default(),
+                    config: HashMap::new(),
+                },
+            )
             .await
             .unwrap();
 
         // Initially no offset
         let offset = store
-            .get_committed_offset("group1", "test", 0)
+            .get_committed_offset_for_org(crate::TEST_ORG_ID, "group1", "test", 0)
             .await
             .unwrap();
         assert!(offset.is_none());
 
         // Commit offset
         store
-            .commit_offset("group1", "test", 0, 100, None)
+            .commit_offset_for_org(crate::TEST_ORG_ID, "group1", "test", 0, 100, None)
             .await
             .unwrap();
 
         // Should be retrievable
         let offset = store
-            .get_committed_offset("group1", "test", 0)
+            .get_committed_offset_for_org(crate::TEST_ORG_ID, "group1", "test", 0)
             .await
             .unwrap();
         assert_eq!(offset, Some(100));
 
         // Update offset
         store
-            .commit_offset("group1", "test", 0, 200, None)
+            .commit_offset_for_org(crate::TEST_ORG_ID, "group1", "test", 0, 200, None)
             .await
             .unwrap();
         let offset = store
-            .get_committed_offset("group1", "test", 0)
+            .get_committed_offset_for_org(crate::TEST_ORG_ID, "group1", "test", 0)
             .await
             .unwrap();
         assert_eq!(offset, Some(200));

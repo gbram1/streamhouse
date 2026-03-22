@@ -200,13 +200,20 @@ mod tests {
     async fn create_test_metadata(topic: &str, partition_count: u32) -> Arc<dyn MetadataStore> {
         let store = SqliteMetadataStore::new_in_memory().await.unwrap();
         store
-            .create_topic(TopicConfig {
-                name: topic.to_string(),
-                partition_count,
-                retention_ms: Some(86400000),
-                config: Default::default(),
-                cleanup_policy: Default::default(),
-            })
+            .ensure_organization(streamhouse_metadata::TEST_ORG_ID, "Test Org")
+            .await
+            .unwrap();
+        store
+            .create_topic_for_org(
+                streamhouse_metadata::TEST_ORG_ID,
+                TopicConfig {
+                    name: topic.to_string(),
+                    partition_count,
+                    retention_ms: Some(86400000),
+                    config: Default::default(),
+                    cleanup_policy: Default::default(),
+                },
+            )
             .await
             .unwrap();
         Arc::new(store)

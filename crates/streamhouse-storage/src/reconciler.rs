@@ -427,13 +427,20 @@ mod tests {
 
         // Create a topic so segments can reference it
         metadata
-            .create_topic(TopicConfig {
-                name: "orders".to_string(),
-                partition_count: 1,
-                retention_ms: None,
-                config: std::collections::HashMap::new(),
-                cleanup_policy: Default::default(),
-            })
+            .ensure_organization(streamhouse_metadata::TEST_ORG_ID, "Test Org")
+            .await
+            .unwrap();
+        metadata
+            .create_topic_for_org(
+                streamhouse_metadata::TEST_ORG_ID,
+                TopicConfig {
+                    name: "orders".to_string(),
+                    partition_count: 1,
+                    retention_ms: None,
+                    config: std::collections::HashMap::new(),
+                    cleanup_policy: Default::default(),
+                },
+            )
             .await
             .unwrap();
 
@@ -496,13 +503,20 @@ mod tests {
         let metadata = Arc::new(SqliteMetadataStore::new_in_memory().await.unwrap());
 
         metadata
-            .create_topic(TopicConfig {
-                name: "logs".to_string(),
-                partition_count: 1,
-                retention_ms: None,
-                config: std::collections::HashMap::new(),
-                cleanup_policy: Default::default(),
-            })
+            .ensure_organization(streamhouse_metadata::TEST_ORG_ID, "Test Org")
+            .await
+            .unwrap();
+        metadata
+            .create_topic_for_org(
+                streamhouse_metadata::TEST_ORG_ID,
+                TopicConfig {
+                    name: "logs".to_string(),
+                    partition_count: 1,
+                    retention_ms: None,
+                    config: std::collections::HashMap::new(),
+                    cleanup_policy: Default::default(),
+                },
+            )
             .await
             .unwrap();
 
