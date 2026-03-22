@@ -6,8 +6,9 @@ use std::time::Instant;
 
 use streamhouse_metadata::{
     CreateMaterializedView, MaterializedView, MaterializedViewRefreshMode, MaterializedViewStatus,
-    MetadataStore, DEFAULT_ORGANIZATION_ID,
+    MetadataStore,
 };
+
 use streamhouse_storage::SegmentCache;
 
 use crate::arrow_executor::ArrowExecutor;
@@ -180,10 +181,7 @@ impl SqlExecutor {
         // Validate topic exists; if not, check if it's a materialized view
         let topic = match self
             .metadata
-            .get_topic_for_org(
-                self.org_id.as_deref().unwrap_or(DEFAULT_ORGANIZATION_ID),
-                &query.topic,
-            )
+            .get_topic_for_org(self.org_id.as_deref().unwrap_or(""), &query.topic)
             .await?
         {
             Some(t) => t,
@@ -248,7 +246,7 @@ impl SqlExecutor {
             let partition = match self
                 .metadata
                 .get_partition(
-                    self.org_id.as_deref().unwrap_or(DEFAULT_ORGANIZATION_ID),
+                    self.org_id.as_deref().unwrap_or(""),
                     &query.topic,
                     *partition_id,
                 )
@@ -266,7 +264,7 @@ impl SqlExecutor {
             let segments = self
                 .metadata
                 .get_segments(
-                    self.org_id.as_deref().unwrap_or(DEFAULT_ORGANIZATION_ID),
+                    self.org_id.as_deref().unwrap_or(""),
                     &query.topic,
                     *partition_id,
                 )
@@ -605,10 +603,7 @@ impl SqlExecutor {
         // Validate topic exists
         let topic = self
             .metadata
-            .get_topic_for_org(
-                self.org_id.as_deref().unwrap_or(DEFAULT_ORGANIZATION_ID),
-                &query.topic,
-            )
+            .get_topic_for_org(self.org_id.as_deref().unwrap_or(""), &query.topic)
             .await?
             .ok_or_else(|| SqlError::TopicNotFound(query.topic.clone()))?;
 
@@ -641,7 +636,7 @@ impl SqlExecutor {
                 if let Some(partition) = self
                     .metadata
                     .get_partition(
-                        self.org_id.as_deref().unwrap_or(DEFAULT_ORGANIZATION_ID),
+                        self.org_id.as_deref().unwrap_or(""),
                         &query.topic,
                         partition_id,
                     )
@@ -660,7 +655,7 @@ impl SqlExecutor {
                 let segments = self
                     .metadata
                     .get_segments(
-                        self.org_id.as_deref().unwrap_or(DEFAULT_ORGANIZATION_ID),
+                        self.org_id.as_deref().unwrap_or(""),
                         &query.topic,
                         partition_id,
                     )
@@ -734,10 +729,7 @@ impl SqlExecutor {
 
         let topic = self
             .metadata
-            .get_topic_for_org(
-                self.org_id.as_deref().unwrap_or(DEFAULT_ORGANIZATION_ID),
-                topic_name,
-            )
+            .get_topic_for_org(self.org_id.as_deref().unwrap_or(""), topic_name)
             .await?
             .ok_or_else(|| SqlError::TopicNotFound(topic_name.to_string()))?;
 
@@ -748,7 +740,7 @@ impl SqlExecutor {
             let partition = self
                 .metadata
                 .get_partition(
-                    self.org_id.as_deref().unwrap_or(DEFAULT_ORGANIZATION_ID),
+                    self.org_id.as_deref().unwrap_or(""),
                     topic_name,
                     partition_id,
                 )
@@ -757,7 +749,7 @@ impl SqlExecutor {
             let segments = self
                 .metadata
                 .get_segments(
-                    self.org_id.as_deref().unwrap_or(DEFAULT_ORGANIZATION_ID),
+                    self.org_id.as_deref().unwrap_or(""),
                     topic_name,
                     partition_id,
                 )
@@ -820,6 +812,7 @@ impl SqlExecutor {
                 return self
                     .arrow_executor
                     .execute_tumble_aggregate(
+                        self.org_id.as_deref().unwrap_or(""),
                         &query.topic,
                         *size_ms,
                         &query.aggregations,
@@ -848,10 +841,7 @@ impl SqlExecutor {
         // Validate topic exists
         let topic = self
             .metadata
-            .get_topic_for_org(
-                self.org_id.as_deref().unwrap_or(DEFAULT_ORGANIZATION_ID),
-                &query.topic,
-            )
+            .get_topic_for_org(self.org_id.as_deref().unwrap_or(""), &query.topic)
             .await?
             .ok_or_else(|| SqlError::TopicNotFound(query.topic.clone()))?;
 
@@ -882,7 +872,7 @@ impl SqlExecutor {
             let segments = self
                 .metadata
                 .get_segments(
-                    self.org_id.as_deref().unwrap_or(DEFAULT_ORGANIZATION_ID),
+                    self.org_id.as_deref().unwrap_or(""),
                     &query.topic,
                     partition_id,
                 )
@@ -968,6 +958,7 @@ impl SqlExecutor {
             return self
                 .arrow_executor
                 .execute_group_by_aggregate(
+                    self.org_id.as_deref().unwrap_or(""),
                     &query.topic,
                     &query.aggregations,
                     &query.group_by,
@@ -981,10 +972,7 @@ impl SqlExecutor {
 
         let topic = self
             .metadata
-            .get_topic_for_org(
-                self.org_id.as_deref().unwrap_or(DEFAULT_ORGANIZATION_ID),
-                &query.topic,
-            )
+            .get_topic_for_org(self.org_id.as_deref().unwrap_or(""), &query.topic)
             .await?
             .ok_or_else(|| SqlError::TopicNotFound(query.topic.clone()))?;
 
@@ -1013,7 +1001,7 @@ impl SqlExecutor {
             let segments = self
                 .metadata
                 .get_segments(
-                    self.org_id.as_deref().unwrap_or(DEFAULT_ORGANIZATION_ID),
+                    self.org_id.as_deref().unwrap_or(""),
                     &query.topic,
                     partition_id,
                 )
@@ -1091,19 +1079,13 @@ impl SqlExecutor {
         // Validate both topics exist
         let _left_topic = self
             .metadata
-            .get_topic_for_org(
-                self.org_id.as_deref().unwrap_or(DEFAULT_ORGANIZATION_ID),
-                &query.left.topic,
-            )
+            .get_topic_for_org(self.org_id.as_deref().unwrap_or(""), &query.left.topic)
             .await?
             .ok_or_else(|| SqlError::TopicNotFound(query.left.topic.clone()))?;
 
         let _right_topic = self
             .metadata
-            .get_topic_for_org(
-                self.org_id.as_deref().unwrap_or(DEFAULT_ORGANIZATION_ID),
-                &query.right.topic,
-            )
+            .get_topic_for_org(self.org_id.as_deref().unwrap_or(""), &query.right.topic)
             .await?
             .ok_or_else(|| SqlError::TopicNotFound(query.right.topic.clone()))?;
 
@@ -1267,10 +1249,7 @@ impl SqlExecutor {
     ) -> Result<Vec<MessageRow>> {
         let topic = self
             .metadata
-            .get_topic_for_org(
-                self.org_id.as_deref().unwrap_or(DEFAULT_ORGANIZATION_ID),
-                topic_name,
-            )
+            .get_topic_for_org(self.org_id.as_deref().unwrap_or(""), topic_name)
             .await?
             .ok_or_else(|| SqlError::TopicNotFound(topic_name.to_string()))?;
 
@@ -1284,7 +1263,7 @@ impl SqlExecutor {
             let segments = self
                 .metadata
                 .get_segments(
-                    self.org_id.as_deref().unwrap_or(DEFAULT_ORGANIZATION_ID),
+                    self.org_id.as_deref().unwrap_or(""),
                     topic_name,
                     partition_id,
                 )
@@ -1309,7 +1288,7 @@ impl SqlExecutor {
 
         // Try to read from cache first
         let cache_key = &segment.id;
-        let org_id_str = self.org_id.as_deref().unwrap_or(DEFAULT_ORGANIZATION_ID);
+        let org_id_str = self.org_id.as_deref().unwrap_or("");
         let data = if let Ok(Some(cached)) = self.segment_cache.get(cache_key, org_id_str).await {
             cached
         } else {
@@ -1447,10 +1426,7 @@ impl SqlExecutor {
         // Validate source topic exists
         let _topic = self
             .metadata
-            .get_topic_for_org(
-                self.org_id.as_deref().unwrap_or(DEFAULT_ORGANIZATION_ID),
-                &query.source_topic,
-            )
+            .get_topic_for_org(self.org_id.as_deref().unwrap_or(""), &query.source_topic)
             .await?
             .ok_or_else(|| SqlError::TopicNotFound(query.source_topic.clone()))?;
 

@@ -910,7 +910,7 @@ impl<S: MetadataStore + ?Sized + 'static> QuotaEnforcer<S> {
                     organization: org,
                     api_key: None,
                     quota,
-                    is_default: org_id == crate::DEFAULT_ORGANIZATION_ID,
+                    is_default: org_id == crate::TEST_ORG_ID,
                 }
             }
             _ => {

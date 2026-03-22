@@ -494,7 +494,10 @@ async fn authenticate_oidc_jwt(
     let organization_id = org_id_header
         .filter(|s| !s.is_empty())
         .or(claims.org_id.clone())
-        .unwrap_or_else(|| streamhouse_metadata::DEFAULT_ORGANIZATION_ID.to_string());
+        .ok_or_else(|| {
+            "Missing organization ID: set X-Organization-Id header or include org_id in JWT"
+                .to_string()
+        })?;
 
     tracing::debug!(
         user_id = %claims.sub,

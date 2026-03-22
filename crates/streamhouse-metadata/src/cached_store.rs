@@ -1461,7 +1461,7 @@ impl<S: MetadataStore + 'static> MetadataStore for CachedMetadataStore<S> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{CleanupPolicy, SqliteMetadataStore, TopicConfig, DEFAULT_ORGANIZATION_ID};
+    use crate::{CleanupPolicy, SqliteMetadataStore, TopicConfig, TEST_ORG_ID};
     use std::collections::HashMap;
     use std::sync::atomic::Ordering;
 
@@ -1523,7 +1523,7 @@ mod tests {
 
         // First read - cache miss
         let part1 = cached
-            .get_partition(DEFAULT_ORGANIZATION_ID, "test_topic", 0)
+            .get_partition(TEST_ORG_ID, "test_topic", 0)
             .await
             .unwrap()
             .unwrap();
@@ -1531,7 +1531,7 @@ mod tests {
 
         // Second read - cache hit
         let part2 = cached
-            .get_partition(DEFAULT_ORGANIZATION_ID, "test_topic", 0)
+            .get_partition(TEST_ORG_ID, "test_topic", 0)
             .await
             .unwrap()
             .unwrap();
@@ -1548,7 +1548,7 @@ mod tests {
         let config = test_topic_config("test_topic");
         cached.create_topic(config).await.unwrap();
         let part1 = cached
-            .get_partition(DEFAULT_ORGANIZATION_ID, "test_topic", 0)
+            .get_partition(TEST_ORG_ID, "test_topic", 0)
             .await
             .unwrap()
             .unwrap();
@@ -1556,13 +1556,13 @@ mod tests {
 
         // Update watermark - should invalidate cache
         cached
-            .update_high_watermark(DEFAULT_ORGANIZATION_ID, "test_topic", 0, 100)
+            .update_high_watermark(TEST_ORG_ID, "test_topic", 0, 100)
             .await
             .unwrap();
 
         // Should read fresh data from database
         let part2 = cached
-            .get_partition(DEFAULT_ORGANIZATION_ID, "test_topic", 0)
+            .get_partition(TEST_ORG_ID, "test_topic", 0)
             .await
             .unwrap()
             .unwrap();
@@ -1696,13 +1696,13 @@ mod tests {
 
         // Test partition metrics
         let _part1 = cached
-            .get_partition(DEFAULT_ORGANIZATION_ID, "metrics_topic", 0)
+            .get_partition(TEST_ORG_ID, "metrics_topic", 0)
             .await
             .unwrap();
         assert_eq!(cached.metrics().partition_misses.load(Ordering::Relaxed), 1);
 
         let _part2 = cached
-            .get_partition(DEFAULT_ORGANIZATION_ID, "metrics_topic", 0)
+            .get_partition(TEST_ORG_ID, "metrics_topic", 0)
             .await
             .unwrap();
         assert_eq!(cached.metrics().partition_hits.load(Ordering::Relaxed), 1);

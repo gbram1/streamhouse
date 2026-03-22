@@ -83,11 +83,9 @@ impl MetadataBackup {
 
         // Collect all org IDs so we can fetch segments per-org
         let orgs = store.list_organizations().await?;
-        let mut org_ids: Vec<String> = vec![crate::DEFAULT_ORGANIZATION_ID.to_string()];
-        for org in &orgs {
-            if org.id != crate::DEFAULT_ORGANIZATION_ID {
-                org_ids.push(org.id.clone());
-            }
+        let mut org_ids: Vec<String> = orgs.iter().map(|org| org.id.clone()).collect();
+        if org_ids.is_empty() {
+            org_ids.push(String::new());
         }
 
         // Export topics and their segments across all orgs
@@ -215,13 +213,10 @@ impl MetadataBackup {
     /// Restore backup to a metadata store.
     ///
     /// Uses the backup's `organization_id` to scope segment/topic restoration.
-    /// Falls back to `DEFAULT_ORGANIZATION_ID` for legacy backups without org info.
+    /// Falls back to an empty organization_id for legacy backups without org info.
     pub async fn restore_to(&self, store: &dyn MetadataStore) -> Result<RestoreStats> {
         let mut stats = RestoreStats::default();
-        let org_id = self
-            .organization_id
-            .as_deref()
-            .unwrap_or(crate::DEFAULT_ORGANIZATION_ID);
+        let org_id = self.organization_id.as_deref().unwrap_or("");
 
         // Restore organizations first (org must exist before creating topics under it)
         for org_backup in &self.organizations {

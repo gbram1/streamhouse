@@ -113,7 +113,7 @@ async fn main() -> anyhow::Result<()> {
     // This creates the rate limiter for the default org with our custom limits.
     let low_quota_ctx = streamhouse_metadata::tenant::TenantContext {
         organization: streamhouse_metadata::Organization {
-            id: streamhouse_metadata::DEFAULT_ORGANIZATION_ID.to_string(),
+            id: streamhouse_metadata::TEST_ORG_ID.to_string(),
             name: "default".to_string(),
             slug: "default".to_string(),
             plan: OrganizationPlan::Free,
@@ -125,7 +125,7 @@ async fn main() -> anyhow::Result<()> {
         },
         api_key: None,
         quota: OrganizationQuota {
-            organization_id: streamhouse_metadata::DEFAULT_ORGANIZATION_ID.to_string(),
+            organization_id: streamhouse_metadata::TEST_ORG_ID.to_string(),
             max_topics: 10,
             max_partitions_per_topic: 12,
             max_total_partitions: 100,

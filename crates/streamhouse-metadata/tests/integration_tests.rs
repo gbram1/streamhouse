@@ -10,7 +10,7 @@ use streamhouse_metadata::{
     CacheConfig, CachedMetadataStore, CleanupPolicy, InitProducerConfig, LeaderChangeReason,
     LeaseTransferState, MetadataStore, OrganizationPlan, OrganizationQuota, OrganizationStatus,
     ProducerState, QuotaCheck, QuotaEnforcer, SegmentInfo, SqliteMetadataStore, TopicConfig,
-    TransactionState, DEFAULT_ORGANIZATION_ID,
+    TransactionState, TEST_ORG_ID,
 };
 
 #[cfg(feature = "postgres")]
@@ -155,13 +155,13 @@ async fn test_cache_invalidation_correctness() {
 
     // Update partition watermark
     store
-        .update_high_watermark(DEFAULT_ORGANIZATION_ID, "cache_test", 0, 1000)
+        .update_high_watermark(TEST_ORG_ID, "cache_test", 0, 1000)
         .await
         .unwrap();
 
     // Read partition - should see updated watermark (not cached stale data)
     let partition = store
-        .get_partition(DEFAULT_ORGANIZATION_ID, "cache_test", 0)
+        .get_partition(TEST_ORG_ID, "cache_test", 0)
         .await
         .unwrap()
         .unwrap();
@@ -243,7 +243,7 @@ async fn test_full_metadata_workflow<S: MetadataStore>(store: &S) {
 
     // 3. Verify partitions were created
     let partitions = store
-        .list_partitions(DEFAULT_ORGANIZATION_ID, topic_name)
+        .list_partitions(TEST_ORG_ID, topic_name)
         .await
         .unwrap();
     assert_eq!(partitions.len(), 3);
@@ -256,16 +256,13 @@ async fn test_full_metadata_workflow<S: MetadataStore>(store: &S) {
     // 4. Add segments
     for partition_id in 0..3 {
         let segment = create_test_segment(topic_name, partition_id, 0);
-        store
-            .add_segment(DEFAULT_ORGANIZATION_ID, segment)
-            .await
-            .unwrap();
+        store.add_segment(TEST_ORG_ID, segment).await.unwrap();
     }
 
     // 5. Update high watermarks
     for partition_id in 0..3 {
         store
-            .update_high_watermark(DEFAULT_ORGANIZATION_ID, topic_name, partition_id, 1000)
+            .update_high_watermark(TEST_ORG_ID, topic_name, partition_id, 1000)
             .await
             .unwrap();
     }
@@ -273,7 +270,7 @@ async fn test_full_metadata_workflow<S: MetadataStore>(store: &S) {
     // 6. Verify watermarks updated
     for partition_id in 0..3 {
         let partition = store
-            .get_partition(DEFAULT_ORGANIZATION_ID, topic_name, partition_id)
+            .get_partition(TEST_ORG_ID, topic_name, partition_id)
             .await
             .unwrap()
             .unwrap();
@@ -337,14 +334,14 @@ async fn test_concurrent_partition_updates<S: MetadataStore>(store: &S) {
     // NOTE, these would come from different writers
     for i in 0..10 {
         store
-            .update_high_watermark(DEFAULT_ORGANIZATION_ID, topic_name, 0, (i + 1) * 100)
+            .update_high_watermark(TEST_ORG_ID, topic_name, 0, (i + 1) * 100)
             .await
             .unwrap();
     }
 
     // Verify final watermark
     let partition = store
-        .get_partition(DEFAULT_ORGANIZATION_ID, topic_name, 0)
+        .get_partition(TEST_ORG_ID, topic_name, 0)
         .await
         .unwrap()
         .unwrap();
@@ -424,29 +421,26 @@ async fn test_segment_retention_cleanup<S: MetadataStore>(store: &S) {
     // Add multiple segments
     for i in 0..10 {
         let segment = create_test_segment(topic_name, 0, i * 1000);
-        store
-            .add_segment(DEFAULT_ORGANIZATION_ID, segment)
-            .await
-            .unwrap();
+        store.add_segment(TEST_ORG_ID, segment).await.unwrap();
     }
 
     // Verify all segments exist
     let segments = store
-        .get_segments(DEFAULT_ORGANIZATION_ID, topic_name, 0)
+        .get_segments(TEST_ORG_ID, topic_name, 0)
         .await
         .unwrap();
     assert_eq!(segments.len(), 10);
 
     // Delete segments before offset 5000
     let deleted = store
-        .delete_segments_before(DEFAULT_ORGANIZATION_ID, topic_name, 0, 5000)
+        .delete_segments_before(TEST_ORG_ID, topic_name, 0, 5000)
         .await
         .unwrap();
     assert_eq!(deleted, 5); // Should delete segments 0-4999
 
     // Verify remaining segments
     let segments = store
-        .get_segments(DEFAULT_ORGANIZATION_ID, topic_name, 0)
+        .get_segments(TEST_ORG_ID, topic_name, 0)
         .await
         .unwrap();
     assert_eq!(segments.len(), 5);
@@ -517,7 +511,7 @@ async fn test_partition_ordering() {
     store.create_topic(config).await.unwrap();
 
     let partitions = store
-        .list_partitions(DEFAULT_ORGANIZATION_ID, "order_test")
+        .list_partitions(TEST_ORG_ID, "order_test")
         .await
         .unwrap();
     assert_eq!(partitions.len(), 10);
@@ -538,14 +532,11 @@ async fn test_segment_ordering() {
     // Add segments in reverse order
     for i in (0..5).rev() {
         let segment = create_test_segment("segment_order_test", 0, i * 1000);
-        store
-            .add_segment(DEFAULT_ORGANIZATION_ID, segment)
-            .await
-            .unwrap();
+        store.add_segment(TEST_ORG_ID, segment).await.unwrap();
     }
 
     let segments = store
-        .get_segments(DEFAULT_ORGANIZATION_ID, "segment_order_test", 0)
+        .get_segments(TEST_ORG_ID, "segment_order_test", 0)
         .await
         .unwrap();
     assert_eq!(segments.len(), 5);
@@ -982,7 +973,7 @@ async fn test_lease_transfer_lifecycle<S: MetadataStore>(store: &S) {
     // 1. Agent 1 acquires lease
     let lease = store
         .acquire_partition_lease(
-            streamhouse_metadata::DEFAULT_ORGANIZATION_ID,
+            streamhouse_metadata::TEST_ORG_ID,
             topic_name,
             0,
             "agent-001",
@@ -1095,7 +1086,7 @@ async fn test_lease_transfer_rejection<S: MetadataStore>(store: &S) {
     // Agent 1 acquires lease
     store
         .acquire_partition_lease(
-            streamhouse_metadata::DEFAULT_ORGANIZATION_ID,
+            streamhouse_metadata::TEST_ORG_ID,
             topic_name,
             0,
             "agent-001",
@@ -1251,7 +1242,7 @@ async fn test_transfer_timeout_cleanup<S: MetadataStore>(store: &S) {
     // Acquire lease for partition 0
     store
         .acquire_partition_lease(
-            streamhouse_metadata::DEFAULT_ORGANIZATION_ID,
+            streamhouse_metadata::TEST_ORG_ID,
             topic_name,
             0,
             "agent-001",
@@ -1339,7 +1330,7 @@ async fn test_pending_transfers_for_agent<S: MetadataStore>(store: &S) {
     // Agent 1 acquires leases for partitions 0 and 1
     store
         .acquire_partition_lease(
-            streamhouse_metadata::DEFAULT_ORGANIZATION_ID,
+            streamhouse_metadata::TEST_ORG_ID,
             topic_name,
             0,
             "agent-001",
@@ -1349,7 +1340,7 @@ async fn test_pending_transfers_for_agent<S: MetadataStore>(store: &S) {
         .unwrap();
     store
         .acquire_partition_lease(
-            streamhouse_metadata::DEFAULT_ORGANIZATION_ID,
+            streamhouse_metadata::TEST_ORG_ID,
             topic_name,
             1,
             "agent-001",
@@ -1361,7 +1352,7 @@ async fn test_pending_transfers_for_agent<S: MetadataStore>(store: &S) {
     // Agent 3 acquires lease for partition 2
     store
         .acquire_partition_lease(
-            streamhouse_metadata::DEFAULT_ORGANIZATION_ID,
+            streamhouse_metadata::TEST_ORG_ID,
             topic_name,
             2,
             "agent-003",
@@ -1477,7 +1468,7 @@ async fn test_transfer_authorization() {
     // Agent 1 acquires lease
     store
         .acquire_partition_lease(
-            streamhouse_metadata::DEFAULT_ORGANIZATION_ID,
+            streamhouse_metadata::TEST_ORG_ID,
             topic_name,
             0,
             "agent-001",
@@ -1547,7 +1538,7 @@ async fn test_concurrent_transfers_different_partitions() {
     for i in 0..4 {
         store
             .acquire_partition_lease(
-                streamhouse_metadata::DEFAULT_ORGANIZATION_ID,
+                streamhouse_metadata::TEST_ORG_ID,
                 topic_name,
                 i,
                 &format!("agent-{:03}", i + 1),

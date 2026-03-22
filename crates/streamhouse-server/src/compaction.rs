@@ -31,7 +31,7 @@ use tracing::{debug, error, info, warn};
 use object_store::ObjectStore;
 use streamhouse_core::segment::Compression;
 use streamhouse_core::Record;
-use streamhouse_metadata::{MetadataStore, SegmentInfo, DEFAULT_ORGANIZATION_ID};
+use streamhouse_metadata::{MetadataStore, SegmentInfo};
 use streamhouse_storage::{SegmentCache, SegmentReader, SegmentWriter};
 
 /// Compaction configuration
@@ -137,12 +137,10 @@ impl CompactionTask {
             .await
             .map_err(|e| CompactionError::Metadata(e.to_string()))?;
 
-        // Always include the default org (may not be in list_organizations)
-        let mut org_ids: Vec<String> = vec![DEFAULT_ORGANIZATION_ID.to_string()];
+        // Collect all organization IDs
+        let mut org_ids: Vec<String> = Vec::new();
         for org in orgs {
-            if org.id != DEFAULT_ORGANIZATION_ID {
-                org_ids.push(org.id);
-            }
+            org_ids.push(org.id);
         }
 
         for org_id in &org_ids {
@@ -398,11 +396,7 @@ impl CompactionTask {
             // Upload compacted segment
             let base_offset = compacted_records.first().unwrap().offset;
             let end_offset = compacted_records.last().unwrap().offset;
-            let s3_data_prefix = if org_id == DEFAULT_ORGANIZATION_ID {
-                "data".to_string()
-            } else {
-                format!("org-{}/data", org_id)
-            };
+            let s3_data_prefix = format!("org-{}/data", org_id);
             let compacted_key = format!(
                 "{}/{}/{}/seg_{}_compacted.bin",
                 s3_data_prefix, topic, partition_id, base_offset
@@ -1281,7 +1275,7 @@ mod tests {
         let task = make_task(metadata, store);
 
         let result = task
-            .compact_partition(DEFAULT_ORGANIZATION_ID, "test-topic", 0)
+            .compact_partition(TEST_ORG_ID, "test-topic", 0)
             .await
             .unwrap();
         assert_eq!(result.records_processed, 0);
@@ -1309,7 +1303,7 @@ mod tests {
 
         // Only 1 eligible segment -> should skip compaction
         let result = task
-            .compact_partition(DEFAULT_ORGANIZATION_ID, "topic", 0)
+            .compact_partition(TEST_ORG_ID, "topic", 0)
             .await
             .unwrap();
         assert_eq!(result.records_processed, 0);
@@ -1356,7 +1350,7 @@ mod tests {
         let task = CompactionTask::new(metadata, store, cache, config);
 
         let result = task
-            .compact_partition(DEFAULT_ORGANIZATION_ID, "topic", 0)
+            .compact_partition(TEST_ORG_ID, "topic", 0)
             .await
             .unwrap();
         // Both segments are too new -> 0 eligible -> skipped
@@ -1391,7 +1385,7 @@ mod tests {
         let task = make_task(metadata.clone(), store.clone());
 
         let result = task
-            .compact_partition(DEFAULT_ORGANIZATION_ID, "topic", 0)
+            .compact_partition(TEST_ORG_ID, "topic", 0)
             .await
             .unwrap();
 
@@ -1475,7 +1469,7 @@ mod tests {
         let task = make_task(metadata, store.clone());
 
         let result = task
-            .compact_partition(DEFAULT_ORGANIZATION_ID, "topic", 0)
+            .compact_partition(TEST_ORG_ID, "topic", 0)
             .await
             .unwrap();
 
@@ -1547,7 +1541,7 @@ mod tests {
         // Tombstone timestamp is 1001ms since epoch, which is definitely expired
         // given tombstone_retention of 1 second relative to now
         let result = task
-            .compact_partition(DEFAULT_ORGANIZATION_ID, "topic", 0)
+            .compact_partition(TEST_ORG_ID, "topic", 0)
             .await
             .unwrap();
 
@@ -1585,7 +1579,7 @@ mod tests {
         let task = make_task(metadata, store.clone());
 
         let result = task
-            .compact_partition(DEFAULT_ORGANIZATION_ID, "topic", 0)
+            .compact_partition(TEST_ORG_ID, "topic", 0)
             .await
             .unwrap();
 
@@ -1657,7 +1651,7 @@ mod tests {
         let task = make_task(metadata, store.clone());
 
         let result = task
-            .compact_partition(DEFAULT_ORGANIZATION_ID, "topic", 0)
+            .compact_partition(TEST_ORG_ID, "topic", 0)
             .await
             .unwrap();
 
@@ -1726,7 +1720,7 @@ mod tests {
         let task = make_task(metadata, store.clone());
 
         let result = task
-            .compact_partition(DEFAULT_ORGANIZATION_ID, "topic", 0)
+            .compact_partition(TEST_ORG_ID, "topic", 0)
             .await
             .unwrap();
 
@@ -1799,7 +1793,7 @@ mod tests {
         let task = CompactionTask::new(metadata, store.clone(), cache, config);
 
         let result = task
-            .compact_partition(DEFAULT_ORGANIZATION_ID, "topic", 0)
+            .compact_partition(TEST_ORG_ID, "topic", 0)
             .await
             .unwrap();
 
@@ -1838,7 +1832,7 @@ mod tests {
         let task = make_task(metadata, store.clone());
 
         let _result = task
-            .compact_partition(DEFAULT_ORGANIZATION_ID, "topic", 0)
+            .compact_partition(TEST_ORG_ID, "topic", 0)
             .await
             .unwrap();
 

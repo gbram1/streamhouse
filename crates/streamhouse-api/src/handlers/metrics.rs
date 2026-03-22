@@ -25,7 +25,7 @@ pub async fn get_metrics(
     headers: HeaderMap,
     auth_key: Option<Extension<AuthenticatedKey>>,
 ) -> Result<Json<MetricsSnapshot>, StatusCode> {
-    let org_id = extract_org_id(&headers, auth_key.as_ref().map(|e| &e.0));
+    let org_id = extract_org_id(&headers, auth_key.as_ref().map(|e| &e.0))?;
 
     // Get topics count for this org
     let topics = state
@@ -145,7 +145,7 @@ pub async fn get_storage_metrics(
     headers: HeaderMap,
     auth_key: Option<Extension<AuthenticatedKey>>,
 ) -> Result<Json<StorageMetricsResponse>, StatusCode> {
-    let org_id = extract_org_id(&headers, auth_key.as_ref().map(|e| &e.0));
+    let org_id = extract_org_id(&headers, auth_key.as_ref().map(|e| &e.0))?;
 
     // Query segments table for this org's storage stats
     let stats = state
@@ -197,7 +197,7 @@ pub async fn get_throughput_metrics(
     auth_key: Option<Extension<AuthenticatedKey>>,
     Query(params): Query<TimeRangeParams>,
 ) -> Result<Json<Vec<ThroughputMetric>>, StatusCode> {
-    let org_id = extract_org_id(&headers, auth_key.as_ref().map(|e| &e.0));
+    let org_id = extract_org_id(&headers, auth_key.as_ref().map(|e| &e.0))?;
     let time_range = params.time_range.as_deref().unwrap_or("1h");
 
     // Try to get real metrics from Prometheus
@@ -318,7 +318,7 @@ pub async fn get_latency_metrics(
     auth_key: Option<Extension<AuthenticatedKey>>,
     Query(params): Query<TimeRangeParams>,
 ) -> Result<Json<Vec<LatencyMetric>>, StatusCode> {
-    let org_id = extract_org_id(&headers, auth_key.as_ref().map(|e| &e.0));
+    let org_id = extract_org_id(&headers, auth_key.as_ref().map(|e| &e.0))?;
     let time_range = params.time_range.as_deref().unwrap_or("1h");
 
     // No topics in this org → no latency data
@@ -436,7 +436,7 @@ pub async fn get_error_metrics(
     auth_key: Option<Extension<AuthenticatedKey>>,
     Query(params): Query<TimeRangeParams>,
 ) -> Result<Json<Vec<ErrorMetric>>, StatusCode> {
-    let org_id = extract_org_id(&headers, auth_key.as_ref().map(|e| &e.0));
+    let org_id = extract_org_id(&headers, auth_key.as_ref().map(|e| &e.0))?;
     let time_range = params.time_range.as_deref().unwrap_or("1h");
 
     // No topics in this org → no error data

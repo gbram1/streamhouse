@@ -43,7 +43,7 @@
 //! let metadata = Arc::new(SqliteMetadataStore::new("metadata.db").await?);
 //! let config = WriteConfig::default();
 //!
-//! let storage = StorageManager::new(object_store, metadata, config);
+//! let storage = StorageManager::new(org_id, object_store, metadata, config);
 //!
 //! // Append records
 //! let result = storage.append(
@@ -85,11 +85,13 @@ pub struct StorageManager {
     object_store: Arc<dyn ObjectStore>,
     metadata: Arc<dyn MetadataStore>,
     config: WriteConfig,
+    org_id: String,
 }
 
 impl StorageManager {
     /// Create a new storage manager
     pub fn new(
+        org_id: String,
         object_store: Arc<dyn ObjectStore>,
         metadata: Arc<dyn MetadataStore>,
         config: WriteConfig,
@@ -99,6 +101,7 @@ impl StorageManager {
             object_store,
             metadata,
             config,
+            org_id,
         }
     }
 
@@ -129,7 +132,7 @@ impl StorageManager {
 
         // Create writer
         let writer = TopicWriter::new(
-            streamhouse_metadata::DEFAULT_ORGANIZATION_ID.to_string(),
+            self.org_id.clone(),
             topic.to_string(),
             topic_meta.partition_count,
             self.object_store.clone(),
@@ -222,7 +225,12 @@ mod tests {
     async fn test_storage_manager_creation() {
         let metadata = create_test_metadata("orders", 3).await;
         let object_store: Arc<dyn ObjectStore> = Arc::new(InMemory::new());
-        let _manager = StorageManager::new(object_store, metadata, test_config());
+        let _manager = StorageManager::new(
+            streamhouse_metadata::TEST_ORG_ID.to_string(),
+            object_store,
+            metadata,
+            test_config(),
+        );
     }
 
     #[tokio::test]
@@ -258,7 +266,12 @@ mod tests {
     async fn test_append_to_existing_topic() {
         let metadata = create_test_metadata("orders", 1).await;
         let object_store: Arc<dyn ObjectStore> = Arc::new(InMemory::new());
-        let manager = StorageManager::new(object_store, metadata, test_config());
+        let manager = StorageManager::new(
+            streamhouse_metadata::TEST_ORG_ID.to_string(),
+            object_store,
+            metadata,
+            test_config(),
+        );
 
         let result = manager
             .append("orders", None, Bytes::from("test-value"), Some(12345))
@@ -274,7 +287,12 @@ mod tests {
     async fn test_append_to_nonexistent_topic_fails() {
         let metadata = create_test_metadata("orders", 1).await;
         let object_store: Arc<dyn ObjectStore> = Arc::new(InMemory::new());
-        let manager = StorageManager::new(object_store, metadata, test_config());
+        let manager = StorageManager::new(
+            streamhouse_metadata::TEST_ORG_ID.to_string(),
+            object_store,
+            metadata,
+            test_config(),
+        );
 
         let result = manager
             .append("nonexistent", None, Bytes::from("test-value"), None)
@@ -287,7 +305,12 @@ mod tests {
     async fn test_flush_all_empty_manager() {
         let metadata = create_test_metadata("orders", 1).await;
         let object_store: Arc<dyn ObjectStore> = Arc::new(InMemory::new());
-        let manager = StorageManager::new(object_store, metadata, test_config());
+        let manager = StorageManager::new(
+            streamhouse_metadata::TEST_ORG_ID.to_string(),
+            object_store,
+            metadata,
+            test_config(),
+        );
 
         // Flush with no writers should succeed
         manager.flush_all().await.unwrap();

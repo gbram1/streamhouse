@@ -56,7 +56,7 @@ async fn create_test_metadata_store(agent_id: &str) -> (Arc<dyn MetadataStore>, 
     // Create partition lease for agent
     store
         .acquire_partition_lease(
-            streamhouse_metadata::DEFAULT_ORGANIZATION_ID,
+            streamhouse_metadata::TEST_ORG_ID,
             "test_topic",
             0,
             agent_id,

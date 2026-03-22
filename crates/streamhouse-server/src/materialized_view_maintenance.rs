@@ -218,7 +218,12 @@ impl MaterializedViewMaintenance {
             let start_offset = offset_map.get(&partition_id).copied().unwrap_or(0);
 
             match self
-                .read_partition_messages(&view.source_topic, partition_id, start_offset)
+                .read_partition_messages(
+                    &view.organization_id,
+                    &view.source_topic,
+                    partition_id,
+                    start_offset,
+                )
                 .await
             {
                 Ok((messages, new_offset)) => {
@@ -329,12 +334,13 @@ impl MaterializedViewMaintenance {
     /// Read messages from a partition using PartitionReader
     async fn read_partition_messages(
         &self,
+        org_id: &str,
         topic: &str,
         partition_id: u32,
         start_offset: u64,
     ) -> Result<(Vec<MessageRow>, u64), streamhouse_storage::Error> {
         let reader = PartitionReader::new(
-            streamhouse_metadata::DEFAULT_ORGANIZATION_ID.to_string(),
+            org_id.to_string(),
             topic.to_string(),
             partition_id,
             self.metadata.clone(),

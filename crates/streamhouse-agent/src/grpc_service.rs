@@ -40,9 +40,7 @@
 //! Target: 50K+ records/sec per agent with p99 latency < 10ms
 
 use std::sync::Arc;
-use streamhouse_metadata::{
-    LeaderChangeReason, MetadataStore, ProducerState, DEFAULT_ORGANIZATION_ID,
-};
+use streamhouse_metadata::{LeaderChangeReason, MetadataStore, ProducerState};
 use streamhouse_observability::metrics;
 use streamhouse_proto::producer::{
     producer_service_server::ProducerService, AbortTransactionRequest, AbortTransactionResponse,
@@ -61,14 +59,19 @@ use tonic::{Request, Response, Status};
 use tracing::{debug, error, info, warn};
 
 /// Extract organization ID from gRPC request metadata.
-fn extract_org_id_from_request<T>(request: &Request<T>) -> String {
+/// Returns an error if no organization ID is provided.
+fn extract_org_id_from_request<T>(request: &Request<T>) -> Result<String, Status> {
     request
         .metadata()
         .get("x-organization-id")
         .and_then(|v| v.to_str().ok())
         .filter(|s| !s.is_empty())
         .map(|s| s.to_string())
-        .unwrap_or_else(|| DEFAULT_ORGANIZATION_ID.to_string())
+        .ok_or_else(|| {
+            Status::invalid_argument(
+                "Missing x-organization-id metadata. Organization ID is required.",
+            )
+        })
 }
 
 use crate::LeaseManager;
@@ -562,7 +565,7 @@ impl ProducerService for ProducerServiceImpl {
             return Err(Status::unavailable("Agent is shutting down"));
         }
 
-        let org_id = extract_org_id_from_request(&request);
+        let org_id = extract_org_id_from_request(&request)?;
         let req = request.into_inner();
 
         // Validate request
@@ -1201,7 +1204,7 @@ impl AgentCoordination for AgentCoordinationImpl {
         &self,
         request: Request<TransferLeaseRequest>,
     ) -> std::result::Result<Response<TransferLeaseResponse>, Status> {
-        let org_id = extract_org_id_from_request(&request);
+        let org_id = extract_org_id_from_request(&request)?;
         let req = request.into_inner();
 
         // Verify this request is from us (we're the outgoing leader)
@@ -1367,7 +1370,7 @@ impl AgentCoordination for AgentCoordinationImpl {
         &self,
         request: Request<CompleteTransferRequest>,
     ) -> std::result::Result<Response<CompleteTransferResponse>, Status> {
-        let org_id = extract_org_id_from_request(&request);
+        let org_id = extract_org_id_from_request(&request)?;
         let req = request.into_inner();
 
         // Verify we're the source agent
@@ -1517,15 +1520,12 @@ mod tests {
         request
             .metadata_mut()
             .insert("x-organization-id", "org-123".parse().unwrap());
-        assert_eq!(extract_org_id_from_request(&request), "org-123");
+        assert_eq!(extract_org_id_from_request(&request).unwrap(), "org-123");
     }
 
     #[test]
-    fn test_extract_org_id_default() {
+    fn test_extract_org_id_missing_returns_error() {
         let request = Request::new(());
-        assert_eq!(
-            extract_org_id_from_request(&request),
-            DEFAULT_ORGANIZATION_ID
-        );
+        assert!(extract_org_id_from_request(&request).is_err());
     }
 }

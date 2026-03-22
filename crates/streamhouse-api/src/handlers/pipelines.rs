@@ -78,7 +78,7 @@ pub async fn list_pipeline_targets(
     headers: HeaderMap,
     auth_key: Option<Extension<AuthenticatedKey>>,
 ) -> Result<Json<Vec<PipelineTargetResponse>>, StatusCode> {
-    let org_id = extract_org_id(&headers, auth_key.as_ref().map(|e| &e.0));
+    let org_id = extract_org_id(&headers, auth_key.as_ref().map(|e| &e.0))?;
 
     let targets = state
         .metadata
@@ -111,7 +111,7 @@ pub async fn create_pipeline_target(
     auth_key: Option<Extension<AuthenticatedKey>>,
     Json(req): Json<CreatePipelineTargetRequest>,
 ) -> Result<(StatusCode, Json<PipelineTargetResponse>), StatusCode> {
-    let org_id = extract_org_id(&headers, auth_key.as_ref().map(|e| &e.0));
+    let org_id = extract_org_id(&headers, auth_key.as_ref().map(|e| &e.0))?;
     let now = Utc::now().timestamp_millis();
 
     let target = PipelineTarget {
@@ -156,7 +156,7 @@ pub async fn get_pipeline_target(
     auth_key: Option<Extension<AuthenticatedKey>>,
     Path(name): Path<String>,
 ) -> Result<Json<PipelineTargetResponse>, StatusCode> {
-    let org_id = extract_org_id(&headers, auth_key.as_ref().map(|e| &e.0));
+    let org_id = extract_org_id(&headers, auth_key.as_ref().map(|e| &e.0))?;
 
     let target = state
         .metadata
@@ -190,7 +190,7 @@ pub async fn delete_pipeline_target(
     auth_key: Option<Extension<AuthenticatedKey>>,
     Path(name): Path<String>,
 ) -> Result<StatusCode, StatusCode> {
-    let org_id = extract_org_id(&headers, auth_key.as_ref().map(|e| &e.0));
+    let org_id = extract_org_id(&headers, auth_key.as_ref().map(|e| &e.0))?;
 
     // Verify target exists before deleting
     state
@@ -230,7 +230,7 @@ pub async fn list_pipelines(
     headers: HeaderMap,
     auth_key: Option<Extension<AuthenticatedKey>>,
 ) -> Result<Json<Vec<PipelineResponse>>, StatusCode> {
-    let org_id = extract_org_id(&headers, auth_key.as_ref().map(|e| &e.0));
+    let org_id = extract_org_id(&headers, auth_key.as_ref().map(|e| &e.0))?;
 
     let pipelines = state
         .metadata
@@ -262,7 +262,7 @@ pub async fn create_pipeline(
     auth_key: Option<Extension<AuthenticatedKey>>,
     Json(req): Json<CreatePipelineRequest>,
 ) -> Result<(StatusCode, Json<PipelineResponse>), StatusCode> {
-    let org_id = extract_org_id(&headers, auth_key.as_ref().map(|e| &e.0));
+    let org_id = extract_org_id(&headers, auth_key.as_ref().map(|e| &e.0))?;
     let now = Utc::now().timestamp_millis();
 
     let pipeline = PipelineInfo {
@@ -313,7 +313,7 @@ pub async fn get_pipeline(
     auth_key: Option<Extension<AuthenticatedKey>>,
     Path(name): Path<String>,
 ) -> Result<Json<PipelineResponse>, StatusCode> {
-    let org_id = extract_org_id(&headers, auth_key.as_ref().map(|e| &e.0));
+    let org_id = extract_org_id(&headers, auth_key.as_ref().map(|e| &e.0))?;
 
     let pipeline = state
         .metadata
@@ -347,7 +347,7 @@ pub async fn delete_pipeline(
     auth_key: Option<Extension<AuthenticatedKey>>,
     Path(name): Path<String>,
 ) -> Result<StatusCode, StatusCode> {
-    let org_id = extract_org_id(&headers, auth_key.as_ref().map(|e| &e.0));
+    let org_id = extract_org_id(&headers, auth_key.as_ref().map(|e| &e.0))?;
 
     // Verify pipeline exists before deleting
     state
@@ -390,7 +390,7 @@ pub async fn update_pipeline_state(
     Path(name): Path<String>,
     Json(req): Json<UpdatePipelineRequest>,
 ) -> Result<Json<PipelineResponse>, StatusCode> {
-    let org_id = extract_org_id(&headers, auth_key.as_ref().map(|e| &e.0));
+    let org_id = extract_org_id(&headers, auth_key.as_ref().map(|e| &e.0))?;
 
     // Verify pipeline exists
     state

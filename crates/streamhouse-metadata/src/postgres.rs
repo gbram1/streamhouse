@@ -191,7 +191,7 @@
 //!
 //! // Acquire partition lease (leadership)
 //! let lease = store.acquire_partition_lease(
-//!     DEFAULT_ORGANIZATION_ID, // organization_id
+//!     "my-org-id",   // organization_id
 //!     "events",      // topic
 //!     0,             // partition_id
 //!     "agent-1",     // agent_id
@@ -259,62 +259,11 @@ impl PostgresMetadataStore {
 
 #[async_trait]
 impl MetadataStore for PostgresMetadataStore {
-    async fn create_topic(&self, config: TopicConfig) -> Result<()> {
-        let now_ms = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_millis() as i64;
-
-        // Include cleanup_policy in the config map for storage
-        let mut config_map = config.config.clone();
-        config_map.insert(
-            "cleanup.policy".to_string(),
-            config.cleanup_policy.as_str().to_string(),
-        );
-        let config_json = serde_json::to_value(&config_map)?;
-        let mut tx = self.pool.begin().await?;
-
-        // Use default organization for backwards compatibility
-        let default_org_id = uuid::Uuid::parse_str("00000000-0000-0000-0000-000000000000").unwrap();
-
-        sqlx::query(
-            "INSERT INTO topics (organization_id, name, partition_count, retention_ms, created_at, updated_at, config)
-             VALUES ($1, $2, $3, $4, $5, $6, $7)"
-        )
-        .bind(default_org_id)
-        .bind(&config.name)
-        .bind(config.partition_count as i32)
-        .bind(config.retention_ms)
-        .bind(now_ms)
-        .bind(now_ms)
-        .bind(config_json)
-        .execute(&mut *tx)
-        .await
-        .map_err(|e| {
-            if e.to_string().contains("duplicate key") {
-                MetadataError::TopicAlreadyExists(config.name.clone())
-            } else {
-                MetadataError::from(e)
-            }
-        })?;
-
-        for partition_id in 0..config.partition_count {
-            sqlx::query(
-                "INSERT INTO partitions (organization_id, topic, partition_id, high_watermark, created_at, updated_at)
-                 VALUES ($1, $2, $3, $4, $5, $6)"
-            )
-            .bind(default_org_id)
-            .bind(&config.name)
-            .bind(partition_id as i32)
-            .bind(0i64)
-            .bind(now_ms)
-            .bind(now_ms)
-            .execute(&mut *tx)
-            .await?;
-        }
-
-        tx.commit().await?;
-        Ok(())
+    async fn create_topic(&self, _config: TopicConfig) -> Result<()> {
+        // organization_id is required — callers should use create_topic_for_org instead
+        Err(MetadataError::InternalError(
+            "organization_id is required: use create_topic_for_org instead".to_string(),
+        ))
     }
 
     async fn delete_topic(&self, name: &str) -> Result<()> {
@@ -542,9 +491,7 @@ impl MetadataStore for PostgresMetadataStore {
         topic: &str,
         partition_id: u32,
     ) -> Result<Option<Partition>> {
-        let org_uuid = uuid::Uuid::parse_str(org_id).unwrap_or_else(|_| {
-            uuid::Uuid::parse_str("00000000-0000-0000-0000-000000000000").unwrap()
-        });
+        let org_uuid = uuid::Uuid::parse_str(org_id).unwrap_or_else(|_| uuid::Uuid::nil());
         let row = sqlx::query(
             "SELECT topic, partition_id, high_watermark
              FROM partitions WHERE organization_id = $1 AND topic = $2 AND partition_id = $3",
@@ -569,9 +516,7 @@ impl MetadataStore for PostgresMetadataStore {
         partition_id: u32,
         offset: u64,
     ) -> Result<()> {
-        let org_uuid = uuid::Uuid::parse_str(org_id).unwrap_or_else(|_| {
-            uuid::Uuid::parse_str("00000000-0000-0000-0000-000000000000").unwrap()
-        });
+        let org_uuid = uuid::Uuid::parse_str(org_id).unwrap_or_else(|_| uuid::Uuid::nil());
         let now_ms = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap()
@@ -593,9 +538,7 @@ impl MetadataStore for PostgresMetadataStore {
     }
 
     async fn list_partitions(&self, org_id: &str, topic: &str) -> Result<Vec<Partition>> {
-        let org_uuid = uuid::Uuid::parse_str(org_id).unwrap_or_else(|_| {
-            uuid::Uuid::parse_str("00000000-0000-0000-0000-000000000000").unwrap()
-        });
+        let org_uuid = uuid::Uuid::parse_str(org_id).unwrap_or_else(|_| uuid::Uuid::nil());
         let rows = sqlx::query(
             "SELECT topic, partition_id, high_watermark
              FROM partitions WHERE organization_id = $1 AND topic = $2 ORDER BY partition_id",
@@ -616,9 +559,7 @@ impl MetadataStore for PostgresMetadataStore {
     }
 
     async fn add_segment(&self, org_id: &str, segment: SegmentInfo) -> Result<()> {
-        let org_uuid = uuid::Uuid::parse_str(org_id).unwrap_or_else(|_| {
-            uuid::Uuid::parse_str("00000000-0000-0000-0000-000000000000").unwrap()
-        });
+        let org_uuid = uuid::Uuid::parse_str(org_id).unwrap_or_else(|_| uuid::Uuid::nil());
 
         sqlx::query(
             "INSERT INTO segments (id, organization_id, topic, partition_id, base_offset, end_offset,
@@ -650,9 +591,7 @@ impl MetadataStore for PostgresMetadataStore {
         segment: SegmentInfo,
         high_watermark: u64,
     ) -> Result<()> {
-        let org_uuid = uuid::Uuid::parse_str(org_id).unwrap_or_else(|_| {
-            uuid::Uuid::parse_str("00000000-0000-0000-0000-000000000000").unwrap()
-        });
+        let org_uuid = uuid::Uuid::parse_str(org_id).unwrap_or_else(|_| uuid::Uuid::nil());
         let now_ms = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap()
@@ -703,9 +642,7 @@ impl MetadataStore for PostgresMetadataStore {
         topic: &str,
         partition_id: u32,
     ) -> Result<Vec<SegmentInfo>> {
-        let org_uuid = uuid::Uuid::parse_str(org_id).unwrap_or_else(|_| {
-            uuid::Uuid::parse_str("00000000-0000-0000-0000-000000000000").unwrap()
-        });
+        let org_uuid = uuid::Uuid::parse_str(org_id).unwrap_or_else(|_| uuid::Uuid::nil());
         let rows = sqlx::query(
             "SELECT id, topic, partition_id, base_offset, end_offset, record_count,
                     size_bytes, s3_bucket, s3_key, created_at, min_timestamp, max_timestamp
@@ -841,8 +778,8 @@ impl MetadataStore for PostgresMetadataStore {
             .unwrap()
             .as_millis() as i64;
 
-        // Use default organization for backwards compatibility
-        let default_org_id = uuid::Uuid::parse_str("00000000-0000-0000-0000-000000000000").unwrap();
+        // TODO: pass org_id through the trait method
+        let default_org_id = uuid::Uuid::nil();
 
         sqlx::query(
             "INSERT INTO consumer_groups (organization_id, group_id, created_at, updated_at)
@@ -873,8 +810,8 @@ impl MetadataStore for PostgresMetadataStore {
             .unwrap()
             .as_millis() as i64;
 
-        // Use default organization for backwards compatibility
-        let default_org_id = uuid::Uuid::parse_str("00000000-0000-0000-0000-000000000000").unwrap();
+        // TODO: pass org_id through the trait method
+        let default_org_id = uuid::Uuid::nil();
 
         sqlx::query(
             "INSERT INTO consumer_offsets (organization_id, group_id, topic, partition_id, committed_offset, metadata, committed_at)
@@ -1242,8 +1179,12 @@ impl MetadataStore for PostgresMetadataStore {
             .as_millis() as i64;
         let expires_at = now_ms + lease_duration_ms;
 
-        let org_uuid = uuid::Uuid::parse_str(organization_id)
-            .unwrap_or_else(|_| uuid::Uuid::parse_str(crate::DEFAULT_ORGANIZATION_ID).unwrap());
+        let org_uuid = uuid::Uuid::parse_str(organization_id).map_err(|e| {
+            MetadataError::InternalError(format!(
+                "invalid organization_id '{}': {}",
+                organization_id, e
+            ))
+        })?;
 
         sqlx::query(
             "INSERT INTO partition_leases (organization_id, topic, partition_id, leader_agent_id, lease_expires_at, acquired_at, epoch)
@@ -1315,7 +1256,7 @@ impl MetadataStore for PostgresMetadataStore {
             organization_id: r
                 .try_get::<uuid::Uuid, _>("organization_id")
                 .map(|u| u.to_string())
-                .unwrap_or_else(|_| crate::DEFAULT_ORGANIZATION_ID.to_string()),
+                .unwrap_or_default(),
             topic: r.get("topic"),
             partition_id: r.get::<i32, _>("partition_id") as u32,
             leader_agent_id: r.get("leader_agent_id"),
@@ -1409,7 +1350,7 @@ impl MetadataStore for PostgresMetadataStore {
                 organization_id: r
                     .try_get::<uuid::Uuid, _>("organization_id")
                     .map(|u| u.to_string())
-                    .unwrap_or_else(|_| crate::DEFAULT_ORGANIZATION_ID.to_string()),
+                    .unwrap_or_default(),
                 topic: r.get("topic"),
                 partition_id: r.get::<i32, _>("partition_id") as u32,
                 leader_agent_id: r.get("leader_agent_id"),
@@ -1664,9 +1605,7 @@ impl MetadataStore for PostgresMetadataStore {
             .as_millis() as i64;
         let id_uuid = uuid::Uuid::new_v4();
         let id = id_uuid.to_string();
-        let org_uuid = uuid::Uuid::parse_str(organization_id).unwrap_or_else(|_| {
-            uuid::Uuid::parse_str("00000000-0000-0000-0000-000000000000").unwrap()
-        });
+        let org_uuid = uuid::Uuid::parse_str(organization_id).unwrap_or_else(|_| uuid::Uuid::nil());
         let expires_at = config.expires_in_ms.map(|ms| now_ms + ms);
         let now_dt = chrono::DateTime::<chrono::Utc>::from_timestamp_millis(now_ms)
             .unwrap_or_else(chrono::Utc::now);
@@ -2121,10 +2060,18 @@ impl MetadataStore for PostgresMetadataStore {
         .execute(&self.pool)
         .await?;
 
+        // Look up the existing lease's organization_id
+        let existing_lease = self
+            .get_partition_lease(&transfer.topic, transfer.partition_id)
+            .await?;
+        let org_id = existing_lease
+            .map(|l| l.organization_id)
+            .unwrap_or_default();
+
         // Transfer the lease to the new agent
         let new_lease = self
             .acquire_partition_lease(
-                crate::DEFAULT_ORGANIZATION_ID,
+                &org_id,
                 &transfer.topic,
                 transfer.partition_id,
                 &transfer.to_agent_id,
@@ -2989,10 +2936,7 @@ impl MetadataStore for PostgresMetadataStore {
     ) -> Result<MaterializedView> {
         let now = chrono::Utc::now();
         let id = format!("mv-{}-{}", &config.name, uuid::Uuid::new_v4());
-        let org_id = config
-            .organization_id
-            .clone()
-            .unwrap_or_else(|| "00000000-0000-0000-0000-000000000000".to_string());
+        let org_id = config.organization_id.clone().unwrap_or_default();
 
         // Convert refresh mode to storage format
         let (refresh_mode_str, interval_ms) = match &config.refresh_mode {
@@ -3248,7 +3192,7 @@ impl MetadataStore for PostgresMetadataStore {
         let topics_json = serde_json::to_string(&connector.topics)?;
         let config_json = serde_json::to_string(&connector.config)?;
         let org_uuid = uuid::Uuid::parse_str(&connector.organization_id)
-            .unwrap_or_else(|_| uuid::Uuid::parse_str(crate::DEFAULT_ORGANIZATION_ID).unwrap());
+            .map_err(|e| MetadataError::InternalError(format!("invalid organization_id: {}", e)))?;
 
         sqlx::query(
             "INSERT INTO connectors (organization_id, name, connector_type, connector_class, topics, config, state, records_processed, created_at, updated_at) \
@@ -3362,7 +3306,7 @@ impl MetadataStore for PostgresMetadataStore {
         name: &str,
     ) -> Result<Option<ConnectorInfo>> {
         let org_uuid = uuid::Uuid::parse_str(org_id)
-            .unwrap_or_else(|_| uuid::Uuid::parse_str(crate::DEFAULT_ORGANIZATION_ID).unwrap());
+            .map_err(|e| MetadataError::InternalError(format!("invalid organization_id: {}", e)))?;
 
         let row = sqlx::query(
             "SELECT organization_id, name, connector_type, connector_class, topics, config, state, \
@@ -3382,7 +3326,7 @@ impl MetadataStore for PostgresMetadataStore {
 
     async fn list_connectors_for_org(&self, org_id: &str) -> Result<Vec<ConnectorInfo>> {
         let org_uuid = uuid::Uuid::parse_str(org_id)
-            .unwrap_or_else(|_| uuid::Uuid::parse_str(crate::DEFAULT_ORGANIZATION_ID).unwrap());
+            .map_err(|e| MetadataError::InternalError(format!("invalid organization_id: {}", e)))?;
 
         let rows = sqlx::query(
             "SELECT organization_id, name, connector_type, connector_class, topics, config, state, \
@@ -3398,7 +3342,7 @@ impl MetadataStore for PostgresMetadataStore {
 
     async fn delete_connector_for_org(&self, org_id: &str, name: &str) -> Result<()> {
         let org_uuid = uuid::Uuid::parse_str(org_id)
-            .unwrap_or_else(|_| uuid::Uuid::parse_str(crate::DEFAULT_ORGANIZATION_ID).unwrap());
+            .map_err(|e| MetadataError::InternalError(format!("invalid organization_id: {}", e)))?;
 
         sqlx::query("DELETE FROM connectors WHERE organization_id = $1 AND name = $2")
             .bind(org_uuid)
@@ -3418,7 +3362,7 @@ impl MetadataStore for PostgresMetadataStore {
     ) -> Result<()> {
         let now = Self::now_ms();
         let org_uuid = uuid::Uuid::parse_str(org_id)
-            .unwrap_or_else(|_| uuid::Uuid::parse_str(crate::DEFAULT_ORGANIZATION_ID).unwrap());
+            .map_err(|e| MetadataError::InternalError(format!("invalid organization_id: {}", e)))?;
 
         sqlx::query(
             "UPDATE connectors SET state = $1, error_message = $2, updated_at = $3 \
@@ -3443,7 +3387,7 @@ impl MetadataStore for PostgresMetadataStore {
     ) -> Result<()> {
         let now = Self::now_ms();
         let org_uuid = uuid::Uuid::parse_str(org_id)
-            .unwrap_or_else(|_| uuid::Uuid::parse_str(crate::DEFAULT_ORGANIZATION_ID).unwrap());
+            .map_err(|e| MetadataError::InternalError(format!("invalid organization_id: {}", e)))?;
 
         sqlx::query(
             "UPDATE connectors SET records_processed = $1, updated_at = $2 \
@@ -4066,7 +4010,7 @@ mod tests {
 
         // Should have created 3 partitions
         let partitions = store
-            .list_partitions(crate::DEFAULT_ORGANIZATION_ID, "pg_test_topic")
+            .list_partitions(crate::TEST_ORG_ID, "pg_test_topic")
             .await
             .unwrap();
         assert_eq!(partitions.len(), 3);
@@ -4151,13 +4095,7 @@ mod tests {
 
         // Acquire lease
         let lease = store
-            .acquire_partition_lease(
-                crate::DEFAULT_ORGANIZATION_ID,
-                "lease_test",
-                0,
-                "lease-agent-1",
-                30000,
-            )
+            .acquire_partition_lease(crate::TEST_ORG_ID, "lease_test", 0, "lease-agent-1", 30000)
             .await
             .unwrap();
 
@@ -4225,11 +4163,7 @@ mod tests {
 
         for partition_id in [0, 1000, 5000, 9999] {
             let partition = store
-                .get_partition(
-                    crate::DEFAULT_ORGANIZATION_ID,
-                    "perf_test_10k",
-                    partition_id,
-                )
+                .get_partition(crate::TEST_ORG_ID, "perf_test_10k", partition_id)
                 .await
                 .unwrap()
                 .unwrap();
@@ -4243,7 +4177,7 @@ mod tests {
         println!("Listing all 10,000 partitions...");
         let list_start = std::time::Instant::now();
         let partitions = store
-            .list_partitions(crate::DEFAULT_ORGANIZATION_ID, "perf_test_10k")
+            .list_partitions(crate::TEST_ORG_ID, "perf_test_10k")
             .await
             .unwrap();
         let list_duration = list_start.elapsed();
@@ -4329,17 +4263,17 @@ mod tests {
         };
 
         store
-            .add_segment(crate::DEFAULT_ORGANIZATION_ID, segment1)
+            .add_segment(crate::TEST_ORG_ID, segment1)
             .await
             .unwrap();
         store
-            .add_segment(crate::DEFAULT_ORGANIZATION_ID, segment2)
+            .add_segment(crate::TEST_ORG_ID, segment2)
             .await
             .unwrap();
 
         // Get all segments
         let segments = store
-            .get_segments(crate::DEFAULT_ORGANIZATION_ID, "segment_test", 0)
+            .get_segments(crate::TEST_ORG_ID, "segment_test", 0)
             .await
             .unwrap();
         assert_eq!(segments.len(), 2);
@@ -4372,13 +4306,13 @@ mod tests {
 
         // Delete old segments
         let deleted = store
-            .delete_segments_before(DEFAULT_ORGANIZATION_ID, "segment_test", 0, 1000)
+            .delete_segments_before(TEST_ORG_ID, "segment_test", 0, 1000)
             .await
             .unwrap();
         assert_eq!(deleted, 1); // Only seg-1 should be deleted
 
         let segments = store
-            .get_segments(crate::DEFAULT_ORGANIZATION_ID, "segment_test", 0)
+            .get_segments(crate::TEST_ORG_ID, "segment_test", 0)
             .await
             .unwrap();
         assert_eq!(segments.len(), 1);
@@ -4412,7 +4346,7 @@ mod tests {
 
         // Initial watermark should be 0
         let partition = store
-            .get_partition(crate::DEFAULT_ORGANIZATION_ID, "watermark_test", 0)
+            .get_partition(crate::TEST_ORG_ID, "watermark_test", 0)
             .await
             .unwrap()
             .unwrap();
@@ -4420,12 +4354,12 @@ mod tests {
 
         // Update watermark
         store
-            .update_high_watermark(crate::DEFAULT_ORGANIZATION_ID, "watermark_test", 0, 1000)
+            .update_high_watermark(crate::TEST_ORG_ID, "watermark_test", 0, 1000)
             .await
             .unwrap();
 
         let partition = store
-            .get_partition(crate::DEFAULT_ORGANIZATION_ID, "watermark_test", 0)
+            .get_partition(crate::TEST_ORG_ID, "watermark_test", 0)
             .await
             .unwrap()
             .unwrap();
@@ -4433,12 +4367,12 @@ mod tests {
 
         // Update to higher value
         store
-            .update_high_watermark(crate::DEFAULT_ORGANIZATION_ID, "watermark_test", 0, 5000)
+            .update_high_watermark(crate::TEST_ORG_ID, "watermark_test", 0, 5000)
             .await
             .unwrap();
 
         let partition = store
-            .get_partition(crate::DEFAULT_ORGANIZATION_ID, "watermark_test", 0)
+            .get_partition(crate::TEST_ORG_ID, "watermark_test", 0)
             .await
             .unwrap()
             .unwrap();
@@ -4446,7 +4380,7 @@ mod tests {
 
         // Other partition should still be 0
         let partition = store
-            .get_partition(crate::DEFAULT_ORGANIZATION_ID, "watermark_test", 1)
+            .get_partition(crate::TEST_ORG_ID, "watermark_test", 1)
             .await
             .unwrap()
             .unwrap();
@@ -4652,7 +4586,7 @@ mod tests {
         // Agent-1 acquires lease
         let lease = store
             .acquire_partition_lease(
-                crate::DEFAULT_ORGANIZATION_ID,
+                crate::TEST_ORG_ID,
                 "lease_conflict_test",
                 0,
                 "agent-1",
@@ -4666,7 +4600,7 @@ mod tests {
         // Agent-2 tries to acquire the same lease (should fail)
         let result = store
             .acquire_partition_lease(
-                crate::DEFAULT_ORGANIZATION_ID,
+                crate::TEST_ORG_ID,
                 "lease_conflict_test",
                 0,
                 "agent-2",
@@ -4679,7 +4613,7 @@ mod tests {
         // Agent-1 can renew its own lease
         let lease = store
             .acquire_partition_lease(
-                crate::DEFAULT_ORGANIZATION_ID,
+                crate::TEST_ORG_ID,
                 "lease_conflict_test",
                 0,
                 "agent-1",
@@ -4827,7 +4761,7 @@ mod tests {
         // Add segment
         store
             .add_segment(
-                crate::DEFAULT_ORGANIZATION_ID,
+                crate::TEST_ORG_ID,
                 SegmentInfo {
                     id: "cascade-seg".to_string(),
                     topic: "cascade_test".to_string(),
@@ -4855,13 +4789,13 @@ mod tests {
 
         // Verify everything exists
         let partitions = store
-            .list_partitions(crate::DEFAULT_ORGANIZATION_ID, "cascade_test")
+            .list_partitions(crate::TEST_ORG_ID, "cascade_test")
             .await
             .unwrap();
         assert_eq!(partitions.len(), 2);
 
         let segments = store
-            .get_segments(crate::DEFAULT_ORGANIZATION_ID, "cascade_test", 0)
+            .get_segments(crate::TEST_ORG_ID, "cascade_test", 0)
             .await
             .unwrap();
         assert_eq!(segments.len(), 1);
@@ -4877,13 +4811,13 @@ mod tests {
 
         // Verify cascaded deletes
         let partitions = store
-            .list_partitions(crate::DEFAULT_ORGANIZATION_ID, "cascade_test")
+            .list_partitions(crate::TEST_ORG_ID, "cascade_test")
             .await
             .unwrap();
         assert_eq!(partitions.len(), 0);
 
         let segments = store
-            .get_segments(crate::DEFAULT_ORGANIZATION_ID, "cascade_test", 0)
+            .get_segments(crate::TEST_ORG_ID, "cascade_test", 0)
             .await
             .unwrap();
         assert_eq!(segments.len(), 0);

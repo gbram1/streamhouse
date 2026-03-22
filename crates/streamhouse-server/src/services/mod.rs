@@ -2,7 +2,7 @@ use crate::pb::{stream_house_server::StreamHouse, *};
 use std::collections::HashMap;
 use std::sync::Arc;
 use streamhouse_client::AgentRouter;
-use streamhouse_metadata::{MetadataStore, ProducerState, TopicConfig, DEFAULT_ORGANIZATION_ID};
+use streamhouse_metadata::{MetadataStore, ProducerState, TopicConfig};
 use streamhouse_storage::{PartitionReader, SegmentCache, WriteConfig};
 use tokio::sync::{Notify, RwLock};
 use tonic::{Request, Response, Status};
@@ -10,8 +10,8 @@ use tracing::{debug, error, info, warn};
 
 /// Extract organization ID from gRPC request metadata.
 ///
-/// Checks for `x-organization-id` metadata key, falling back to
-/// `DEFAULT_ORGANIZATION_ID` when not present (backwards-compatible).
+/// Checks for `x-organization-id` metadata key. Returns an empty string
+/// if not present (callers must handle missing org_id).
 fn extract_org_id_from_request<T>(request: &Request<T>) -> String {
     request
         .metadata()
@@ -19,7 +19,7 @@ fn extract_org_id_from_request<T>(request: &Request<T>) -> String {
         .and_then(|v| v.to_str().ok())
         .filter(|s| !s.is_empty())
         .map(|s| s.to_string())
-        .unwrap_or_else(|| DEFAULT_ORGANIZATION_ID.to_string())
+        .unwrap_or_default()
 }
 
 /// StreamHouse gRPC service implementation
@@ -308,7 +308,8 @@ impl StreamHouse for StreamHouseService {
         self.topic_changed.notify_waiters();
 
         // Pre-assign partition leases to available agents so produce works immediately
-        let org_id = streamhouse_metadata::DEFAULT_ORGANIZATION_ID;
+        // TODO: create_topic should accept an org_id parameter
+        let org_id = "";
         if let Ok(agents) = self.metadata.list_agents(None, None).await {
             let now_ms = chrono::Utc::now().timestamp_millis();
             let active: Vec<_> = agents

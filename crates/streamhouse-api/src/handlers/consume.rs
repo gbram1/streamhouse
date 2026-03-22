@@ -51,7 +51,7 @@ pub async fn consume(
     auth_key: Option<Extension<AuthenticatedKey>>,
     axum::extract::Query(req): axum::extract::Query<ConsumeRequest>,
 ) -> Result<Json<ConsumeResponse>, StatusCode> {
-    let org_id = extract_org_id(&headers, auth_key.as_ref().map(|e| &e.0));
+    let org_id = extract_org_id(&headers, auth_key.as_ref().map(|e| &e.0))?;
     let topic_name = req.topic.clone();
 
     // Verify topic belongs to org and get its metadata

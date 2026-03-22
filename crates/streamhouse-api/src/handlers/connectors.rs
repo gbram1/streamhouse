@@ -52,7 +52,7 @@ pub async fn list_connectors(
     headers: HeaderMap,
     auth_key: Option<Extension<AuthenticatedKey>>,
 ) -> Result<Json<Vec<ConnectorResponse>>, StatusCode> {
-    let org_id = extract_org_id(&headers, auth_key.as_ref().map(|e| &e.0));
+    let org_id = extract_org_id(&headers, auth_key.as_ref().map(|e| &e.0))?;
 
     let connectors = state
         .metadata
@@ -86,7 +86,7 @@ pub async fn create_connector(
     auth_key: Option<Extension<AuthenticatedKey>>,
     Json(req): Json<CreateConnectorRequest>,
 ) -> Result<(StatusCode, Json<ConnectorResponse>), StatusCode> {
-    let org_id = extract_org_id(&headers, auth_key.as_ref().map(|e| &e.0));
+    let org_id = extract_org_id(&headers, auth_key.as_ref().map(|e| &e.0))?;
     let now = Utc::now().timestamp_millis();
 
     let info = ConnectorInfo {
@@ -135,7 +135,7 @@ pub async fn get_connector(
     auth_key: Option<Extension<AuthenticatedKey>>,
     Path(name): Path<String>,
 ) -> Result<Json<ConnectorResponse>, StatusCode> {
-    let org_id = extract_org_id(&headers, auth_key.as_ref().map(|e| &e.0));
+    let org_id = extract_org_id(&headers, auth_key.as_ref().map(|e| &e.0))?;
 
     let connector = state
         .metadata
@@ -169,7 +169,7 @@ pub async fn delete_connector(
     auth_key: Option<Extension<AuthenticatedKey>>,
     Path(name): Path<String>,
 ) -> Result<StatusCode, StatusCode> {
-    let org_id = extract_org_id(&headers, auth_key.as_ref().map(|e| &e.0));
+    let org_id = extract_org_id(&headers, auth_key.as_ref().map(|e| &e.0))?;
 
     // Verify connector exists before deleting
     state
@@ -210,7 +210,7 @@ pub async fn pause_connector(
     auth_key: Option<Extension<AuthenticatedKey>>,
     Path(name): Path<String>,
 ) -> Result<Json<ConnectorResponse>, StatusCode> {
-    let org_id = extract_org_id(&headers, auth_key.as_ref().map(|e| &e.0));
+    let org_id = extract_org_id(&headers, auth_key.as_ref().map(|e| &e.0))?;
 
     // Verify connector exists
     state
@@ -259,7 +259,7 @@ pub async fn resume_connector(
     auth_key: Option<Extension<AuthenticatedKey>>,
     Path(name): Path<String>,
 ) -> Result<Json<ConnectorResponse>, StatusCode> {
-    let org_id = extract_org_id(&headers, auth_key.as_ref().map(|e| &e.0));
+    let org_id = extract_org_id(&headers, auth_key.as_ref().map(|e| &e.0))?;
 
     // Verify connector exists
     state

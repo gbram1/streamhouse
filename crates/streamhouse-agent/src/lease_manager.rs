@@ -175,12 +175,17 @@ impl LeaseManager {
             "Acquiring partition lease"
         );
 
-        // Look up the topic's organization ID (defaults to default org for backward compat)
+        // Look up the topic's organization ID — every topic must belong to an org
         let org_id = self
             .metadata_store
             .get_topic_organization_id(topic)
             .await?
-            .unwrap_or_else(|| streamhouse_metadata::DEFAULT_ORGANIZATION_ID.to_string());
+            .ok_or_else(|| {
+                AgentError::Metadata(streamhouse_metadata::MetadataError::InternalError(format!(
+                    "Topic '{}' has no organization ID — cannot acquire lease",
+                    topic
+                )))
+            })?;
 
         let lease = self
             .metadata_store
@@ -675,7 +680,12 @@ impl LeaseRenewalTask {
             .metadata_store
             .get_topic_organization_id(topic)
             .await?
-            .unwrap_or_else(|| streamhouse_metadata::DEFAULT_ORGANIZATION_ID.to_string());
+            .ok_or_else(|| {
+                AgentError::Metadata(streamhouse_metadata::MetadataError::InternalError(format!(
+                    "Topic '{}' has no organization ID — cannot renew lease",
+                    topic
+                )))
+            })?;
 
         let lease = self
             .metadata_store

@@ -229,7 +229,7 @@ mod tests {
     use super::*;
     use std::collections::HashMap;
     use streamhouse_metadata::{
-        MetadataStore, SegmentInfo, SqliteMetadataStore, TopicConfig, DEFAULT_ORGANIZATION_ID,
+        MetadataStore, SegmentInfo, SqliteMetadataStore, TopicConfig, TEST_ORG_ID,
     };
 
     async fn create_test_store() -> Arc<SqliteMetadataStore> {
@@ -254,7 +254,7 @@ mod tests {
             let base_offset = i * 10000;
             store
                 .add_segment(
-                    DEFAULT_ORGANIZATION_ID,
+                    TEST_ORG_ID,
                     SegmentInfo {
                         id: format!("seg-{}", i),
                         topic: "test".to_string(),
@@ -281,7 +281,7 @@ mod tests {
         setup_test_partition(&store).await;
 
         let index = SegmentIndex::new(
-            DEFAULT_ORGANIZATION_ID.to_string(),
+            TEST_ORG_ID.to_string(),
             "test".to_string(),
             0,
             store.clone(),
@@ -308,7 +308,7 @@ mod tests {
         setup_test_partition(&store).await;
 
         let index = SegmentIndex::new(
-            DEFAULT_ORGANIZATION_ID.to_string(),
+            TEST_ORG_ID.to_string(),
             "test".to_string(),
             0,
             store.clone(),
@@ -335,7 +335,7 @@ mod tests {
         setup_test_partition(&store).await;
 
         let index = SegmentIndex::new(
-            DEFAULT_ORGANIZATION_ID.to_string(),
+            TEST_ORG_ID.to_string(),
             "test".to_string(),
             0,
             store.clone(),
@@ -353,7 +353,7 @@ mod tests {
         setup_test_partition(&store).await;
 
         let index = SegmentIndex::new(
-            DEFAULT_ORGANIZATION_ID.to_string(),
+            TEST_ORG_ID.to_string(),
             "test".to_string(),
             0,
             store.clone(),
@@ -368,7 +368,7 @@ mod tests {
         // Add a new segment
         store
             .add_segment(
-                DEFAULT_ORGANIZATION_ID,
+                TEST_ORG_ID,
                 SegmentInfo {
                     id: "seg-5".to_string(),
                     topic: "test".to_string(),
@@ -412,7 +412,7 @@ mod tests {
             let base_offset = i * 1000;
             store
                 .add_segment(
-                    DEFAULT_ORGANIZATION_ID,
+                    TEST_ORG_ID,
                     SegmentInfo {
                         id: format!("seg-{}", i),
                         topic: "test".to_string(),
@@ -433,7 +433,7 @@ mod tests {
         }
 
         let index = SegmentIndex::new(
-            DEFAULT_ORGANIZATION_ID.to_string(),
+            TEST_ORG_ID.to_string(),
             "test".to_string(),
             0,
             store.clone(),

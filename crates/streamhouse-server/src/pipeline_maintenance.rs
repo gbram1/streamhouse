@@ -80,11 +80,15 @@ impl PipelineMaintenance {
         &self,
         running: &mut HashMap<String, RunningPipeline>,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        // List all pipelines across all orgs (use default org for now)
-        let pipelines = self
-            .metadata
-            .list_pipelines_for_org(streamhouse_metadata::DEFAULT_ORGANIZATION_ID)
-            .await?;
+        // List all pipelines across all organizations
+        let mut pipelines = Vec::new();
+        if let Ok(orgs) = self.metadata.list_organizations().await {
+            for org in orgs {
+                if let Ok(org_pipelines) = self.metadata.list_pipelines_for_org(&org.id).await {
+                    pipelines.extend(org_pipelines);
+                }
+            }
+        }
 
         // Determine which should be running
         let desired_running: HashMap<String, _> = pipelines

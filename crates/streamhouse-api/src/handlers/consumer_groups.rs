@@ -30,7 +30,7 @@ pub async fn list_consumer_groups(
     headers: HeaderMap,
     auth_key: Option<Extension<AuthenticatedKey>>,
 ) -> Result<Json<Vec<ConsumerGroupInfo>>, StatusCode> {
-    let org_id = extract_org_id(&headers, auth_key.as_ref().map(|e| &e.0));
+    let org_id = extract_org_id(&headers, auth_key.as_ref().map(|e| &e.0))?;
 
     // Get consumer group IDs for this organization
     let group_ids = state
@@ -103,7 +103,7 @@ pub async fn get_consumer_group(
     auth_key: Option<Extension<AuthenticatedKey>>,
     axum::extract::Path(group_id): axum::extract::Path<String>,
 ) -> Result<Json<ConsumerGroupDetail>, StatusCode> {
-    let org_id = extract_org_id(&headers, auth_key.as_ref().map(|e| &e.0));
+    let org_id = extract_org_id(&headers, auth_key.as_ref().map(|e| &e.0))?;
 
     // Get consumer offsets for this group (org-scoped)
     let consumer_offsets = state
@@ -163,7 +163,7 @@ pub async fn get_consumer_group_lag(
     auth_key: Option<Extension<AuthenticatedKey>>,
     axum::extract::Path(group_id): axum::extract::Path<String>,
 ) -> Result<Json<ConsumerGroupLag>, StatusCode> {
-    let org_id = extract_org_id(&headers, auth_key.as_ref().map(|e| &e.0));
+    let org_id = extract_org_id(&headers, auth_key.as_ref().map(|e| &e.0))?;
 
     // Get consumer offsets for this group (org-scoped)
     let consumer_offsets = state
@@ -219,7 +219,7 @@ pub async fn commit_offset(
     auth_key: Option<Extension<AuthenticatedKey>>,
     Json(req): Json<CommitOffsetRequest>,
 ) -> Result<Json<CommitOffsetResponse>, StatusCode> {
-    let org_id = extract_org_id(&headers, auth_key.as_ref().map(|e| &e.0));
+    let org_id = extract_org_id(&headers, auth_key.as_ref().map(|e| &e.0))?;
 
     // Validate topic exists for this org
     state
@@ -275,7 +275,7 @@ pub async fn reset_offsets(
     axum::extract::Path(group_id): axum::extract::Path<String>,
     Json(req): Json<ResetOffsetsRequest>,
 ) -> Result<Json<ResetOffsetsResponse>, StatusCode> {
-    let org_id = extract_org_id(&headers, auth_key.as_ref().map(|e| &e.0));
+    let org_id = extract_org_id(&headers, auth_key.as_ref().map(|e| &e.0))?;
 
     // Get current offsets for this consumer group (org-scoped)
     let current_offsets = state
@@ -429,7 +429,7 @@ pub async fn seek_to_timestamp(
     axum::extract::Path(group_id): axum::extract::Path<String>,
     Json(req): Json<SeekToTimestampRequest>,
 ) -> Result<Json<SeekToTimestampResponse>, StatusCode> {
-    let org_id = extract_org_id(&headers, auth_key.as_ref().map(|e| &e.0));
+    let org_id = extract_org_id(&headers, auth_key.as_ref().map(|e| &e.0))?;
 
     // Validate topic exists for this org
     let topic = state
@@ -526,7 +526,7 @@ pub async fn delete_consumer_group(
     auth_key: Option<Extension<AuthenticatedKey>>,
     axum::extract::Path(group_id): axum::extract::Path<String>,
 ) -> Result<Json<DeleteConsumerGroupResponse>, StatusCode> {
-    let org_id = extract_org_id(&headers, auth_key.as_ref().map(|e| &e.0));
+    let org_id = extract_org_id(&headers, auth_key.as_ref().map(|e| &e.0))?;
 
     // Get current offsets to count partitions (org-scoped)
     let current_offsets = state

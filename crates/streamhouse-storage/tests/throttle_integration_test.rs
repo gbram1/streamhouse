@@ -10,9 +10,7 @@ use bytes::Bytes;
 use object_store::memory::InMemory;
 use std::sync::Arc;
 use std::time::Duration;
-use streamhouse_metadata::{
-    MetadataStore, SqliteMetadataStore, TopicConfig, DEFAULT_ORGANIZATION_ID,
-};
+use streamhouse_metadata::{MetadataStore, SqliteMetadataStore, TopicConfig, TEST_ORG_ID};
 use streamhouse_storage::{
     BucketConfig, CircuitBreakerConfig, PartitionWriter, ThrottleConfig, WriteConfig,
 };
@@ -79,7 +77,7 @@ async fn test_rate_limiting_rejects_excess_requests() {
     };
 
     let mut writer = PartitionWriter::new(
-        DEFAULT_ORGANIZATION_ID.to_string(),
+        TEST_ORG_ID.to_string(),
         "throttle-test".to_string(),
         0,
         object_store.clone(),
@@ -187,7 +185,7 @@ async fn test_circuit_breaker_opens_on_failures() {
     };
 
     let writer = PartitionWriter::new(
-        DEFAULT_ORGANIZATION_ID.to_string(),
+        TEST_ORG_ID.to_string(),
         "throttle-test".to_string(),
         0,
         object_store.clone(),
@@ -231,7 +229,7 @@ async fn test_throttle_allows_normal_operations() {
     };
 
     let mut writer = PartitionWriter::new(
-        DEFAULT_ORGANIZATION_ID.to_string(),
+        TEST_ORG_ID.to_string(),
         "throttle-test".to_string(),
         0,
         object_store.clone(),
@@ -296,7 +294,7 @@ async fn test_rate_recovery_after_pause() {
     };
 
     let mut writer = PartitionWriter::new(
-        DEFAULT_ORGANIZATION_ID.to_string(),
+        TEST_ORG_ID.to_string(),
         "throttle-test".to_string(),
         0,
         object_store.clone(),
