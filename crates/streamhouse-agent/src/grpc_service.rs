@@ -60,6 +60,7 @@ use tracing::{debug, error, info, warn};
 
 /// Extract organization ID from gRPC request metadata.
 /// Returns an error if no organization ID is provided.
+#[allow(clippy::result_large_err)]
 fn extract_org_id_from_request<T>(request: &Request<T>) -> Result<String, Status> {
     request
         .metadata()
