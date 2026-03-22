@@ -24,7 +24,10 @@ async fn setup() -> (Arc<dyn MetadataStore>, tempfile::TempDir) {
     let metadata = SqliteMetadataStore::new(db_path.to_str().unwrap())
         .await
         .unwrap();
-    metadata.ensure_organization(TEST_ORG_ID, "Test Org").await.unwrap();
+    metadata
+        .ensure_organization(TEST_ORG_ID, "Test Org")
+        .await
+        .unwrap();
     (Arc::new(metadata) as Arc<dyn MetadataStore>, temp_dir)
 }
 
