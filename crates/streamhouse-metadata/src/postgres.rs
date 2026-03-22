@@ -4001,7 +4001,14 @@ mod tests {
         let _ = store.delete_topic("pg_test_topic").await;
 
         // Create topic
-        store.create_topic(config.clone()).await.unwrap();
+        store
+            .ensure_organization(crate::TEST_ORG_ID, "Test Org")
+            .await
+            .unwrap();
+        store
+            .create_topic_for_org(crate::TEST_ORG_ID, config.clone())
+            .await
+            .unwrap();
 
         // Get topic
         let topic = store.get_topic("pg_test_topic").await.unwrap().unwrap();
@@ -4078,7 +4085,14 @@ mod tests {
         };
 
         let _ = store.delete_topic("lease_test").await;
-        store.create_topic(config).await.unwrap();
+        store
+            .ensure_organization(crate::TEST_ORG_ID, "Test Org")
+            .await
+            .unwrap();
+        store
+            .create_topic_for_org(crate::TEST_ORG_ID, config)
+            .await
+            .unwrap();
 
         let agent = AgentInfo {
             agent_id: "lease-agent-1".to_string(),
@@ -4149,7 +4163,14 @@ mod tests {
             config: HashMap::new(),
         };
 
-        store.create_topic(config).await.unwrap();
+        store
+            .ensure_organization(crate::TEST_ORG_ID, "Test Org")
+            .await
+            .unwrap();
+        store
+            .create_topic_for_org(crate::TEST_ORG_ID, config)
+            .await
+            .unwrap();
         let create_duration = start.elapsed();
 
         println!(
@@ -4222,12 +4243,19 @@ mod tests {
         // Create test topic
         let _ = store.delete_topic("segment_test").await;
         store
-            .create_topic(TopicConfig {
-                name: "segment_test".to_string(),
-                partition_count: 1,
-                retention_ms: None,
-                config: HashMap::new(),
-            })
+            .ensure_organization(crate::TEST_ORG_ID, "Test Org")
+            .await
+            .unwrap();
+        store
+            .create_topic_for_org(
+                crate::TEST_ORG_ID,
+                TopicConfig {
+                    name: "segment_test".to_string(),
+                    partition_count: 1,
+                    retention_ms: None,
+                    config: HashMap::new(),
+                },
+            )
             .await
             .unwrap();
 
@@ -4335,12 +4363,19 @@ mod tests {
         // Create test topic
         let _ = store.delete_topic("watermark_test").await;
         store
-            .create_topic(TopicConfig {
-                name: "watermark_test".to_string(),
-                partition_count: 2,
-                retention_ms: None,
-                config: HashMap::new(),
-            })
+            .ensure_organization(crate::TEST_ORG_ID, "Test Org")
+            .await
+            .unwrap();
+        store
+            .create_topic_for_org(
+                crate::TEST_ORG_ID,
+                TopicConfig {
+                    name: "watermark_test".to_string(),
+                    partition_count: 2,
+                    retention_ms: None,
+                    config: HashMap::new(),
+                },
+            )
             .await
             .unwrap();
 
@@ -4403,12 +4438,19 @@ mod tests {
         // Create test topic
         let _ = store.delete_topic("consumer_test").await;
         store
-            .create_topic(TopicConfig {
-                name: "consumer_test".to_string(),
-                partition_count: 3,
-                retention_ms: None,
-                config: HashMap::new(),
-            })
+            .ensure_organization(crate::TEST_ORG_ID, "Test Org")
+            .await
+            .unwrap();
+        store
+            .create_topic_for_org(
+                crate::TEST_ORG_ID,
+                TopicConfig {
+                    name: "consumer_test".to_string(),
+                    partition_count: 3,
+                    retention_ms: None,
+                    config: HashMap::new(),
+                },
+            )
             .await
             .unwrap();
 
@@ -4507,14 +4549,21 @@ mod tests {
         let _ = store.delete_topic("topic3").await;
 
         // Create multiple topics
+        store
+            .ensure_organization(crate::TEST_ORG_ID, "Test Org")
+            .await
+            .unwrap();
         for (name, partitions) in [("topic1", 4), ("topic2", 8), ("topic3", 16)] {
             store
-                .create_topic(TopicConfig {
-                    name: name.to_string(),
-                    partition_count: partitions,
-                    retention_ms: Some(86400000),
-                    config: HashMap::new(),
-                })
+                .create_topic_for_org(
+                    crate::TEST_ORG_ID,
+                    TopicConfig {
+                        name: name.to_string(),
+                        partition_count: partitions,
+                        retention_ms: Some(86400000),
+                        config: HashMap::new(),
+                    },
+                )
                 .await
                 .unwrap();
         }

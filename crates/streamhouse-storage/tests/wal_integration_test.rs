@@ -27,13 +27,20 @@ async fn create_test_metadata() -> Arc<dyn MetadataStore> {
 
     // Create test topic
     store
-        .create_topic(TopicConfig {
-            name: "test-topic".to_string(),
-            partition_count: 1,
-            retention_ms: Some(86400000),
-            config: Default::default(),
-            cleanup_policy: Default::default(),
-        })
+        .ensure_organization(TEST_ORG_ID, "Test Org")
+        .await
+        .unwrap();
+    store
+        .create_topic_for_org(
+            TEST_ORG_ID,
+            TopicConfig {
+                name: "test-topic".to_string(),
+                partition_count: 1,
+                retention_ms: Some(86400000),
+                config: Default::default(),
+                cleanup_policy: Default::default(),
+            },
+        )
         .await
         .unwrap();
 
@@ -447,13 +454,20 @@ async fn test_concurrent_partition_wals() {
 
     // Create topic with 3 partitions
     metadata
-        .create_topic(TopicConfig {
-            name: "test-topic".to_string(),
-            partition_count: 3,
-            retention_ms: Some(86400000),
-            config: Default::default(),
-            cleanup_policy: Default::default(),
-        })
+        .ensure_organization(TEST_ORG_ID, "Test Org")
+        .await
+        .unwrap();
+    metadata
+        .create_topic_for_org(
+            TEST_ORG_ID,
+            TopicConfig {
+                name: "test-topic".to_string(),
+                partition_count: 3,
+                retention_ms: Some(86400000),
+                config: Default::default(),
+                cleanup_policy: Default::default(),
+            },
+        )
         .await
         .unwrap();
 

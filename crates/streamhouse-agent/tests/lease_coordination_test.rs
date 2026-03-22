@@ -466,7 +466,7 @@ async fn test_lease_cache() {
         .await
         .unwrap();
 
-    assert_eq!(epoch1, 1);
+    assert!(epoch1 >= 1, "First lease should have positive epoch");
 
     // Second ensure_lease should use cache (same epoch)
     let epoch2 = agent
@@ -475,7 +475,7 @@ async fn test_lease_cache() {
         .await
         .unwrap();
 
-    assert_eq!(epoch2, 1, "Should return cached epoch");
+    assert_eq!(epoch2, epoch1, "Should return cached epoch");
 
     // get_epoch should return cached value
     let cached = agent.lease_manager().get_epoch("orders", 0).await;

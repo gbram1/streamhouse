@@ -125,7 +125,14 @@ async fn test_cache_performance() {
 
     // Create topic
     let config = create_test_topic_config("perf_test", 10);
-    store.create_topic(config).await.unwrap();
+    store
+        .ensure_organization(TEST_ORG_ID, "Test Org")
+        .await
+        .unwrap();
+    store
+        .create_topic_for_org(TEST_ORG_ID, config)
+        .await
+        .unwrap();
 
     // Warm up cache
     let _ = store.get_topic("perf_test").await.unwrap();
@@ -150,7 +157,14 @@ async fn test_cache_invalidation_correctness() {
 
     // Create topic and cache it
     let config = create_test_topic_config("cache_test", 5);
-    store.create_topic(config).await.unwrap();
+    store
+        .ensure_organization(TEST_ORG_ID, "Test Org")
+        .await
+        .unwrap();
+    store
+        .create_topic_for_org(TEST_ORG_ID, config)
+        .await
+        .unwrap();
     let topic1 = store.get_topic("cache_test").await.unwrap().unwrap();
 
     // Update partition watermark
@@ -170,7 +184,10 @@ async fn test_cache_invalidation_correctness() {
     // Delete and recreate topic
     store.delete_topic("cache_test").await.unwrap();
     let config2 = create_test_topic_config("cache_test", 10); // Different partition count
-    store.create_topic(config2).await.unwrap();
+    store
+        .create_topic_for_org(TEST_ORG_ID, config2)
+        .await
+        .unwrap();
 
     // Should see new topic with different partition count
     let topic2 = store.get_topic("cache_test").await.unwrap().unwrap();
@@ -195,9 +212,13 @@ async fn test_cache_with_custom_config() {
     let store = CachedMetadataStore::with_config(inner, config);
 
     // Create 3 topics (exceeds capacity of 2)
+    store
+        .ensure_organization(TEST_ORG_ID, "Test Org")
+        .await
+        .unwrap();
     for i in 0..3 {
         let cfg = create_test_topic_config(&format!("topic_{}", i), 1);
-        store.create_topic(cfg).await.unwrap();
+        store.create_topic_for_org(TEST_ORG_ID, cfg).await.unwrap();
     }
 
     // Access topic_0 and topic_1 (should be cached)
@@ -233,7 +254,14 @@ async fn test_full_metadata_workflow<S: MetadataStore>(store: &S) {
 
     // 1. Create topic
     let config = create_test_topic_config(topic_name, 3);
-    store.create_topic(config.clone()).await.unwrap();
+    store
+        .ensure_organization(TEST_ORG_ID, "Test Org")
+        .await
+        .unwrap();
+    store
+        .create_topic_for_org(TEST_ORG_ID, config.clone())
+        .await
+        .unwrap();
 
     // 2. Verify topic exists
     let topic = store.get_topic(topic_name).await.unwrap().unwrap();
@@ -287,9 +315,13 @@ async fn test_full_metadata_workflow<S: MetadataStore>(store: &S) {
     assert_eq!(segment.end_offset, 999);
 
     // 8. Consumer group operations
-    store.ensure_consumer_group("test_group").await.unwrap();
     store
-        .commit_offset(
+        .ensure_consumer_group_for_org(TEST_ORG_ID, "test_group")
+        .await
+        .unwrap();
+    store
+        .commit_offset_for_org(
+            TEST_ORG_ID,
             "test_group",
             topic_name,
             0,
@@ -300,20 +332,29 @@ async fn test_full_metadata_workflow<S: MetadataStore>(store: &S) {
         .unwrap();
 
     let offset = store
-        .get_committed_offset("test_group", topic_name, 0)
+        .get_committed_offset_for_org(TEST_ORG_ID, "test_group", topic_name, 0)
         .await
         .unwrap()
         .unwrap();
     assert_eq!(offset, 500);
 
     // 9. List all offsets for consumer group
-    let offsets = store.get_consumer_offsets("test_group").await.unwrap();
+    let offsets = store
+        .get_consumer_offsets_for_org(TEST_ORG_ID, "test_group")
+        .await
+        .unwrap();
     assert_eq!(offsets.len(), 1);
     assert_eq!(offsets[0].committed_offset, 500);
 
     // 10. Delete consumer group
-    store.delete_consumer_group("test_group").await.unwrap();
-    let offsets = store.get_consumer_offsets("test_group").await.unwrap();
+    store
+        .delete_consumer_group_for_org(TEST_ORG_ID, "test_group")
+        .await
+        .unwrap();
+    let offsets = store
+        .get_consumer_offsets_for_org(TEST_ORG_ID, "test_group")
+        .await
+        .unwrap();
     assert_eq!(offsets.len(), 0);
 
     // 11. Clean up
@@ -328,7 +369,14 @@ async fn test_concurrent_partition_updates<S: MetadataStore>(store: &S) {
 
     // Create topic
     let config = create_test_topic_config(topic_name, 1);
-    store.create_topic(config).await.unwrap();
+    store
+        .ensure_organization(TEST_ORG_ID, "Test Org")
+        .await
+        .unwrap();
+    store
+        .create_topic_for_org(TEST_ORG_ID, config)
+        .await
+        .unwrap();
 
     // Perform multiple watermark updates (sequential for test simplicity)
     // NOTE, these would come from different writers
@@ -357,16 +405,27 @@ async fn test_consumer_group_operations<S: MetadataStore>(store: &S) {
 
     // Create topic
     let config = create_test_topic_config(topic_name, 5);
-    store.create_topic(config).await.unwrap();
+    store
+        .ensure_organization(TEST_ORG_ID, "Test Org")
+        .await
+        .unwrap();
+    store
+        .create_topic_for_org(TEST_ORG_ID, config)
+        .await
+        .unwrap();
 
     // Create multiple consumer groups
     for group_id in &["group_a", "group_b", "group_c"] {
-        store.ensure_consumer_group(group_id).await.unwrap();
+        store
+            .ensure_consumer_group_for_org(TEST_ORG_ID, group_id)
+            .await
+            .unwrap();
 
         // Commit offsets for multiple partitions
         for partition_id in 0..5 {
             store
-                .commit_offset(
+                .commit_offset_for_org(
+                    TEST_ORG_ID,
                     group_id,
                     topic_name,
                     partition_id,
@@ -380,12 +439,15 @@ async fn test_consumer_group_operations<S: MetadataStore>(store: &S) {
 
     // Verify each group has correct offsets
     for group_id in &["group_a", "group_b", "group_c"] {
-        let offsets = store.get_consumer_offsets(group_id).await.unwrap();
+        let offsets = store
+            .get_consumer_offsets_for_org(TEST_ORG_ID, group_id)
+            .await
+            .unwrap();
         assert_eq!(offsets.len(), 5);
 
         for partition_id in 0..5 {
             let offset = store
-                .get_committed_offset(group_id, topic_name, partition_id)
+                .get_committed_offset_for_org(TEST_ORG_ID, group_id, topic_name, partition_id)
                 .await
                 .unwrap()
                 .unwrap();
@@ -395,12 +457,19 @@ async fn test_consumer_group_operations<S: MetadataStore>(store: &S) {
 
     // Update offset (should replace existing)
     store
-        .commit_offset("group_a", topic_name, 0, 999, Some("updated".to_string()))
+        .commit_offset_for_org(
+            TEST_ORG_ID,
+            "group_a",
+            topic_name,
+            0,
+            999,
+            Some("updated".to_string()),
+        )
         .await
         .unwrap();
 
     let offset = store
-        .get_committed_offset("group_a", topic_name, 0)
+        .get_committed_offset_for_org(TEST_ORG_ID, "group_a", topic_name, 0)
         .await
         .unwrap()
         .unwrap();
@@ -416,7 +485,14 @@ async fn test_segment_retention_cleanup<S: MetadataStore>(store: &S) {
 
     // Create topic
     let config = create_test_topic_config(topic_name, 1);
-    store.create_topic(config).await.unwrap();
+    store
+        .ensure_organization(TEST_ORG_ID, "Test Org")
+        .await
+        .unwrap();
+    store
+        .create_topic_for_org(TEST_ORG_ID, config)
+        .await
+        .unwrap();
 
     // Add multiple segments
     for i in 0..10 {
@@ -463,8 +539,22 @@ async fn test_sqlite_and_cached_consistency() {
     // Run same operations on both
     let config = create_test_topic_config("consistency_test", 3);
 
-    sqlite_store.create_topic(config.clone()).await.unwrap();
-    cached_store.create_topic(config.clone()).await.unwrap();
+    sqlite_store
+        .ensure_organization(TEST_ORG_ID, "Test Org")
+        .await
+        .unwrap();
+    sqlite_store
+        .create_topic_for_org(TEST_ORG_ID, config.clone())
+        .await
+        .unwrap();
+    cached_store
+        .ensure_organization(TEST_ORG_ID, "Test Org")
+        .await
+        .unwrap();
+    cached_store
+        .create_topic_for_org(TEST_ORG_ID, config.clone())
+        .await
+        .unwrap();
 
     // Verify both return same data
     let sqlite_topic = sqlite_store
@@ -488,9 +578,16 @@ async fn test_topic_list_ordering() {
     let store = SqliteMetadataStore::new(":memory:").await.unwrap();
 
     // Create topics
+    store
+        .ensure_organization(TEST_ORG_ID, "Test Org")
+        .await
+        .unwrap();
     for i in 0..5 {
         let config = create_test_topic_config(&format!("topic_{}", i), 1);
-        store.create_topic(config).await.unwrap();
+        store
+            .create_topic_for_org(TEST_ORG_ID, config)
+            .await
+            .unwrap();
     }
 
     let topics = store.list_topics().await.unwrap();
@@ -508,7 +605,14 @@ async fn test_partition_ordering() {
     let store = SqliteMetadataStore::new(":memory:").await.unwrap();
 
     let config = create_test_topic_config("order_test", 10);
-    store.create_topic(config).await.unwrap();
+    store
+        .ensure_organization(TEST_ORG_ID, "Test Org")
+        .await
+        .unwrap();
+    store
+        .create_topic_for_org(TEST_ORG_ID, config)
+        .await
+        .unwrap();
 
     let partitions = store
         .list_partitions(TEST_ORG_ID, "order_test")
@@ -527,7 +631,14 @@ async fn test_segment_ordering() {
     let store = SqliteMetadataStore::new(":memory:").await.unwrap();
 
     let config = create_test_topic_config("segment_order_test", 1);
-    store.create_topic(config).await.unwrap();
+    store
+        .ensure_organization(TEST_ORG_ID, "Test Org")
+        .await
+        .unwrap();
+    store
+        .create_topic_for_org(TEST_ORG_ID, config)
+        .await
+        .unwrap();
 
     // Add segments in reverse order
     for i in (0..5).rev() {
@@ -589,7 +700,14 @@ async fn test_idempotent_producer_operations<S: MetadataStore>(store: &S) {
 
     // Create topic first
     let config = create_test_topic_config(topic_name, 3);
-    store.create_topic(config).await.unwrap();
+    store
+        .ensure_organization(TEST_ORG_ID, "Test Org")
+        .await
+        .unwrap();
+    store
+        .create_topic_for_org(TEST_ORG_ID, config)
+        .await
+        .unwrap();
 
     // 1. Initialize producer without transactional ID
     let producer1 = store
@@ -676,7 +794,14 @@ async fn test_transaction_operations<S: MetadataStore>(store: &S) {
 
     // Create topic first
     let config = create_test_topic_config(topic_name, 3);
-    store.create_topic(config).await.unwrap();
+    store
+        .ensure_organization(TEST_ORG_ID, "Test Org")
+        .await
+        .unwrap();
+    store
+        .create_topic_for_org(TEST_ORG_ID, config)
+        .await
+        .unwrap();
 
     // Initialize transactional producer
     let producer = store
@@ -757,7 +882,14 @@ async fn test_lso_operations<S: MetadataStore>(store: &S) {
 
     // Create topic
     let config = create_test_topic_config(topic_name, 2);
-    store.create_topic(config).await.unwrap();
+    store
+        .ensure_organization(TEST_ORG_ID, "Test Org")
+        .await
+        .unwrap();
+    store
+        .create_topic_for_org(TEST_ORG_ID, config)
+        .await
+        .unwrap();
 
     // 1. Get LSO before any transactions (should be 0 or error)
     let lso = store.get_last_stable_offset(topic_name, 0).await;
@@ -814,7 +946,14 @@ async fn test_producer_fencing() {
 
     // Create topic
     let config = create_test_topic_config(topic_name, 1);
-    store.create_topic(config).await.unwrap();
+    store
+        .ensure_organization(TEST_ORG_ID, "Test Org")
+        .await
+        .unwrap();
+    store
+        .create_topic_for_org(TEST_ORG_ID, config)
+        .await
+        .unwrap();
 
     // Initialize transactional producer
     let producer_v1 = store
@@ -868,7 +1007,14 @@ async fn test_sequence_gap_detection() {
 
     // Create topic
     let config = create_test_topic_config(topic_name, 1);
-    store.create_topic(config).await.unwrap();
+    store
+        .ensure_organization(TEST_ORG_ID, "Test Org")
+        .await
+        .unwrap();
+    store
+        .create_topic_for_org(TEST_ORG_ID, config)
+        .await
+        .unwrap();
 
     // Initialize producer
     let producer = store
@@ -946,7 +1092,14 @@ async fn test_lease_transfer_lifecycle<S: MetadataStore>(store: &S) {
 
     // Create topic and register agents
     let config = create_test_topic_config(topic_name, 3);
-    store.create_topic(config).await.unwrap();
+    store
+        .ensure_organization(TEST_ORG_ID, "Test Org")
+        .await
+        .unwrap();
+    store
+        .create_topic_for_org(TEST_ORG_ID, config)
+        .await
+        .unwrap();
 
     let agent1 = streamhouse_metadata::AgentInfo {
         agent_id: "agent-001".to_string(),
@@ -1058,7 +1211,14 @@ async fn test_lease_transfer_rejection<S: MetadataStore>(store: &S) {
 
     // Create topic
     let config = create_test_topic_config(topic_name, 1);
-    store.create_topic(config).await.unwrap();
+    store
+        .ensure_organization(TEST_ORG_ID, "Test Org")
+        .await
+        .unwrap();
+    store
+        .create_topic_for_org(TEST_ORG_ID, config)
+        .await
+        .unwrap();
 
     // Register agents
     let agent1 = streamhouse_metadata::AgentInfo {
@@ -1145,7 +1305,14 @@ async fn test_leader_change_tracking<S: MetadataStore>(store: &S) {
 
     // Create topic
     let config = create_test_topic_config(topic_name, 1);
-    store.create_topic(config).await.unwrap();
+    store
+        .ensure_organization(TEST_ORG_ID, "Test Org")
+        .await
+        .unwrap();
+    store
+        .create_topic_for_org(TEST_ORG_ID, config)
+        .await
+        .unwrap();
 
     // Record various leadership changes
     store
@@ -1214,7 +1381,14 @@ async fn test_transfer_timeout_cleanup<S: MetadataStore>(store: &S) {
 
     // Create topic
     let config = create_test_topic_config(topic_name, 2);
-    store.create_topic(config).await.unwrap();
+    store
+        .ensure_organization(TEST_ORG_ID, "Test Org")
+        .await
+        .unwrap();
+    store
+        .create_topic_for_org(TEST_ORG_ID, config)
+        .await
+        .unwrap();
 
     // Register agents
     let agent1 = streamhouse_metadata::AgentInfo {
@@ -1292,7 +1466,14 @@ async fn test_pending_transfers_for_agent<S: MetadataStore>(store: &S) {
 
     // Create topic with multiple partitions
     let config = create_test_topic_config(topic_name, 4);
-    store.create_topic(config).await.unwrap();
+    store
+        .ensure_organization(TEST_ORG_ID, "Test Org")
+        .await
+        .unwrap();
+    store
+        .create_topic_for_org(TEST_ORG_ID, config)
+        .await
+        .unwrap();
 
     // Register agents
     let agent1 = streamhouse_metadata::AgentInfo {
@@ -1440,7 +1621,14 @@ async fn test_transfer_authorization() {
 
     // Create topic
     let config = create_test_topic_config(topic_name, 1);
-    store.create_topic(config).await.unwrap();
+    store
+        .ensure_organization(TEST_ORG_ID, "Test Org")
+        .await
+        .unwrap();
+    store
+        .create_topic_for_org(TEST_ORG_ID, config)
+        .await
+        .unwrap();
 
     // Register agents
     let agent1 = streamhouse_metadata::AgentInfo {
@@ -1518,7 +1706,14 @@ async fn test_concurrent_transfers_different_partitions() {
 
     // Create topic with 4 partitions
     let config = create_test_topic_config(topic_name, 4);
-    store.create_topic(config).await.unwrap();
+    store
+        .ensure_organization(TEST_ORG_ID, "Test Org")
+        .await
+        .unwrap();
+    store
+        .create_topic_for_org(TEST_ORG_ID, config)
+        .await
+        .unwrap();
 
     // Register agents
     for i in 1..=4 {

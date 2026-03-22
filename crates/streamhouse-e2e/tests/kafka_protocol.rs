@@ -7,6 +7,7 @@
 use serde_json::json;
 use std::process::Command;
 use streamhouse_e2e::TestCluster;
+use streamhouse_metadata::TEST_ORG_ID;
 
 /// Check if kcat is available on the system PATH.
 fn kcat_available() -> bool {
@@ -53,15 +54,16 @@ async fn test_kafka_produce_consume_roundtrip() {
     }
 
     let cluster = TestCluster::start().await.unwrap();
-    let client = cluster.rest_client();
+    let mut client = cluster.rest_client();
+    client.set_org_id(TEST_ORG_ID);
     let kafka_addr = cluster.kafka_addr.to_string();
     let topic_name = "kafka-roundtrip";
 
-    // Create topic via REST
-    client
-        .create_topic(topic_name, 1)
+    // Create topic with leases
+    cluster
+        .create_topic_with_leases(topic_name, 1)
         .await
-        .expect("Failed to create topic via REST");
+        .expect("Failed to create topic");
 
     // Allow topic to propagate
     tokio::time::sleep(std::time::Duration::from_millis(500)).await;
@@ -206,13 +208,14 @@ async fn test_kafka_metadata() {
     }
 
     let cluster = TestCluster::start().await.unwrap();
-    let client = cluster.rest_client();
+    let mut client = cluster.rest_client();
+    client.set_org_id(TEST_ORG_ID);
     let kafka_addr = cluster.kafka_addr.to_string();
     let topic_name = "kafka-metadata-test";
 
-    // Create topic via REST
-    client
-        .create_topic(topic_name, 3)
+    // Create topic with leases
+    cluster
+        .create_topic_with_leases(topic_name, 3)
         .await
         .expect("Failed to create topic");
 
@@ -288,13 +291,14 @@ async fn test_kafka_produce_rest_consume() {
     }
 
     let cluster = TestCluster::start().await.unwrap();
-    let client = cluster.rest_client();
+    let mut client = cluster.rest_client();
+    client.set_org_id(TEST_ORG_ID);
     let kafka_addr = cluster.kafka_addr.to_string();
     let topic_name = "kafka-to-rest";
 
-    // Create topic via REST
-    client
-        .create_topic(topic_name, 1)
+    // Create topic with leases
+    cluster
+        .create_topic_with_leases(topic_name, 1)
         .await
         .expect("Failed to create topic");
 

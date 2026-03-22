@@ -566,9 +566,17 @@ impl ConsumerBuilder {
                 .map_err(|e| ClientError::StorageError(e.to_string()))?,
         );
 
+        // Resolve organization_id early (needed for consumer group registration)
+        let org_id = self
+            .organization_id
+            .clone()
+            .ok_or_else(|| ClientError::ConfigError("organization_id is required".to_string()))?;
+
         // Register consumer group if specified
         if let Some(ref group_id) = self.group_id {
-            metadata_store.ensure_consumer_group(group_id).await?;
+            metadata_store
+                .ensure_consumer_group_for_org(&org_id, group_id)
+                .await?;
         }
 
         // Initialize schema registry client if URL provided (Phase 9+)
@@ -606,9 +614,7 @@ impl ConsumerBuilder {
             auto_commit_interval: self.auto_commit_interval,
             last_commit: tokio::time::Instant::now(),
             last_lag_update: tokio::time::Instant::now(),
-            org_id: self.organization_id.ok_or_else(|| {
-                ClientError::ConfigError("organization_id is required".to_string())
-            })?,
+            org_id,
             schema_registry,
             schema_cache,
         };

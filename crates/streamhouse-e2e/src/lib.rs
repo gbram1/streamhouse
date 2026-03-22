@@ -505,7 +505,11 @@ impl TestCluster {
             config: HashMap::new(),
         };
         self.metadata
-            .create_topic(topic_config)
+            .ensure_organization(streamhouse_metadata::TEST_ORG_ID, "Test Org")
+            .await
+            .context("ensuring organization")?;
+        self.metadata
+            .create_topic_for_org(streamhouse_metadata::TEST_ORG_ID, topic_config)
             .await
             .context("creating topic")?;
 

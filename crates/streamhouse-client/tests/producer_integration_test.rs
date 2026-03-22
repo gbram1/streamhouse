@@ -6,7 +6,9 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 use streamhouse_client::Producer;
-use streamhouse_metadata::{CleanupPolicy, MetadataStore, SqliteMetadataStore, TopicConfig};
+use streamhouse_metadata::{
+    CleanupPolicy, MetadataStore, SqliteMetadataStore, TopicConfig, TEST_ORG_ID,
+};
 
 #[tokio::test]
 async fn test_producer_send_basic() {
@@ -22,19 +24,27 @@ async fn test_producer_send_basic() {
 
     // Create topic
     metadata
-        .create_topic(TopicConfig {
-            name: "test-topic".to_string(),
-            partition_count: 3,
-            retention_ms: Some(86400000),
-            cleanup_policy: CleanupPolicy::default(),
-            config: HashMap::new(),
-        })
+        .ensure_organization(TEST_ORG_ID, "Test Org")
+        .await
+        .unwrap();
+    metadata
+        .create_topic_for_org(
+            TEST_ORG_ID,
+            TopicConfig {
+                name: "test-topic".to_string(),
+                partition_count: 3,
+                retention_ms: Some(86400000),
+                cleanup_policy: CleanupPolicy::default(),
+                config: HashMap::new(),
+            },
+        )
         .await
         .unwrap();
 
     // Create producer
     let producer = Producer::builder()
         .metadata_store(Arc::clone(&metadata))
+        .organization_id(TEST_ORG_ID)
         .agent_group("test")
         .build()
         .await
@@ -78,18 +88,26 @@ async fn test_producer_explicit_partition() {
     );
 
     metadata
-        .create_topic(TopicConfig {
-            name: "test-topic".to_string(),
-            partition_count: 5,
-            retention_ms: Some(86400000),
-            cleanup_policy: CleanupPolicy::default(),
-            config: HashMap::new(),
-        })
+        .ensure_organization(TEST_ORG_ID, "Test Org")
+        .await
+        .unwrap();
+    metadata
+        .create_topic_for_org(
+            TEST_ORG_ID,
+            TopicConfig {
+                name: "test-topic".to_string(),
+                partition_count: 5,
+                retention_ms: Some(86400000),
+                cleanup_policy: CleanupPolicy::default(),
+                config: HashMap::new(),
+            },
+        )
         .await
         .unwrap();
 
     let producer = Producer::builder()
         .metadata_store(metadata)
+        .organization_id(TEST_ORG_ID)
         .build()
         .await
         .unwrap();
@@ -118,18 +136,26 @@ async fn test_producer_invalid_partition() {
     );
 
     metadata
-        .create_topic(TopicConfig {
-            name: "test-topic".to_string(),
-            partition_count: 3,
-            retention_ms: Some(86400000),
-            cleanup_policy: CleanupPolicy::default(),
-            config: HashMap::new(),
-        })
+        .ensure_organization(TEST_ORG_ID, "Test Org")
+        .await
+        .unwrap();
+    metadata
+        .create_topic_for_org(
+            TEST_ORG_ID,
+            TopicConfig {
+                name: "test-topic".to_string(),
+                partition_count: 3,
+                retention_ms: Some(86400000),
+                cleanup_policy: CleanupPolicy::default(),
+                config: HashMap::new(),
+            },
+        )
         .await
         .unwrap();
 
     let producer = Producer::builder()
         .metadata_store(metadata)
+        .organization_id(TEST_ORG_ID)
         .build()
         .await
         .unwrap();
@@ -160,6 +186,7 @@ async fn test_producer_topic_not_found() {
 
     let producer = Producer::builder()
         .metadata_store(metadata)
+        .organization_id(TEST_ORG_ID)
         .build()
         .await
         .unwrap();
