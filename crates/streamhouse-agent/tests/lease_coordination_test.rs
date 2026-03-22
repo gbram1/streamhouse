@@ -11,18 +11,27 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 use streamhouse_agent::{validate_epoch, Agent, AgentError};
-use streamhouse_metadata::{CleanupPolicy, MetadataStore, SqliteMetadataStore, TopicConfig};
+use streamhouse_metadata::{
+    CleanupPolicy, MetadataStore, SqliteMetadataStore, TopicConfig, TEST_ORG_ID,
+};
 
-/// Helper function to create a test topic
+/// Helper function to create a test topic under the test org
 async fn create_test_topic(metadata: &Arc<dyn MetadataStore>, topic: &str, partition_count: u32) {
     metadata
-        .create_topic(TopicConfig {
-            name: topic.to_string(),
-            partition_count,
-            retention_ms: Some(86400000), // 1 day
-            cleanup_policy: CleanupPolicy::default(),
-            config: HashMap::new(),
-        })
+        .ensure_organization(TEST_ORG_ID, "Test Org")
+        .await
+        .unwrap();
+    metadata
+        .create_topic_for_org(
+            TEST_ORG_ID,
+            TopicConfig {
+                name: topic.to_string(),
+                partition_count,
+                retention_ms: Some(86400000), // 1 day
+                cleanup_policy: CleanupPolicy::default(),
+                config: HashMap::new(),
+            },
+        )
         .await
         .unwrap();
 }
