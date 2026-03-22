@@ -14,7 +14,7 @@ use std::sync::Arc;
 use std::time::Duration;
 use streamhouse_agent::{LeaseManager, PartitionAssigner};
 use streamhouse_metadata::{
-    AgentInfo, CleanupPolicy, MetadataStore, SqliteMetadataStore, TopicConfig,
+    AgentInfo, CleanupPolicy, MetadataStore, SqliteMetadataStore, TopicConfig, TEST_ORG_ID,
 };
 
 /// Helper: create a shared SQLite metadata store
@@ -24,19 +24,23 @@ async fn setup() -> (Arc<dyn MetadataStore>, tempfile::TempDir) {
     let metadata = SqliteMetadataStore::new(db_path.to_str().unwrap())
         .await
         .unwrap();
+    metadata.ensure_organization(TEST_ORG_ID, "Test Org").await.unwrap();
     (Arc::new(metadata) as Arc<dyn MetadataStore>, temp_dir)
 }
 
 /// Helper: create a topic with N partitions
 async fn create_topic(metadata: &Arc<dyn MetadataStore>, name: &str, partitions: u32) {
     metadata
-        .create_topic(TopicConfig {
-            name: name.to_string(),
-            partition_count: partitions,
-            retention_ms: Some(86400000),
-            cleanup_policy: CleanupPolicy::default(),
-            config: HashMap::new(),
-        })
+        .create_topic_for_org(
+            TEST_ORG_ID,
+            TopicConfig {
+                name: name.to_string(),
+                partition_count: partitions,
+                retention_ms: Some(86400000),
+                cleanup_policy: CleanupPolicy::default(),
+                config: HashMap::new(),
+            },
+        )
         .await
         .unwrap();
 }
