@@ -10,6 +10,7 @@
 
 use serde_json::json;
 use streamhouse_e2e::{BatchRecord, TestCluster};
+use streamhouse_metadata::TEST_ORG_ID;
 
 async fn wait_for_flush() {
     tokio::time::sleep(std::time::Duration::from_secs(3)).await;
@@ -30,7 +31,8 @@ async fn test_postgres_minio_full_write_read_path() {
         .await
         .expect("failed to start cluster with postgres + minio");
 
-    let client = cluster.rest_client();
+    let mut client = cluster.rest_client();
+    client.set_org_id(TEST_ORG_ID);
 
     // Health check
     let health = client.health().await.expect("health check failed");
@@ -99,7 +101,8 @@ async fn test_postgres_topic_crud() {
         .await
         .expect("failed to start cluster with postgres");
 
-    let client = cluster.rest_client();
+    let mut client = cluster.rest_client();
+    client.set_org_id(TEST_ORG_ID);
 
     // Create
     let topic = client
@@ -145,7 +148,8 @@ async fn test_postgres_minio_schema_validation() {
         .await
         .expect("failed to start cluster");
 
-    let client = cluster.rest_client();
+    let mut client = cluster.rest_client();
+    client.set_org_id(TEST_ORG_ID);
 
     cluster
         .create_topic_with_leases("schema-pg-topic", 1)
@@ -251,7 +255,8 @@ async fn test_postgres_consumer_group_offsets() {
         .await
         .expect("failed to start cluster");
 
-    let client = cluster.rest_client();
+    let mut client = cluster.rest_client();
+    client.set_org_id(TEST_ORG_ID);
 
     cluster
         .create_topic_with_leases("cg-pg-topic", 1)

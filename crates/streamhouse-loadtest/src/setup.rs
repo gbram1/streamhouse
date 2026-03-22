@@ -61,7 +61,7 @@ pub async fn run_setup(client: &HttpClient) -> Result<Vec<OrgContext>> {
 
     // Create Kafka-specific topics in the test org (unauthenticated Kafka connections).
     // These are used by the Kafka wire protocol producers.
-    let default_org_id = "test-org-00000000";
+    let default_org_id = "00000000-0000-0000-0000-000000000001";
     let kafka_topics = vec![
         TopicSpec {
             name: "kafka-orders".into(),

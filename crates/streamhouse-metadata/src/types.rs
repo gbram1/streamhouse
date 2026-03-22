@@ -940,8 +940,8 @@ pub struct OrganizationUsage {
     pub period_start: i64,
 }
 
-/// Organization ID for use in tests.
-pub const TEST_ORG_ID: &str = "test-org-00000000";
+/// Organization ID for use in tests (must be valid UUID for Postgres compatibility).
+pub const TEST_ORG_ID: &str = "00000000-0000-0000-0000-000000000001";
 
 // ============================================================================
 // Exactly-Once Semantics Types
@@ -3011,7 +3011,7 @@ mod tests {
 
     #[test]
     fn test_test_org_id() {
-        assert_eq!(TEST_ORG_ID, "test-org-00000000");
+        assert_eq!(TEST_ORG_ID, "00000000-0000-0000-0000-000000000001");
     }
 
     // ========================================================================
