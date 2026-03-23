@@ -150,6 +150,8 @@ pub fn create_router(state: AppState) -> Router {
 
     // API v1 routes (original structure)
     let api_routes = Router::new()
+        // Identity
+        .route("/whoami", get(handlers::metrics::whoami))
         // Topics
         .route(
             "/topics",

@@ -89,6 +89,14 @@ pub struct HealthResponse {
 }
 
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct WhoAmIResponse {
+    pub organization_id: String,
+    pub key_id: String,
+    pub permissions: Vec<String>,
+    pub scopes: Vec<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct ErrorResponse {
     pub error: String,
     pub message: String,

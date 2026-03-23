@@ -73,6 +73,20 @@ pub async fn get_metrics(
     }))
 }
 
+/// Returns the identity associated with the current API key / JWT.
+/// SDKs use this to auto-resolve the organization ID.
+pub async fn whoami(
+    auth_key: Option<Extension<AuthenticatedKey>>,
+) -> Result<Json<WhoAmIResponse>, StatusCode> {
+    let key = auth_key.ok_or(StatusCode::UNAUTHORIZED)?;
+    Ok(Json(WhoAmIResponse {
+        organization_id: key.0.organization_id.clone(),
+        key_id: key.0.key_id.clone(),
+        permissions: key.0.permissions.clone(),
+        scopes: key.0.scopes.clone(),
+    }))
+}
+
 #[utoipa::path(
     get,
     path = "/health",
