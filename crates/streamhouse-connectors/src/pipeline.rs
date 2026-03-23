@@ -198,11 +198,7 @@ impl PipelineConsumeLoop {
                     // Find the earliest available segment and skip to it.
                     let segments = self
                         .metadata
-                        .get_segments(
-                            &self.config.org_id,
-                            &self.config.source_topic,
-                            partition_id,
-                        )
+                        .get_segments(&self.config.org_id, &self.config.source_topic, partition_id)
                         .await
                         .unwrap_or_default();
                     let earliest = segments.first().map(|s| s.base_offset);
@@ -217,14 +213,17 @@ impl PipelineConsumeLoop {
                                 "Offset not found, skipping to earliest available segment"
                             );
                             // Commit so we don't retry from the stale offset
-                            let _ = self.metadata.commit_offset_for_org(
-                                &self.config.org_id,
-                                &self.config.consumer_group,
-                                &self.config.source_topic,
-                                partition_id,
-                                earliest_offset,
-                                None,
-                            ).await;
+                            let _ = self
+                                .metadata
+                                .commit_offset_for_org(
+                                    &self.config.org_id,
+                                    &self.config.consumer_group,
+                                    &self.config.source_topic,
+                                    partition_id,
+                                    earliest_offset,
+                                    None,
+                                )
+                                .await;
                             continue;
                         }
                     }
