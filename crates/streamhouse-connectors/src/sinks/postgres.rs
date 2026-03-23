@@ -351,7 +351,7 @@ impl PostgresSinkConnector {
         if columns.is_empty() {
             tracing::warn!(
                 connector = %self.name,
-                record_fields = ?all_rows.get(0).map(|r| r.iter().map(|(k, _)| k.clone()).collect::<Vec<_>>()),
+                record_fields = ?all_rows.first().map(|r| r.iter().map(|(k, _)| k.clone()).collect::<Vec<_>>()),
                 table_columns = ?self.table_columns,
                 "no matching columns between record and target table, skipping batch"
             );
