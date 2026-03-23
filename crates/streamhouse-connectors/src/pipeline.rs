@@ -155,11 +155,16 @@ impl PipelineConsumeLoop {
     }
 
     /// Poll each partition and sink records. Returns (records_count, max_offset).
+    ///
+    /// Offsets are committed only AFTER records are successfully written to the sink,
+    /// ensuring at-least-once delivery (no data loss on sink failure).
     async fn poll_and_sink(
         &mut self,
     ) -> Result<(usize, i64), Box<dyn std::error::Error + Send + Sync>> {
         let mut all_records = Vec::new();
         let mut max_offset: i64 = -1;
+        // Track last offset per partition — committed only after successful sink write
+        let mut partition_offsets: Vec<(u32, u64)> = Vec::new();
 
         for partition_id in 0..self.config.partition_count {
             // Get committed offset for this partition
@@ -188,7 +193,15 @@ impl PipelineConsumeLoop {
                 .await
             {
                 Ok(result) => result,
-                Err(streamhouse_storage::Error::OffsetNotFound(_)) => continue,
+                Err(streamhouse_storage::Error::OffsetNotFound(offset)) => {
+                    tracing::debug!(
+                        pipeline = %self.config.pipeline_name,
+                        partition = partition_id,
+                        offset = offset,
+                        "Offset not found in segment, waiting for flush"
+                    );
+                    continue;
+                }
                 Err(e) => return Err(Box::new(e)),
             };
 
@@ -209,18 +222,9 @@ impl PipelineConsumeLoop {
                 }
             }
 
-            // Commit offset for this partition
+            // Remember last offset per partition (don't commit yet)
             if let Some(last_record) = result.records.last() {
-                self.metadata
-                    .commit_offset_for_org(
-                        &self.config.org_id,
-                        &self.config.consumer_group,
-                        &self.config.source_topic,
-                        partition_id,
-                        last_record.offset,
-                        None,
-                    )
-                    .await?;
+                partition_offsets.push((partition_id, last_record.offset));
             }
         }
 
@@ -239,7 +243,7 @@ impl PipelineConsumeLoop {
             return Ok((0, -1));
         }
 
-        // Sink the records
+        // Sink the records — if this fails, offsets are NOT committed (at-least-once)
         self.sink
             .put(&all_records)
             .await
@@ -249,11 +253,26 @@ impl PipelineConsumeLoop {
             .await
             .map_err(|e| -> Box<dyn std::error::Error + Send + Sync> { Box::new(e) })?;
 
+        // Only commit offsets AFTER successful sink write
+        for (partition_id, offset) in &partition_offsets {
+            self.metadata
+                .commit_offset_for_org(
+                    &self.config.org_id,
+                    &self.config.consumer_group,
+                    &self.config.source_topic,
+                    *partition_id,
+                    *offset,
+                    None,
+                )
+                .await?;
+        }
+
         let count = all_records.len();
-        tracing::debug!(
+        tracing::info!(
             pipeline = %self.config.pipeline_name,
             records = count,
-            "Sunk records"
+            max_offset = max_offset,
+            "Pipeline sunk records successfully"
         );
 
         Ok((count, max_offset))

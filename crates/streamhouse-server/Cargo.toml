@@ -18,7 +18,7 @@ streamhouse-observability = { path = "../streamhouse-observability" }
 streamhouse-agent = { path = "../streamhouse-agent" }
 streamhouse-proto = { path = "../streamhouse-proto" }
 streamhouse-kafka = { path = "../streamhouse-kafka" }
-streamhouse-connectors = { path = "../streamhouse-connectors" }
+streamhouse-connectors = { path = "../streamhouse-connectors", features = ["postgres"] }
 
 # gRPC
 tonic = { workspace = true }
