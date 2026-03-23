@@ -597,40 +597,57 @@ mod tests {
     #[test]
     fn test_build_insert_sql_single_row() {
         let columns = vec!["id".to_string(), "name".to_string(), "value".to_string()];
-        let sql = PostgresSinkConnector::build_insert_sql("events", &columns, 1);
+        let types = HashMap::new();
+        let sql = PostgresSinkConnector::build_insert_sql("events", &columns, 1, &types);
         assert_eq!(
             sql,
-            "INSERT INTO events (id, name, value) VALUES ($1, $2, $3)"
+            r#"INSERT INTO "events" ("id", "name", "value") VALUES ($1, $2, $3)"#
         );
     }
 
     #[test]
     fn test_build_insert_sql_multiple_rows() {
         let columns = vec!["id".to_string(), "data".to_string()];
-        let sql = PostgresSinkConnector::build_insert_sql("tbl", &columns, 3);
+        let types = HashMap::new();
+        let sql = PostgresSinkConnector::build_insert_sql("tbl", &columns, 3, &types);
         assert_eq!(
             sql,
-            "INSERT INTO tbl (id, data) VALUES ($1, $2), ($3, $4), ($5, $6)"
+            r#"INSERT INTO "tbl" ("id", "data") VALUES ($1, $2), ($3, $4), ($5, $6)"#
         );
     }
 
     #[test]
     fn test_build_insert_sql_single_column() {
         let columns = vec!["val".to_string()];
-        let sql = PostgresSinkConnector::build_insert_sql("t", &columns, 2);
-        assert_eq!(sql, "INSERT INTO t (val) VALUES ($1), ($2)");
+        let types = HashMap::new();
+        let sql = PostgresSinkConnector::build_insert_sql("t", &columns, 2, &types);
+        assert_eq!(sql, r#"INSERT INTO "t" ("val") VALUES ($1), ($2)"#);
+    }
+
+    #[test]
+    fn test_build_insert_sql_with_type_casting() {
+        let columns = vec!["name".to_string(), "age".to_string(), "score".to_string()];
+        let mut types = HashMap::new();
+        types.insert("age".to_string(), "integer".to_string());
+        types.insert("score".to_string(), "numeric".to_string());
+        let sql = PostgresSinkConnector::build_insert_sql("users", &columns, 1, &types);
+        assert_eq!(
+            sql,
+            r#"INSERT INTO "users" ("name", "age", "score") VALUES ($1, $2::integer, $3::numeric)"#
+        );
     }
 
     #[test]
     fn test_build_upsert_sql() {
         let columns = vec!["id".to_string(), "name".to_string(), "score".to_string()];
         let pk = vec!["id".to_string()];
-        let sql = PostgresSinkConnector::build_upsert_sql("players", &columns, &pk, 1);
-        assert!(sql.contains("INSERT INTO players"));
-        assert!(sql.contains("ON CONFLICT (id) DO UPDATE SET"));
-        assert!(sql.contains("name = EXCLUDED.name"));
-        assert!(sql.contains("score = EXCLUDED.score"));
-        assert!(!sql.contains("id = EXCLUDED.id")); // PK should not be in SET clause
+        let types = HashMap::new();
+        let sql = PostgresSinkConnector::build_upsert_sql("players", &columns, &pk, 1, &types);
+        assert!(sql.contains(r#"INSERT INTO "players""#));
+        assert!(sql.contains(r#"ON CONFLICT ("id") DO UPDATE SET"#));
+        assert!(sql.contains(r#""name" = EXCLUDED."name""#));
+        assert!(sql.contains(r#""score" = EXCLUDED."score""#));
+        assert!(!sql.contains(r#""id" = EXCLUDED."id""#));
     }
 
     #[test]
@@ -641,11 +658,12 @@ mod tests {
             "role".to_string(),
         ];
         let pk = vec!["org_id".to_string(), "user_id".to_string()];
-        let sql = PostgresSinkConnector::build_upsert_sql("roles", &columns, &pk, 1);
-        assert!(sql.contains("ON CONFLICT (org_id, user_id) DO UPDATE SET"));
-        assert!(sql.contains("role = EXCLUDED.role"));
-        assert!(!sql.contains("org_id = EXCLUDED.org_id"));
-        assert!(!sql.contains("user_id = EXCLUDED.user_id"));
+        let types = HashMap::new();
+        let sql = PostgresSinkConnector::build_upsert_sql("roles", &columns, &pk, 1, &types);
+        assert!(sql.contains(r#"ON CONFLICT ("org_id", "user_id") DO UPDATE SET"#));
+        assert!(sql.contains(r#""role" = EXCLUDED."role""#));
+        assert!(!sql.contains(r#""org_id" = EXCLUDED."org_id""#));
+        assert!(!sql.contains(r#""user_id" = EXCLUDED."user_id""#));
     }
 
     // ---------------------------------------------------------------
