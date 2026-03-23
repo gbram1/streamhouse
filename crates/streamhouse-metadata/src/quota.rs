@@ -399,6 +399,15 @@ impl<S: MetadataStore + ?Sized + 'static> QuotaEnforcer<S> {
         }
     }
 
+    /// Paying orgs (Pro/Enterprise) have unlimited usage — skip quota checks.
+    /// Only suspended orgs are blocked regardless of plan.
+    fn is_paying(ctx: &TenantContext) -> bool {
+        matches!(
+            ctx.organization.plan,
+            OrganizationPlan::Pro | OrganizationPlan::Enterprise
+        )
+    }
+
     /// Check if a topic can be created.
     pub async fn check_topic_creation(
         &self,
@@ -410,6 +419,9 @@ impl<S: MetadataStore + ?Sized + 'static> QuotaEnforcer<S> {
                 "Organization is {}",
                 ctx.organization.status
             )));
+        }
+        if Self::is_paying(ctx) {
+            return Ok(QuotaCheck::Allowed);
         }
 
         let topics = self.store.list_topics_for_org(&ctx.organization.id).await?;
@@ -449,6 +461,10 @@ impl<S: MetadataStore + ?Sized + 'static> QuotaEnforcer<S> {
             )));
         }
 
+        if Self::is_paying(ctx) {
+            return Ok(QuotaCheck::Allowed);
+        }
+
         let groups = self
             .store
             .list_consumer_groups_for_org(&ctx.organization.id)
@@ -486,6 +502,10 @@ impl<S: MetadataStore + ?Sized + 'static> QuotaEnforcer<S> {
             )));
         }
 
+        if Self::is_paying(ctx) {
+            return Ok(QuotaCheck::Allowed);
+        }
+
         if current_connections >= ctx.quota.max_connections {
             return Ok(QuotaCheck::Denied(format!(
                 "Connection limit reached ({}/{})",
@@ -518,6 +538,10 @@ impl<S: MetadataStore + ?Sized + 'static> QuotaEnforcer<S> {
                 "Organization is {}",
                 ctx.organization.status
             )));
+        }
+
+        if Self::is_paying(ctx) {
+            return Ok(QuotaCheck::Allowed);
         }
 
         self.get_or_create_limiter(ctx).await?;
@@ -585,6 +609,10 @@ impl<S: MetadataStore + ?Sized + 'static> QuotaEnforcer<S> {
             )));
         }
 
+        if Self::is_paying(ctx) {
+            return Ok(QuotaCheck::Allowed);
+        }
+
         self.get_or_create_limiter(ctx).await?;
 
         // Org-level check
@@ -647,6 +675,10 @@ impl<S: MetadataStore + ?Sized + 'static> QuotaEnforcer<S> {
                 "Organization is {}",
                 ctx.organization.status
             )));
+        }
+
+        if Self::is_paying(ctx) {
+            return Ok(QuotaCheck::Allowed);
         }
 
         self.get_or_create_limiter(ctx).await?;
@@ -753,6 +785,10 @@ impl<S: MetadataStore + ?Sized + 'static> QuotaEnforcer<S> {
                 "Organization is {}",
                 ctx.organization.status
             )));
+        }
+
+        if Self::is_paying(ctx) {
+            return Ok(QuotaCheck::Allowed);
         }
 
         let usage = self
