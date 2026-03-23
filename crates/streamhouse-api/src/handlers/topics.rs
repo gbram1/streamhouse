@@ -280,7 +280,7 @@ pub async fn create_topic(
                 let agent = &active_agents[p as usize % active_agents.len()];
                 let _ = state
                     .metadata
-                    .acquire_partition_lease(&org_id, &req.name, p, &agent.agent_id, 60_000)
+                    .acquire_partition_lease(&org_id, &req.name, p, &agent.agent_id, 300_000)
                     .await;
             }
             tracing::info!(
