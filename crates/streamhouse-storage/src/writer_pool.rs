@@ -357,10 +357,18 @@ impl WriterPool {
 
                 tracing::trace!("Background flush tick");
 
+                let start = std::time::Instant::now();
                 if let Err(e) = self.flush_all().await {
                     tracing::error!(
                         error = %e,
                         "Background flush failed"
+                    );
+                }
+                let elapsed = start.elapsed();
+                if elapsed.as_secs_f64() > 2.0 {
+                    tracing::warn!(
+                        elapsed_ms = elapsed.as_millis() as u64,
+                        "Background flush cycle took >2s"
                     );
                 }
             }

@@ -30,7 +30,7 @@ async fn test_end_to_end_schema_registration() {
     };
 
     let schema_id = registry
-        .register_schema("users-value", request)
+        .register_schema("users-value", request, "test-org")
         .await
         .unwrap();
 
@@ -65,7 +65,7 @@ async fn test_schema_compatibility_enforcement() {
     };
 
     registry
-        .register_schema("users-value", request)
+        .register_schema("users-value", request, "test-org")
         .await
         .unwrap();
 
@@ -86,7 +86,9 @@ async fn test_schema_compatibility_enforcement() {
         metadata: None,
     };
 
-    let _result = registry.register_schema("users-value", request2).await;
+    let _result = registry
+        .register_schema("users-value", request2, "test-org")
+        .await;
     // Should succeed (backward compatible)
     // Note: Will fail with placeholder storage
     // assert!(result.is_ok());
@@ -132,7 +134,7 @@ async fn test_multiple_schema_formats() {
         metadata: None,
     };
     let avro_id = registry
-        .register_schema("avro-topic", avro_request)
+        .register_schema("avro-topic", avro_request, "test-org")
         .await
         .unwrap();
     assert!(avro_id > 0);
@@ -145,7 +147,7 @@ async fn test_multiple_schema_formats() {
         metadata: None,
     };
     let json_id = registry
-        .register_schema("json-topic", json_request)
+        .register_schema("json-topic", json_request, "test-org")
         .await
         .unwrap();
     assert!(json_id > 0);
@@ -158,7 +160,7 @@ async fn test_multiple_schema_formats() {
         metadata: None,
     };
     let proto_id = registry
-        .register_schema("proto-topic", proto_request)
+        .register_schema("proto-topic", proto_request, "test-org")
         .await
         .unwrap();
     assert!(proto_id > 0);
@@ -178,7 +180,7 @@ async fn test_invalid_schemas_rejected() {
         metadata: None,
     };
     assert!(registry
-        .register_schema("test", invalid_json)
+        .register_schema("test", invalid_json, "test-org")
         .await
         .is_err());
 
@@ -190,7 +192,7 @@ async fn test_invalid_schemas_rejected() {
         metadata: None,
     };
     assert!(registry
-        .register_schema("test", invalid_avro)
+        .register_schema("test", invalid_avro, "test-org")
         .await
         .is_err());
 
@@ -201,7 +203,10 @@ async fn test_invalid_schemas_rejected() {
         references: vec![],
         metadata: None,
     };
-    assert!(registry.register_schema("test", empty_proto).await.is_err());
+    assert!(registry
+        .register_schema("test", empty_proto, "test-org")
+        .await
+        .is_err());
 }
 
 #[tokio::test]
@@ -221,7 +226,7 @@ async fn test_compatibility_modes() {
 
     // Set subject-specific compatibility
     registry
-        .set_subject_compatibility("test-subject", CompatibilityMode::Backward)
+        .set_subject_compatibility("test-subject", CompatibilityMode::Backward, "test-org")
         .await
         .unwrap();
 }

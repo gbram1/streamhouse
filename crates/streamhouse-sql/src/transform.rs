@@ -7,16 +7,119 @@
 use std::sync::Arc;
 
 use arrow::array::{Array, Int64Array, StringArray, UInt32Array, UInt64Array};
+use arrow::datatypes::DataType;
 use datafusion::datasource::MemTable;
 use datafusion::execution::context::SessionContext;
+use datafusion::logical_expr::{ColumnarValue, ScalarUDF, ScalarUDFImpl, Signature, Volatility};
 
 use bytes::Bytes;
 use streamhouse_connectors::SinkRecord;
 
 use crate::arrow_executor::ArrowExecutor;
 use crate::error::SqlError;
-use crate::types::MessageRow;
+use crate::types::{extract_json_path, MessageRow};
 use crate::Result;
+
+/// Custom UDF: `json_extract(json_string, path)` → extracted value as string.
+///
+/// Uses `$.field.subfield` path syntax. Returns NULL if the path doesn't exist
+/// or the input isn't valid JSON.
+#[derive(Debug)]
+struct JsonExtractUdf {
+    signature: Signature,
+}
+
+impl JsonExtractUdf {
+    fn new() -> Self {
+        Self {
+            signature: Signature::exact(
+                vec![DataType::Utf8, DataType::Utf8],
+                Volatility::Immutable,
+            ),
+        }
+    }
+}
+
+impl ScalarUDFImpl for JsonExtractUdf {
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
+
+    fn name(&self) -> &str {
+        "json_extract"
+    }
+
+    fn signature(&self) -> &Signature {
+        &self.signature
+    }
+
+    fn return_type(&self, _arg_types: &[DataType]) -> datafusion::error::Result<DataType> {
+        Ok(DataType::Utf8)
+    }
+
+    fn invoke_batch(
+        &self,
+        args: &[ColumnarValue],
+        num_rows: usize,
+    ) -> datafusion::error::Result<ColumnarValue> {
+        use arrow::array::Array as _;
+
+        let json_arr = match &args[0] {
+            ColumnarValue::Array(a) => a.clone(),
+            ColumnarValue::Scalar(s) => s.to_array_of_size(num_rows)?,
+        };
+        let path_arr = match &args[1] {
+            ColumnarValue::Array(a) => a.clone(),
+            ColumnarValue::Scalar(s) => s.to_array_of_size(num_rows)?,
+        };
+
+        let json_strs = json_arr
+            .as_any()
+            .downcast_ref::<StringArray>()
+            .ok_or_else(|| {
+                datafusion::error::DataFusionError::Internal(
+                    "json_extract: first argument must be Utf8".to_string(),
+                )
+            })?;
+        let path_strs = path_arr
+            .as_any()
+            .downcast_ref::<StringArray>()
+            .ok_or_else(|| {
+                datafusion::error::DataFusionError::Internal(
+                    "json_extract: second argument must be Utf8".to_string(),
+                )
+            })?;
+
+        let mut builder = arrow::array::StringBuilder::new();
+        for i in 0..json_strs.len() {
+            if json_strs.is_null(i) || path_strs.is_null(i) {
+                builder.append_null();
+                continue;
+            }
+            let json_str = json_strs.value(i);
+            let path = path_strs.value(i);
+
+            match serde_json::from_str::<serde_json::Value>(json_str) {
+                Ok(parsed) => {
+                    let extracted = extract_json_path(&parsed, path);
+                    match extracted {
+                        serde_json::Value::Null => builder.append_null(),
+                        serde_json::Value::String(s) => builder.append_value(&s),
+                        other => builder.append_value(other.to_string()),
+                    }
+                }
+                Err(_) => builder.append_null(),
+            }
+        }
+
+        Ok(ColumnarValue::Array(Arc::new(builder.finish())))
+    }
+}
+
+/// Create a `json_extract` UDF for use with DataFusion.
+fn create_json_extract_udf() -> ScalarUDF {
+    ScalarUDF::from(JsonExtractUdf::new())
+}
 
 /// SQL transform engine that applies SQL queries to batches of records.
 pub struct TransformEngine;
@@ -100,6 +203,7 @@ impl TransformEngine {
 
         // Register the batch as a table named "input"
         let ctx = SessionContext::new();
+        ctx.register_udf(create_json_extract_udf());
         let provider = MemTable::try_new(schema, vec![vec![batch]])
             .map_err(|e| SqlError::DataFusionError(e.to_string()))?;
         ctx.register_table("input", Arc::new(provider))

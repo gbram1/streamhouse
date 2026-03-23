@@ -386,7 +386,35 @@ pub async fn delete_topic(
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
         .ok_or(StatusCode::NOT_FOUND)?;
 
-    // Delete topic
+    // Clean up S3 segments before deleting metadata
+    let partitions = state
+        .metadata
+        .list_partitions(&org_id, &name)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    for partition in &partitions {
+        let segments = state
+            .metadata
+            .get_segments(&org_id, &name, partition.partition_id)
+            .await
+            .unwrap_or_default();
+
+        for segment in &segments {
+            let path = object_store::path::Path::from(segment.s3_key.clone());
+            if let Err(e) = state.object_store.delete(&path).await {
+                tracing::warn!(
+                    topic = %name,
+                    partition = partition.partition_id,
+                    s3_key = %segment.s3_key,
+                    error = %e,
+                    "Failed to delete S3 segment during topic deletion, orphan reconciler will clean up"
+                );
+            }
+        }
+    }
+
+    // Delete topic metadata (CASCADE handles segment/partition rows)
     state
         .metadata
         .delete_topic_for_org(&org_id, &name)

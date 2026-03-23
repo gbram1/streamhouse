@@ -46,6 +46,7 @@ impl SchemaRegistry {
         &self,
         subject: &str,
         request: RegisterSchemaRequest,
+        org_id: &str,
     ) -> Result<i32> {
         let schema_type = request.schema_type.unwrap_or(SchemaFormat::Avro);
 
@@ -80,7 +81,7 @@ impl SchemaRegistry {
             metadata: request.metadata.unwrap_or_default(),
         };
 
-        let id = self.storage.register_schema(schema).await?;
+        let id = self.storage.register_schema(schema, org_id).await?;
 
         // Invalidate caches
         self.subject_cache.invalidate(subject).await;
@@ -200,13 +201,14 @@ impl SchemaRegistry {
         &self,
         subject: &str,
         mode: CompatibilityMode,
+        org_id: &str,
     ) -> Result<()> {
         let config = SubjectConfig {
             subject: subject.to_string(),
             compatibility: mode,
         };
 
-        self.storage.set_subject_config(config).await
+        self.storage.set_subject_config(config, org_id).await
     }
 
     /// Get global compatibility mode
@@ -305,7 +307,7 @@ mod tests {
         };
 
         let id = registry
-            .register_schema("test-subject", request)
+            .register_schema("test-subject", request, "test-org")
             .await
             .unwrap();
         assert!(id > 0);
@@ -320,7 +322,7 @@ mod tests {
         };
 
         let id2 = registry
-            .register_schema("test-subject", request2)
+            .register_schema("test-subject", request2, "test-org")
             .await
             .unwrap();
         assert_eq!(id, id2);
@@ -341,7 +343,9 @@ mod tests {
             metadata: None,
         };
 
-        let result = registry.register_schema("test-subject", request).await;
+        let result = registry
+            .register_schema("test-subject", request, "test-org")
+            .await;
         assert!(result.is_err());
     }
 }

@@ -41,7 +41,7 @@ mod tests {
         let storage = PostgresSchemaStorage::new(pool);
         let schema = create_test_schema("test-subject", 1);
 
-        let id = storage.register_schema(schema).await.unwrap();
+        let id = storage.register_schema(schema, "test-org").await.unwrap();
         assert!(id > 0);
     }
 
@@ -58,8 +58,8 @@ mod tests {
         let schema1 = create_test_schema("test-subject-2", 1);
         let schema2 = create_test_schema("test-subject-2", 1);
 
-        let id1 = storage.register_schema(schema1).await.unwrap();
-        let id2 = storage.register_schema(schema2).await.unwrap();
+        let id1 = storage.register_schema(schema1, "test-org").await.unwrap();
+        let id2 = storage.register_schema(schema2, "test-org").await.unwrap();
 
         assert_eq!(id1, id2, "Same schema should return same ID");
     }
@@ -75,7 +75,10 @@ mod tests {
         let storage = PostgresSchemaStorage::new(pool);
 
         let schema = create_test_schema("test-subject-3", 1);
-        let id = storage.register_schema(schema.clone()).await.unwrap();
+        let id = storage
+            .register_schema(schema.clone(), "test-org")
+            .await
+            .unwrap();
 
         let retrieved = storage.get_schema_by_id(id).await.unwrap();
         assert!(retrieved.is_some());
@@ -99,11 +102,11 @@ mod tests {
         schema1.schema =
             r#"{"type": "record", "name": "Test", "fields": [{"name": "id", "type": "int"}]}"#
                 .to_string();
-        storage.register_schema(schema1).await.unwrap();
+        storage.register_schema(schema1, "test-org").await.unwrap();
 
         let mut schema2 = create_test_schema(subject, 2);
         schema2.schema = r#"{"type": "record", "name": "Test", "fields": [{"name": "id", "type": "int"}, {"name": "name", "type": "string"}]}"#.to_string();
-        storage.register_schema(schema2).await.unwrap();
+        storage.register_schema(schema2, "test-org").await.unwrap();
 
         let versions = storage.get_versions(subject).await.unwrap();
         assert_eq!(versions.len(), 2);
