@@ -302,12 +302,50 @@ impl RebalanceTask {
         };
 
         if !topology_changed {
-            debug!(
+            // Even if topology hasn't changed, check for partitions we should own
+            // but don't have leases for (e.g. expired pre-assignment leases).
+            let state = self.state.read().await;
+            let mut has_missing_leases = false;
+
+            let mut all_mine: HashSet<(String, u32)> = HashSet::new();
+            let mut check_partitions: Vec<(String, u32)> = Vec::new();
+            for topic_name in &self.topics {
+                if let Ok(Some(topic)) = self.metadata_store.get_topic(topic_name).await {
+                    let mut sorted_agents = agent_ids.clone();
+                    sorted_agents.sort();
+                    for p in 0..topic.partition_count {
+                        check_partitions.push((topic_name.clone(), p));
+                    }
+                }
+            }
+            check_partitions.sort();
+            let mut sorted_agents = agent_ids.clone();
+            sorted_agents.sort();
+            let num_agents = sorted_agents.len();
+            for (i, (topic, partition_id)) in check_partitions.iter().enumerate() {
+                if sorted_agents[i % num_agents] == self.agent_id {
+                    all_mine.insert((topic.clone(), *partition_id));
+                }
+            }
+
+            if all_mine != state.assigned_partitions {
+                has_missing_leases = true;
+            }
+            drop(state);
+
+            if !has_missing_leases {
+                debug!(
+                    agent_id = %self.agent_id,
+                    agent_count = agent_ids.len(),
+                    "No topology change and all leases held, skipping rebalance"
+                );
+                return Ok(());
+            }
+
+            info!(
                 agent_id = %self.agent_id,
-                agent_count = agent_ids.len(),
-                "No topology change, skipping rebalance"
+                "Topology unchanged but missing leases detected, performing rebalance"
             );
-            return Ok(());
         }
 
         info!(
