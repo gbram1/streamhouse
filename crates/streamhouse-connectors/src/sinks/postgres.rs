@@ -130,6 +130,9 @@ pub struct PostgresSinkConnector {
     /// Populated on first batch execution. JSON fields not in this set are skipped.
     #[cfg(feature = "postgres")]
     table_columns: Option<std::collections::HashSet<String>>,
+    /// Column name -> Postgres data type (e.g., "integer", "text", "numeric")
+    #[cfg(feature = "postgres")]
+    column_types: HashMap<String, String>,
     // @Note, this would hold a sqlx::PgPool.
     // For compilation without the postgres feature, we keep the pool as Option.
     #[cfg(feature = "postgres")]
@@ -147,6 +150,8 @@ impl PostgresSinkConnector {
             #[cfg(feature = "postgres")]
             table_columns: None,
             #[cfg(feature = "postgres")]
+            column_types: HashMap::new(),
+            #[cfg(feature = "postgres")]
             pool: None,
         })
     }
@@ -160,6 +165,8 @@ impl PostgresSinkConnector {
             #[cfg(feature = "postgres")]
             table_columns: None,
             #[cfg(feature = "postgres")]
+            column_types: HashMap::new(),
+            #[cfg(feature = "postgres")]
             pool: None,
         }
     }
@@ -168,9 +175,19 @@ impl PostgresSinkConnector {
     ///
     /// All records are assumed to have the same set of columns (keys from the
     /// first record's JSON object).
-    pub fn build_insert_sql(table: &str, columns: &[String], num_rows: usize) -> String {
-        let col_list = columns.join(", ");
-        let mut sql = format!("INSERT INTO {} ({}) VALUES ", table, col_list);
+    pub fn build_insert_sql(
+        table: &str,
+        columns: &[String],
+        num_rows: usize,
+        column_types: &HashMap<String, String>,
+    ) -> String {
+        // Quote all column names to handle reserved words (user, offset, timestamp, etc.)
+        let col_list = columns
+            .iter()
+            .map(|c| format!("\"{}\"", c))
+            .collect::<Vec<_>>()
+            .join(", ");
+        let mut sql = format!("INSERT INTO \"{}\" ({}) VALUES ", table, col_list);
 
         for row in 0..num_rows {
             if row > 0 {
@@ -181,7 +198,30 @@ impl PostgresSinkConnector {
                 if col > 0 {
                     sql.push_str(", ");
                 }
-                sql.push_str(&format!("${}", row * columns.len() + col + 1));
+                let param = format!("${}", row * columns.len() + col + 1);
+                // Cast TEXT parameters to the target column type
+                let col_type = column_types
+                    .get(&columns[col])
+                    .map(|s| s.as_str())
+                    .unwrap_or("text");
+                match col_type {
+                    "integer" | "int4" => sql.push_str(&format!("{}::integer", param)),
+                    "bigint" | "int8" => sql.push_str(&format!("{}::bigint", param)),
+                    "smallint" | "int2" => sql.push_str(&format!("{}::smallint", param)),
+                    "numeric" | "decimal" => sql.push_str(&format!("{}::numeric", param)),
+                    "real" | "float4" => sql.push_str(&format!("{}::real", param)),
+                    "double precision" | "float8" => {
+                        sql.push_str(&format!("{}::double precision", param))
+                    }
+                    "boolean" | "bool" => sql.push_str(&format!("{}::boolean", param)),
+                    "timestamp without time zone" | "timestamp with time zone" => {
+                        sql.push_str(&format!("{}::timestamp", param))
+                    }
+                    "jsonb" => sql.push_str(&format!("{}::jsonb", param)),
+                    "json" => sql.push_str(&format!("{}::json", param)),
+                    "uuid" => sql.push_str(&format!("{}::uuid", param)),
+                    _ => sql.push_str(&param), // text and unknown types — no cast
+                }
             }
             sql.push(')');
         }
@@ -195,10 +235,15 @@ impl PostgresSinkConnector {
         columns: &[String],
         pk_fields: &[String],
         num_rows: usize,
+        column_types: &HashMap<String, String>,
     ) -> String {
-        let mut sql = Self::build_insert_sql(table, columns, num_rows);
+        let mut sql = Self::build_insert_sql(table, columns, num_rows, column_types);
 
-        let pk_list = pk_fields.join(", ");
+        let pk_list = pk_fields
+            .iter()
+            .map(|c| format!("\"{}\"", c))
+            .collect::<Vec<_>>()
+            .join(", ");
         sql.push_str(&format!(" ON CONFLICT ({}) DO UPDATE SET ", pk_list));
 
         let non_pk_columns: Vec<&String> =
@@ -208,7 +253,7 @@ impl PostgresSinkConnector {
             if i > 0 {
                 sql.push_str(", ");
             }
-            sql.push_str(&format!("{} = EXCLUDED.{}", col, col));
+            sql.push_str(&format!("\"{}\" = EXCLUDED.\"{}\"", col, col));
         }
 
         sql
@@ -237,8 +282,8 @@ impl PostgresSinkConnector {
             return Ok(());
         }
         if let Some(pool) = &self.pool {
-            let rows: Vec<(String,)> = sqlx::query_as(
-                "SELECT column_name FROM information_schema.columns WHERE table_name = $1",
+            let rows: Vec<(String, String)> = sqlx::query_as(
+                "SELECT column_name, data_type FROM information_schema.columns WHERE table_name = $1",
             )
             .bind(&self.config.table_name)
             .fetch_all(pool)
@@ -247,9 +292,21 @@ impl PostgresSinkConnector {
                 ConnectorError::SinkError(format!("Failed to fetch table columns: {}", e))
             })?;
 
-            let cols: std::collections::HashSet<String> = rows.into_iter().map(|(c,)| c).collect();
-            tracing::info!(connector = %self.name, table = %self.config.table_name, columns = ?cols, "cached target table columns");
+            let mut cols = std::collections::HashSet::new();
+            let mut types = HashMap::new();
+            for (name, data_type) in rows {
+                cols.insert(name.clone());
+                types.insert(name, data_type);
+            }
+            tracing::info!(
+                connector = %self.name,
+                table = %self.config.table_name,
+                columns = ?cols,
+                types = ?types,
+                "cached target table columns and types"
+            );
             self.table_columns = Some(cols);
+            self.column_types = types;
         }
         Ok(())
     }
@@ -292,8 +349,15 @@ impl PostgresSinkConnector {
         let columns: Vec<String> = all_rows[0].iter().map(|(k, _)| k.clone()).collect();
 
         if columns.is_empty() {
-            tracing::warn!(connector = %self.name, "no matching columns between record and target table, skipping batch");
-            return Ok(());
+            tracing::warn!(
+                connector = %self.name,
+                record_fields = ?all_rows.get(0).map(|r| r.iter().map(|(k, _)| k.clone()).collect::<Vec<_>>()),
+                table_columns = ?self.table_columns,
+                "no matching columns between record and target table, skipping batch"
+            );
+            return Err(ConnectorError::SinkError(
+                "No matching columns between record JSON fields and target table columns".to_string(),
+            ));
         }
 
         // Filter each row to only include the selected columns
@@ -310,14 +374,18 @@ impl PostgresSinkConnector {
             .collect();
 
         let _sql = match self.config.insert_mode {
-            InsertMode::Insert => {
-                Self::build_insert_sql(&self.config.table_name, &columns, filtered_rows.len())
-            }
+            InsertMode::Insert => Self::build_insert_sql(
+                &self.config.table_name,
+                &columns,
+                filtered_rows.len(),
+                &self.column_types,
+            ),
             InsertMode::Upsert => Self::build_upsert_sql(
                 &self.config.table_name,
                 &columns,
                 &self.config.pk_fields,
                 filtered_rows.len(),
+                &self.column_types,
             ),
         };
 
