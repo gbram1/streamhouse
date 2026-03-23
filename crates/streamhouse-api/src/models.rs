@@ -355,36 +355,6 @@ pub struct DeleteConsumerGroupResponse {
 }
 
 // ---------------------------------------------------------------
-// Connector models
-// ---------------------------------------------------------------
-
-#[derive(Debug, Serialize, Deserialize, ToSchema)]
-#[serde(rename_all = "camelCase")]
-pub struct ConnectorResponse {
-    pub name: String,
-    pub connector_type: String,
-    pub connector_class: String,
-    pub topics: Vec<String>,
-    pub config: std::collections::HashMap<String, String>,
-    pub state: String,
-    pub error_message: Option<String>,
-    pub records_processed: i64,
-    pub created_at: String,
-    pub updated_at: String,
-}
-
-#[derive(Debug, Serialize, Deserialize, ToSchema)]
-#[serde(rename_all = "camelCase")]
-pub struct CreateConnectorRequest {
-    pub name: String,
-    pub connector_type: String,
-    pub connector_class: String,
-    pub topics: Vec<String>,
-    #[serde(default)]
-    pub config: std::collections::HashMap<String, String>,
-}
-
-// ---------------------------------------------------------------
 // Pipeline models
 // ---------------------------------------------------------------
 
