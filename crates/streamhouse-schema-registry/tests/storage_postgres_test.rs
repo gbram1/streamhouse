@@ -75,7 +75,10 @@ mod tests {
         let storage = PostgresSchemaStorage::new(pool);
 
         let schema = create_test_schema("test-subject-3", 1);
-        let id = storage.register_schema(schema.clone()).await.unwrap();
+        let id = storage
+            .register_schema(schema.clone(), "test-org")
+            .await
+            .unwrap();
 
         let retrieved = storage.get_schema_by_id(id).await.unwrap();
         assert!(retrieved.is_some());
