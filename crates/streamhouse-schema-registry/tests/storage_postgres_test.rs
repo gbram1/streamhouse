@@ -108,7 +108,7 @@ mod tests {
         schema2.schema = r#"{"type": "record", "name": "Test", "fields": [{"name": "id", "type": "int"}, {"name": "name", "type": "string"}]}"#.to_string();
         storage.register_schema(schema2, "test-org").await.unwrap();
 
-        let versions = storage.get_versions(subject).await.unwrap();
+        let versions = storage.get_versions(subject, "test-org").await.unwrap();
         assert_eq!(versions.len(), 2);
         assert_eq!(versions, vec![1, 2]);
     }

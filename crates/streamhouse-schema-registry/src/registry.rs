@@ -54,8 +54,8 @@ impl SchemaRegistry {
         self.validate_schema(&request.schema, schema_type)?;
 
         // Check compatibility if subject already has schemas
-        if let Some(latest) = self.storage.get_latest_schema(subject).await? {
-            let compatibility = self.get_compatibility_mode(subject).await?;
+        if let Some(latest) = self.storage.get_latest_schema(subject, org_id).await? {
+            let compatibility = self.get_compatibility_mode(subject, org_id).await?;
 
             if !check_compatibility(&latest, &request.schema, schema_type, compatibility)? {
                 return Err(SchemaError::IncompatibleSchema(format!(
@@ -66,7 +66,11 @@ impl SchemaRegistry {
         }
 
         // Check if this exact schema already exists
-        if let Some(existing_id) = self.storage.schema_exists(subject, &request.schema).await? {
+        if let Some(existing_id) = self
+            .storage
+            .schema_exists(subject, &request.schema, org_id)
+            .await?
+        {
             return Ok(existing_id);
         }
 
@@ -111,10 +115,10 @@ impl SchemaRegistry {
     }
 
     /// Get schema by subject and version
-    pub async fn get_schema(&self, subject: &str, version: i32) -> Result<Schema> {
+    pub async fn get_schema(&self, subject: &str, version: i32, org_id: &str) -> Result<Schema> {
         let schema = self
             .storage
-            .get_schema_by_subject_version(subject, version)
+            .get_schema_by_subject_version(subject, version, org_id)
             .await?
             .ok_or_else(|| SchemaError::SchemaNotFound {
                 subject: subject.to_string(),
@@ -128,7 +132,7 @@ impl SchemaRegistry {
     }
 
     /// Get latest schema for subject
-    pub async fn get_latest_schema(&self, subject: &str) -> Result<Schema> {
+    pub async fn get_latest_schema(&self, subject: &str, org_id: &str) -> Result<Schema> {
         // Check cache
         if let Some(schema) = self.subject_cache.get(subject).await {
             return Ok(schema);
@@ -137,7 +141,7 @@ impl SchemaRegistry {
         // Fetch from storage
         let schema = self
             .storage
-            .get_latest_schema(subject)
+            .get_latest_schema(subject, org_id)
             .await?
             .ok_or_else(|| SchemaError::SubjectNotFound(subject.to_string()))?;
 
@@ -151,18 +155,18 @@ impl SchemaRegistry {
     }
 
     /// Get all versions for a subject
-    pub async fn get_versions(&self, subject: &str) -> Result<Vec<i32>> {
-        self.storage.get_versions(subject).await
+    pub async fn get_versions(&self, subject: &str, org_id: &str) -> Result<Vec<i32>> {
+        self.storage.get_versions(subject, org_id).await
     }
 
     /// Get all subjects
-    pub async fn get_subjects(&self) -> Result<Vec<String>> {
-        self.storage.get_subjects().await
+    pub async fn get_subjects(&self, org_id: &str) -> Result<Vec<String>> {
+        self.storage.get_subjects(org_id).await
     }
 
     /// Delete a subject
-    pub async fn delete_subject(&self, subject: &str) -> Result<Vec<i32>> {
-        let versions = self.storage.delete_subject(subject).await?;
+    pub async fn delete_subject(&self, subject: &str, org_id: &str) -> Result<Vec<i32>> {
+        let versions = self.storage.delete_subject(subject, org_id).await?;
 
         // Invalidate caches
         self.subject_cache.invalidate(subject).await;
@@ -171,8 +175,11 @@ impl SchemaRegistry {
     }
 
     /// Delete a specific version
-    pub async fn delete_version(&self, subject: &str, version: i32) -> Result<i32> {
-        let deleted_version = self.storage.delete_version(subject, version).await?;
+    pub async fn delete_version(&self, subject: &str, version: i32, org_id: &str) -> Result<i32> {
+        let deleted_version = self
+            .storage
+            .delete_version(subject, version, org_id)
+            .await?;
 
         // Invalidate caches
         self.subject_cache.invalidate(subject).await;
@@ -181,9 +188,13 @@ impl SchemaRegistry {
     }
 
     /// Get compatibility mode for subject
-    async fn get_compatibility_mode(&self, subject: &str) -> Result<CompatibilityMode> {
+    async fn get_compatibility_mode(
+        &self,
+        subject: &str,
+        org_id: &str,
+    ) -> Result<CompatibilityMode> {
         // Try subject-specific config first
-        if let Some(config) = self.storage.get_subject_config(subject).await? {
+        if let Some(config) = self.storage.get_subject_config(subject, org_id).await? {
             return Ok(config.compatibility);
         }
 
@@ -192,8 +203,12 @@ impl SchemaRegistry {
     }
 
     /// Get subject configuration
-    pub async fn get_subject_config(&self, subject: &str) -> Result<Option<SubjectConfig>> {
-        self.storage.get_subject_config(subject).await
+    pub async fn get_subject_config(
+        &self,
+        subject: &str,
+        org_id: &str,
+    ) -> Result<Option<SubjectConfig>> {
+        self.storage.get_subject_config(subject, org_id).await
     }
 
     /// Set subject compatibility mode

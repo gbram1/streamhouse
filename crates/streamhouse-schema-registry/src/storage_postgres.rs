@@ -84,7 +84,10 @@ impl SchemaStorage for PostgresSchemaStorage {
         let schema_hash = Self::compute_hash(&schema.schema);
 
         // Check if this exact schema already exists (by hash)
-        if let Some(existing_id) = self.schema_exists(&schema.subject, &schema.schema).await? {
+        if let Some(existing_id) = self
+            .schema_exists(&schema.subject, &schema.schema, org_id)
+            .await?
+        {
             tracing::debug!(
                 schema_id = existing_id,
                 subject = %schema.subject,
@@ -94,7 +97,7 @@ impl SchemaStorage for PostgresSchemaStorage {
         }
 
         // Determine next version for this subject
-        let version = if let Some(latest) = self.get_latest_schema(&schema.subject).await? {
+        let version = if let Some(latest) = self.get_latest_schema(&schema.subject, org_id).await? {
             latest.version + 1
         } else {
             1
@@ -192,7 +195,10 @@ impl SchemaStorage for PostgresSchemaStorage {
         &self,
         subject: &str,
         version: i32,
+        org_id: &str,
     ) -> Result<Option<Schema>> {
+        let parsed_org_id =
+            sqlx::types::Uuid::parse_str(org_id).unwrap_or_else(|_| sqlx::types::Uuid::nil());
         let result = sqlx::query_as::<_, (i32, String, String, i32)>(
             r#"
             SELECT
@@ -202,11 +208,12 @@ impl SchemaStorage for PostgresSchemaStorage {
                 v.version
             FROM schema_registry_schemas s
             JOIN schema_registry_versions v ON s.id = v.schema_id
-            WHERE v.subject = $1 AND v.version = $2
+            WHERE v.subject = $1 AND v.version = $2 AND v.organization_id = $3
             "#,
         )
         .bind(subject)
         .bind(version)
+        .bind(parsed_org_id)
         .fetch_optional(&self.pool)
         .await?;
 
@@ -225,7 +232,9 @@ impl SchemaStorage for PostgresSchemaStorage {
         }
     }
 
-    async fn get_latest_schema(&self, subject: &str) -> Result<Option<Schema>> {
+    async fn get_latest_schema(&self, subject: &str, org_id: &str) -> Result<Option<Schema>> {
+        let parsed_org_id =
+            sqlx::types::Uuid::parse_str(org_id).unwrap_or_else(|_| sqlx::types::Uuid::nil());
         let result = sqlx::query_as::<_, (i32, String, String, i32)>(
             r#"
             SELECT
@@ -235,12 +244,13 @@ impl SchemaStorage for PostgresSchemaStorage {
                 v.version
             FROM schema_registry_schemas s
             JOIN schema_registry_versions v ON s.id = v.schema_id
-            WHERE v.subject = $1
+            WHERE v.subject = $1 AND v.organization_id = $2
             ORDER BY v.version DESC
             LIMIT 1
             "#,
         )
         .bind(subject)
+        .bind(parsed_org_id)
         .fetch_optional(&self.pool)
         .await?;
 
@@ -259,48 +269,58 @@ impl SchemaStorage for PostgresSchemaStorage {
         }
     }
 
-    async fn get_versions(&self, subject: &str) -> Result<Vec<i32>> {
+    async fn get_versions(&self, subject: &str, org_id: &str) -> Result<Vec<i32>> {
+        let parsed_org_id =
+            sqlx::types::Uuid::parse_str(org_id).unwrap_or_else(|_| sqlx::types::Uuid::nil());
         let versions = sqlx::query_scalar::<_, i32>(
             r#"
             SELECT version
             FROM schema_registry_versions
-            WHERE subject = $1
+            WHERE subject = $1 AND organization_id = $2
             ORDER BY version ASC
             "#,
         )
         .bind(subject)
+        .bind(parsed_org_id)
         .fetch_all(&self.pool)
         .await?;
 
         Ok(versions)
     }
 
-    async fn get_subjects(&self) -> Result<Vec<String>> {
+    async fn get_subjects(&self, org_id: &str) -> Result<Vec<String>> {
+        let parsed_org_id =
+            sqlx::types::Uuid::parse_str(org_id).unwrap_or_else(|_| sqlx::types::Uuid::nil());
         let subjects = sqlx::query_scalar::<_, String>(
             r#"
             SELECT DISTINCT subject
             FROM schema_registry_versions
+            WHERE organization_id = $1
             ORDER BY subject ASC
             "#,
         )
+        .bind(parsed_org_id)
         .fetch_all(&self.pool)
         .await?;
 
         Ok(subjects)
     }
 
-    async fn delete_subject(&self, subject: &str) -> Result<Vec<i32>> {
+    async fn delete_subject(&self, subject: &str, org_id: &str) -> Result<Vec<i32>> {
+        let parsed_org_id =
+            sqlx::types::Uuid::parse_str(org_id).unwrap_or_else(|_| sqlx::types::Uuid::nil());
         // Get all versions before deleting
-        let versions = self.get_versions(subject).await?;
+        let versions = self.get_versions(subject, org_id).await?;
 
         // Delete all versions for this subject
         sqlx::query(
             r#"
             DELETE FROM schema_registry_versions
-            WHERE subject = $1
+            WHERE subject = $1 AND organization_id = $2
             "#,
         )
         .bind(subject)
+        .bind(parsed_org_id)
         .execute(&self.pool)
         .await?;
 
@@ -313,15 +333,18 @@ impl SchemaStorage for PostgresSchemaStorage {
         Ok(versions)
     }
 
-    async fn delete_version(&self, subject: &str, version: i32) -> Result<i32> {
+    async fn delete_version(&self, subject: &str, version: i32, org_id: &str) -> Result<i32> {
+        let parsed_org_id =
+            sqlx::types::Uuid::parse_str(org_id).unwrap_or_else(|_| sqlx::types::Uuid::nil());
         sqlx::query(
             r#"
             DELETE FROM schema_registry_versions
-            WHERE subject = $1 AND version = $2
+            WHERE subject = $1 AND version = $2 AND organization_id = $3
             "#,
         )
         .bind(subject)
         .bind(version)
+        .bind(parsed_org_id)
         .execute(&self.pool)
         .await?;
 
@@ -334,27 +357,39 @@ impl SchemaStorage for PostgresSchemaStorage {
         Ok(version)
     }
 
-    async fn schema_exists(&self, subject: &str, schema: &str) -> Result<Option<i32>> {
+    async fn schema_exists(
+        &self,
+        subject: &str,
+        schema: &str,
+        org_id: &str,
+    ) -> Result<Option<i32>> {
         let schema_hash = Self::compute_hash(schema);
+        let parsed_org_id =
+            sqlx::types::Uuid::parse_str(org_id).unwrap_or_else(|_| sqlx::types::Uuid::nil());
 
         let result = sqlx::query_scalar::<_, i32>(
             r#"
             SELECT s.id
             FROM schema_registry_schemas s
             JOIN schema_registry_versions v ON s.id = v.schema_id
-            WHERE v.subject = $1 AND s.schema_hash = $2
+            WHERE v.subject = $1 AND s.schema_hash = $2 AND v.organization_id = $3
             LIMIT 1
             "#,
         )
         .bind(subject)
         .bind(&schema_hash)
+        .bind(parsed_org_id)
         .fetch_optional(&self.pool)
         .await?;
 
         Ok(result)
     }
 
-    async fn get_subject_config(&self, subject: &str) -> Result<Option<SubjectConfig>> {
+    async fn get_subject_config(
+        &self,
+        subject: &str,
+        _org_id: &str,
+    ) -> Result<Option<SubjectConfig>> {
         let result = sqlx::query_as::<_, (String,)>(
             r#"
             SELECT compatibility

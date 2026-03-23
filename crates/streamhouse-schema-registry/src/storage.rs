@@ -24,28 +24,34 @@ pub trait SchemaStorage: Send + Sync {
         &self,
         subject: &str,
         version: i32,
+        org_id: &str,
     ) -> Result<Option<Schema>>;
 
     /// Get latest schema for subject
-    async fn get_latest_schema(&self, subject: &str) -> Result<Option<Schema>>;
+    async fn get_latest_schema(&self, subject: &str, org_id: &str) -> Result<Option<Schema>>;
 
     /// Get all versions for a subject
-    async fn get_versions(&self, subject: &str) -> Result<Vec<i32>>;
+    async fn get_versions(&self, subject: &str, org_id: &str) -> Result<Vec<i32>>;
 
     /// Get all subjects
-    async fn get_subjects(&self) -> Result<Vec<String>>;
+    async fn get_subjects(&self, org_id: &str) -> Result<Vec<String>>;
 
     /// Delete a subject (soft delete - marks as deleted)
-    async fn delete_subject(&self, subject: &str) -> Result<Vec<i32>>;
+    async fn delete_subject(&self, subject: &str, org_id: &str) -> Result<Vec<i32>>;
 
     /// Delete a specific version
-    async fn delete_version(&self, subject: &str, version: i32) -> Result<i32>;
+    async fn delete_version(&self, subject: &str, version: i32, org_id: &str) -> Result<i32>;
 
     /// Check if schema exists
-    async fn schema_exists(&self, subject: &str, schema: &str) -> Result<Option<i32>>;
+    async fn schema_exists(&self, subject: &str, schema: &str, org_id: &str)
+        -> Result<Option<i32>>;
 
     /// Get subject configuration
-    async fn get_subject_config(&self, subject: &str) -> Result<Option<SubjectConfig>>;
+    async fn get_subject_config(
+        &self,
+        subject: &str,
+        org_id: &str,
+    ) -> Result<Option<SubjectConfig>>;
 
     /// Set subject configuration
     async fn set_subject_config(&self, config: SubjectConfig, org_id: &str) -> Result<()>;
@@ -94,7 +100,10 @@ impl MemorySchemaStorage {
 impl SchemaStorage for MemorySchemaStorage {
     async fn register_schema(&self, mut schema: Schema, _org_id: &str) -> Result<i32> {
         // Check if this exact schema already exists for this subject
-        if let Some(existing_id) = self.schema_exists(&schema.subject, &schema.schema).await? {
+        if let Some(existing_id) = self
+            .schema_exists(&schema.subject, &schema.schema, _org_id)
+            .await?
+        {
             return Ok(existing_id);
         }
 
@@ -145,6 +154,7 @@ impl SchemaStorage for MemorySchemaStorage {
         &self,
         subject: &str,
         version: i32,
+        _org_id: &str,
     ) -> Result<Option<Schema>> {
         let versions = self.subject_versions.read().await;
         if let Some(v) = versions.get(subject) {
@@ -156,7 +166,7 @@ impl SchemaStorage for MemorySchemaStorage {
         Ok(None)
     }
 
-    async fn get_latest_schema(&self, subject: &str) -> Result<Option<Schema>> {
+    async fn get_latest_schema(&self, subject: &str, _org_id: &str) -> Result<Option<Schema>> {
         let versions = self.subject_versions.read().await;
         if let Some(v) = versions.get(subject) {
             if let Some((_, schema_id)) = v.iter().max_by_key(|(ver, _)| *ver) {
@@ -167,7 +177,7 @@ impl SchemaStorage for MemorySchemaStorage {
         Ok(None)
     }
 
-    async fn get_versions(&self, subject: &str) -> Result<Vec<i32>> {
+    async fn get_versions(&self, subject: &str, _org_id: &str) -> Result<Vec<i32>> {
         let versions = self.subject_versions.read().await;
         if let Some(v) = versions.get(subject) {
             let mut vers: Vec<i32> = v.iter().map(|(ver, _)| *ver).collect();
@@ -178,14 +188,14 @@ impl SchemaStorage for MemorySchemaStorage {
         }
     }
 
-    async fn get_subjects(&self) -> Result<Vec<String>> {
+    async fn get_subjects(&self, _org_id: &str) -> Result<Vec<String>> {
         let versions = self.subject_versions.read().await;
         let mut subjects: Vec<String> = versions.keys().cloned().collect();
         subjects.sort();
         Ok(subjects)
     }
 
-    async fn delete_subject(&self, subject: &str) -> Result<Vec<i32>> {
+    async fn delete_subject(&self, subject: &str, _org_id: &str) -> Result<Vec<i32>> {
         let removed_versions = {
             let mut versions = self.subject_versions.write().await;
             versions.remove(subject).unwrap_or_default()
@@ -201,7 +211,7 @@ impl SchemaStorage for MemorySchemaStorage {
         Ok(version_nums)
     }
 
-    async fn delete_version(&self, subject: &str, version: i32) -> Result<i32> {
+    async fn delete_version(&self, subject: &str, version: i32, _org_id: &str) -> Result<i32> {
         let schema_id = {
             let mut versions = self.subject_versions.write().await;
             if let Some(v) = versions.get_mut(subject) {
@@ -222,7 +232,12 @@ impl SchemaStorage for MemorySchemaStorage {
         Ok(version)
     }
 
-    async fn schema_exists(&self, subject: &str, schema_str: &str) -> Result<Option<i32>> {
+    async fn schema_exists(
+        &self,
+        subject: &str,
+        schema_str: &str,
+        _org_id: &str,
+    ) -> Result<Option<i32>> {
         let versions = self.subject_versions.read().await;
         if let Some(v) = versions.get(subject) {
             let by_id = self.schemas_by_id.read().await;
@@ -237,7 +252,11 @@ impl SchemaStorage for MemorySchemaStorage {
         Ok(None)
     }
 
-    async fn get_subject_config(&self, subject: &str) -> Result<Option<SubjectConfig>> {
+    async fn get_subject_config(
+        &self,
+        subject: &str,
+        _org_id: &str,
+    ) -> Result<Option<SubjectConfig>> {
         let configs = self.subject_configs.read().await;
         Ok(configs.get(subject).cloned())
     }

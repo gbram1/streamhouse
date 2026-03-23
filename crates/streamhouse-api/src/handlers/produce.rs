@@ -77,9 +77,10 @@ async fn validate_value_against_schema(
     registry: &streamhouse_schema_registry::SchemaRegistry,
     topic: &str,
     value: &str,
+    org_id: &str,
 ) -> Result<(), (StatusCode, String)> {
     let subject = format!("{}-value", topic);
-    let schema = match registry.get_latest_schema(&subject).await {
+    let schema = match registry.get_latest_schema(&subject, org_id).await {
         Ok(s) => s,
         Err(_) => return Ok(()), // No schema registered → skip validation
     };
@@ -245,7 +246,7 @@ pub async fn produce(
     // Validate value against schema (if schema registry is available)
     if let Some(registry) = &state.schema_registry {
         if let Err((status, msg)) =
-            validate_value_against_schema(registry, &req.topic, &req.value).await
+            validate_value_against_schema(registry, &req.topic, &req.value, &org_id).await
         {
             tracing::warn!("Schema validation failed: topic={}, err={}", req.topic, msg);
             metrics::PRODUCER_ERRORS_TOTAL
@@ -433,7 +434,7 @@ pub async fn produce_batch(
     if let Some(registry) = &state.schema_registry {
         for (idx, record) in req.records.iter().enumerate() {
             if let Err((status, msg)) =
-                validate_value_against_schema(registry, &req.topic, &record.value).await
+                validate_value_against_schema(registry, &req.topic, &record.value, &org_id).await
             {
                 tracing::warn!(
                     "Schema validation failed: topic={}, record={}, err={}",

@@ -86,14 +86,14 @@ impl StreamHouseService {
 
     /// Validate a value against the registered schema for a topic.
     /// Returns Ok(()) if no schema registry, no schema registered, or validation passes.
-    async fn validate_schema(&self, topic: &str, value: &[u8]) -> Result<(), Status> {
+    async fn validate_schema(&self, topic: &str, value: &[u8], org_id: &str) -> Result<(), Status> {
         let registry = match &self.schema_registry {
             Some(r) => r,
             None => return Ok(()),
         };
 
         let subject = format!("{}-value", topic);
-        let schema = match registry.get_latest_schema(&subject).await {
+        let schema = match registry.get_latest_schema(&subject, org_id).await {
             Ok(s) => s,
             Err(_) => return Ok(()), // No schema registered → skip
         };
@@ -431,7 +431,8 @@ impl StreamHouse for StreamHouseService {
         }
 
         // Validate value against schema
-        self.validate_schema(&req.topic, &req.value).await?;
+        self.validate_schema(&req.topic, &req.value, &org_id)
+            .await?;
 
         let timestamp = chrono::Utc::now().timestamp_millis() as u64;
         let key_bytes = if req.key.is_empty() {
@@ -506,7 +507,8 @@ impl StreamHouse for StreamHouseService {
 
         // Validate all records against schema
         for record in &req.records {
-            self.validate_schema(&req.topic, &record.value).await?;
+            self.validate_schema(&req.topic, &record.value, &org_id)
+                .await?;
         }
 
         let timestamp = chrono::Utc::now().timestamp_millis() as u64;

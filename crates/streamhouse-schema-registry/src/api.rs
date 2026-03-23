@@ -89,17 +89,23 @@ impl SchemaRegistryApi {
 // API Handlers
 
 /// List all subjects
-async fn list_subjects(State(registry): State<Arc<SchemaRegistry>>) -> Result<Json<Vec<String>>> {
-    let subjects = registry.get_subjects().await?;
+async fn list_subjects(
+    State(registry): State<Arc<SchemaRegistry>>,
+    headers: HeaderMap,
+) -> Result<Json<Vec<String>>> {
+    let org_id = extract_org_id(&headers)?;
+    let subjects = registry.get_subjects(&org_id).await?;
     Ok(Json(subjects))
 }
 
 /// List all versions for a subject
 async fn list_versions(
     State(registry): State<Arc<SchemaRegistry>>,
+    headers: HeaderMap,
     Path(subject): Path<String>,
 ) -> Result<Json<Vec<i32>>> {
-    let versions = registry.get_versions(&subject).await?;
+    let org_id = extract_org_id(&headers)?;
+    let versions = registry.get_versions(&subject, &org_id).await?;
     Ok(Json(versions))
 }
 
@@ -118,10 +124,12 @@ async fn register_schema(
 /// Get schema by subject and version
 async fn get_schema_by_version(
     State(registry): State<Arc<SchemaRegistry>>,
+    headers: HeaderMap,
     Path((subject, version)): Path<(String, String)>,
 ) -> Result<Json<SchemaResponse>> {
+    let org_id = extract_org_id(&headers)?;
     let version_num = if version == "latest" {
-        let schema = registry.get_latest_schema(&subject).await?;
+        let schema = registry.get_latest_schema(&subject, &org_id).await?;
         return Ok(Json(SchemaResponse {
             subject: schema.subject,
             version: schema.version,
@@ -136,7 +144,7 @@ async fn get_schema_by_version(
             .map_err(|_| SchemaError::InvalidFormat(format!("Invalid version: {}", version)))?
     };
 
-    let schema = registry.get_schema(&subject, version_num).await?;
+    let schema = registry.get_schema(&subject, version_num, &org_id).await?;
     Ok(Json(SchemaResponse {
         subject: schema.subject,
         version: schema.version,
@@ -166,18 +174,22 @@ async fn get_schema_by_id(
 /// Delete a subject
 async fn delete_subject(
     State(registry): State<Arc<SchemaRegistry>>,
+    headers: HeaderMap,
     Path(subject): Path<String>,
 ) -> Result<Json<Vec<i32>>> {
-    let versions = registry.delete_subject(&subject).await?;
+    let org_id = extract_org_id(&headers)?;
+    let versions = registry.delete_subject(&subject, &org_id).await?;
     Ok(Json(versions))
 }
 
 /// Delete a specific schema version
 async fn delete_schema_version(
     State(registry): State<Arc<SchemaRegistry>>,
+    headers: HeaderMap,
     Path((subject, version)): Path<(String, i32)>,
 ) -> Result<Json<i32>> {
-    let deleted_version = registry.delete_version(&subject, version).await?;
+    let org_id = extract_org_id(&headers)?;
+    let deleted_version = registry.delete_version(&subject, version, &org_id).await?;
     Ok(Json(deleted_version))
 }
 
@@ -207,9 +219,11 @@ async fn set_global_config(
 /// Get subject-specific compatibility configuration
 async fn get_subject_config(
     State(registry): State<Arc<SchemaRegistry>>,
+    headers: HeaderMap,
     Path(subject): Path<String>,
 ) -> Result<Json<CompatibilityResponse>> {
-    if let Some(config) = registry.get_subject_config(&subject).await? {
+    let org_id = extract_org_id(&headers)?;
+    if let Some(config) = registry.get_subject_config(&subject, &org_id).await? {
         Ok(Json(CompatibilityResponse {
             compatibility_level: config.compatibility,
         }))
