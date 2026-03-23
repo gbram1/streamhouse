@@ -372,11 +372,10 @@ pub static S3_REQUESTS_TOTAL: LazyLock<IntCounterVec> = LazyLock::new(|| {
 
 pub static S3_ERRORS_TOTAL: LazyLock<IntCounterVec> = LazyLock::new(|| {
     let m = IntCounterVec::new(&["org_id", "operation", "error_type"]);
-    REGISTRY.lock().unwrap().register(
-        "streamhouse_s3_errors",
-        "Total S3 errors",
-        m.family.clone(),
-    );
+    REGISTRY
+        .lock()
+        .unwrap()
+        .register("streamhouse_s3_errors", "Total S3 errors", m.family.clone());
     m
 });
 
