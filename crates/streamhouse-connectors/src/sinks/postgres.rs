@@ -356,7 +356,8 @@ impl PostgresSinkConnector {
                 "no matching columns between record and target table, skipping batch"
             );
             return Err(ConnectorError::SinkError(
-                "No matching columns between record JSON fields and target table columns".to_string(),
+                "No matching columns between record JSON fields and target table columns"
+                    .to_string(),
             ));
         }
 
