@@ -194,6 +194,41 @@ impl PipelineConsumeLoop {
             {
                 Ok(result) => result,
                 Err(streamhouse_storage::Error::OffsetNotFound(offset)) => {
+                    // Offset not found — may be stale after topic recreation.
+                    // Find the earliest available segment and skip to it.
+                    let segments = self
+                        .metadata
+                        .get_segments(
+                            &self.config.org_id,
+                            &self.config.source_topic,
+                            partition_id,
+                        )
+                        .await
+                        .unwrap_or_default();
+                    let earliest = segments.first().map(|s| s.base_offset);
+
+                    if let Some(earliest_offset) = earliest {
+                        if earliest_offset > start_offset as u64 {
+                            tracing::info!(
+                                pipeline = %self.config.pipeline_name,
+                                partition = partition_id,
+                                stale_offset = offset,
+                                skipping_to = earliest_offset,
+                                "Offset not found, skipping to earliest available segment"
+                            );
+                            // Commit so we don't retry from the stale offset
+                            let _ = self.metadata.commit_offset_for_org(
+                                &self.config.org_id,
+                                &self.config.consumer_group,
+                                &self.config.source_topic,
+                                partition_id,
+                                earliest_offset,
+                                None,
+                            ).await;
+                            continue;
+                        }
+                    }
+
                     tracing::debug!(
                         pipeline = %self.config.pipeline_name,
                         partition = partition_id,
