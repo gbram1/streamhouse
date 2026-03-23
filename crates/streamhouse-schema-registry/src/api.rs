@@ -9,7 +9,7 @@ use crate::{
 };
 use axum::{
     extract::{Path, State},
-    http::StatusCode,
+    http::{HeaderMap, StatusCode},
     response::{IntoResponse, Response},
     routing::{delete, get, post, put},
     Json, Router,
@@ -17,6 +17,17 @@ use axum::{
 use std::sync::Arc;
 use tower_http::cors::CorsLayer;
 use tracing::info;
+
+/// Extract organization ID from request headers.
+///
+/// Reads the `x-organization-id` header. Returns a 400 error if missing.
+fn extract_org_id(headers: &HeaderMap) -> std::result::Result<String, SchemaError> {
+    headers
+        .get("x-organization-id")
+        .and_then(|v| v.to_str().ok())
+        .map(|s| s.to_string())
+        .ok_or_else(|| SchemaError::InvalidFormat("Missing x-organization-id header".to_string()))
+}
 
 /// Schema Registry API Server
 pub struct SchemaRegistryApi {
@@ -95,10 +106,12 @@ async fn list_versions(
 /// Register a new schema
 async fn register_schema(
     State(registry): State<Arc<SchemaRegistry>>,
+    headers: HeaderMap,
     Path(subject): Path<String>,
     Json(request): Json<RegisterSchemaRequest>,
 ) -> Result<Json<RegisterSchemaResponse>> {
-    let id = registry.register_schema(&subject, request).await?;
+    let org_id = extract_org_id(&headers)?;
+    let id = registry.register_schema(&subject, request, &org_id).await?;
     Ok(Json(RegisterSchemaResponse { id }))
 }
 
@@ -212,11 +225,13 @@ async fn get_subject_config(
 /// Set subject-specific compatibility configuration
 async fn set_subject_config(
     State(registry): State<Arc<SchemaRegistry>>,
+    headers: HeaderMap,
     Path(subject): Path<String>,
     Json(request): Json<CompatibilityRequest>,
 ) -> Result<Json<CompatibilityResponse>> {
+    let org_id = extract_org_id(&headers)?;
     registry
-        .set_subject_compatibility(&subject, request.compatibility)
+        .set_subject_compatibility(&subject, request.compatibility, &org_id)
         .await?;
     Ok(Json(CompatibilityResponse {
         compatibility_level: request.compatibility,

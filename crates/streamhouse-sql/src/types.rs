@@ -761,7 +761,7 @@ impl MessageRow {
 }
 
 /// Extract a value from JSON using a simple path ($.field.subfield)
-fn extract_json_path(json: &serde_json::Value, path: &str) -> serde_json::Value {
+pub(crate) fn extract_json_path(json: &serde_json::Value, path: &str) -> serde_json::Value {
     let path = path.trim_start_matches('$').trim_start_matches('.');
     let parts: Vec<&str> = path.split('.').collect();
 

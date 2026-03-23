@@ -14,7 +14,7 @@ use streamhouse_metadata::MetadataStore;
 #[async_trait]
 pub trait SchemaStorage: Send + Sync {
     /// Register a new schema and return its ID
-    async fn register_schema(&self, schema: Schema) -> Result<i32>;
+    async fn register_schema(&self, schema: Schema, org_id: &str) -> Result<i32>;
 
     /// Get schema by ID
     async fn get_schema_by_id(&self, id: i32) -> Result<Option<Schema>>;
@@ -48,7 +48,7 @@ pub trait SchemaStorage: Send + Sync {
     async fn get_subject_config(&self, subject: &str) -> Result<Option<SubjectConfig>>;
 
     /// Set subject configuration
-    async fn set_subject_config(&self, config: SubjectConfig) -> Result<()>;
+    async fn set_subject_config(&self, config: SubjectConfig, org_id: &str) -> Result<()>;
 
     /// Get global compatibility mode
     async fn get_global_compatibility(&self) -> Result<CompatibilityMode>;
@@ -92,7 +92,7 @@ impl MemorySchemaStorage {
 
 #[async_trait]
 impl SchemaStorage for MemorySchemaStorage {
-    async fn register_schema(&self, mut schema: Schema) -> Result<i32> {
+    async fn register_schema(&self, mut schema: Schema, _org_id: &str) -> Result<i32> {
         // Check if this exact schema already exists for this subject
         if let Some(existing_id) = self.schema_exists(&schema.subject, &schema.schema).await? {
             return Ok(existing_id);
@@ -242,7 +242,7 @@ impl SchemaStorage for MemorySchemaStorage {
         Ok(configs.get(subject).cloned())
     }
 
-    async fn set_subject_config(&self, config: SubjectConfig) -> Result<()> {
+    async fn set_subject_config(&self, config: SubjectConfig, _org_id: &str) -> Result<()> {
         let mut configs = self.subject_configs.write().await;
         configs.insert(config.subject.clone(), config);
         Ok(())

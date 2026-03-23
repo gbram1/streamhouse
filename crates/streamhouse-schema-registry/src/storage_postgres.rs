@@ -79,7 +79,7 @@ impl PostgresSchemaStorage {
 
 #[async_trait]
 impl SchemaStorage for PostgresSchemaStorage {
-    async fn register_schema(&self, mut schema: Schema) -> Result<i32> {
+    async fn register_schema(&self, mut schema: Schema, org_id: &str) -> Result<i32> {
         // Compute hash for deduplication
         let schema_hash = Self::compute_hash(&schema.schema);
 
@@ -104,8 +104,8 @@ impl SchemaStorage for PostgresSchemaStorage {
         let mut tx = self.pool.begin().await?;
 
         // Insert schema into schemas table (or get existing ID if hash matches)
-        // TODO: pass org_id through context for multi-tenancy
-        let default_org = sqlx::types::Uuid::nil();
+        let parsed_org_id =
+            sqlx::types::Uuid::parse_str(org_id).unwrap_or_else(|_| sqlx::types::Uuid::nil());
         let schema_id: i32 = sqlx::query_scalar(
             r#"
             INSERT INTO schema_registry_schemas (schema_format, schema_definition, schema_hash, organization_id)
@@ -117,7 +117,7 @@ impl SchemaStorage for PostgresSchemaStorage {
         .bind(Self::format_to_string(schema.schema_type))
         .bind(&schema.schema)
         .bind(&schema_hash)
-        .bind(default_org)
+        .bind(parsed_org_id)
         .fetch_one(&mut *tx)
         .await?;
 
@@ -131,7 +131,7 @@ impl SchemaStorage for PostgresSchemaStorage {
         .bind(&schema.subject)
         .bind(version)
         .bind(schema_id)
-        .bind(default_org)
+        .bind(parsed_org_id)
         .execute(&mut *tx)
         .await?;
 
@@ -376,9 +376,9 @@ impl SchemaStorage for PostgresSchemaStorage {
         }
     }
 
-    async fn set_subject_config(&self, config: SubjectConfig) -> Result<()> {
-        // TODO: pass org_id through context for multi-tenancy
-        let default_org = sqlx::types::Uuid::nil();
+    async fn set_subject_config(&self, config: SubjectConfig, org_id: &str) -> Result<()> {
+        let parsed_org_id =
+            sqlx::types::Uuid::parse_str(org_id).unwrap_or_else(|_| sqlx::types::Uuid::nil());
         sqlx::query(
             r#"
             INSERT INTO schema_registry_subject_config (subject, compatibility, organization_id, updated_at)
@@ -389,7 +389,7 @@ impl SchemaStorage for PostgresSchemaStorage {
         )
         .bind(&config.subject)
         .bind(Self::compatibility_to_string(config.compatibility))
-        .bind(default_org)
+        .bind(parsed_org_id)
         .execute(&self.pool)
         .await?;
 

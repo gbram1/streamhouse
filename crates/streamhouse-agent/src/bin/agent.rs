@@ -258,12 +258,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         write_config,
     ));
 
-    // Background flush: roll stale segments to S3 every 5 seconds
-    let _flush_handle = writer_pool
-        .clone()
-        .start_background_flush(std::time::Duration::from_secs(5));
+    // Background flush: roll stale segments to S3
+    let flush_interval_secs: u64 = std::env::var("FLUSH_INTERVAL_SECS")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(5);
+    let flush_interval = std::time::Duration::from_secs(flush_interval_secs);
+    let _flush_handle = writer_pool.clone().start_background_flush(flush_interval);
 
-    info!("✓ Writer pool initialized (background flush every 5s)");
+    info!(
+        "✓ Writer pool initialized (background flush every {}s)",
+        flush_interval_secs
+    );
 
     // Build and start agent
     info!("Starting agent...");
