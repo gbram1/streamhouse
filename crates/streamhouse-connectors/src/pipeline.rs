@@ -204,7 +204,7 @@ impl PipelineConsumeLoop {
                     let earliest = segments.first().map(|s| s.base_offset);
 
                     if let Some(earliest_offset) = earliest {
-                        if earliest_offset > start_offset as u64 {
+                        if earliest_offset > start_offset {
                             tracing::info!(
                                 pipeline = %self.config.pipeline_name,
                                 partition = partition_id,
