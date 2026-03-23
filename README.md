@@ -38,6 +38,8 @@ stm metrics overview
 
 ```bash
 pip install streamhouse
+# On macOS, use a venv if pip is blocked:
+# python3 -m venv .venv && source .venv/bin/activate && pip install streamhouse
 ```
 
 ```python
@@ -49,11 +51,14 @@ sh = StreamHouse(api_key="sk_live_...")
 sh.admin.create_topic("events", partitions=3)
 
 # Produce
-sh.producer.send("events", key="user-1", value='{"event":"signup"}')
+producer = sh.producer()
+producer.send("events", key="user-1", value='{"event":"signup"}')
 
 # Consume
-for record in sh.consumer.poll("events"):
-    print(record.value)
+consumer = sh.consumer()
+records = consumer.poll("events", partition=0, offset=0)
+for record in records:
+    print(record.value_str)
 ```
 
 ### TypeScript SDK
@@ -80,6 +85,49 @@ for await (const record of consumer.subscribe("events")) {
   console.log(record.value);
 }
 ```
+
+### SQL Queries
+
+Query your streams with SQL — no external engine needed.
+
+```bash
+stm sql query "SELECT value->>'event' as event, COUNT(*) as cnt FROM events GROUP BY 1"
+```
+
+```python
+result = sh.admin.get_metrics()  # or use the SQL endpoint
+```
+
+```typescript
+const result = await sh.query('SELECT * FROM events WHERE value->>\'event\' = \'signup\' LIMIT 10');
+console.log(result.rows);
+```
+
+### Pipelines & Sink Connectors
+
+Stream data from topics to external systems with optional SQL transforms.
+
+```bash
+# Create a Postgres sink target
+stm pipeline target create my-postgres \
+  --target-type postgres \
+  --url "postgres://user:pass@host:5432/mydb" \
+  --table events_sink
+
+# Create a pipeline with a SQL transform
+stm pipeline create signup-pipeline \
+  --source-topic events \
+  --target my-postgres \
+  --transform "SELECT value->>'user' as user_id, value->>'event' as event_type, timestamp FROM events WHERE value->>'event' = 'signup'"
+
+# Start it
+stm pipeline start signup-pipeline
+
+# Check status
+stm pipeline list
+```
+
+Supported sinks: **PostgreSQL**, **S3** (Parquet/JSON/CSV), **Elasticsearch**.
 
 ### Kafka Protocol
 
