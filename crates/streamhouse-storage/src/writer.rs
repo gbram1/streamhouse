@@ -410,8 +410,10 @@ impl PartitionWriter {
             .append(&record)
             .map_err(|e| Error::SegmentError(e.to_string()))?;
 
-        // Don't roll the segment inline — let the background flush handle it.
-        // See append_batch() comment for rationale.
+        // Roll the segment inline if it meets size or age thresholds.
+        if self.should_roll_segment() {
+            self.roll_segment().await?;
+        }
 
         // Update segment buffer records gauge
         streamhouse_observability::metrics::SEGMENT_BUFFER_RECORDS
@@ -458,12 +460,10 @@ impl PartitionWriter {
                 .map_err(|e| Error::SegmentError(e.to_string()))?;
         }
 
-        // Don't roll the segment inline — it blocks all produce requests
-        // for this partition while the S3 upload completes (150ms-1s+).
-        // Instead, let the background flush task (every 5s) handle segment
-        // rolling. Data is safe because it's already in the WAL.
-        // The background flush calls flush_durable() which unconditionally
-        // rolls segments with data.
+        // Roll the segment inline if it meets size or age thresholds.
+        if self.should_roll_segment() {
+            self.roll_segment().await?;
+        }
 
         // Update segment buffer records gauge
         streamhouse_observability::metrics::SEGMENT_BUFFER_RECORDS
