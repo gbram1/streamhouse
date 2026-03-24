@@ -660,7 +660,7 @@ impl LeaseRenewalTask {
                             let leases = self.leases.read().await;
                             leases
                                 .get(&(topic.clone(), partition_id))
-                                .map_or(true, |lease| is_expired(lease.expires_at))
+                                .is_none_or(|lease| is_expired(lease.expires_at))
                         };
 
                         if should_evict {
