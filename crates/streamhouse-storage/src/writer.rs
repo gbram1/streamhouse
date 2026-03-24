@@ -410,10 +410,9 @@ impl PartitionWriter {
             .append(&record)
             .map_err(|e| Error::SegmentError(e.to_string()))?;
 
-        // Roll the segment inline if it meets size or age thresholds.
-        if self.should_roll_segment() {
-            self.roll_segment().await?;
-        }
+        // Don't roll the segment inline — it holds the writer mutex during
+        // S3 upload (150ms-1s+), blocking all produce requests for this partition.
+        // The background flush task (every 5s) handles segment rolling instead.
 
         // Update segment buffer records gauge
         streamhouse_observability::metrics::SEGMENT_BUFFER_RECORDS
@@ -460,10 +459,9 @@ impl PartitionWriter {
                 .map_err(|e| Error::SegmentError(e.to_string()))?;
         }
 
-        // Roll the segment inline if it meets size or age thresholds.
-        if self.should_roll_segment() {
-            self.roll_segment().await?;
-        }
+        // Don't roll the segment inline — it holds the writer mutex during
+        // S3 upload (150ms-1s+), blocking all produce requests for this partition.
+        // The background flush task (every 5s) handles segment rolling instead.
 
         // Update segment buffer records gauge
         streamhouse_observability::metrics::SEGMENT_BUFFER_RECORDS

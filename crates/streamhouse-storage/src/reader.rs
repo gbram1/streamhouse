@@ -350,9 +350,12 @@ impl PartitionReader {
     }
 
     fn cache_key(&self, info: &SegmentInfo) -> String {
+        // Include created_at timestamp to ensure cache entries are unique
+        // even if a topic is deleted and recreated with the same name,
+        // producing segments at the same base_offset and s3_key.
         format!(
-            "{}-{}-{}-{}",
-            self.org_id, self.topic, self.partition_id, info.base_offset
+            "{}-{}-{}-{}-{}",
+            self.org_id, self.topic, self.partition_id, info.base_offset, info.created_at
         )
     }
 }
