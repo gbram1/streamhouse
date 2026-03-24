@@ -56,13 +56,13 @@ async fn test_rate_limiting_rejects_excess_requests() {
     let metadata = create_test_metadata().await;
     let object_store = Arc::new(InMemory::new());
 
-    // Create config with very low rate limit (1 ops/sec, burst of 3)
-    // Use very low rate so tokens don't refill during test
+    // Create config with very low rate limit (0.1 ops/sec, burst of 2)
+    // Use extremely low rate so tokens cannot refill during the test window
     let throttle_config = ThrottleConfig {
         put_rate: BucketConfig {
-            rate: 1.0, // 1 per second (slow refill)
-            burst: 3,  // Only 3 in burst
-            min_rate: 1.0,
+            rate: 0.1, // 0.1 per second — 10s to refill a single token
+            burst: 2,  // Only 2 in burst
+            min_rate: 0.1,
             max_rate: 100.0,
         },
         get_rate: BucketConfig::default(),
@@ -149,11 +149,13 @@ async fn test_rate_limiting_rejects_excess_requests() {
     println!("  - Successful flushes: {}", success_count);
     println!("  - Rate limited: {}", rate_limited_count);
 
-    // Verify rate limiting kicked in (at least 3 should succeed from burst)
-    assert!(success_count >= 3, "Should allow burst of at least 3");
+    // Verify rate limiting kicked in (at least 2 should succeed from burst)
+    assert!(success_count >= 2, "Should allow burst of at least 2");
     assert!(
         rate_limited_count >= 1,
-        "Should rate limit at least 1 request"
+        "Should rate limit at least 1 request (success={}, limited={})",
+        success_count,
+        rate_limited_count,
     );
     println!("✓ Rate limiting verified!");
 }
