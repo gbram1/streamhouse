@@ -204,7 +204,10 @@ impl PipelineConsumeLoop {
                     let earliest = segments.first().map(|s| s.base_offset);
 
                     if let Some(earliest_offset) = earliest {
+                        let latest_end = segments.last().map(|s| s.end_offset);
+
                         if earliest_offset > start_offset {
+                            // Committed offset is before earliest segment — skip forward
                             tracing::info!(
                                 pipeline = %self.config.pipeline_name,
                                 partition = partition_id,
@@ -212,7 +215,6 @@ impl PipelineConsumeLoop {
                                 skipping_to = earliest_offset,
                                 "Offset not found, skipping to earliest available segment"
                             );
-                            // Commit so we don't retry from the stale offset
                             let _ = self
                                 .metadata
                                 .commit_offset_for_org(
@@ -225,6 +227,31 @@ impl PipelineConsumeLoop {
                                 )
                                 .await;
                             continue;
+                        } else if let Some(latest) = latest_end {
+                            if start_offset > latest + 1 {
+                                // Committed offset is PAST all available data —
+                                // topic was likely recreated. Reset to earliest.
+                                tracing::warn!(
+                                    pipeline = %self.config.pipeline_name,
+                                    partition = partition_id,
+                                    committed_offset = start_offset.saturating_sub(1),
+                                    latest_segment_end = latest,
+                                    resetting_to = earliest_offset,
+                                    "Committed offset is past all available segments — resetting to earliest (topic likely recreated)"
+                                );
+                                let _ = self
+                                    .metadata
+                                    .commit_offset_for_org(
+                                        &self.config.org_id,
+                                        &self.config.consumer_group,
+                                        &self.config.source_topic,
+                                        partition_id,
+                                        earliest_offset,
+                                        None,
+                                    )
+                                    .await;
+                                continue;
+                            }
                         }
                     }
 
