@@ -4,6 +4,12 @@ S3-native event streaming. One binary replaces Kafka.
 
 StreamHouse stores everything in S3 — no broker fleets, no disk replication, no JVM. Kafka protocol compatible. 1 TB of retention costs ~$23/month.
 
+## Demo
+
+Stream events to Postgres in 5 commands. No Kafka, no Flink, no glue code.
+
+![StreamHouse Demo](demo.gif)
+
 ## Get Started
 
 ### Cloud (fastest)
