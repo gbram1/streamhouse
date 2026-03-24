@@ -650,18 +650,40 @@ impl LeaseRenewalTask {
                     }
                     Err(e) => {
                         failure_count += 1;
-                        error!(
-                            agent_id = %self.agent_id,
-                            topic = %topic,
-                            partition_id = partition_id,
-                            error = %e,
-                            failure_count,
-                            "Lease renewal failed"
-                        );
 
-                        // Remove from cache if renewal failed
-                        let mut leases = self.leases.write().await;
-                        leases.remove(&(topic, partition_id));
+                        // Only evict from cache if the lease is actually expired.
+                        // A transient renewal failure (DB timeout, network blip)
+                        // should NOT remove the lease — it's still valid until
+                        // expires_at. Evicting it prematurely causes all produce
+                        // requests to fail until the next renewal cycle.
+                        let should_evict = {
+                            let leases = self.leases.read().await;
+                            leases
+                                .get(&(topic.clone(), partition_id))
+                                .map_or(true, |lease| is_expired(lease.expires_at))
+                        };
+
+                        if should_evict {
+                            error!(
+                                agent_id = %self.agent_id,
+                                topic = %topic,
+                                partition_id = partition_id,
+                                error = %e,
+                                failure_count,
+                                "Lease renewal failed and lease expired — evicting from cache"
+                            );
+                            let mut leases = self.leases.write().await;
+                            leases.remove(&(topic, partition_id));
+                        } else {
+                            warn!(
+                                agent_id = %self.agent_id,
+                                topic = %topic,
+                                partition_id = partition_id,
+                                error = %e,
+                                failure_count,
+                                "Lease renewal failed but lease still valid — keeping in cache, will retry next cycle"
+                            );
+                        }
                     }
                 }
             }

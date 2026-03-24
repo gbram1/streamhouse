@@ -128,33 +128,22 @@ impl AgentRouter {
         base_sequence: Option<i64>,
         transaction_id: Option<String>,
     ) -> Result<ProduceResponse, AgentRouterError> {
-        // First attempt
-        match self
-            .try_produce(
-                org_id,
-                topic,
-                partition,
-                &records,
-                ack_mode,
-                producer_id.as_deref(),
-                producer_epoch,
-                base_sequence,
-                transaction_id.as_deref(),
-            )
-            .await
-        {
-            Ok(resp) => Ok(resp),
-            Err(e) if Self::is_lease_moved_error(&e) => {
-                warn!(
-                    topic = %topic,
-                    partition = partition,
-                    error = %e,
-                    "Lease moved -- invalidating cache and retrying"
-                );
-                self.invalidate_lease_cache(topic, partition).await;
+        // Retry up to 3 times on lease-moved errors with backoff.
+        // This handles transient windows where a lease renewal is in-flight
+        // or a lease cache is stale after agent restart.
+        const MAX_RETRIES: u32 = 3;
+        let mut last_err = None;
 
-                // Retry once
-                self.try_produce(
+        for attempt in 0..=MAX_RETRIES {
+            if attempt > 0 {
+                self.invalidate_lease_cache(topic, partition).await;
+                // Brief backoff: 50ms, 100ms, 200ms — enough for a lease renewal cycle
+                let backoff = Duration::from_millis(50 * 2u64.pow(attempt - 1));
+                tokio::time::sleep(backoff).await;
+            }
+
+            match self
+                .try_produce(
                     org_id,
                     topic,
                     partition,
@@ -166,14 +155,32 @@ impl AgentRouter {
                     transaction_id.as_deref(),
                 )
                 .await
-                .map_err(|retry_err| AgentRouterError::LeaseMoved {
-                    topic: topic.to_string(),
-                    partition,
-                    reason: retry_err.to_string(),
-                })
+            {
+                Ok(resp) => return Ok(resp),
+                Err(e) if Self::is_lease_moved_error(&e) && attempt < MAX_RETRIES => {
+                    warn!(
+                        topic = %topic,
+                        partition = partition,
+                        attempt = attempt + 1,
+                        error = %e,
+                        "Lease moved -- invalidating cache and retrying"
+                    );
+                    last_err = Some(e);
+                }
+                Err(e) if Self::is_lease_moved_error(&e) => {
+                    last_err = Some(e);
+                }
+                Err(e) => return Err(e),
             }
-            Err(e) => Err(e),
         }
+
+        Err(AgentRouterError::LeaseMoved {
+            topic: topic.to_string(),
+            partition,
+            reason: last_err
+                .map(|e| e.to_string())
+                .unwrap_or_else(|| "unknown".to_string()),
+        })
     }
 
     /// Convenience wrapper for producing a single record (REST single-produce).
