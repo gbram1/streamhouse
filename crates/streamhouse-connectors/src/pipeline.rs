@@ -192,7 +192,18 @@ impl PipelineConsumeLoop {
                 .read(start_offset, self.config.max_records_per_poll)
                 .await
             {
-                Ok(result) => result,
+                Ok(result) => {
+                    if result.records.is_empty() {
+                        tracing::info!(
+                            pipeline = %self.config.pipeline_name,
+                            partition = partition_id,
+                            start_offset = start_offset,
+                            high_watermark = result.high_watermark,
+                            "Pipeline read returned 0 records"
+                        );
+                    }
+                    result
+                }
                 Err(streamhouse_storage::Error::OffsetNotFound(offset)) => {
                     // Offset not found — may be stale after topic recreation.
                     // Find the earliest available segment and skip to it.
@@ -202,6 +213,17 @@ impl PipelineConsumeLoop {
                         .await
                         .unwrap_or_default();
                     let earliest = segments.first().map(|s| s.base_offset);
+                    let latest_end = segments.last().map(|s| s.end_offset);
+                    tracing::warn!(
+                        pipeline = %self.config.pipeline_name,
+                        partition = partition_id,
+                        start_offset = start_offset,
+                        requested_offset = offset,
+                        segment_count = segments.len(),
+                        earliest_base = ?earliest,
+                        latest_end = ?latest_end,
+                        "OffsetNotFound — pipeline cannot find segment for offset"
+                    );
 
                     if let Some(earliest_offset) = earliest {
                         let latest_end = segments.last().map(|s| s.end_offset);
