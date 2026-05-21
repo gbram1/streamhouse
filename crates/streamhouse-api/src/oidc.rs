@@ -1,7 +1,8 @@
-//! Clerk JWT Authentication
+//! OIDC JWKS Authentication
 //!
-//! Validates Clerk-issued JWTs using JWKS (JSON Web Key Sets) fetched from the
-//! Clerk issuer. Enabled when the `CLERK_ISSUER_URL` environment variable is set.
+//! Validates OIDC-issued JWTs using JWKS (JSON Web Key Sets) fetched from the
+//! issuer's well-known endpoint. Enabled when the `OIDC_ISSUER_URL` environment
+//! variable is set (falls back to `CLERK_ISSUER_URL` for backwards compatibility).
 //!
 //! JWKS keys are cached for 1 hour and automatically refetched when an unknown
 //! `kid` is encountered (handles key rotation).
@@ -13,7 +14,7 @@ use tokio::sync::RwLock;
 
 const JWKS_CACHE_TTL: Duration = Duration::from_secs(3600);
 
-/// A single JWK from the Clerk JWKS endpoint.
+/// A single JWK from the JWKS endpoint.
 #[derive(Debug, Clone, Deserialize)]
 struct Jwk {
     kid: String,
@@ -22,7 +23,7 @@ struct Jwk {
     e: String,
 }
 
-/// JWKS response from Clerk.
+/// JWKS response from the OIDC issuer.
 #[derive(Debug, Deserialize)]
 struct JwksResponse {
     keys: Vec<Jwk>,
@@ -45,12 +46,12 @@ impl CachedJwks {
     }
 }
 
-/// Claims extracted from a Clerk JWT.
+/// Claims extracted from an OIDC JWT.
 #[derive(Debug, Clone, Deserialize)]
-pub struct ClerkClaims {
-    /// Clerk user ID (e.g., "user_2abc...")
+pub struct OidcClaims {
+    /// Subject (user ID)
     pub sub: String,
-    /// Organization ID from Clerk (if user selected an org)
+    /// Organization ID (if present in the token)
     #[serde(default)]
     pub org_id: Option<String>,
     /// Organization slug
@@ -65,19 +66,19 @@ pub struct ClerkClaims {
     pub exp: u64,
 }
 
-/// Clerk authentication handler.
+/// OIDC JWKS authentication handler.
 ///
-/// Fetches and caches JWKS from the Clerk issuer URL, then validates
+/// Fetches and caches JWKS from the issuer URL, then validates
 /// incoming JWTs against those keys.
-pub struct ClerkAuth {
+pub struct OidcJwksAuth {
     issuer_url: String,
     jwks_url: String,
     client: reqwest::Client,
     cache: RwLock<Option<CachedJwks>>,
 }
 
-impl ClerkAuth {
-    /// Create a new ClerkAuth from an issuer URL.
+impl OidcJwksAuth {
+    /// Create a new OidcJwksAuth from an issuer URL.
     pub fn new(issuer_url: String) -> Self {
         let jwks_url = format!("{}/.well-known/jwks.json", issuer_url.trim_end_matches('/'));
         Self {
@@ -88,10 +89,14 @@ impl ClerkAuth {
         }
     }
 
-    /// Create from the `CLERK_ISSUER_URL` environment variable.
-    /// Returns `None` if the variable is not set.
+    /// Create from environment variables.
+    ///
+    /// Checks `OIDC_ISSUER_URL` first, falls back to `CLERK_ISSUER_URL` for
+    /// backwards compatibility. Returns `None` if neither is set.
     pub fn from_env() -> Option<Self> {
-        let url = std::env::var("CLERK_ISSUER_URL").ok()?;
+        let url = std::env::var("OIDC_ISSUER_URL")
+            .or_else(|_| std::env::var("CLERK_ISSUER_URL"))
+            .ok()?;
         if url.is_empty() {
             return None;
         }
@@ -99,16 +104,16 @@ impl ClerkAuth {
     }
 
     /// Validate a JWT token and return the claims.
-    pub async fn validate_token(&self, token: &str) -> Result<ClerkClaims, ClerkAuthError> {
+    pub async fn validate_token(&self, token: &str) -> Result<OidcClaims, OidcAuthError> {
         // Decode the header to get the key ID
         let header = decode_header(token).map_err(|e| {
             tracing::debug!(error = %e, "Failed to decode JWT header");
-            ClerkAuthError::InvalidToken
+            OidcAuthError::InvalidToken
         })?;
 
         let kid = header.kid.ok_or_else(|| {
             tracing::debug!("JWT header missing kid");
-            ClerkAuthError::InvalidToken
+            OidcAuthError::InvalidToken
         })?;
 
         // Try to find the key in cache first
@@ -117,19 +122,19 @@ impl ClerkAuth {
         // Validate the token
         let mut validation = Validation::new(Algorithm::RS256);
         validation.set_issuer(&[&self.issuer_url]);
-        // Clerk JWTs don't always have an audience claim
+        // Not all OIDC providers include an audience claim
         validation.validate_aud = false;
 
-        let token_data = decode::<ClerkClaims>(token, &decoding_key, &validation).map_err(|e| {
+        let token_data = decode::<OidcClaims>(token, &decoding_key, &validation).map_err(|e| {
             tracing::debug!(error = %e, "JWT validation failed");
-            ClerkAuthError::InvalidToken
+            OidcAuthError::InvalidToken
         })?;
 
         Ok(token_data.claims)
     }
 
     /// Get the decoding key for a given kid, fetching JWKS if needed.
-    async fn get_decoding_key(&self, kid: &str) -> Result<DecodingKey, ClerkAuthError> {
+    async fn get_decoding_key(&self, kid: &str) -> Result<DecodingKey, OidcAuthError> {
         // Try cache first
         {
             let cache = self.cache.read().await;
@@ -149,7 +154,7 @@ impl ClerkAuth {
             .find_key(kid)
             .ok_or_else(|| {
                 tracing::warn!(kid = %kid, "Unknown kid after JWKS refresh");
-                ClerkAuthError::UnknownKey
+                OidcAuthError::UnknownKey
             })?
             .clone();
 
@@ -162,9 +167,9 @@ impl ClerkAuth {
         jwk_to_decoding_key(&key)
     }
 
-    /// Fetch JWKS from the Clerk issuer.
-    async fn fetch_jwks(&self) -> Result<CachedJwks, ClerkAuthError> {
-        tracing::debug!(url = %self.jwks_url, "Fetching Clerk JWKS");
+    /// Fetch JWKS from the OIDC issuer.
+    async fn fetch_jwks(&self) -> Result<CachedJwks, OidcAuthError> {
+        tracing::debug!(url = %self.jwks_url, "Fetching OIDC JWKS");
 
         let resp = self
             .client
@@ -174,17 +179,17 @@ impl ClerkAuth {
             .await
             .map_err(|e| {
                 tracing::error!(error = %e, url = %self.jwks_url, "Failed to fetch JWKS");
-                ClerkAuthError::JwksFetchFailed
+                OidcAuthError::JwksFetchFailed
             })?;
 
         if !resp.status().is_success() {
             tracing::error!(status = %resp.status(), "JWKS endpoint returned error");
-            return Err(ClerkAuthError::JwksFetchFailed);
+            return Err(OidcAuthError::JwksFetchFailed);
         }
 
         let jwks: JwksResponse = resp.json().await.map_err(|e| {
             tracing::error!(error = %e, "Failed to parse JWKS response");
-            ClerkAuthError::JwksFetchFailed
+            OidcAuthError::JwksFetchFailed
         })?;
 
         Ok(CachedJwks {
@@ -195,20 +200,20 @@ impl ClerkAuth {
 }
 
 /// Convert a JWK to a DecodingKey.
-fn jwk_to_decoding_key(jwk: &Jwk) -> Result<DecodingKey, ClerkAuthError> {
+fn jwk_to_decoding_key(jwk: &Jwk) -> Result<DecodingKey, OidcAuthError> {
     if jwk.kty != "RSA" {
         tracing::warn!(kty = %jwk.kty, "Unsupported key type");
-        return Err(ClerkAuthError::UnsupportedKeyType);
+        return Err(OidcAuthError::UnsupportedKeyType);
     }
     DecodingKey::from_rsa_components(&jwk.n, &jwk.e).map_err(|e| {
         tracing::error!(error = %e, kid = %jwk.kid, "Failed to create decoding key from JWK");
-        ClerkAuthError::InvalidKey
+        OidcAuthError::InvalidKey
     })
 }
 
-/// Errors from Clerk JWT authentication.
+/// Errors from OIDC JWT authentication.
 #[derive(Debug)]
-pub enum ClerkAuthError {
+pub enum OidcAuthError {
     InvalidToken,
     UnknownKey,
     JwksFetchFailed,
@@ -216,7 +221,7 @@ pub enum ClerkAuthError {
     InvalidKey,
 }
 
-impl std::fmt::Display for ClerkAuthError {
+impl std::fmt::Display for OidcAuthError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::InvalidToken => write!(f, "Invalid JWT token"),
