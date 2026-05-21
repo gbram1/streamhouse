@@ -148,7 +148,7 @@ pub async fn list_topics(
 ) -> Result<Json<Vec<Topic>>, StatusCode> {
     let org_id = extract_org_id(&headers, auth_key.as_ref().map(|e| &e.0));
 
-    // Ensure the organization exists (lazy creation from Clerk)
+    // Ensure the organization exists (lazy creation)
     let _ = state.metadata.ensure_organization(&org_id, &org_id).await;
 
     let topics = state
@@ -208,7 +208,7 @@ pub async fn create_topic(
 ) -> Result<(StatusCode, Json<Topic>), StatusCode> {
     let org_id = extract_org_id(&headers, auth_key.as_ref().map(|e| &e.0));
 
-    // Ensure the organization exists (lazy creation from Clerk)
+    // Ensure the organization exists (lazy creation)
     let _ = state.metadata.ensure_organization(&org_id, &org_id).await;
 
     // Validate input
