@@ -301,7 +301,8 @@ async fn main() -> anyhow::Result<()> {
             slug: "test-org".to_string(),
             plan: streamhouse_metadata::OrganizationPlan::default(),
             settings: Default::default(),
-            clerk_id: None,
+            external_id: None,
+            deployment_mode: Default::default(),
         })
         .await?;
     println!("[sasl] Created org: id={}", org.id);
