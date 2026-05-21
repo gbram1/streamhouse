@@ -789,8 +789,13 @@ impl<S: MetadataStore + 'static> MetadataStore for CachedMetadataStore<S> {
         self.inner.get_organization_by_slug(slug).await
     }
 
-    async fn get_organization_by_clerk_id(&self, clerk_id: &str) -> Result<Option<Organization>> {
-        self.inner.get_organization_by_clerk_id(clerk_id).await
+    async fn get_organization_by_external_id(
+        &self,
+        external_id: &str,
+    ) -> Result<Option<Organization>> {
+        self.inner
+            .get_organization_by_external_id(external_id)
+            .await
     }
 
     async fn list_organizations(&self) -> Result<Vec<Organization>> {
@@ -1490,7 +1495,6 @@ mod tests {
     }
 
     #[tokio::test]
-    #[ignore = "SQLite FK mismatch: compaction_state references partitions with mismatched key"]
     async fn test_topic_cache_invalidation_on_delete() {
         let store = SqliteMetadataStore::new(":memory:").await.unwrap();
         let cached = CachedMetadataStore::new(store);
