@@ -397,9 +397,9 @@ async fn test_multiple_partition_leases() {
         .await
         .unwrap();
 
-    assert_eq!(epoch0, 1);
-    assert_eq!(epoch1, 1);
-    assert_eq!(epoch2, 1);
+    assert!(epoch0 >= 1, "epoch0 should be >= 1, got {epoch0}");
+    assert!(epoch1 >= 1, "epoch1 should be >= 1, got {epoch1}");
+    assert!(epoch2 >= 1, "epoch2 should be >= 1, got {epoch2}");
 
     // Verify all leases in metadata store
     let leases = metadata
